@@ -22,7 +22,7 @@ export default function ImageExportControls({
   const currentSize = presentation?.rendered ?? { width: 0, height: 0 }
   const requested =
     mode === 'presentation'
-      ? { width, height: (width * 9) / 16 }
+      ? { width, height: Math.round((width * 9) / 16) }
       : currentWidth && currentSize.width > 0
         ? {
             width: currentWidth,
@@ -85,6 +85,11 @@ export default function ImageExportControls({
               <option value={1920}>1920 × 1080</option>
               <option value={1280}>1280 × 720</option>
               <option value={960}>960 × 540</option>
+              {![3840, 1920, 1280, 960].includes(width) && (
+                <option value={width}>
+                  {width} × {Math.round((width * 9) / 16)}
+                </option>
+              )}
             </select>
           </label>
         )}

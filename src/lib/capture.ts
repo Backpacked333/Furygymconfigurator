@@ -217,8 +217,8 @@ export function createCaptureProvider(
       if (
         request.mode === 'current' &&
         Math.abs(
-          request.width / request.height - initial.rendered.width / initial.rendered.height,
-        ) > 0.005
+          request.height - (request.width * initial.rendered.height) / initial.rendered.width,
+        ) > 0.500001
       )
         return {
           status: 'unavailable',

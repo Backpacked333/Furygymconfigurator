@@ -120,6 +120,22 @@ describe('native capture capability budget', () => {
 })
 
 describe('capture transaction', () => {
+  it('accepts only pixel-rounded current-view resizing for very wide viewports', async () => {
+    const f = fixture({
+      render: () => ({ width: 960, height: 62 }),
+      encode: async () => png(960, 62),
+    })
+    f.state.set({ ...f.state.get(), rendered: { width: 5118, height: 333 } })
+    const request = {
+      ...f.request,
+      mode: 'current' as const,
+      framing: 'current' as const,
+      width: 960,
+      height: 62,
+    }
+    expect((await f.provider.capture({ ...request, height: 58 })).status).toBe('unavailable')
+    expect((await f.provider.capture(request)).status).toBe('ready')
+  })
   it('renders native dimensions, independently reads encoded dimensions and restores on success', async () => {
     const f = fixture()
     const progress = vi.fn()
