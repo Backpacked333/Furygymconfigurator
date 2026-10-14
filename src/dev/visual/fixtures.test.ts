@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { configSchema } from '../../lib/config'
+import { configSchema, inspectDocument } from '../../lib/config'
 import {
   CAPTURE_PROFILES,
   VISUAL_FIXTURES,
@@ -64,7 +64,7 @@ describe('deterministic visual fixture recipes', () => {
   })
   it('pins camera, time, exposure, readiness and 100% in-bounds crop rectangles', () => {
     for (const fixture of VISUAL_FIXTURES) {
-      expect(fixture.assetVersion).toContain('15f36b81')
+      expect(fixture.assetVersion).toContain('82d91e1')
       expect(fixture.readiness.required).toBe('settled')
       for (const shot of fixture.shots) {
         expect(shot.camera.position).not.toEqual(shot.camera.target)
@@ -85,6 +85,34 @@ describe('deterministic visual fixture recipes', () => {
         }
       }
     }
+  })
+  it('accepts every v3 shot using the unchanged production D2 inspector', () => {
+    for (const fixture of VISUAL_FIXTURES)
+      for (const shot of fixture.shots) {
+        const resolved = resolveFixture(fixture.id, shot.id)
+        const inspection = inspectDocument(resolved.candidate)
+        expect(inspection.status, `${fixture.id}/${shot.id}: ${inspection.issues.join('; ')}`).toBe(
+          'accepted',
+        )
+        expect(resolved.originalCandidate.items).toEqual(resolved.baseConfig.items)
+        expect(resolved.candidate.items).toHaveLength(resolved.baseConfig.items.length)
+      }
+  })
+  it('retains all seven original repair cases and explains each authored correction', () => {
+    const changed = VISUAL_FIXTURES.flatMap((f) =>
+      f.shots.map((s) => resolveFixture(f.id, s.id)),
+    ).filter((r) => r.candidateAdjustments.length)
+    expect(changed).toHaveLength(7)
+    for (const resolved of changed) {
+      expect(inspectDocument(resolved.originalCandidate).status).toBe('repair')
+      expect(inspectDocument(resolved.candidate).status).toBe('accepted')
+      expect(resolved.baseConfig.v).toBe(2)
+      expect(resolved.candidateAdjustments.join(' ')).toMatch(/Original|original/)
+    }
+    expect(resolveFixture('VF04').baseConfig.items.some((i) => i.sku === 'rack')).toBe(true)
+    expect(resolveFixture('VF04').candidate.items.some((i) => i.sku === 'rack')).toBe(false)
+    expect(resolveFixture('VF12', 'cardio-oblique').baseConfig.items[1].x).toBe(1.5)
+    expect(resolveFixture('VF12', 'cardio-oblique').candidate.items[1].x).toBe(4)
   })
   it('separates native 4K capture from DPR and rejects mismatched crop framing', () => {
     expect(CAPTURE_PROFILES.find((p) => p.id === 'presentation-native-4k')).toMatchObject({

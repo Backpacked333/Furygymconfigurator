@@ -10,12 +10,14 @@ const root = fileURLToPath(new URL('../../../', import.meta.url))
 const server = await createServer({
   root,
   configFile: false,
+  optimizeDeps: { noDiscovery: true, include: [] },
   server: { middlewareMode: true },
   appType: 'custom',
 })
 try {
   const fixtures = await server.ssrLoadModule('/src/dev/visual/fixtures.ts')
   const coverage = await server.ssrLoadModule('/src/dev/visual/coverage.ts')
+  const { fixtureValidity } = await server.ssrLoadModule('/src/dev/visual/viewerModel.ts')
   const { NEUTRAL_STAGE, MATERIAL_ROLES } = await server.ssrLoadModule(
     '/src/dev/visual/neutralStage.ts',
   )
@@ -52,6 +54,8 @@ try {
       {
         version: fixtures.FIXTURE_VERSION,
         baseRevision: fixtures.BASE_REVISION,
+        assetRevision: fixtures.ASSET_REVISION,
+        validity: fixtureValidity(),
         evidence:
           'Recipes and CPU diagnostics only; no rendered, licensed-pilot, physical-GPU or human-approval evidence.',
         fixtures: fixtures.VISUAL_FIXTURES,

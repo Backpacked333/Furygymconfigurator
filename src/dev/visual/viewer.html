@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FURY production fixtures · development only</title>
+    <style>
+      :root {
+        font:
+          14px system-ui,
+          sans-serif;
+        color: #eee;
+        background: #171b1b;
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+      }
+      header,
+      aside {
+        padding: 16px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 8px;
+      }
+      form,
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+      }
+      label {
+        display: grid;
+        gap: 4px;
+      }
+      button,
+      select,
+      input {
+        padding: 8px;
+        font: inherit;
+      }
+      a {
+        color: #b2dab6;
+      }
+      .canvas-scroll {
+        overflow: auto;
+      }
+      .scene {
+        background: #71756b;
+        position: relative;
+      }
+      .scene canvas {
+        display: block;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 12px;
+      }
+      summary,
+      button {
+        cursor: pointer;
+      }
+      :focus-visible {
+        outline: 3px solid #ccef9e;
+        outline-offset: 3px;
+      }
+      .notice {
+        color: #ffdcaa;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./viewer.tsx"></script>
+  </body>
+</html>
