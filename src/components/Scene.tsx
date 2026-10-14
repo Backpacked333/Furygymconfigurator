@@ -11,6 +11,7 @@ import { RenderEffects } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
+import { deckFront, roofTop } from '../render/addons'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { setMaxAnisotropy } from '../render/materials'
 
@@ -40,7 +41,7 @@ class GraphicsBoundary extends Component<
   }
 }
 function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
-  const z = c.addons.deck ? 14 : 6
+  const z = c.addons.deck ? deckFront(c) + 1 : 6
   return (
     <group>
       <mesh position={[0, 0.06, z]}>
@@ -73,16 +74,21 @@ function CameraRig({
   config: c,
   view,
   reset,
+  direction,
   autoRotate,
 }: {
   config: Config
   view: View
   reset: number
+  direction: [number, number, number]
   autoRotate: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
   const shellHeight = productHeight(c)
-  const hasOutdoor = c.addons.deck || c.addons.gazebo || c.addons.stairs
+  const hasOutdoor = c.addons.deck || c.addons.gazebo || c.addons.stairs || c.addons.canopy
+  const outdoorDepth = c.addons.stairs ? 17 : c.addons.deck ? deckFront(c) + 4 : 12
+  const roofHeight = c.addons.roof || c.addons.stairs ? roofTop(c) + 3.6 : shellHeight
+  const [dx, dy, dz] = direction
   const controls = useRef<OrbitControlsImpl>(null)
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
@@ -101,16 +107,20 @@ function CameraRig({
       pitch.current = Math.asin(direction.y)
     } else {
       const width = c.length + (c.addons.stairs ? 6 : 2),
-        depth = hasOutdoor ? 17 : 10
+        depth = hasOutdoor ? outdoorDepth : 10
       const v = (p.fov * Math.PI) / 360,
         h = Math.atan((Math.tan(v) * size.width) / size.height)
-      const height = c.addons.roof || c.addons.stairs ? 14 : shellHeight
+      const height = roofHeight
       const radius = Math.sqrt(width * width + depth * depth + height * height) / 2
       const d = (radius / Math.sin(Math.min(v, h))) * 0.94
-      targetLook.current.set(c.addons.stairs ? 2 : 0, c.addons.roof ? 5 : 3.5, hasOutdoor ? 2.2 : 0)
+      targetLook.current.set(
+        c.addons.stairs ? 2 : 0,
+        c.addons.roof ? 5 : 3.5,
+        hasOutdoor ? Math.min(2.2, (depth - 8) / 4) : 0,
+      )
       targetPosition.current
         .copy(targetLook.current)
-        .addScaledVector(new Vector3(0.48, 0.24, 0.84).normalize(), d)
+        .addScaledVector(new Vector3(dx, dy, dz).normalize(), d)
     }
     moving.current = true
     invalidate()
@@ -121,10 +131,15 @@ function CameraRig({
     c.length,
     shellHeight,
     hasOutdoor,
+    outdoorDepth,
+    roofHeight,
     c.addons.roof,
     c.addons.stairs,
     view,
     reset,
+    dx,
+    dy,
+    dz,
     invalidate,
   ])
   useEffect(() => {
@@ -231,6 +246,7 @@ export default function Scene({
   dimensions,
   unit,
   reset,
+  camera = [0.48, 0.24, 0.84],
   autoRotate,
   quality,
   onCaptureReady,
@@ -243,6 +259,7 @@ export default function Scene({
   dimensions: boolean
   unit: Unit
   reset: number
+  camera?: [number, number, number]
   autoRotate: boolean
   quality: Quality
   onCaptureReady: (capture: () => string) => void
@@ -269,7 +286,13 @@ export default function Scene({
         <Landscape config={config} quality={quality} />
         <StudioModel config={config} quality={quality} />
         {dimensions && <Dimensions config={config} unit={unit} />}
-        <CameraRig config={config} view={view} reset={reset} autoRotate={autoRotate} />
+        <CameraRig
+          config={config}
+          view={view}
+          reset={reset}
+          direction={camera}
+          autoRotate={autoRotate}
+        />
         <InteriorProbe config={config} quality={quality} />
         <RenderEffects quality={quality} onCaptureReady={onCaptureReady} onSlow={onSlow} />
         <SceneRefresh

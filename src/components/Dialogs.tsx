@@ -14,6 +14,7 @@ import {
   ADDONS,
   FINISHES,
   FLOORS,
+  INTERIORS,
   area,
   distance,
   estimate,
@@ -29,6 +30,8 @@ import {
 } from '../lib/config'
 import {
   CONTAINER_OPENINGS,
+  OPENING_INFILLS,
+  STUDIO_DOORS,
   STUDIO_LAYOUTS,
   PROJECT_URL,
   PRODUCT_SOURCE_DATE,
@@ -36,7 +39,7 @@ import {
 } from '../lib/products'
 import { downloadFile, exportBrief } from '../lib/export'
 import Modal from './Modal'
-import { MiniStudio } from './ConfigPanel'
+import { Elevation } from './Elevation'
 
 export function EstimateDialog({ config, onClose }: { config: Config; onClose: () => void }) {
   const { lines, startingPrice, source } = estimate(config)
@@ -108,11 +111,7 @@ export function ShareDialog({
       onClose={onClose}
     >
       <div className="share-visual">
-        <MiniStudio
-          family={config.family}
-          finish={FINISHES.find((f) => f.id === config.finish)!.color}
-          deck={config.addons.deck}
-        />
+        <Elevation config={config} className="mini-studio" />
         <span>
           {productName(config)}
           <small>
@@ -328,12 +327,7 @@ export function LibraryDialog({
           {saved.map((build) => (
             <div className="saved-card" key={build.id}>
               <div className="saved-visual">
-                <MiniStudio
-                  family={build.config.family}
-                  finish={FINISHES.find((f) => f.id === build.config.finish)!.color}
-                  deck={build.config.addons.deck}
-                  long={build.config.length === 40}
-                />
+                <Elevation config={build.config} className="mini-studio" />
                 <button
                   className="icon-button"
                   aria-label={`Delete ${build.name}`}
@@ -409,6 +403,10 @@ export function LibraryDialog({
                       `${FINISHES.find((f) => f.id === c.finish)!.name}${c.accent ? ' + timber' : ''}${c.integratedFinish ? ' / Integrated exterior finish' : ''}`,
                   ],
                   [
+                    'Interior',
+                    (c: Config) => INTERIORS.find((f) => f.id === c.interiorStyle)!.name,
+                  ],
+                  [
                     'Outdoor',
                     (c: Config) =>
                       ADDONS.filter((a) => c.addons[a.id])
@@ -421,8 +419,8 @@ export function LibraryDialog({
                     'Opening',
                     (c: Config) =>
                       c.family === 'container'
-                        ? CONTAINER_OPENINGS.find((o) => o.id === c.containerOpening)!.name
-                        : 'Studio concept glazing',
+                        ? `${CONTAINER_OPENINGS.find((o) => o.id === c.containerOpening)!.name}${c.openingInfill !== 'none' ? ` / ${OPENING_INFILLS.find((o) => o.id === c.openingInfill)!.name}` : ''}`
+                        : STUDIO_DOORS.find((d) => d.id === c.studioDoor)!.name,
                   ],
                   [
                     'Configuration request',

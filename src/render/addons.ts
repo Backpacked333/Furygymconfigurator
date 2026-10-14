@@ -1,14 +1,28 @@
 import { productHeight, type Config } from '../lib/config'
 import { STUDIO, finishColor } from './architecture'
 import { box, cylinder, extrude, roundedBox, roundedRectShape } from './geometry'
+import { material } from './materials'
 import { palette } from './palette'
-import { part, type Part } from './parts'
+import { part, rod, type Part, type V3 } from './parts'
 
 const DECK_TOP = 0.86
-/** Stair geometry: 17 risers of ~7.3 in. and 10 in. goings up to the roof deck. */
-export const STAIR = { x: 2, risers: 17, rise: 10.4 / 17, going: 0.83, start: 11.5 }
+/** Container decks sit at grade, a step below the opening sill. */
+const GRADE_DECK = { top: 0.5, depth: 5.5 }
+/** Stair geometry: 17 risers and 10 in. goings up to the roof deck. */
+export const STAIR = { x: 2, risers: 17, going: 0.83, start: 11.5, width: 3.5 }
+/** Height of the Container roof deck's timber-clad frame above the roof. */
+const ROOF_FRAME = 1.1
 
-function boards(depth: number, centerZ: number, top: number, length: number) {
+/** Walking surface of the rooftop deck for either family. */
+export function roofTop(c: Config) {
+  return c.family === 'studio'
+    ? STUDIO.base + productHeight(c) + 0.12
+    : productHeight(c) + ROOF_FRAME
+}
+/** Front edge of the grade or raised deck, for dimension lines and camera framing. */
+export const deckFront = (c: Config) => (c.family === 'studio' ? 13 : 4 + GRADE_DECK.depth)
+
+function boards(depth: number, centerZ: number, top: number, length: number, x = 0) {
   const teak = palette.teak()
   const board = roundedBox(length, 0.09, 0.46, 0.015, 1)
   const parts: Part[] = []
@@ -16,13 +30,53 @@ function boards(depth: number, centerZ: number, top: number, length: number) {
   const start = centerZ - ((count - 1) * 0.485) / 2
   for (let i = 0; i < count; i++)
     parts.push(
-      part(board, teak, [0, top - 0.045, start + i * 0.485], undefined, undefined, i % 4 === 0),
+      part(board, teak, [x, top - 0.045, start + i * 0.485], undefined, undefined, i % 4 === 0),
     )
   return parts
 }
 
 export function deck(c: Config): Part[] {
   const L = c.length
+  if (c.family === 'container') {
+    const { top, depth } = GRADE_DECK
+    const z = 4 + depth / 2 + 0.02
+    const teak = palette.teak()
+    const parts: Part[] = [
+      part(box(L - 0.2, top - 0.1, depth - 0.1), palette.powder('#1b1c1b', false, 0.9), [
+        0,
+        (top - 0.1) / 2,
+        z,
+      ]),
+      ...boards(depth, z, top, L),
+      // Timber fascia boards on edge around the open sides.
+      part(roundedBox(L + 0.06, top - 0.04, 0.09, 0.015, 1), teak, [
+        0,
+        (top - 0.04) / 2,
+        4 + depth,
+      ]),
+      part(roundedBox(0.09, top - 0.04, depth, 0.015, 1), teak, [
+        -L / 2 - 0.02,
+        (top - 0.04) / 2,
+        z,
+      ]),
+      part(roundedBox(0.09, top - 0.04, depth, 0.015, 1), teak, [
+        L / 2 + 0.02,
+        (top - 0.04) / 2,
+        z,
+      ]),
+    ]
+    // Stepping stones leading to the deck.
+    for (let i = 0; i < 3; i++)
+      parts.push(
+        part(
+          roundedBox(2.1, 0.16, 1.5, 0.05, 2),
+          palette.concrete(),
+          [-L * 0.18 + i * 0.35, 0.02, 4 + depth + 1.3 + i * 2.1],
+          [0, (i - 1) * 0.06, 0],
+        ),
+      )
+    return parts
+  }
   const frame = palette.shell(finishColor(c))
   const parts: Part[] = [
     part(roundedBox(L, DECK_TOP - 0.15, 8, 0.1, 2), frame, [0, (DECK_TOP - 0.09) / 2, 8]),
@@ -56,7 +110,7 @@ export function pergola(c: Config): Part[] {
   const parts: Part[] = [
     part(
       extrude(
-        `pergola:${L}`,
+        `pergola:${L}:${radius}`,
         () => {
           const s = roundedRectShape(L, H, radius)
           s.holes.push(roundedRectShape(L - 0.7, H - 0.7, radius - 0.35))
@@ -78,28 +132,42 @@ export function pergola(c: Config): Part[] {
   return parts
 }
 
-export function roofDeck(c: Config): Part[] {
-  const L = c.length
-  const top = STUDIO.base + productHeight(c)
-  const glass = palette.glass()
-  const steel = palette.brushed(false)
-  const shoe = palette.anodized('#2a2d2b')
-  const parts: Part[] = boards(7.3, 0, top + 0.12, L - 1.7)
-  const railH = 3.5
-  const run = (from: [number, number], to: [number, number]) => {
-    const dx = to[0] - from[0],
-      dz = to[1] - from[1]
-    const length = Math.hypot(dx, dz)
-    if (length < 0.3) return
-    const angle = Math.atan2(-dz, dx)
-    const cx = (from[0] + to[0]) / 2,
-      cz = (from[1] + to[1]) / 2
-    parts.push(part(box(length, 0.32, 0.26), shoe, [cx, top + 0.16, cz], [0, angle, 0]))
+// --- Railings -------------------------------------------------------------------------------
+
+const RAIL_HEIGHT = 3.5
+
+/**
+ * A straight railing run on a level surface: frameless glass in a base shoe with a round steel
+ * cap, or black posts carrying a flat top rail and tensioned stainless cables.
+ */
+function railRun(
+  from: [number, number],
+  to: [number, number],
+  floor: number,
+  style: Config['railing'],
+) {
+  const parts: Part[] = []
+  const dx = to[0] - from[0],
+    dz = to[1] - from[1]
+  const length = Math.hypot(dx, dz)
+  if (length < 0.3) return parts
+  const angle = Math.atan2(-dz, dx)
+  const cx = (from[0] + to[0]) / 2,
+    cz = (from[1] + to[1]) / 2
+  if (style === 'glass') {
     parts.push(
       part(
-        box(length - 0.04, railH - 0.2, 0.045),
-        glass,
-        [cx, top + 0.3 + (railH - 0.2) / 2, cz],
+        box(length, 0.32, 0.26),
+        palette.anodized('#2a2d2b'),
+        [cx, floor + 0.16, cz],
+        [0, angle, 0],
+      ),
+    )
+    parts.push(
+      part(
+        box(length - 0.04, RAIL_HEIGHT - 0.2, 0.045),
+        palette.glass(),
+        [cx, floor + 0.3 + (RAIL_HEIGHT - 0.2) / 2, cz],
         [0, angle, 0],
         undefined,
         false,
@@ -108,14 +176,121 @@ export function roofDeck(c: Config): Part[] {
     parts.push(
       part(
         cylinder(0.07, 0.07, length, 20),
-        steel,
-        [cx, top + railH + 0.1, cz],
+        palette.brushed(false),
+        [cx, floor + RAIL_HEIGHT + 0.1, cz],
         [0, angle, Math.PI / 2],
       ),
     )
+    return parts
   }
-  const x = L / 2 - 0.75,
+  const post = palette.powder('#161817', false, 0.55)
+  const cable = palette.brushed(false, '#d4d6d6')
+  const posts = Math.max(1, Math.ceil(length / 4.2))
+  for (let i = 0; i <= posts; i++) {
+    const t = i / posts
+    parts.push(
+      part(roundedBox(0.16, RAIL_HEIGHT, 0.16, 0.015, 1), post, [
+        from[0] + dx * t,
+        floor + RAIL_HEIGHT / 2,
+        from[1] + dz * t,
+      ]),
+    )
+  }
+  parts.push(
+    part(
+      roundedBox(length + 0.16, 0.1, 0.3, 0.02, 1),
+      post,
+      [cx, floor + RAIL_HEIGHT + 0.05, cz],
+      [0, angle, 0],
+    ),
+  )
+  for (let k = 0; k < 10; k++) {
+    const y = floor + 0.3 + k * 0.31
+    parts.push(rod([from[0], y, from[1]], [to[0], y, to[1]], 0.012, cable, 6, false))
+  }
+  return parts
+}
+
+/** Railing along a straight flight, following its pitch. */
+function stairRail(
+  bottom: V3,
+  top: V3,
+  style: Config['railing'],
+  steel: ReturnType<typeof palette.brushed>,
+): Part[] {
+  const parts: Part[] = []
+  const up: V3 = [0, RAIL_HEIGHT - 0.4, 0]
+  const lift = (p: V3, h: number): V3 => [p[0], p[1] + h, p[2]]
+  if (style === 'cable') {
+    const post = palette.powder('#161817', false, 0.55)
+    const n = 4
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      const p: V3 = [
+        bottom[0] + (top[0] - bottom[0]) * t,
+        bottom[1] + (top[1] - bottom[1]) * t,
+        bottom[2] + (top[2] - bottom[2]) * t,
+      ]
+      parts.push(rod(p, lift(p, up[1] + 0.1), 0.08, post, 4))
+    }
+    parts.push(rod(lift(bottom, up[1] + 0.12), lift(top, up[1] + 0.12), 0.07, post, 4))
+    for (let k = 0; k < 7; k++) {
+      const h = 0.35 + k * 0.42
+      parts.push(
+        rod(lift(bottom, h), lift(top, h), 0.012, palette.brushed(false, '#d4d6d6'), 6, false),
+      )
+    }
+    return parts
+  }
+  parts.push(rod(lift(bottom, 3.05), lift(top, 3.05), 0.05, steel, 16))
+  const n = 8
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const p: V3 = [
+      bottom[0] + (top[0] - bottom[0]) * t,
+      bottom[1] + (top[1] - bottom[1]) * t,
+      bottom[2] + (top[2] - bottom[2]) * t,
+    ]
+    parts.push(rod(p, lift(p, 3.05), 0.022, steel, 10))
+  }
+  return parts
+}
+
+export function roofDeck(c: Config): Part[] {
+  const L = c.length
+  const top = roofTop(c)
+  const parts: Part[] = []
+  let x: number, z: number
+  if (c.family === 'container') {
+    const H = productHeight(c)
+    const cedar = palette.cedar(false, '#8f7b6b')
+    const band = (w: number, d: number, at: V3) =>
+      part(box(w, ROOF_FRAME, d, { swap: true }), cedar, at)
+    // Timber-clad deck frame around the container top, then the deck boards.
+    parts.push(band(L + 0.3, 0.24, [0, H + ROOF_FRAME / 2, 3.93]))
+    parts.push(band(L + 0.3, 0.24, [0, H + ROOF_FRAME / 2, -3.93]))
+    parts.push(band(0.24, 7.62, [-L / 2 - 0.03, H + ROOF_FRAME / 2, 0]))
+    parts.push(band(0.24, 7.62, [L / 2 + 0.03, H + ROOF_FRAME / 2, 0]))
+    parts.push(
+      part(
+        box(L - 0.2, ROOF_FRAME - 0.1, 7.6),
+        palette.black(),
+        [0, H + (ROOF_FRAME - 0.1) / 2, 0],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+    parts.push(...boards(7.8, 0, top, L + 0.1))
+    x = L / 2 - 0.05
+    z = 3.92
+  } else {
+    parts.push(...boards(7.3, 0, top, L - 1.7))
+    x = L / 2 - 0.75
     z = 3.6
+  }
+  const run = (from: [number, number], to: [number, number]) =>
+    parts.push(...railRun(from, to, top, c.railing))
   run([-x, z], [x, z])
   run([-x, -z], [x, -z])
   run([-x, -z], [-x, z])
@@ -126,53 +301,83 @@ export function roofDeck(c: Config): Part[] {
 
 export function stairs(c: Config): Part[] {
   const L = c.length
-  const frame = palette.shell(finishColor(c))
-  const teak = palette.teak()
+  const container = c.family === 'container'
+  const frame = container ? palette.powder('#161817', false, 0.55) : palette.shell(finishColor(c))
+  const tread = container ? palette.powder('#202221', false, 0.7) : palette.teak()
   const steel = palette.brushed(false)
-  const { risers, rise, going, start } = STAIR
+  const { risers, going, start, width } = STAIR
+  const top = roofTop(c)
+  const rise = top / risers
   const x0 = L / 2 + STAIR.x
   const parts: Part[] = []
-  const tread = roundedBox(3.5, 0.13, 0.95, 0.025, 2)
-  for (let i = 0; i < risers; i++)
-    parts.push(part(tread, teak, [x0, (i + 1) * rise, start - i * going]))
-  const runLength = Math.hypot(risers * going, risers * rise)
-  const slope = Math.atan2(risers * rise, risers * going)
+  const treadGeometry = roundedBox(width, container ? 0.1 : 0.13, 0.95, 0.025, 2)
+  for (let i = 0; i < risers - 1; i++)
+    parts.push(part(treadGeometry, tread, [x0, (i + 1) * rise, start - i * going]))
+  if (container)
+    // Anti-slip nosings on the steel treads.
+    for (let i = 0; i < risers - 1; i++)
+      parts.push(
+        part(
+          box(width - 0.1, 0.02, 0.08),
+          palette.zinc(),
+          [x0, (i + 1) * rise + 0.06, start - i * going + 0.42],
+          undefined,
+          undefined,
+          false,
+        ),
+      )
+  const runLength = Math.hypot(risers * going, top)
+  const slope = Math.atan2(top, risers * going)
   const midZ = start - ((risers - 1) * going) / 2,
-    midY = (risers * rise) / 2
+    midY = top / 2
+  const landingZ = start - risers * going + 0.1
   for (const side of [-1, 1]) {
     parts.push(
       part(
-        box(0.08, 0.95, runLength + 0.6),
+        box(container ? 0.1 : 0.08, 0.95, runLength + 0.6),
         frame,
-        [x0 + side * 1.78, midY - 0.15, midZ],
-        [-slope, 0, 0],
+        [x0 + side * (width / 2 + 0.03), midY - 0.15, midZ],
+        [slope, 0, 0],
       ),
     )
+    const railX = x0 + side * (width / 2 + 0.07)
     parts.push(
-      part(
-        cylinder(0.05, 0.05, runLength + 0.8, 16),
+      ...stairRail(
+        [railX, rise, start + 0.2],
+        [railX, top, landingZ + 1.15],
+        container ? c.railing : 'glass',
         steel,
-        [x0 + side * 1.82, midY + 3.05, midZ],
-        [Math.PI / 2 - slope, 0, 0],
       ),
     )
-    for (let i = 0; i < risers; i += 2)
-      parts.push(
-        part(cylinder(0.022, 0.022, 3, 10), steel, [
-          x0 + side * 1.82,
-          (i + 1) * rise + 1.55,
-          start - i * going,
-        ]),
-      )
   }
+  // Landing beside the roof deck, carried on two posts.
+  parts.push(part(roundedBox(4.6, 0.16, 2.3, 0.03, 2), tread, [x0 - 0.6, top, landingZ]))
+  parts.push(part(box(4.6, 0.5, 2.3), frame, [x0 - 0.6, top - 0.33, landingZ]))
+  for (const dz of [-1.05, 1.05])
+    parts.push(
+      part(roundedBox(0.3, top - 0.55, 0.3, 0.02, 1), frame, [
+        x0 + width / 2 - 0.1,
+        (top - 0.55) / 2,
+        landingZ + dz,
+      ]),
+    )
+  // Outer guard at the landing.
   parts.push(
-    part(roundedBox(4.6, 0.16, 2.3, 0.03, 2), teak, [
-      x0 - 0.6,
-      10.42,
-      start - risers * going + 0.1,
-    ]),
+    ...railRun(
+      [x0 + width / 2 + 0.07, landingZ - 1.15],
+      [x0 + width / 2 + 0.07, landingZ + 1.15],
+      top,
+      container ? c.railing : 'glass',
+    ),
   )
-  parts.push(part(box(4.6, 0.5, 2.3), frame, [x0 - 0.6, 10.1, start - risers * going + 0.1]))
+  parts.push(
+    ...railRun(
+      [L / 2, landingZ - 1.15],
+      [x0 + width / 2 + 0.07, landingZ - 1.15],
+      top,
+      container ? c.railing : 'glass',
+    ),
+  )
   // Ground pad.
   parts.push(
     part(
@@ -184,6 +389,60 @@ export function stairs(c: Config): Part[] {
       false,
     ),
   )
+  return parts
+}
+
+/** Recessed downlight positions in the Container canopy soffit (x, y, z). */
+export function canopyLights(c: Config): V3[] {
+  const L = c.length
+  const count = Math.max(3, Math.round(L / 4.8))
+  const y = canopyTop(c) - 0.72
+  return Array.from({ length: count }, (_, i) => [
+    -L / 2 + (L / count) * (i + 0.5),
+    y,
+    4 + CANOPY_DEPTH * 0.5,
+  ])
+}
+const CANOPY_DEPTH = 3.6
+const canopyTop = (c: Config) => productHeight(c) + (c.addons.roof ? -0.02 : 0.14)
+
+/** A cantilevered steel canopy over the Container front with recessed downlights. */
+export function canopy(c: Config): Part[] {
+  const L = c.length
+  const paint = palette.shell(finishColor(c))
+  const top = canopyTop(c),
+    thick = 0.7
+  const parts: Part[] = [
+    part(roundedBox(L + 0.6, thick, CANOPY_DEPTH, 0.03, 1), paint, [
+      0,
+      top - thick / 2,
+      4 + CANOPY_DEPTH / 2 - 0.05,
+    ]),
+    // Drip edge along the fascia.
+    part(box(L + 0.6, 0.06, 0.08), paint, [0, top - thick - 0.03, 4 + CANOPY_DEPTH - 0.09]),
+  ]
+  const trim = palette.powder('#121313', false, 0.6)
+  const lens = c.lights ? palette.emitter('#fff1dc', 8) : palette.plastic('#d8d4cb', 0.3)
+  for (const [x, y, z] of canopyLights(c)) {
+    parts.push(
+      part(cylinder(0.2, 0.2, 0.03, 28), trim, [x, y + 0.005, z], undefined, undefined, false),
+    )
+    parts.push(
+      part(cylinder(0.13, 0.13, 0.03, 24), lens, [x, y - 0.004, z], undefined, undefined, false),
+    )
+  }
+  // Warm glow on the soffit around each fitting.
+  if (c.lights)
+    parts.push(
+      part(
+        box(L - 0.4, 0.01, 0.03),
+        material({ color: '#000000', emissive: '#ffcf96', emissiveIntensity: 1.2, roughness: 1 }),
+        [0, top - thick - 0.002, 4 + CANOPY_DEPTH - 0.3],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
   return parts
 }
 

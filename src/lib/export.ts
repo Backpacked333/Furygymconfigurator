@@ -2,6 +2,8 @@ import {
   ADDONS,
   FINISHES,
   FLOORS,
+  INTERIORS,
+  RAILINGS,
   catalogItem,
   estimate,
   money,
@@ -13,6 +15,8 @@ import {
 } from './config'
 import {
   CONTAINER_OPENINGS,
+  OPENING_INFILLS,
+  STUDIO_DOORS,
   STUDIO_LAYOUTS,
   PROJECT_URL,
   PRODUCT_SOURCE_DATE,
@@ -88,15 +92,19 @@ export async function createBrief(
   heading('01 / Your configuration')
   const finish = FINISHES.find((f) => f.id === config.finish)!.name
   text(
-    `${productFamily(config.family).name}: ${config.length} ft L x 8 ft W x ${productHeight(config)} ft H / ${config.length * 8} sq ft nominal gross floor area.\nConcept exterior: ${finish}${config.accent ? ' with timber accent' : ''}.\nConcept floor: ${FLOORS.find((f) => f.id === config.flooring)!.name}. Concept mirror wall: ${config.mirror ? 'Yes' : 'No'}.\nOutdoor: ${
+    `${productFamily(config.family).name}: ${config.length} ft L x 8 ft W x ${productHeight(config)} ft H / ${config.length * 8} sq ft nominal gross floor area.\nConcept exterior: ${finish}${config.accent ? ' with timber accent' : ''}.\nConcept interior: ${INTERIORS.find((f) => f.id === config.interiorStyle)!.name}. Concept floor: ${FLOORS.find((f) => f.id === config.flooring)!.name}. Concept mirror wall: ${config.mirror ? 'Yes' : 'No'}.\nOutdoor: ${
       ADDONS.filter((a) => config.addons[a.id])
         .map((a) => a.name)
         .join(', ') || 'No additions'
-    }.`,
+    }${config.addons.roof || config.addons.stairs ? ` with ${RAILINGS.find((r) => r.id === config.railing)!.name.toLowerCase()}` : ''}.`,
   )
   if (config.family === 'container')
     text(
-      `Opening request: ${CONTAINER_OPENINGS.find((o) => o.id === config.containerOpening)!.name}. Only the featured roll-up width is published; other opening geometry is conceptual.`,
+      `Opening request: ${CONTAINER_OPENINGS.find((o) => o.id === config.containerOpening)!.name}${config.openingInfill !== 'none' ? ` with ${OPENING_INFILLS.find((o) => o.id === config.openingInfill)!.name.toLowerCase()} (seen in Fury builds)` : ''}. Only the featured roll-up width is published; other opening geometry is conceptual.`,
+    )
+  else
+    text(
+      `Glazed front: ${STUDIO_DOORS.find((d) => d.id === config.studioDoor)!.name} (seen in Fury builds). Door and glazing geometry is conceptual.`,
     )
   if (config.family === 'studio')
     text(

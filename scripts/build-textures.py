@@ -44,6 +44,12 @@ PHOTO_SETS = {
     'bark_platanus': ('1k', False, 'Tree bark'),
     'concrete_slab_wall': ('1k', False, 'Board-formed garden wall'),
     'concrete_wall_001': ('1k', False, 'Planters and stepping stones'),
+    'red_brick_03': ('1k', False, 'Apartment brick facades'),
+    'herringbone_pavement': ('1k', True, 'Residential courtyard pavers'),
+    'concrete_floor_worn_001': ('2k', True, 'Polished concrete floor'),
+    'plywood': ('1k', False, 'Birch plywood interior lining'),
+    'japanese_cedar_planks': ('1k', False, 'Cedar interior lining and house cladding', 0.55),
+    'white_stucco': ('1k', True, 'Stucco and precast facades'),
 }
 
 API = 'https://api.polyhaven.com'

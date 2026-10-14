@@ -37,18 +37,19 @@ import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import {
+  DEFAULT_CAMERA,
   DEFAULT_CONFIG,
   FINISHES,
+  SIGNATURES,
   area,
   distance,
   encodeConfig,
+  environmentName,
   estimate,
   money,
   productName,
   productHeight,
-  setFamily,
-  packageItems,
-  type Config,
+  type SignatureId,
   type Unit,
   type View,
 } from './lib/config'
@@ -76,6 +77,7 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(false),
     [photoMode, setPhotoMode] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true)
+  const [camera, setCamera] = useState<[number, number, number]>(DEFAULT_CAMERA)
   const captureRef = useRef<(() => string) | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
@@ -134,38 +136,19 @@ export default function App() {
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [dialog, undo, redo])
-  const template = (id: 'athlete' | 'retreat' | 'flow') => {
+  const signature = (id: SignatureId) => {
+    const build = SIGNATURES.find((s) => s.id === id)!
     if (
       !window.confirm(
-        'Apply this concept layout in your selected product family? This replaces your current design with a 20-foot example. You can undo the change.',
+        `Apply the ${build.name} build? This replaces your current design, including product family, size, and equipment. You can undo the change.`,
       )
     )
       return
-    const templates: Record<typeof id, Config> = {
-      athlete: { ...DEFAULT_CONFIG },
-      retreat: {
-        ...DEFAULT_CONFIG,
-        finish: 'chalk',
-        flooring: 'oak',
-        mirror: false,
-        package: 'recovery',
-        items: packageItems('recovery', 20),
-        addons: { deck: true, gazebo: true, roof: false, stairs: false },
-        time: 18,
-      },
-      flow: {
-        ...DEFAULT_CONFIG,
-        finish: 'olive',
-        flooring: 'oak',
-        package: 'movement',
-        items: packageItems('movement', 20),
-        time: 9,
-      },
-    }
-    setConfig(setFamily(templates[id], config.family))
+    setConfig(structuredClone(build.config))
+    setCamera(build.camera)
     setView('exterior')
     setReset((r) => r + 1)
-    notify('Concept layout applied. This is not an official Fury package.')
+    notify(`${build.name} applied. Every option stays editable; the build still requires a quote.`)
   }
   const photo = () => {
     const image = capture()
@@ -252,6 +235,7 @@ export default function App() {
                 dimensions={dimensions}
                 unit={unit}
                 reset={reset}
+                camera={camera}
                 autoRotate={autoRotate}
                 quality={quality}
                 onCaptureReady={onCaptureReady}
@@ -387,11 +371,7 @@ export default function App() {
               </div>
               <button className="environment-quick" onClick={() => setStep(3)}>
                 <Leaf size={14} />
-                {config.environment === 'courtyard'
-                  ? 'The courtyard'
-                  : config.environment === 'desert'
-                    ? 'Desert retreat'
-                    : 'Studio backdrop'}
+                {environmentName(config.environment)}
                 <ChevronDown size={13} />
               </button>
             </div>
@@ -430,7 +410,7 @@ export default function App() {
               setView('plan')
               setPhotoMode(false)
             }}
-            onTemplate={template}
+            onSignature={signature}
           />
         </div>
       </main>
@@ -546,6 +526,7 @@ export default function App() {
                 )
               ) {
                 setConfig(structuredClone(DEFAULT_CONFIG))
+                setCamera(DEFAULT_CAMERA)
                 setView('exterior')
                 setReset((r) => r + 1)
                 close()

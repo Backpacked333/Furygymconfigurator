@@ -51,7 +51,23 @@ const SKY_SCALE = 0.13
  */
 const SKY_FILL = 0.12
 const SUN_INTENSITY = 4.2
-const CLOUDS = { courtyard: 0.32, desert: 0.12, studio: 0 }
+const CLOUDS: Record<Config['environment'], number> = {
+  residences: 0.3,
+  campus: 0.1,
+  backyard: 0.24,
+  courtyard: 0.32,
+  desert: 0.12,
+  studio: 0,
+}
+/** Mean albedo of the ground each setting reflects into the sky capture. */
+const GROUND_ALBEDO: Record<Config['environment'], [number, number, number]> = {
+  residences: [0.24, 0.21, 0.18],
+  campus: [0.34, 0.32, 0.28],
+  backyard: [0.2, 0.23, 0.15],
+  courtyard: [0.2, 0.23, 0.15],
+  desert: [0.42, 0.34, 0.25],
+  studio: [0.4, 0.39, 0.37],
+}
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
 const INTERIOR_EXPOSURE = 1.6
 
@@ -167,7 +183,7 @@ export function Atmosphere({
     configureSky(background, environment, sun, night)
     configureSky(capture.sky, environment, sun, night)
     foliageDaylight.value = Math.min(1, sunlight.intensity / 0.6)
-    const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
+    const groundAlbedo = GROUND_ALBEDO[environment]
     const horizonFill = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL)
     const sky = skyRadiance([0, 1, 0], sun, preset).map(
       (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[i] * night,

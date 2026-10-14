@@ -8,6 +8,10 @@ import {
   type Material,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { cylinder } from './geometry'
+
+const cylinderGeometry = (radius: number, length: number, radial: number) =>
+  cylinder(radius, radius, length, radial)
 
 export type V3 = [number, number, number]
 
@@ -119,5 +123,31 @@ export function oriented(
     new Vector3(...axes[2]),
   )
   matrix.setPosition(...position)
+  return { geometry, material, matrix, shadow }
+}
+
+const _a = new Vector3(),
+  _b = new Vector3(),
+  _up = new Vector3(0, 1, 0)
+
+/** A straight cylinder from one point to another (struts, cables, rails, tie rods). */
+export function rod(
+  from: V3,
+  to: V3,
+  radius: number,
+  material: Material,
+  radial = 10,
+  shadow = true,
+): Part {
+  _a.set(...from)
+  _b.set(...to)
+  const direction = _b.clone().sub(_a)
+  const length = direction.length()
+  const geometry = cylinderGeometry(radius, length, radial)
+  const matrix = new Matrix4().compose(
+    _a.clone().add(_b).multiplyScalar(0.5),
+    new Quaternion().setFromUnitVectors(_up, direction.normalize()),
+    new Vector3(1, 1, 1),
+  )
   return { geometry, material, matrix, shadow }
 }

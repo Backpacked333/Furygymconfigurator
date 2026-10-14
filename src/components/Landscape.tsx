@@ -2,15 +2,11 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import {
   BufferGeometry,
   Color,
-  IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
   MeshStandardMaterial,
-  type Material,
   MeshStandardNodeMaterial,
   Object3D,
-  Quaternion,
-  Vector3,
 } from 'three/webgpu'
 import {
   color,
@@ -25,14 +21,7 @@ import {
 } from 'three/tsl'
 import type { Config } from '../lib/config'
 import { noise } from '../lib/visuals'
-import {
-  box,
-  boxProjectUV,
-  custom,
-  cylinder,
-  mergeGeometries,
-  roundedBox,
-} from '../render/geometry'
+import { box, cylinder, mergeGeometries, roundedBox } from '../render/geometry'
 import { material, textureMaps, type TextureSet } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
@@ -47,8 +36,8 @@ import {
   type Biome,
 } from '../render/vegetation'
 import { Parts } from './Parts'
-
-const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
+import { DENSITY, agaveGeometry, boulderGeometry, limbParts } from '../render/scenery'
+import { Backyard, Campus, Residences } from './Surroundings'
 
 // --- Ground -----------------------------------------------------------------------------
 
@@ -56,7 +45,7 @@ const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
  * Scanned ground with anti-tiling: two scales of the same scan are blended by low-frequency noise
  * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
  */
-function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
+export function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
   const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
   useEffect(() => {
     let active = true
@@ -186,22 +175,7 @@ function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
 
 // --- Trees --------------------------------------------------------------------------------
 
-const _up = new Vector3(0, 1, 0)
-function limbParts(shape: ReturnType<typeof treeShape>, bark: Material): Part[] {
-  return shape.limbs.map(({ from, to, r0, r1 }, i) => {
-    const direction = to.clone().sub(from)
-    const length = direction.length()
-    const geometry = cylinder(r1, r0, length, i < 2 ? 18 : 10)
-    const matrix = new Matrix4().compose(
-      from.clone().add(to).multiplyScalar(0.5),
-      new Quaternion().setFromUnitVectors(_up, direction.normalize()),
-      new Vector3(1, 1, 1),
-    )
-    return { geometry, material: bark, matrix, shadow: true }
-  })
-}
-
-const Tree = memo(function Tree({
+export const Tree = memo(function Tree({
   position,
   scale,
   seed,
@@ -259,7 +233,15 @@ const Tree = memo(function Tree({
 })
 
 /** A clipped hedge: leaf cards scattered over the faces of a box in front of the garden wall. */
-const Hedge = memo(function Hedge({ length, quality }: { length: number; quality: Quality }) {
+export const Hedge = memo(function Hedge({
+  length,
+  quality,
+  z = -10.75,
+}: {
+  length: number
+  quality: Quality
+  z?: number
+}) {
   const height = 3.3,
     depth = 1.5
   const count = Math.round(4200 * DENSITY[quality]) + 500
@@ -313,7 +295,7 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
     [length],
   )
   return (
-    <group position={[0, 0, -10.75]}>
+    <group position={[0, 0, z]}>
       <Parts parts={core} />
       <instancedMesh
         ref={mesh}
@@ -329,7 +311,7 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
 // --- Grasses, agaves, boulders -----------------------------------------------------------
 
 /** Instanced clumps of grass blades scattered by a placement function. */
-function Tufts({
+export function Tufts({
   count,
   blades,
   height,
@@ -360,7 +342,8 @@ function Tufts({
     merged.computeVertexNormals()
     return merged
   }, [blades, height, bend])
-  const grass = useMemo(() => grassMaterial(colors[0], colors[1]), [colors])
+  const [base, tip] = colors
+  const grass = useMemo(() => grassMaterial(base, tip), [base, tip])
   useEffect(
     () => () => {
       geometry.dispose()
@@ -390,7 +373,8 @@ function Tufts({
     m.count = matrices.length
     m.instanceMatrix.needsUpdate = true
     m.computeBoundingSphere()
-  }, [matrices])
+    // A rebuilt mesh (new geometry or material) starts with identity instances.
+  }, [matrices, geometry, grass])
   return (
     <instancedMesh
       ref={mesh}
@@ -400,41 +384,6 @@ function Tufts({
       userData={{ noProbe: true }}
     />
   )
-}
-
-function agaveGeometry() {
-  return custom('agave', () => {
-    const leaves: BufferGeometry[] = []
-    for (let i = 0; i < 18; i++) {
-      const g = grassBlade(1.1 + noise(i, 31) * 0.5, 0.75, 0.13)
-      g.rotateX(-0.25 - noise(i, 32) * 0.45)
-      g.rotateY((i / 18) * Math.PI * 2 * 1.618)
-      leaves.push(g.toNonIndexed())
-    }
-    const merged = mergeGeometries(leaves)
-    merged.computeVertexNormals()
-    return boxProjectUV(merged)
-  })
-}
-
-function boulderGeometry(seed: number) {
-  return custom(`boulder:${seed}`, () => {
-    const g = new IcosahedronGeometry(1, 3)
-    const p = g.getAttribute('position')
-    const v = new Vector3()
-    for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i)
-      const n =
-        Math.sin(v.x * 3.1 + seed) * 0.08 +
-        Math.sin(v.y * 4.7 + seed * 2) * 0.06 +
-        Math.sin(v.z * 5.3 + seed * 3) * 0.05
-      v.multiplyScalar(1 + n)
-      v.y = Math.max(v.y, -0.35) * 0.62
-      p.setXYZ(i, v.x, v.y, v.z)
-    }
-    g.computeVertexNormals()
-    return boxProjectUV(g)
-  })
 }
 
 function desertAccents(L: number): Part[] {
@@ -487,6 +436,14 @@ function StudioFloor() {
 // --- Assembly -----------------------------------------------------------------------------
 
 export function Landscape({ config: c, quality }: { config: Config; quality: Quality }) {
+  if (c.environment === 'residences') return <Residences config={c} quality={quality} />
+  if (c.environment === 'campus') return <Campus config={c} quality={quality} />
+  if (c.environment === 'backyard') return <Backyard config={c} quality={quality} />
+  return <Garden config={c} quality={quality} />
+}
+
+/** The original garden courtyard and desert retreat settings. */
+function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
   const studio = c.environment === 'studio'

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { RectAreaLight, SpotLight } from 'three'
 import type { Config } from '../lib/config'
+import { canopyLights } from '../render/addons'
 import { FLOOR_Y, interiorBounds } from '../render/architecture'
 import { cylinder, lathe, box } from '../render/geometry'
 import { palette } from '../render/palette'
@@ -78,47 +79,80 @@ function Wash({
   )
 }
 
+/** Linear LED channel rows (z) for the gallery and birch interiors. */
+const LINEAR_ROWS = [-1.45, 1.35]
+
 /**
- * Architectural lighting: recessed downlights between the ceiling slats, a cove grazing the
- * back wall, and a toe-kick line. Fixtures stay visible when switched off.
+ * Architectural lighting. Slatted and cedar interiors use recessed downlights; gallery and birch
+ * interiors use two continuous linear LED channels in the flat ceiling. Every style keeps the
+ * back-wall cove and toe-kick. Fixtures stay visible when switched off.
  */
 export function InteriorLights({ config: c, quality }: { config: Config; quality: Quality }) {
   const b = interiorBounds(c)
   const L = c.length
   const on = c.lights
+  const linear = c.interiorStyle === 'gallery' || c.interiorStyle === 'birch'
   const columns = L === 20 ? [-6, -2, 2, 6] : [-16, -12, -8, -4, 0, 4, 8, 12, 16]
   const rows = [-1.3, 1.5]
+  const channel = L - 3.4
   const fixtures = useMemo<Part[]>(() => {
     const trim = palette.powder('#141515')
     const lens = on ? palette.emitter('#fff3e2', 7) : palette.plastic('#d8d4cb', 0.3)
     const strip = on ? palette.emitter(WARM, 5) : palette.plastic('#cfcac0', 0.4)
-    const puck = lathe(
-      'downlight',
-      [
-        [0, 0],
-        [0.2, 0],
-        [0.2, 0.03],
-        [0.15, 0.05],
-        [0.12, 0.2],
-        [0, 0.2],
-      ],
-      32,
-    )
     const parts: Part[] = []
-    for (const x of columns)
-      for (const z of rows) {
-        parts.push(part(puck, trim, [x + 0.12, b.ceiling - 0.03, z], undefined, undefined, false))
+    if (linear) {
+      // Recessed aluminum channels with opal diffusers, flush with the ceiling.
+      const diffuser = on ? palette.emitter('#fff1df', 6) : palette.plastic('#e9e6df', 0.3)
+      for (const z of LINEAR_ROWS) {
         parts.push(
           part(
-            cylinder(0.11, 0.11, 0.01, 24),
-            lens,
-            [x + 0.12, b.ceiling - 0.005, z],
+            box(channel + 0.12, 0.02, 0.24),
+            trim,
+            [0, b.ceiling - 0.008, z],
+            undefined,
+            undefined,
+            false,
+          ),
+        )
+        parts.push(
+          part(
+            box(channel, 0.02, 0.14),
+            diffuser,
+            [0, b.ceiling - 0.016, z],
             undefined,
             undefined,
             false,
           ),
         )
       }
+    } else {
+      const puck = lathe(
+        'downlight',
+        [
+          [0, 0],
+          [0.2, 0],
+          [0.2, 0.03],
+          [0.15, 0.05],
+          [0.12, 0.2],
+          [0, 0.2],
+        ],
+        32,
+      )
+      for (const x of columns)
+        for (const z of rows) {
+          parts.push(part(puck, trim, [x + 0.12, b.ceiling - 0.03, z], undefined, undefined, false))
+          parts.push(
+            part(
+              cylinder(0.11, 0.11, 0.01, 24),
+              lens,
+              [x + 0.12, b.ceiling - 0.005, z],
+              undefined,
+              undefined,
+              false,
+            ),
+          )
+        }
+    }
     // Cove channel at the back wall head, toe-kick channel at its base.
     parts.push(
       part(
@@ -153,18 +187,32 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
     return parts
     // Rebuild only when geometry-affecting inputs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L, on, b.ceiling, b.back, c.family])
+  }, [L, on, linear, b.ceiling, b.back, c.family])
   const spotIntensity = 46
   return (
     <>
       <Parts parts={fixtures} />
       {on &&
+        (!linear || quality === 'lite') &&
         columns.map((x, i) => (
           <Downlight
             key={x}
             position={[x + 0.12, b.ceiling - 0.08, 0.1]}
-            intensity={spotIntensity}
+            intensity={linear ? spotIntensity * 0.8 : spotIntensity}
             shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
+          />
+        ))}
+      {on &&
+        linear &&
+        quality !== 'lite' &&
+        LINEAR_ROWS.map((z) => (
+          <Wash
+            key={z}
+            position={[0, b.ceiling - 0.03, z]}
+            target={[0, FLOOR_Y, z]}
+            width={channel}
+            height={0.14}
+            intensity={52}
           />
         ))}
       {on && quality !== 'lite' && (
@@ -185,6 +233,18 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
           />
         </>
       )}
+      {on && c.family === 'container' && c.addons.canopy && <CanopyLights config={c} />}
+    </>
+  )
+}
+
+/** Exterior downlights in the canopy soffit washing the deck or paving below. */
+function CanopyLights({ config }: { config: Config }) {
+  return (
+    <>
+      {canopyLights(config).map(([x, y, z]) => (
+        <Downlight key={x} position={[x, y - 0.05, z]} intensity={38} shadow={false} />
+      ))}
     </>
   )
 }

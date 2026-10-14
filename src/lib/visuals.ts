@@ -43,7 +43,15 @@ export type SkyParams = {
   mieDirectionalG: number
 }
 
-export const SKY_PRESETS: Record<'courtyard' | 'desert' | 'studio', SkyParams> = {
+export const SKY_PRESETS: Record<
+  'residences' | 'campus' | 'backyard' | 'courtyard' | 'desert' | 'studio',
+  SkyParams
+> = {
+  /** Suburban haze over a mid-rise courtyard. */
+  residences: { turbidity: 3, rayleigh: 1.05, mieCoefficient: 0.005, mieDirectionalG: 0.82 },
+  /** Clear, dry coastal-California light. */
+  campus: { turbidity: 2.2, rayleigh: 1.2, mieCoefficient: 0.0035, mieDirectionalG: 0.84 },
+  backyard: { turbidity: 2.6, rayleigh: 1.1, mieCoefficient: 0.0045, mieDirectionalG: 0.82 },
   courtyard: { turbidity: 2.4, rayleigh: 1.1, mieCoefficient: 0.004, mieDirectionalG: 0.82 },
   desert: { turbidity: 4.2, rayleigh: 0.85, mieCoefficient: 0.006, mieDirectionalG: 0.86 },
   studio: { turbidity: 2, rayleigh: 1, mieCoefficient: 0.004, mieDirectionalG: 0.8 },

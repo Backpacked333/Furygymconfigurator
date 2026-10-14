@@ -47,6 +47,22 @@
     "tinted": false
   },
   {
+    "id": "concrete_floor_worn_001",
+    "name": "Concrete Floor Worn 001",
+    "authors": [
+      "Dimitrios Savva",
+      "Rico Cilliers"
+    ],
+    "sizeFt": [
+      9.843,
+      9.843
+    ],
+    "source": "https://polyhaven.com/a/concrete_floor_worn_001",
+    "role": "Polished concrete floor",
+    "resolution": "2k",
+    "tinted": true
+  },
+  {
     "id": "concrete_pavement",
     "name": "Concrete Pavement",
     "authors": [
@@ -123,6 +139,21 @@
     "tinted": true
   },
   {
+    "id": "herringbone_pavement",
+    "name": "Herringbone Pavement",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/herringbone_pavement",
+    "role": "Residential courtyard pavers",
+    "resolution": "1k",
+    "tinted": true
+  },
+  {
     "id": "hinoki_planks",
     "name": "Hinoki Planks",
     "authors": [
@@ -134,6 +165,22 @@
     ],
     "source": "https://polyhaven.com/a/hinoki_planks",
     "role": "Sauna cladding",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "japanese_cedar_planks",
+    "name": "Japanese Cedar Planks",
+    "authors": [
+      "Charlotte Baglioni",
+      "Rico Cilliers"
+    ],
+    "sizeFt": [
+      3.707,
+      3.707
+    ],
+    "source": "https://polyhaven.com/a/japanese_cedar_planks",
+    "role": "Cedar interior lining and house cladding",
     "resolution": "1k",
     "tinted": false
   },
@@ -216,6 +263,36 @@
     "tinted": true
   },
   {
+    "id": "plywood",
+    "name": "Plywood",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "sizeFt": [
+      1.64,
+      1.64
+    ],
+    "source": "https://polyhaven.com/a/plywood",
+    "role": "Birch plywood interior lining",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "red_brick_03",
+    "name": "Red Brick 03",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "sizeFt": [
+      3.281,
+      3.281
+    ],
+    "source": "https://polyhaven.com/a/red_brick_03",
+    "role": "Apartment brick facades",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
     "id": "rough_linen",
     "name": "Rough Linen",
     "authors": [
@@ -275,5 +352,20 @@
     "role": "Exterior decking and gazebo",
     "resolution": "1k",
     "tinted": false
+  },
+  {
+    "id": "white_stucco",
+    "name": "White Stucco",
+    "authors": [
+      "Amal Kumar"
+    ],
+    "sizeFt": [
+      6.555,
+      6.555
+    ],
+    "source": "https://polyhaven.com/a/white_stucco",
+    "role": "Stucco and precast facades",
+    "resolution": "1k",
+    "tinted": true
   }
 ]
