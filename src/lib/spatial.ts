@@ -206,6 +206,19 @@ export function externalZones(c: SpatialConfig): SpatialZone[] {
       bounds3(-c.length * 0.3, 0, 12.05, c.length * 0.3, 0.42, 13.05),
     )
   }
+  if (c.family === 'studio' && c.addons.gazebo)
+    physical(
+      'gazebo',
+      'Studio gazebo / pergola structure',
+      bounds3(
+        -c.length / 2 - 0.03,
+        0.27,
+        3.95,
+        c.length / 2 + 0.03,
+        MODEL_HEIGHT.studio + 0.33,
+        11.84,
+      ),
+    )
   if (c.addons.roof) {
     physical(
       'roof-deck',
@@ -522,6 +535,8 @@ export function spatialContract(c: SpatialConfig & { items?: readonly SpatialIte
     overhead: overheadZones(c),
     entrance: entranceZone(c),
     external: externalZones(c),
+    context: contextZones(c),
+    presentationBounds: presentationBounds(c),
     openings: openingZones(c),
     openingTravel: openingTravelZone(c),
     equipment: (c.items ?? []).map((item) => ({
@@ -531,4 +546,83 @@ export function spatialContract(c: SpatialConfig & { items?: readonly SpatialIte
       workingClassification: 'illustrative-not-certified' as const,
     })),
   }
+}
+
+export type ContextZone = {
+  id: 'custom-wellness' | 'sunken-lounge'
+  kind: 'site-context'
+  scope: 'site-only'
+  inquiryOnly: true
+  label: string
+  bounds: Bounds3
+}
+
+/** Rendered site context only: not product scope, pricing or interior placement exclusions. */
+export function contextZones(c: SpatialConfig): ContextZone[] {
+  const context = c.presentation?.context
+  if (context === 'custom-wellness') {
+    const width = Math.min(c.length - 2, 24)
+    return [
+      {
+        id: context,
+        kind: 'site-context',
+        scope: 'site-only',
+        inquiryOnly: true,
+        label: 'Custom wellness site context — inquiry only; excluded from product scope',
+        bounds: bounds3(
+          -width / 2 - 0.25,
+          0,
+          3.9,
+          width / 2 + 0.25,
+          MODEL_HEIGHT[c.family] - 0.35,
+          11.45,
+        ),
+      },
+    ]
+  }
+  if (context === 'sunken-lounge')
+    return [
+      {
+        id: context,
+        kind: 'site-context',
+        scope: 'site-only',
+        inquiryOnly: true,
+        label: 'Sunken lounge site context — inquiry only; excluded from product scope',
+        bounds: bounds3(-7, 0, 14, 7, 1.98, 23),
+      },
+    ]
+  return []
+}
+
+/** Conservative world-space fit for rendered geometry, never working margins or travel sweeps. */
+export function presentationBounds(c: SpatialConfig & { items?: readonly SpatialItem[] }): Bounds3 {
+  // Includes shell seams, cargo hardware, optional Studio battens and its 0.3ft raised base.
+  const result = bounds3(
+    -c.length / 2 - 0.15,
+    -0.02,
+    -4.05,
+    c.length / 2 + 0.15,
+    MODEL_HEIGHT[c.family] + (c.family === 'studio' ? 0.31 : 0),
+    4.25,
+  )
+  const external = externalZones(c)
+  // Recovery views can still render a requested stair whose roof destination was removed.
+  if (c.addons.stairs && !c.addons.roof)
+    external.push(
+      ...externalZones({ ...c, addons: { ...c.addons, roof: true } }).filter(
+        (z) => z.id.startsWith('landing') || z.id.startsWith('stair'),
+      ),
+    )
+  const bounds = [
+    ...openingZones(c).map((z) => z.bounds),
+    ...external.map((z) => z.bounds),
+    ...contextZones(c).map((z) => z.bounds),
+    ...(c.items ?? []).map((item) => occupiedEnvelope(item)),
+  ]
+  for (const b of bounds)
+    for (const axis of ['x', 'y', 'z'] as const) {
+      result.min[axis] = Math.min(result.min[axis], b.min[axis])
+      result.max[axis] = Math.max(result.max[axis], b.max[axis])
+    }
+  return result
 }

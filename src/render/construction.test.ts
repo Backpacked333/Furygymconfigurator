@@ -4,14 +4,24 @@ import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG, type Config } from '../lib/config'
 import {
   constructionOpening,
+  containsBounds,
+  contextZones,
   externalZones,
   openingPanels,
+  presentationBounds,
   roofDeckElevation,
   stairLayout,
 } from '../lib/spatial'
 import { auditCylinderUV } from '../dev/visual/uvAudit'
-import { conceptOpening, containerShell, studioGlazing, studioShell } from './architecture'
-import { deck, roofDeck, siteContext, stairs } from './addons'
+import {
+  conceptOpening,
+  containerInterior,
+  containerShell,
+  studioGlazing,
+  studioInterior,
+  studioShell,
+} from './architecture'
+import { deck, pergola, roofDeck, siteContext, stairs, timberAccent } from './addons'
 import { box, cylinderProjectUV } from './geometry'
 import { batch, disposeBatches, measureParts, part, type Part } from './parts'
 import { equipmentParts } from './equipment'
@@ -118,6 +128,127 @@ describe('reference construction mechanisms', () => {
 })
 
 describe('reference external access and context', () => {
+  it.each([20, 40] as const)(
+    'matches the %s-foot Studio gazebo to its generated vertices including bevels',
+    (length) => {
+      const config: Config = {
+        ...c,
+        family: 'studio',
+        length,
+        addons: { ...c.addons, gazebo: true },
+      }
+      const measured = measureParts(pergola(config)),
+        zone = externalZones(config).find((z) => z.id === 'gazebo')!
+      expect(zone.kind).toBe('physical')
+      expect(containsBounds(zone.bounds, measured)).toBe(true)
+      for (const endpoint of ['min', 'max'] as const)
+        for (const axis of ['x', 'y', 'z'] as const)
+          expect(zone.bounds[endpoint][axis]).toBeCloseTo(measured[endpoint][axis], 5)
+    },
+  )
+  it.each(['custom-wellness', 'sunken-lounge'] as const)(
+    'matches %s site-only bounds to generated vertices',
+    (context) => {
+      for (const family of ['studio', 'container'] as const)
+        for (const length of [20, 40] as const)
+          for (const hasDeck of [false, true]) {
+            const config: Config = {
+              ...c,
+              family,
+              length,
+              addons: { ...c.addons, deck: hasDeck },
+              presentation: { ...c.presentation, context },
+            }
+            const measured = measureParts(siteContext(config)),
+              zone = contextZones(config)[0]
+            expect(containsBounds(zone.bounds, measured)).toBe(true)
+            for (const endpoint of ['min', 'max'] as const)
+              for (const axis of ['x', 'y', 'z'] as const)
+                expect(zone.bounds[endpoint][axis]).toBeCloseTo(measured[endpoint][axis], 5)
+          }
+    },
+  )
+  it.each(['studio', 'container'] as const)(
+    'fits actual %s geometry for all concepts, poses, contexts and both lengths',
+    (family) => {
+      for (const length of [20, 40] as const)
+        for (const openingConcept of [
+          'standard',
+          'sectional-glazed',
+          'raised-glazed',
+          'open-front',
+          'hinged-solid',
+        ] as const)
+          for (const openingPose of ['open', 'closed'] as const)
+            for (const context of ['product', 'custom-wellness', 'sunken-lounge'] as const)
+              for (const enabled of [false, true]) {
+                const config: Config = {
+                  ...c,
+                  family,
+                  length,
+                  openingConcept,
+                  presentation: { openingPose, context },
+                  addons: { deck: enabled, roof: enabled, stairs: enabled, gazebo: enabled },
+                }
+                const parts =
+                  family === 'studio'
+                    ? [
+                        ...studioShell(config),
+                        ...studioInterior(config),
+                        ...studioGlazing(config),
+                        ...timberAccent(config),
+                      ]
+                    : [...containerShell(config), ...containerInterior(config)]
+                if (enabled)
+                  parts.push(
+                    ...deck(config),
+                    ...roofDeck(config),
+                    ...stairs(config),
+                    ...(family === 'studio' ? pergola(config) : []),
+                  )
+                parts.push(...siteContext(config))
+                const actual = measureParts(parts),
+                  fit = presentationBounds(config)
+                expect(
+                  containsBounds(fit, actual),
+                  JSON.stringify({
+                    family,
+                    length,
+                    openingConcept,
+                    openingPose,
+                    context,
+                    enabled,
+                    actual,
+                    fit,
+                  }),
+                ).toBe(true)
+              }
+    },
+  )
+  it('fits independently toggled additions and recovery stairs without a roof', () => {
+    for (const family of ['studio', 'container'] as const)
+      for (const length of [20, 40] as const)
+        for (let mask = 0; mask < 16; mask++) {
+          const config: Config = {
+            ...c,
+            family,
+            length,
+            addons: {
+              deck: !!(mask & 1),
+              roof: !!(mask & 2),
+              stairs: !!(mask & 4),
+              gazebo: !!(mask & 8),
+            },
+          }
+          const parts: Part[] = []
+          if (config.addons.deck) parts.push(...deck(config))
+          if (config.addons.roof) parts.push(...roofDeck(config))
+          if (config.addons.stairs) parts.push(...stairs(config))
+          if (config.addons.gazebo && family === 'studio') parts.push(...pergola(config))
+          if (parts.length)
+            expect(containsBounds(presentationBounds(config), measureParts(parts))).toBe(true)
+        }
+  })
   it.each(['studio', 'container'] as const)(
     'grounds %s access and connects its roof-height landing',
     (family) => {

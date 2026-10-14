@@ -4,6 +4,7 @@ import {
   bounds3,
   constructionOpening,
   containsBounds,
+  contextZones,
   EQUIPMENT_ENVELOPES,
   equipmentFootprint,
   externalZones,
@@ -14,6 +15,7 @@ import {
   panelEnvelope,
   openingTravelZone,
   placementIssues,
+  presentationBounds,
   roofDeckElevation,
   spatialContract,
   stairLayout,
@@ -107,6 +109,85 @@ describe('plain spatial contract', () => {
   it('keeps physical overlap elevation-aware', () => {
     expect(intersects(bounds3(0, 0, 0, 1, 1, 1), bounds3(0, 2, 0, 1, 3, 1))).toBe(false)
     expect(intersects(bounds3(0, 0, 0, 1, 1, 1), bounds3(1, 0, 0, 2, 1, 1))).toBe(false)
+  })
+})
+
+describe('site-only context and presentation fit', () => {
+  it('keeps absent, product and unknown context out of site scope', () => {
+    expect(contextZones({ ...empty, presentation: undefined })).toEqual([])
+    for (const context of ['product', 'future-context'])
+      expect(contextZones({ ...empty, presentation: { ...empty.presentation, context } })).toEqual(
+        [],
+      )
+  })
+  it.each(['custom-wellness', 'sunken-lounge'] as const)(
+    'labels %s as inquiry-only without changing equipment validation or product zones',
+    (context) => {
+      const base = { ...empty, items: [item] },
+        c = { ...base, presentation: { ...base.presentation, context } },
+        before = JSON.stringify(c)
+      const zones = contextZones(c),
+        contract = spatialContract(c)
+      expect(zones).toHaveLength(1)
+      expect(zones[0]).toMatchObject({
+        id: context,
+        kind: 'site-context',
+        scope: 'site-only',
+        inquiryOnly: true,
+      })
+      expect(zones[0].label).toContain('inquiry only')
+      expect(placementIssues(item, c)).toEqual(placementIssues(item, base))
+      expect(externalZones(c)).toEqual(externalZones(base))
+      expect(contract.context).toEqual(zones)
+      expect(contract.presentationBounds).toEqual(presentationBounds(c))
+      expect(JSON.parse(JSON.stringify(contract))).toEqual(contract)
+      expect(JSON.stringify(c)).toBe(before)
+    },
+  )
+  it('gates gazebo on both Studio family and the requested addon', () => {
+    expect(externalZones(empty).some((z) => z.id === 'gazebo')).toBe(false)
+    const c = { ...empty, addons: { ...empty.addons, gazebo: true } }
+    expect(externalZones(c).find((z) => z.id === 'gazebo')?.kind).toBe('physical')
+    expect(externalZones({ ...c, family: 'container' }).some((z) => z.id === 'gazebo')).toBe(false)
+  })
+  it('fits current panel poses and site geometry, not entry guidance or engineering travel', () => {
+    const closed = {
+      ...empty,
+      family: 'container' as const,
+      length: 40 as const,
+      openingConcept: 'hinged-solid' as const,
+      presentation: { openingPose: 'closed' as const, context: 'product' },
+    }
+    const open = {
+      ...closed,
+      presentation: { ...closed.presentation, openingPose: 'open' as const },
+    }
+    const fit = presentationBounds(open)
+    expect(presentationBounds(closed).max.z).toBe(4.25)
+    expect(fit.max.z).toBeGreaterThan(13)
+    expect(fit.max.z).toBeLessThan(openingTravelZone(open)!.bounds.max.z)
+    expect(
+      presentationBounds({
+        ...open,
+        presentation: { ...open.presentation, context: 'sunken-lounge' },
+      }).max.z,
+    ).toBe(23)
+    expect(presentationBounds(closed).max.z).toBeLessThan(
+      spatialContract(closed).entrance.bounds.max.z,
+    )
+    expect(presentationBounds({ ...closed, family: 'studio' }).max.y).toBeCloseTo(10.31)
+  })
+  it('includes physically displaced recovery equipment but not its working margins', () => {
+    const displaced = { ...item, x: 30 },
+      c = { ...empty, items: [displaced] },
+      before = JSON.stringify(c)
+    const fit = presentationBounds(c),
+      occupied = occupiedEnvelope(displaced)
+    expect(fit.max.x).toBe(occupied.max.x)
+    expect(fit.max.x).toBeLessThan(workingEnvelope(displaced).max.x)
+    fit.max.x = 0
+    expect(presentationBounds(c).max.x).toBe(occupied.max.x)
+    expect(JSON.stringify(c)).toBe(before)
   })
 })
 
