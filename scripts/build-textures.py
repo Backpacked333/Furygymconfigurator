@@ -24,7 +24,7 @@ from PIL import Image, ImageOps, ImageStat
 
 ROOT = os.path.join(os.path.dirname(__file__), '..', 'public', 'textures')
 
-# id: (resolution, neutralize albedo for tinting, short role)
+# id: (resolution, neutralize albedo for tinting, short role[, saturation kept])
 PHOTO_SETS = {
     'rubber_tiles': ('2k', False, 'Rubber-look floor'),
     'laminate_floor_02': ('2k', False, 'Oak-look floor'),
@@ -32,7 +32,7 @@ PHOTO_SETS = {
     'beige_wall_001': ('1k', True, 'Painted interior walls'),
     'oak_veneer_01': ('1k', False, 'Ceiling slats, trims, reformer'),
     'hinoki_planks': ('1k', False, 'Sauna cladding'),
-    'teak_veneer': ('1k', False, 'Exterior decking and gazebo'),
+    'teak_veneer': ('1k', False, 'Exterior decking and gazebo', 0.5),
     'leather_white': ('1k', True, 'Upholstery'),
     'rough_linen': ('1k', True, 'Lounger fabric'),
     'rubberized_track': ('1k', True, 'Rubber plates, dumbbells, mats'),
@@ -63,12 +63,18 @@ def neutralize(image):
     return gray.point(lambda v: max(0, min(255, round(v * scale)))).convert('RGB')
 
 
+def desaturate(image, keep):
+    """Weathered/oiled timber: keep a fraction of the photo's chroma around its luminance."""
+    gray = ImageOps.grayscale(image).convert('RGB')
+    return Image.blend(gray, image, keep)
+
+
 def save(image, path, quality):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     image.save(path, 'WEBP', quality=quality, method=6)
 
 
-def photo_set(asset, resolution, tint):
+def photo_set(asset, resolution, tint, saturation=1.0):
     info = json.loads(fetch(f'{API}/info/{asset}'))
     files = json.loads(fetch(f'{API}/files/{asset}'))
     out = os.path.join(ROOT, asset)
@@ -78,6 +84,8 @@ def photo_set(asset, resolution, tint):
         image = Image.open(io.BytesIO(fetch(url))).convert('RGB')
         if name == 'albedo' and tint:
             image = neutralize(image)
+        elif name == 'albedo' and saturation < 1:
+            image = desaturate(image, saturation)
         save(image, os.path.join(out, f'{name}.webp'), 90 if name == 'normal' else 84)
     width_mm, height_mm = info['dimensions']
     return {
@@ -164,11 +172,11 @@ def main():
     parser.add_argument('--skip-procedural', action='store_true')
     args = parser.parse_args()
     credits = []
-    for asset, (resolution, tint, role) in PHOTO_SETS.items():
+    for asset, (resolution, tint, role, *rest) in PHOTO_SETS.items():
         if args.only and asset not in args.only:
             continue
         print('fetching', asset, resolution, file=sys.stderr)
-        entry = photo_set(asset, resolution, tint)
+        entry = photo_set(asset, resolution, tint, *rest)
         entry['role'] = role
         entry['resolution'] = resolution
         entry['tinted'] = tint

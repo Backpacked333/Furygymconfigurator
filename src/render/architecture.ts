@@ -447,7 +447,7 @@ function cargoDoors(
 ) {
   const parts: Part[] = []
   // Leaves sit recessed inside the corner-casting plane, as on real containers.
-  const x = L / 2 - 0.34
+  const x = L / 2 - 0.18
   const bottom = 0.5,
     top = H - 0.42
   const leafW = 3.55,
@@ -484,17 +484,17 @@ function cargoDoors(
     for (const f of [0.3, 0.72]) {
       const z = zc + side * (f - 0.5) * leafW
       parts.push(
-        part(cylinder(0.045, 0.045, leafH + 0.2, 16), zinc, [x + 0.16, (top + bottom) / 2, z]),
+        part(cylinder(0.045, 0.045, leafH + 0.2, 16), zinc, [x + 0.13, (top + bottom) / 2, z]),
       )
       for (const y of [bottom + 0.15, top - 0.15])
-        parts.push(part(roundedBox(0.2, 0.26, 0.2, 0.03, 1), dark, [x + 0.12, y, z]))
+        parts.push(part(roundedBox(0.16, 0.26, 0.2, 0.03, 1), dark, [x + 0.1, y, z]))
       for (const y of [2.2, 5, 7.6])
-        parts.push(part(roundedBox(0.1, 0.12, 0.2, 0.02, 1), zinc, [x + 0.12, y, z]))
+        parts.push(part(roundedBox(0.1, 0.12, 0.2, 0.02, 1), zinc, [x + 0.1, y, z]))
       parts.push(
         part(
           roundedBox(0.06, 0.11, 1.05, 0.02, 1),
           zinc,
-          [x + 0.24, 3.5, z - side * 0.45],
+          [x + 0.175, 3.5, z - side * 0.45],
           [0.12 * side, 0, 0],
         ),
       )
