@@ -586,6 +586,7 @@ function SceneCanvas({
           config={config}
           quality={quality}
           presentation={presentation}
+          assets={assets}
           onError={fail}
         />
         <RenderEffects
