@@ -1,9 +1,20 @@
 import { z } from 'zod'
 import LZString from 'lz-string'
+import { boundedDecompress, DOCUMENT_LIMITS } from './documentCodec'
+import {
+  browserStorage,
+  initializeRecovery,
+  type DocumentInspection,
+  type StorageAccess,
+  type Outcome,
+} from './recovery'
+import { readSavedCompat, writeSavedCompat } from './legacyLibrary'
+export { readSavedState } from './legacyLibrary'
 import {
   CONTAINER_OPENINGS,
   PRODUCT_SOURCE_DATE,
   STUDIO_LAYOUTS,
+  OPENING_CONCEPTS,
   productFamily,
   type ProductFamily,
 } from './products'
@@ -23,7 +34,7 @@ export const ADDONS = [
   {
     id: 'deck',
     name: 'Front deck',
-    detail: 'Outdoor space for your Studio. Dimensions by inquiry.',
+    detail: 'Outdoor platform concept. Dimensions and engineering by inquiry.',
   },
   {
     id: 'gazebo',
@@ -146,9 +157,14 @@ const itemSchema = z.object({
 })
 const currentConfigSchema = z
   .object({
-    v: z.literal(2),
+    v: z.literal(3),
     family: z.enum(['studio', 'container']),
     containerOpening: z.enum(CONTAINER_OPENINGS.map((o) => o.id)),
+    openingConcept: z.enum(OPENING_CONCEPTS.map((o) => o.id)),
+    presentation: z.object({
+      openingPose: z.enum(['open', 'closed']),
+      context: z.enum(['product', 'custom-wellness', 'sunken-lounge']),
+    }),
     integratedFinish: z.boolean(),
     studioLayout: z.enum(STUDIO_LAYOUTS.map((o) => o.id)),
     length: z.union([z.literal(20), z.literal(40)]),
@@ -169,29 +185,41 @@ const currentConfigSchema = z
     lights: z.boolean(),
   })
   .superRefine((c, ctx) => {
+    if (c.family === 'container' && (c.addons.gazebo || c.accent || c.studioLayout !== 'single'))
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'Disable the Studio gazebo/timber accent and select Single unit before switching to Container.',
+      })
     if (
-      c.family === 'container' &&
-      (Object.values(c.addons).some(Boolean) || c.accent || c.studioLayout !== 'single')
+      c.family === 'studio' &&
+      (c.containerOpening !== 'roll-up' || c.integratedFinish || c.openingConcept !== 'standard')
     )
       ctx.addIssue({
         code: 'custom',
-        message: 'Studio additions are not available on the Container planning model.',
+        message:
+          'Select the standard roll-up reference and disable the integrated Container finish before switching to Studio.',
       })
-    if (c.family === 'studio' && (c.containerOpening !== 'roll-up' || c.integratedFinish))
-      ctx.addIssue({ code: 'custom', message: 'Opening options apply only to Containers.' })
     if (new Set(c.items.map((i) => i.id)).size !== c.items.length)
       ctx.addIssue({ code: 'custom', message: 'Duplicate equipment identifiers.' })
   })
 export const configSchema = z.preprocess((input) => {
-  if (input && typeof input === 'object' && 'v' in input && input.v === 1)
+  if (input && typeof input === 'object' && 'v' in input && (input.v === 1 || input.v === 2)) {
     return {
       ...input,
-      v: 2,
-      family: 'studio',
-      containerOpening: 'roll-up',
-      integratedFinish: false,
-      studioLayout: 'single',
+      ...(input.v === 1
+        ? {
+            family: 'studio',
+            containerOpening: 'roll-up',
+            integratedFinish: false,
+            studioLayout: 'single',
+          }
+        : {}),
+      v: 3,
+      openingConcept: 'standard',
+      presentation: { openingPose: 'open', context: 'product' },
     }
+  }
   return input
 }, currentConfigSchema)
 export type Config = z.infer<typeof currentConfigSchema>
@@ -219,9 +247,11 @@ export function packageItems(kind: PackageId, length: 20 | 40): PlacedItem[] {
   return presets[kind].map((i) => ({ ...i, x: i.x + offset }))
 }
 export const DEFAULT_CONFIG: Config = {
-  v: 2,
+  v: 3,
   family: 'studio',
   containerOpening: 'roll-up',
+  openingConcept: 'standard',
+  presentation: { openingPose: 'open', context: 'product' },
   integratedFinish: false,
   studioLayout: 'single',
   length: 20,
@@ -261,18 +291,20 @@ export function openingGeometry(config: Config) {
   }
   return { width: widths[config.containerOpening], center: entryCenter(config) }
 }
+export function changeFamily(
+  config: Config,
+  family: ProductFamily,
+): { config: Config; accepted: boolean; notice?: string; issues: string[] } {
+  if (config.family === family) return { config, accepted: true, issues: [] }
+  const candidate = { ...config, family }
+  const parsed = configSchema.safeParse(candidate)
+  const issues = parsed.success ? [] : parsed.error.issues.map((issue) => issue.message)
+  return issues.length
+    ? { config, accepted: false, notice: issues.join(' '), issues }
+    : { config: parsed.data!, accepted: true, issues }
+}
 export function setFamily(config: Config, family: ProductFamily): Config {
-  if (config.family === family) return config
-  return {
-    ...config,
-    family,
-    containerOpening: 'roll-up',
-    integratedFinish: false,
-    studioLayout: 'single',
-    ...(family === 'container'
-      ? { accent: false, addons: { deck: false, gazebo: false, roof: false, stairs: false } }
-      : {}),
-  }
+  return changeFamily(config, family).config
 }
 export function footprint(item: PlacedItem) {
   const p = catalogItem(item.sku)
@@ -314,8 +346,8 @@ export function addEquipment(config: Config, sku: PlacedItem['sku']): Config | n
   return null
 }
 export function setAddon(config: Config, id: AddonId): { config: Config; notice?: string } {
-  if (config.family !== 'studio')
-    return { config, notice: 'These additions are documented for Studios only.' }
+  if (config.family === 'container' && id === 'gazebo')
+    return { config, notice: 'Gazebo is Studio-only. Switch to Studio to request this addition.' }
   return { config: { ...config, addons: { ...config.addons, [id]: !config.addons[id] } } }
 }
 export const PRICE_VERSION = `fury-published-${PRODUCT_SOURCE_DATE}`
@@ -327,6 +359,11 @@ export function estimate(config: Config) {
       ? [CONTAINER_OPENINGS.find((o) => o.id === config.containerOpening)!.name]
       : []),
     ...(config.integratedFinish ? ['Integrated exterior finish'] : []),
+    ...(config.openingConcept !== 'standard'
+      ? [
+          `Reference opening concept: ${OPENING_CONCEPTS.find((o) => o.id === config.openingConcept)!.name}`,
+        ]
+      : []),
     ...(config.studioLayout !== 'single'
       ? [`Custom inquiry: ${STUDIO_LAYOUTS.find((o) => o.id === config.studioLayout)!.name}`]
       : []),
@@ -349,14 +386,54 @@ export function encodeConfig(config: Config) {
   return LZString.compressToEncodedURIComponent(JSON.stringify(configSchema.parse(config)))
 }
 export function decodeConfig(value: string): Config | null {
-  if (!value || value.length > 12000) return null
+  const inspection = inspectConfig(value)
+  return inspection.status === 'accepted' ? inspection.config : null
+}
+export function inspectConfig(value: string): DocumentInspection<Config> {
+  if (value.length > DOCUMENT_LIMITS.encodedChars)
+    return {
+      status: 'rejected',
+      reason: 'too-large',
+      issues: ['Encoded document exceeds the supported size.'],
+    }
   try {
-    const decoded = LZString.decompressFromEncodedURIComponent(value)
-    if (!decoded || decoded.length > 16000) return null
-    const config = configSchema.parse(JSON.parse(decoded))
-    return layoutIssues(config).length ? null : config
+    const decoded = boundedDecompress(value)
+    if (!decoded)
+      return {
+        status: 'rejected',
+        reason: 'malformed',
+        issues: ['Document cannot be decoded within the supported limits.'],
+      }
+    return inspectDocument(JSON.parse(decoded))
   } catch {
-    return null
+    return { status: 'rejected', reason: 'malformed', issues: ['Document is not valid JSON.'] }
+  }
+}
+export function inspectDocument(value: unknown): DocumentInspection<Config> {
+  if (value && typeof value === 'object' && 'v' in value && ![1, 2, 3].includes(value.v as number))
+    return {
+      status: 'rejected',
+      reason: 'unsupported',
+      issues: ['Unsupported document version; original input retained.'],
+    }
+  const parsed = configSchema.safeParse(value)
+  if (!parsed.success)
+    return {
+      status: 'rejected',
+      reason: 'schema',
+      issues: parsed.error.issues.map((issue) => issue.message),
+    }
+  const issues = layoutIssues(parsed.data)
+  const migratedFrom =
+    value && typeof value === 'object' && 'v' in value && value.v !== 3
+      ? (value.v as number)
+      : undefined
+  return {
+    config: parsed.data,
+    status: issues.length ? 'repair' : 'accepted',
+    issues,
+    normalized: JSON.stringify(value) !== JSON.stringify(parsed.data),
+    ...(migratedFrom !== undefined ? { migratedFrom } : {}),
   }
 }
 export function shareUrl(config: Config) {
@@ -366,45 +443,20 @@ export function shareUrl(config: Config) {
   return url.toString()
 }
 export type SavedBuild = { id: string; name: string; date: string; config: Config }
-const savedSchema = z
-  .array(
-    z.object({
-      id: z.string().max(64),
-      name: z.string().min(1).max(60),
-      date: z.string(),
-      config: configSchema,
-    }),
-  )
-  .max(12)
 export function readSaved(): SavedBuild[] {
-  try {
-    return savedSchema
-      .parse(JSON.parse(localStorage.getItem('fury-builds-v1') || '[]'))
-      .filter((x) => !layoutIssues(x.config).length)
-  } catch {
-    return []
-  }
+  return readSavedCompat()
 }
 export function writeSaved(builds: SavedBuild[]) {
-  localStorage.setItem('fury-builds-v1', JSON.stringify(savedSchema.parse(builds)))
+  writeSavedCompat(builds)
 }
-export function initialConfig(): { config: Config; notice: string } {
-  const encoded = new URLSearchParams(window.location.hash.slice(1)).get('c')
-  if (encoded) {
-    const config = decodeConfig(encoded)
-    return {
-      config: config ?? DEFAULT_CONFIG,
-      notice: config
-        ? 'Shared design loaded. Make it your own.'
-        : 'This share link is invalid or unsupported. Your default design is ready.',
-    }
-  }
-  try {
-    const draft = localStorage.getItem('fury-draft-v1')
-    const config = draft && decodeConfig(draft)
-    if (config) return { config, notice: '' }
-  } catch {
-    /* Storage is optional in private browsing. */
-  }
-  return { config: DEFAULT_CONFIG, notice: '' }
+export function initialConfig(
+  options: { storage?: StorageAccess; hash?: string; draft?: Outcome<string | null> } = {},
+) {
+  return initializeRecovery({
+    fallback: structuredClone(DEFAULT_CONFIG),
+    inspect: inspectConfig,
+    hash: options.hash ?? (typeof window === 'undefined' ? '' : window.location.hash),
+    storage: options.storage ?? browserStorage(),
+    draft: options.draft,
+  })
 }

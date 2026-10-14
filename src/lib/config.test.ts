@@ -15,10 +15,12 @@ import {
   layoutIssues,
   productHeight,
   setFamily,
+  changeFamily,
   openingGeometry,
   packageItems,
   placementIssue,
   readSaved,
+  readSavedState,
   setAddon,
   shareUrl,
   writeSaved,
@@ -36,6 +38,10 @@ beforeEach(() => {
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => data.set(key, value),
     removeItem: (key: string) => data.delete(key),
+    key: (index: number) => [...data.keys()][index] ?? null,
+    get length() {
+      return data.size
+    },
   })
   vi.stubGlobal('window', {
     atob,
@@ -71,7 +77,7 @@ describe('configuration and packages', () => {
     expect(
       decodeConfig(encoded({ ...config, items: [{ ...config.items[0], sku: 'invented' }] })),
     ).toBe(null)
-    expect(decodeConfig(encoded({ ...config, v: 3 }))).toBe(null)
+    expect(decodeConfig(encoded({ ...config, v: 4 }))).toBe(null)
   })
   it('rejects cross-family options at the sharing boundary', () => {
     expect(
@@ -79,7 +85,7 @@ describe('configuration and packages', () => {
         encoded({
           ...fresh(),
           family: 'container',
-          addons: { deck: true, gazebo: false, stairs: false, roof: false },
+          addons: { deck: true, gazebo: true, stairs: false, roof: false },
         }),
       ),
     ).toBe(null)
@@ -219,7 +225,7 @@ describe('product families', () => {
     expect(decodeConfig(encoded({ ...fresh(), integratedFinish: true }))).toBeNull()
     expect(decodeConfig(encoded({ ...fresh(), family: 'container', accent: true }))).toBeNull()
   })
-  it('clears family-only options while preserving the shared interior and finish', () => {
+  it('rejects family-only options without silently clearing the design', () => {
     const original: Config = {
       ...fresh(),
       length: 40,
@@ -227,24 +233,40 @@ describe('product families', () => {
       accent: true,
       addons: { deck: true, gazebo: true, roof: true, stairs: true },
     }
-    const container = setFamily(original, 'container')
+    expect(setFamily(original, 'container')).toBe(original)
+    expect(changeFamily(original, 'container')).toMatchObject({
+      accepted: false,
+      config: original,
+      notice: expect.stringContaining('Studio'),
+    })
+    const compatible = {
+      ...original,
+      studioLayout: 'single' as const,
+      accent: false,
+      addons: { ...original.addons, gazebo: false },
+    }
+    const container = setFamily(compatible, 'container')
     expect(productHeight(container)).toBe(9.5)
     expect(container.length).toBe(40)
-    expect(Object.values(container.addons).some(Boolean)).toBe(false)
+    expect(container.addons).toEqual(compatible.addons)
     expect(container.accent).toBe(false)
     expect(container.studioLayout).toBe('single')
     expect(container.items).toEqual(original.items)
     expect(container.finish).toBe(original.finish)
     expect(original.addons.deck).toBe(true)
-    const studio = setFamily(
-      { ...container, containerOpening: 'partial', integratedFinish: true },
-      'studio',
-    )
+    const incompatible = {
+      ...container,
+      containerOpening: 'partial' as const,
+      integratedFinish: true,
+    }
+    expect(setFamily(incompatible, 'studio')).toBe(incompatible)
+    const studio = setFamily(container, 'studio')
     expect(studio.containerOpening).toBe('roll-up')
     expect(studio.integratedFinish).toBe(false)
     expect(productHeight(studio)).toBe(10)
     expect(setFamily(studio, 'studio')).toBe(studio)
-    expect(setAddon(container, 'deck').config).toBe(container)
+    expect(setAddon(container, 'deck').config.addons.deck).toBe(false)
+    expect(setAddon(container, 'gazebo').config).toBe(container)
   })
   for (const length of [20, 40] as const)
     for (const opening of CONTAINER_OPENINGS)
@@ -371,7 +393,9 @@ describe('sharing and browser persistence', () => {
     writeSaved(builds)
     expect(readSaved()).toEqual(builds)
     localStorage.setItem('fury-builds-v1', '{')
-    expect(readSaved()).toEqual([])
+    expect(() => readSaved()).toThrow('corrupt-store')
+    expect(readSavedState().entries.map((entry) => entry.build)).toEqual(builds)
+    expect(readSavedState().rejected[0].raw).toBe('{')
   })
   it('continues without storage access', () => {
     vi.stubGlobal('localStorage', {
@@ -383,8 +407,8 @@ describe('sharing and browser persistence', () => {
       },
     })
     expect(initialConfig().config).toEqual(fresh())
-    expect(readSaved()).toEqual([])
-    expect(() => writeSaved([])).toThrow('Denied')
+    expect(() => readSaved()).toThrow('read-failed')
+    expect(() => writeSaved([])).toThrow('read-failed')
   })
 })
 describe('history', () => {
