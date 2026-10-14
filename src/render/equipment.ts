@@ -246,6 +246,11 @@ function rack(): Part[] {
   // Band pegs at the base of the front uprights.
   for (const x of [-X, X])
     parts.push(part(cylinder(0.05, 0.05, 0.3, 16), palette.brushed(), [x, 0.55, Z + 0.05], AXIS_Z))
+  for (const x of [-X, X])
+    for (const z of [-1.48, 1.48]) {
+      parts.push(part(cylinder(0.075, 0.075, 0.025, 12), palette.zinc(), [x, 0.2725, z]))
+      parts.push(part(cylinder(0.045, 0.045, 0.04, 6), palette.zinc(), [x, 0.305, z]))
+    }
   return parts
 }
 
@@ -276,6 +281,21 @@ function bench(): Part[] {
   ]
   for (let i = 0; i < 5; i++)
     parts.push(part(box(0.12, 0.08, 0.05), steel, [0, 1.1, -1.65 + i * 0.18]))
+  for (const [z, length] of [
+    [1.22, 1.12],
+    [-0.75, 2.72],
+  ])
+    for (const x of [-0.46, 0.46])
+      parts.push(
+        part(
+          box(0.012, 0.012, length - 0.2),
+          palette.vinyl('#494b47'),
+          [x, 1.575, z],
+          undefined,
+          undefined,
+          false,
+        ),
+      )
   // Transport wheels, rubber feet, and a rear handle.
   for (const x of [-0.82, 0.82]) {
     parts.push(
@@ -675,6 +695,31 @@ function bike(): Part[] {
     parts.push(part(cylinder(0.08, 0.1, 0.06, 16), palette.rubber(), [x, 0.03, -1.55]))
     parts.push(part(cylinder(0.08, 0.1, 0.06, 16), palette.rubber(), [x, 0.03, 1.55]))
   }
+  for (const [x, y, z] of [
+    [0.42, 0.82, 0.45],
+    [-0.42, 1.48, -0.35],
+  ])
+    parts.push(
+      part(
+        tube(
+          `pedal-strap:${x}`,
+          [
+            [x - 0.16, y + 0.035, z],
+            [x - 0.14, y + 0.2, z],
+            [x + 0.14, y + 0.2, z],
+            [x + 0.16, y + 0.035, z],
+          ],
+          0.025,
+          6,
+          16,
+        ),
+        palette.nylon(),
+        undefined,
+        undefined,
+        undefined,
+        false,
+      ),
+    )
   return parts
 }
 
@@ -825,7 +870,7 @@ function reformer(): Part[] {
   springColors.forEach((c, i) =>
     parts.push(
       part(
-        tube('reformer-spring', coil, 0.012, 6),
+        tube('reformer-spring', coil, 0.012, 6, 176),
         palette.plastic(c, 0.35),
         [-0.5 + i * 0.25, 0.8, 0],
         undefined,
@@ -880,6 +925,28 @@ function reformer(): Part[] {
         false,
       ),
     )
+    parts.push(
+      part(
+        tube(
+          `reformer-loop:${x}`,
+          [
+            [x * 0.55, 1.25, 1.6],
+            [x * 0.55 - 0.12, 1.22, 1.8],
+            [x * 0.55, 1.22, 2.0],
+            [x * 0.55 + 0.12, 1.22, 1.8],
+            [x * 0.55, 1.25, 1.6],
+          ],
+          0.025,
+          6,
+          20,
+        ),
+        palette.nylon('#e6e1d6'),
+        undefined,
+        undefined,
+        undefined,
+        false,
+      ),
+    )
   }
   return parts
 }
@@ -902,7 +969,10 @@ const cache = new Map<PlacedItem['sku'], Part[]>()
 export function equipmentParts(sku: PlacedItem['sku']) {
   let parts = cache.get(sku)
   if (!parts) {
-    parts = BUILDERS[sku]()
+    const lift =
+      sku === 'weights' ? 0.01 : sku === 'treadmill' ? 0.005 : sku === 'lounge' ? 0.009 : 0
+    parts = BUILDERS[sku]().map((p) => ({ ...p, matrix: p.matrix.clone() }))
+    for (const p of parts) p.matrix.elements[13] += lift
     cache.set(sku, parts)
   }
   return parts

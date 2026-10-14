@@ -58,16 +58,30 @@ export function cylinderProjectUV(
   geometry: BufferGeometry,
   { swap = false, scale = 1 }: UVOptions = {},
 ) {
+  // A seam needs distinct UVs on coincident vertices; mutating shared indexed vertices cannot work.
+  if (geometry.index) {
+    const split = geometry.toNonIndexed()
+    geometry.copy(split)
+    split.dispose()
+  }
   const position = geometry.getAttribute('position')
   const normal = geometry.getAttribute('normal')
   const uv = new Float32Array(position.count * 2)
   const p = new Vector3(),
     n = new Vector3()
+  const angles = new Float64Array(position.count)
+  for (let i = 0; i < position.count; i++)
+    angles[i] = Math.atan2(position.getZ(i), position.getX(i))
+  for (let i = 0; i < position.count; i += 3) {
+    const a = [angles[i], angles[i + 1], angles[i + 2]]
+    if (Math.max(...a) - Math.min(...a) > Math.PI)
+      for (let j = i; j < i + 3; j++) if (angles[j] < 0) angles[j] += Math.PI * 2
+  }
   for (let i = 0; i < position.count; i++) {
     p.fromBufferAttribute(position, i)
     n.fromBufferAttribute(normal, i)
     const radius = Math.hypot(p.x, p.z)
-    let u = Math.atan2(p.z, p.x) * Math.max(radius, 0.01)
+    let u = angles[i] * radius
     let v = p.y
     // Caps: planar mapping keeps grain and speckle straight across end faces.
     if (Math.abs(n.y) > 0.9) {
@@ -214,12 +228,21 @@ export function corrugatedPanel(length: number, height: number, pitch = 0.912, d
 }
 
 /** A tube along an arbitrary 3D path (bike frames, handrails, springs). */
-export function tube(key: string, points: [number, number, number][], radius: number, radial = 12) {
-  return custom(`tube:${key}:${k(radius, radial)}`, () => {
-    const curve = new CatmullRomCurve3(points.map((p) => new Vector3(...p)))
-    const geometry = new TubeGeometry(curve, Math.max(8, points.length * 8), radius, radial, false)
-    return boxProjectUV(geometry)
-  })
+export function tube(
+  key: string,
+  points: [number, number, number][],
+  radius: number,
+  radial = 12,
+  segments = Math.max(8, points.length * 8),
+) {
+  return custom(
+    `tube:${key}:${k(radius, radial, segments)}:${points.map((p) => k(...p)).join(';')}`,
+    () => {
+      const curve = new CatmullRomCurve3(points.map((p) => new Vector3(...p)))
+      const geometry = new TubeGeometry(curve, segments, radius, radial, false)
+      return boxProjectUV(geometry)
+    },
+  )
 }
 
 /** Revolved profile around Y (plates, wheels, knobs, pucks). Profile points are [radius, y]. */
