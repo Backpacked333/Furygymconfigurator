@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   PMREMGenerator,
+  RendererUtils,
   Vector3,
   type Light,
   type LightShadow,
@@ -13,6 +14,7 @@ import {
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setInteriorEnvironment } from '../render/materials'
 import type { Quality } from '../render/quality'
+import type { PresentationStore } from '../lib/presentation'
 
 /** Changes arriving faster than this (slider drags) are captured once, after they stop. */
 const DEBOUNCE_MS = 250
@@ -24,59 +26,77 @@ const DEBOUNCE_MS = 250
  * Two captures per change approximate a second diffuse bounce; targets ping-pong so a probe is
  * never sampled while it is being written.
  */
-export function InteriorProbe({ config, quality }: { config: Config; quality: Quality }) {
+export function InteriorProbe({
+  config,
+  quality,
+  presentation,
+  onError,
+}: {
+  config: Config
+  quality: Quality
+  presentation?: PresentationStore
+  onError?: (error: unknown) => void
+}) {
   const { gl, scene, invalidate } = useThree()
   const renderer = gl as unknown as WebGPURenderer
   const state = useRef<{
     generator: PMREMGenerator
-    targets: (RenderTarget | null)[]
+    targets: ({ target: RenderTarget; size: number } | null)[]
     current: number
     passes: number
-    due: number
+    ready: boolean
+    timer: ReturnType<typeof setTimeout> | null
   } | null>(null)
   const center = useRef(new Vector3())
   center.current.set(0, productHeight(config) * 0.52, 0.3)
 
   useEffect(() => {
-    state.current = {
+    const created = {
       generator: new PMREMGenerator(renderer),
-      targets: [null, null],
+      targets: [null, null] as ({ target: RenderTarget; size: number } | null)[],
       current: 0,
       passes: 0,
-      due: 0,
+      ready: false,
+      timer: null as ReturnType<typeof setTimeout> | null,
     }
+    state.current = created
     return () => {
+      if (created.timer !== null) clearTimeout(created.timer)
       setInteriorEnvironment(null)
-      state.current?.targets.forEach((t) => t?.dispose())
-      state.current?.generator.dispose()
-      state.current = null
+      created.targets.forEach((t) => t?.target.dispose())
+      created.generator.dispose()
+      if (state.current === created) state.current = null
     }
   }, [renderer])
 
   // Re-capture after any configuration or lighting change, once textures settle.
   useEffect(() => {
-    if (!state.current) return
-    state.current.passes = 2
-    state.current.due = performance.now() + DEBOUNCE_MS
-    invalidate()
-  }, [config, quality, invalidate])
-  useEffect(
-    () =>
-      onMaterialsChanged((change) => {
-        if (change !== 'textures' || !state.current) return
-        state.current.passes = 2
-        state.current.due = performance.now() + DEBOUNCE_MS
-      }),
-    [],
-  )
+    const schedule = () => {
+      const probe = state.current
+      if (!probe) return
+      if (probe.timer !== null) clearTimeout(probe.timer)
+      probe.passes = 2
+      probe.ready = false
+      if (presentation) presentation.probePending = true
+      probe.timer = setTimeout(() => {
+        probe.timer = null
+        probe.ready = true
+        invalidate()
+      }, DEBOUNCE_MS)
+    }
+    schedule()
+    const stop = onMaterialsChanged((change) => {
+      if (change === 'textures') schedule()
+    })
+    return () => {
+      stop()
+      if (state.current?.timer != null) clearTimeout(state.current.timer)
+    }
+  }, [config, quality, invalidate, presentation])
 
   useFrame(() => {
     const probe = state.current
-    if (!probe || probe.passes <= 0) return
-    if (performance.now() < probe.due) {
-      invalidate()
-      return
-    }
+    if (!probe || probe.passes <= 0 || !probe.ready || presentation?.capturing) return
     const next = 1 - probe.current
     // Planar reflectors keep a render target per camera and must not render into the six capture
     // cameras. Transmissive surfaces sample a copy of the frame being drawn, which here is the
@@ -98,20 +118,33 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
       }
     })
     let target: RenderTarget
+    const size = quality === 'lite' ? 64 : 128
+    const previous = probe.targets[next]
+    const rendererState = RendererUtils.saveRendererState(renderer)
     try {
       target = probe.generator.fromScene(scene, 0, 0.05, 400, {
-        size: quality === 'lite' ? 64 : 128,
+        size,
         position: center.current,
-        renderTarget: probe.targets[next] ?? undefined,
+        renderTarget: previous?.size === size ? previous.target : undefined,
       })
+    } catch (error) {
+      probe.passes = 0
+      onError?.(error)
+      return
     } finally {
+      RendererUtils.restoreRendererState(renderer, rendererState)
       hidden.forEach((object) => (object.visible = true))
       shadows.forEach(({ shadow, autoUpdate }) => (shadow.autoUpdate = autoUpdate))
     }
-    probe.targets[next] = target
+    probe.targets[next] = { target, size }
     probe.current = next
     probe.passes--
     setInteriorEnvironment(target.texture)
+    if (previous && previous.target !== target) previous.target.dispose()
+    if (presentation) {
+      presentation.probePending = probe.passes > 0
+      presentation.reset()
+    }
     invalidate()
   }, 0)
   return null

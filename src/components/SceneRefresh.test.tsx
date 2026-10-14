@@ -80,4 +80,15 @@ describe('on-demand scene redraw', () => {
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).not.toHaveBeenCalled()
   })
+
+  it('resets temporal accumulation for removal-only edits without reacting to callback identity', () => {
+    const reset = vi.fn()
+    props.config = { ...props.config, items: [], mirror: false, lights: false }
+    act(() => root.render(<SceneRefresh {...props} onReset={reset} />))
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    const replacement = vi.fn()
+    act(() => root.render(<SceneRefresh {...props} onReset={replacement} />))
+    expect(replacement).not.toHaveBeenCalled()
+  })
 })
