@@ -3,6 +3,15 @@ import { Box3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { CATALOG, DEFAULT_CONFIG, productHeight, setFamily, type Config } from '../lib/config'
 import {
+  containsBounds,
+  EQUIPMENT_ENVELOPES,
+  FINISHED_FLOOR_Y,
+  occupiedEnvelope,
+  placementIssues,
+  translateBounds,
+  usableInterior,
+} from '../lib/spatial'
+import {
   containerInterior,
   containerShell,
   studioGlazing,
@@ -11,7 +20,7 @@ import {
 } from './architecture'
 import { deck, pergola, roofDeck, stairs, timberAccent } from './addons'
 import { equipmentParts } from './equipment'
-import { batch, type Part } from './parts'
+import { batch, compose, disposeBatches, measureParts, type Part } from './parts'
 
 function bounds(parts: Part[]) {
   const box = new Box3()
@@ -24,21 +33,65 @@ function bounds(parts: Part[]) {
 
 describe('equipment models', () => {
   it.each(CATALOG.map((item) => [item.id, item] as const))(
-    '%s fits its planning footprint and height',
+    '%s is enclosed by its measured physical contract after rotation and world/floor transforms',
     (_, item) => {
       const parts = equipmentParts(item.id)
       expect(parts.length).toBeGreaterThan(3)
-      const b = bounds(parts)
-      // The floor-plan collision check uses these footprints, so models must not exceed them.
-      // A racked Olympic bar overhangs its uprights, as on real racks; that overhang stays within
-      // the rack's published side working clearance.
-      const sideAllowance = item.id === 'rack' ? item.clearance : 0.06
-      expect(b.max.x).toBeLessThanOrEqual(item.w / 2 + sideAllowance)
-      expect(-b.min.x).toBeLessThanOrEqual(item.w / 2 + sideAllowance)
-      expect(b.max.z).toBeLessThanOrEqual(item.d / 2 + 0.06)
-      expect(-b.min.z).toBeLessThanOrEqual(item.d / 2 + 0.06)
-      expect(b.min.y).toBeGreaterThanOrEqual(-0.01)
-      expect(b.max.y).toBeLessThanOrEqual(Math.max(item.h, 0.6) + 0.35)
+      const b = measureParts(parts)
+      expect(containsBounds(EQUIPMENT_ENVELOPES[item.id], b)).toBe(true)
+      expect(b.min.y).toBeGreaterThanOrEqual(-0.00001)
+      expect(b.min.y).toBeLessThan(0.002)
+      for (const rotation of [0, 90] as const)
+        for (const family of ['studio', 'container'] as const)
+          for (const length of [20, 40] as const) {
+            const placed = { id: item.id, sku: item.id, rotation, x: -length / 4, z: -0.04 },
+              c = { ...DEFAULT_CONFIG, family, length, items: [placed] }
+            const offset = { x: 12.5, y: 0.7, z: -9.5 }
+            const measured = measureParts(
+              parts,
+              compose(
+                [placed.x + offset.x, FINISHED_FLOOR_Y + offset.y, placed.z + offset.z],
+                [0, (-rotation * Math.PI) / 180, 0],
+              ),
+            )
+            const expected = occupiedEnvelope(placed, offset)
+            expect(containsBounds(expected, measured)).toBe(true)
+            if (!placementIssues(placed, c).some((i) => i.category === 'physical'))
+              expect(containsBounds(translateBounds(usableInterior(c), offset), measured)).toBe(
+                true,
+              )
+            const room = usableInterior(c),
+              local = occupiedEnvelope({ ...placed, x: 0, z: 0 })
+            if (local.max.z - local.min.z > room.max.z - room.min.z || local.max.y > room.max.y) {
+              expect(
+                placementIssues(placed, c).some((i) => i.code === 'wall' || i.code === 'ceiling'),
+              ).toBe(true)
+              continue
+            }
+            const cx = (room.min.x + room.max.x - local.min.x - local.max.x) / 2,
+              cz = (room.min.z + room.max.z - local.min.z - local.max.z) / 2
+            for (const [x, z, dx, dz] of [
+              [room.min.x - local.min.x, cz, -0.01, 0],
+              [room.max.x - local.max.x, cz, 0.01, 0],
+              [cx, room.min.z - local.min.z, 0, -0.01],
+              [cx, room.max.z - local.max.z, 0, 0.01],
+            ]) {
+              const edge = { ...placed, x, z },
+                actual = measureParts(
+                  parts,
+                  compose(
+                    [x + offset.x, FINISHED_FLOOR_Y + offset.y, z + offset.z],
+                    [0, (-rotation * Math.PI) / 180, 0],
+                  ),
+                )
+              expect(containsBounds(translateBounds(room, offset), actual)).toBe(true)
+              expect(
+                placementIssues({ ...edge, x: x + dx, z: z + dz }, c).some(
+                  (i) => i.code === 'wall',
+                ),
+              ).toBe(true)
+            }
+          }
     },
   )
   it('batches every model into a handful of draw calls with valid attributes', () => {
@@ -52,6 +105,7 @@ describe('equipment models', () => {
         expect(b.geometry.getAttribute('uv').count).toBe(position.count)
         expect(Number.isFinite(b.geometry.boundingSphere!.radius)).toBe(true)
       }
+      disposeBatches(batches)
     }
   })
 })
@@ -60,6 +114,7 @@ describe('architecture', () => {
   const studio: Config = {
     ...DEFAULT_CONFIG,
     addons: { deck: true, gazebo: true, roof: true, stairs: true },
+    presentation: { ...DEFAULT_CONFIG.presentation, openingPose: 'closed' },
   }
   it.each([20, 40] as const)('keeps the %s-foot Studio within its nominal envelope', (length) => {
     const c = { ...studio, length }

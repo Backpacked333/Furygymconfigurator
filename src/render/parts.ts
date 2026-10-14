@@ -1,4 +1,5 @@
 import {
+  Box3,
   BufferAttribute,
   BufferGeometry,
   Euler,
@@ -7,6 +8,7 @@ import {
   Vector3,
   type Material,
 } from 'three'
+import type { Bounds3 } from '../lib/spatial'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
 export type V3 = [number, number, number]
@@ -50,6 +52,33 @@ export function place(parts: Part[], position?: V3, rotation?: V3, scale?: V3): 
 }
 
 export type Batch = { geometry: BufferGeometry; material: Material; shadow: boolean }
+
+/** Renderer-only measurement adapter; the validation contract itself has no Three dependency. */
+export function measureParts(parts: Part[], transform = new Matrix4()): Bounds3 {
+  const bounds = new Box3(),
+    point = new Vector3()
+  for (const p of parts) {
+    const matrix = transform.clone().multiply(p.matrix),
+      position = p.geometry.getAttribute('position')
+    for (let i = 0; i < position.count; i++)
+      bounds.expandByPoint(point.fromBufferAttribute(position, i).applyMatrix4(matrix))
+  }
+  if (bounds.isEmpty()) throw new Error('Cannot measure an empty part assembly.')
+  return {
+    min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+    max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z },
+  }
+}
+
+/** Batches own baked buffers only. Cached source geometries and borrowed materials stay alive. */
+export function disposeBatches(batches: readonly Batch[]) {
+  const seen = new Set<BufferGeometry>()
+  for (const b of batches)
+    if (!seen.has(b.geometry)) {
+      seen.add(b.geometry)
+      b.geometry.dispose()
+    }
+}
 
 /**
  * Static batching: parts sharing a material (and shadow flag) are baked into one geometry, so a
