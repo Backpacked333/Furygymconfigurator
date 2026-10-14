@@ -1,8 +1,9 @@
 import type { Config, PlacedItem, View } from '../../lib/config'
 import type { Backend, Quality } from '../../render/quality'
 
-export const FIXTURE_VERSION = 'fury-vf-1'
+export const FIXTURE_VERSION = 'fury-vf-2'
 export const BASE_REVISION = '15f36b81ebb79ae5a0a475f41849a7900fa1d7e9'
+export const ASSET_REVISION = '82d91e1c386d657a4f855a076acc9d58708b7417'
 export type FixtureId =
   `VF${'01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09' | '10' | '11' | '12'}`
 export type ReferenceId = `R${'01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09'}`
@@ -243,7 +244,7 @@ function fixture(
     shots,
     acceptance,
     geometryStatus: 'candidate-not-rendered',
-    assetVersion: `git:${BASE_REVISION}`,
+    assetVersion: `git:${ASSET_REVISION}:spatial-1`,
     readiness: READINESS,
   }
 }
@@ -521,12 +522,34 @@ export function resolveFixture(id: FixtureId, shotId?: string) {
   if (!shot) throw new Error(`Unknown shot ${shotId} in ${id}`)
   const base: FixtureBaseConfig = { ...fixture.recipe.base, ...shot.baseOverrides, time: shot.time }
   const concepts = { ...fixture.recipe.concepts, ...shot.conceptOverrides }
-  const candidate: FixtureCandidate = { ...base, ...concepts, v: 3 }
+  const originalCandidate: FixtureCandidate = { ...base, ...concepts, v: 3 }
+  const candidate = structuredClone(originalCandidate)
+  const candidateAdjustments: string[] = []
+  if (['VF04', 'VF07', 'VF09'].includes(id)) {
+    candidate.items = candidate.items.map((placed) => {
+      if (placed.sku !== 'rack') return placed
+      const replacement = id === 'VF07' ? 'bench' : 'bike'
+      candidateAdjustments.push(
+        `Replace ${placed.id} with ${replacement} at the same position: G's rack top is 8.465ft above ground, exceeding the Container finished ceiling of 8.4ft. Original rack remains in baseConfig/originalCandidate; no scaling or validator relaxation.`,
+      )
+      return item(replacement, placed.x, placed.z, placed.rotation)
+    })
+  }
+  if (id === 'VF12' && shot.id === 'cardio-oblique') {
+    candidate.items = candidate.items.map((placed) =>
+      placed.sku === 'treadmill' ? { ...placed, x: 4 } : placed,
+    )
+    candidateAdjustments.push(
+      'Move treadmill from x=1.5ft to x=4ft to clear the G entry-approach envelope; original placement remains in baseConfig/originalCandidate.',
+    )
+  }
   return structuredClone({
     fixtureId: id,
     fixtureVersion: FIXTURE_VERSION,
     baseConfig: base,
     candidate,
+    originalCandidate,
+    candidateAdjustments,
     shot,
     assetVersion: fixture.assetVersion,
     readiness: fixture.readiness,
