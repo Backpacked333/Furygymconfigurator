@@ -5,6 +5,7 @@ import { Color, Euler, InstancedMesh, Object3D, PerspectiveCamera, Vector3 } fro
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, type Config, type Unit, type View } from '../lib/config'
 import { StudioModel } from './StudioModel'
+import { SceneRefresh } from './SceneRefresh'
 
 class GraphicsBoundary extends Component<
   { children: ReactNode; onFallback: () => void },
@@ -436,6 +437,14 @@ export default function Scene({
         {dimensions && <Dimensions config={config} unit={unit} />}
         <CameraRig config={config} view={view} reset={reset} autoRotate={autoRotate} />
         <Capture onCaptureReady={onCaptureReady} />
+        <SceneRefresh
+          config={config}
+          view={view}
+          dimensions={dimensions}
+          unit={unit}
+          quality={quality}
+          autoRotate={autoRotate}
+        />
       </Canvas>
     </GraphicsBoundary>
   )
