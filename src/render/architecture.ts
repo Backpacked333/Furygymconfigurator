@@ -11,6 +11,10 @@ export const STUDIO = { base: 0.3, wall: 0.36, radius: 1.1, depth: 8 }
 
 export const finishColor = (c: Config) => FINISHES.find((f) => f.id === c.finish)!.color
 
+/**
+ * Rounded-rectangle frame extruded along Z. Bevels grow an extrusion outward by their size, so the
+ * outline is pre-shrunk (and the hole pre-grown) to keep the nominal dimensions exact.
+ */
 function ring(
   key: string,
   w: number,
@@ -23,17 +27,29 @@ function ring(
   return extrude(
     `ring:${key}:${w}:${h}:${r}:${inset}`,
     () => {
-      const shape = roundedRectShape(w, h, r)
-      shape.holes.push(roundedRectShape(w - inset * 2, h - inset * 2, Math.max(0.01, r - inset)))
+      const shape = roundedRectShape(w - bevel * 2, h - bevel * 2, r - bevel)
+      shape.holes.push(
+        roundedRectShape(
+          w - inset * 2 + bevel * 2,
+          h - inset * 2 + bevel * 2,
+          Math.max(0.01, r - inset + bevel),
+        ),
+      )
       return shape
     },
-    depth,
+    depth - bevel * 2,
     bevel,
     24,
   )
 }
 function slab(key: string, w: number, h: number, r: number, depth: number, bevel = 0) {
-  return extrude(`slab:${key}:${w}:${h}:${r}`, () => roundedRectShape(w, h, r), depth, bevel, 24)
+  return extrude(
+    `slab:${key}:${w}:${h}:${r}`,
+    () => roundedRectShape(w - bevel * 2, h - bevel * 2, r - bevel),
+    depth - bevel * 2,
+    bevel,
+    24,
+  )
 }
 
 // --- Studio ---------------------------------------------------------------------------------
@@ -74,7 +90,7 @@ export function studioInterior(c: Config): Part[] {
     innerH = H - wall * 2,
     innerR = radius - wall
   const lining = 0.08
-  const paint = palette.paint(c.finish === 'chalk' ? '#efebe3' : '#ebe5da')
+  const paint = palette.paint(c.finish === 'chalk' ? '#f4f1eb' : '#f1eee8')
   const back = -3.78
   const front = 3.62
   const parts: Part[] = [
@@ -359,7 +375,7 @@ export function containerShell(c: Config): Part[] {
     for (const x of [-3.4, 3.4])
       for (const sz of [-1, 1])
         parts.push(
-          part(box(1.15, 0.34, 0.05), dark, [x, 0.22, sz * 4.005], undefined, undefined, false),
+          part(box(1.15, 0.34, 0.05), dark, [x, 0.22, sz * 3.985], undefined, undefined, false),
         )
 
   // Corrugated side walls; the front wall is cut around the chosen opening.
@@ -414,10 +430,10 @@ export function containerShell(c: Config): Part[] {
 
   // Welded opening frame.
   const head = H - 0.9
-  parts.push(part(box(right - left + 0.34, 0.34, 0.34), trim, [opening.center, head + 0.08, 3.86]))
+  parts.push(part(box(right - left + 0.34, 0.34, 0.34), trim, [opening.center, head + 0.08, 3.83]))
   for (const x of [left - 0.08, right + 0.08])
-    parts.push(part(box(0.34, head - 0.5, 0.34), trim, [x, (head + 0.5) / 2, 3.86]))
-  parts.push(part(box(right - left, 0.12, 0.42), trim, [opening.center, 0.56, 3.84]))
+    parts.push(part(box(0.34, head - 0.5, 0.34), trim, [x, (head + 0.5) / 2, 3.83]))
+  parts.push(part(box(right - left, 0.12, 0.42), trim, [opening.center, 0.56, 3.79]))
   if (c.containerOpening === 'roll-up') parts.push(...rollUpDoor(opening.center, head, trim))
   return parts
 }
@@ -430,7 +446,8 @@ function cargoDoors(
   dark: ReturnType<typeof palette.powder>,
 ) {
   const parts: Part[] = []
-  const x = L / 2 - 0.02
+  // Leaves sit recessed inside the corner-casting plane, as on real containers.
+  const x = L / 2 - 0.34
   const bottom = 0.5,
     top = H - 0.42
   const leafW = 3.55,
@@ -475,10 +492,10 @@ function cargoDoors(
         parts.push(part(roundedBox(0.1, 0.12, 0.2, 0.02, 1), zinc, [x + 0.12, y, z]))
       parts.push(
         part(
-          roundedBox(0.06, 1.05, 0.11, 0.02, 1),
+          roundedBox(0.06, 0.11, 1.05, 0.02, 1),
           zinc,
-          [x + 0.22, 3.5, z - side * 0.38],
-          [0.15 * side, 0, Math.PI / 2 - 0.08],
+          [x + 0.24, 3.5, z - side * 0.45],
+          [0.12 * side, 0, 0],
         ),
       )
     }
@@ -507,7 +524,7 @@ function rollUpDoor(center: number, head: number, trim: ReturnType<typeof palett
 export function containerInterior(c: Config): Part[] {
   const L = c.length,
     H = productHeight(c)
-  const paint = palette.paint(c.finish === 'chalk' ? '#efebe3' : '#ebe5da')
+  const paint = palette.paint(c.finish === 'chalk' ? '#f4f1eb' : '#f1eee8')
   const opening = openingGeometry(c)
   const left = opening.center - opening.width / 2,
     right = opening.center + opening.width / 2

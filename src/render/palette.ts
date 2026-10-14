@@ -72,7 +72,9 @@ export const palette = {
   teak: (interior = false) =>
     m({ set: 'teak_veneer', color: '#e7d2bd', roughness: 0.95, interior }),
   // Mineral -----------------------------------------------------------------------------------
-  paint: (color = '#ece6db') => m({ set: 'beige_wall_001', color, roughness: 1, interior: true }),
+  /** Eggshell-painted drywall: only a whisper of the scanned plaster relief survives the paint. */
+  paint: (color = '#f2efe9') =>
+    m({ set: 'beige_wall_001', color, roughness: 0.92, normalScale: 0.22, interior: true }),
   concrete: (interior = false) => m({ set: 'concrete_wall_001', roughness: 1, interior }),
   // Light and glass ---------------------------------------------------------------------------
   glass: () =>
