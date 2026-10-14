@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   BufferGeometry,
   Color,
@@ -7,6 +7,7 @@ import {
   Matrix4,
   MeshStandardMaterial,
   type Material,
+  type Group,
   MeshStandardNodeMaterial,
   Object3D,
   Quaternion,
@@ -33,7 +34,8 @@ import {
   mergeGeometries,
   roundedBox,
 } from '../render/geometry'
-import { material, textureMaps, type TextureSet } from '../render/materials'
+import { material, subscribeTextureMaps, type TextureSet } from '../render/materials'
+import { useMaterialOwner, useResource } from '../render/useResource'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
@@ -57,44 +59,52 @@ const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
  * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
  */
 function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
-  const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
-  useEffect(() => {
-    let active = true
-    let created: MeshStandardNodeMaterial | null = null
-    textureMaps(set).then((maps) => {
-      if (!active || !maps.albedo) return
-      const p = positionWorld.xz
-      const uvA = p.div(size)
-      const uvB = p.div(size * 3.3).add(vec2(0.37, 0.71))
-      const blend = mx_noise_float(vec3(p.mul(0.04), 0))
-        .mul(0.5)
-        .add(0.5)
-        .smoothstep(0.32, 0.68)
-      const macro = mx_fractal_noise_float(vec3(p.mul(0.011), 0.5), 3, 2, 0.5)
-        .mul(0.22)
-        .add(1)
-      const m = new MeshStandardNodeMaterial()
-      m.colorNode = mix(texture(maps.albedo, uvA).rgb, texture(maps.albedo, uvB).rgb, blend)
-        .mul(color(tint))
-        .mul(macro)
-      m.roughnessNode = mix(texture(maps.arm, uvA).g, texture(maps.arm, uvB).g, blend)
-      m.normalNode = normalMap(texture(maps.normal, uvA), vec2(0.8, 0.8))
-      created = m
-      setGroundMaterial(m)
-    })
-    return () => {
-      active = false
-      created?.dispose()
+  const ownerId = useId()
+  const ground = useResource(() => {
+    const created = new MeshStandardNodeMaterial()
+    const release = subscribeTextureMaps(
+      set,
+      (maps) => {
+        if (!maps.albedo) return
+        const p = positionWorld.xz
+        const uvA = p.div(size)
+        const uvB = p.div(size * 3.3).add(vec2(0.37, 0.71))
+        const blend = mx_noise_float(vec3(p.mul(0.04), 0))
+          .mul(0.5)
+          .add(0.5)
+          .smoothstep(0.32, 0.68)
+        const macro = mx_fractal_noise_float(vec3(p.mul(0.011), 0.5), 3, 2, 0.5)
+          .mul(0.22)
+          .add(1)
+        const m = created
+        m.colorNode = mix(texture(maps.albedo, uvA).rgb, texture(maps.albedo, uvB).rgb, blend)
+          .mul(color(tint))
+          .mul(macro)
+        m.roughnessNode = mix(texture(maps.arm, uvA).g, texture(maps.arm, uvB).g, blend)
+        m.normalNode = normalMap(texture(maps.normal, uvA), vec2(0.8, 0.8))
+        m.needsUpdate = true
+      },
+      `scene:landscape:ground:${ownerId}`,
+    )
+    return {
+      material: created,
+      dispose() {
+        release()
+        created.dispose()
+      },
     }
-  }, [set, size, tint])
-  const fallback = useMemo(() => new MeshStandardMaterial({ color: tint, roughness: 1 }), [tint])
-  useEffect(() => () => fallback.dispose(), [fallback])
+  }, [set, size, tint, ownerId])
+  const fallback = useResource(
+    () => new MeshStandardMaterial({ color: tint, roughness: 1 }),
+    [tint],
+  )
+  if (!ground && !fallback) return null
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, -0.14, 0]}
       receiveShadow
-      material={groundMaterial ?? fallback}
+      material={ground?.material ?? fallback!}
     >
       <planeGeometry args={[700, 700, 1, 1]} />
     </mesh>
@@ -472,11 +482,11 @@ function desertAccents(L: number): Part[] {
 // --- Studio backdrop ---------------------------------------------------------------------
 
 function StudioFloor() {
-  const floor = useMemo(
+  const floor = useResource(
     () => new MeshStandardMaterial({ color: new Color('#d8d5ce'), roughness: 0.62 }),
     [],
   )
-  useEffect(() => () => floor.dispose(), [floor])
+  if (!floor) return null
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow material={floor}>
       <circleGeometry args={[220, 96]} />
@@ -487,9 +497,15 @@ function StudioFloor() {
 // --- Assembly -----------------------------------------------------------------------------
 
 export function Landscape({ config: c, quality }: { config: Config; quality: Quality }) {
+  if (c.environment === 'studio') return <StudioFloor />
+  return <OutdoorLandscape config={c} quality={quality} />
+}
+
+function OutdoorLandscape({ config: c, quality }: { config: Config; quality: Quality }) {
+  const root = useRef<Group>(null)
+  useMaterialOwner(root, [c, quality], 'scene:landscape')
   const L = c.length
   const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
-  const studio = c.environment === 'studio'
   const density = DENSITY[quality]
   const hard = useMemo(() => hardscape(L, biome, c.lights), [L, biome, c.lights])
   const accents = useMemo(() => (biome === 'desert' ? desertAccents(L) : []), [L, biome])
@@ -514,9 +530,8 @@ export function Landscape({ config: c, quality }: { config: Config; quality: Qua
       },
     [L],
   )
-  if (studio) return <StudioFloor />
   return (
-    <group>
+    <group ref={root}>
       <Ground
         set={biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'}
         size={biome === 'desert' ? 13.1 : 6.56}

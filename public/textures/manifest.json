@@ -1,0 +1,1692 @@
+{
+  "schema": 1,
+  "generator": "python3 scripts/build-textures.py --manifest-only",
+  "sourceRebuild": "python3 scripts/build-textures.py (Pillow + NumPy; source input hashes recorded on regeneration)",
+  "legacySourceNote": "Existing encodings are retained without recompression. Null sourceInput means original download hash was not recorded; output hashes are verified.",
+  "inspectionTools": {
+    "pillow": "12.3.0",
+    "numpy": "2.2.6"
+  },
+  "maps": {
+    "bark_platanus/albedo": {
+      "file": "bark_platanus/albedo.webp",
+      "sha256": "3c4262b9f9ec9872e06e4bc1f6baa54750dfe12f975dc8159ba288578d3eaefe",
+      "encodedBytes": 245622,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [4.921, 4.921],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/bark_platanus",
+      "authors": ["Dimitrios Savva"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "bark_platanus/normal": {
+      "file": "bark_platanus/normal.webp",
+      "sha256": "6fd5a837b9d11f7417c95d29c642aaed5dbde554fc3dc2732010ef8132f4a1a1",
+      "encodedBytes": 502536,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [4.921, 4.921],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/bark_platanus",
+      "authors": ["Dimitrios Savva"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "bark_platanus/arm": {
+      "file": "bark_platanus/arm.webp",
+      "sha256": "93db5f823b4fa442e9799f8078ab9ef2e8220edbc6f67d039c58f6c014d4442b",
+      "encodedBytes": 70830,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [4.921, 4.921],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/bark_platanus",
+      "authors": ["Dimitrios Savva"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "beige_wall_001/albedo": {
+      "file": "beige_wall_001/albedo.webp",
+      "sha256": "fa93ec4fa6c5a227c4cbe07543dc62026da1dbce1f9406688efcd8579cd4e6f9",
+      "encodedBytes": 3610,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [9.843, 9.843],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/beige_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "beige_wall_001/normal": {
+      "file": "beige_wall_001/normal.webp",
+      "sha256": "b4fd286472f205a650ae713e80e474a783955f9cf4d53eecc212b064e7e5fd98",
+      "encodedBytes": 141778,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [9.843, 9.843],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/beige_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "beige_wall_001/arm": {
+      "file": "beige_wall_001/arm.webp",
+      "sha256": "9221c8e3640a9d110df8c2c9cbd53133cb09acbbb69b1784350f270d873f7353",
+      "encodedBytes": 20136,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [9.843, 9.843],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/beige_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "brushed_metal/normal": {
+      "file": "brushed_metal/normal.webp",
+      "sha256": "0b74b8d0e3bd47008e0d9de6fc4f4b8f76e6e2f3d4cb20e482eea5909889ab20",
+      "encodedBytes": 23544,
+      "width": 512,
+      "height": 512,
+      "decodedBytesRGBA": 1048576,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [1.5, 1.5],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "scripts/build-textures.py#brushed_metal",
+      "authors": ["FURY configurator procedural generator"],
+      "license": "project-authored procedural",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 92
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "brushed_metal/arm": {
+      "file": "brushed_metal/arm.webp",
+      "sha256": "b96e330f7bbc29dd8132d1e4f7bc622c6a62e500927b2d3863573803ea746a2c",
+      "encodedBytes": 3024,
+      "width": 512,
+      "height": 512,
+      "decodedBytesRGBA": 1048576,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [1.5, 1.5],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "scripts/build-textures.py#brushed_metal",
+      "authors": ["FURY configurator procedural generator"],
+      "license": "project-authored procedural",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 88
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "clean_pebbles/albedo": {
+      "file": "clean_pebbles/albedo.webp",
+      "sha256": "649246d2e2ea9f313b3e41b0536346ce3bb334bdd3a89372cc69a6ae8bac3ee8",
+      "encodedBytes": 186448,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/clean_pebbles",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "clean_pebbles/normal": {
+      "file": "clean_pebbles/normal.webp",
+      "sha256": "deb92747d2793656b301a4c6d5c2ccd0f87a12a21aea63d9254ad71a2e3af3d2",
+      "encodedBytes": 545710,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/clean_pebbles",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "clean_pebbles/arm": {
+      "file": "clean_pebbles/arm.webp",
+      "sha256": "f4b5cd4f0010dd4190a81219e4c3bc52b514db8a3f795fb379b4615aba73b191",
+      "encodedBytes": 208612,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/clean_pebbles",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_pavement/albedo": {
+      "file": "concrete_pavement/albedo.webp",
+      "sha256": "a4da4ff21ff02e9c0e6264282872bf181f9fb5cc0f462cdae2c9c75ddee7e68c",
+      "encodedBytes": 1469592,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [5.906, 5.906],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_pavement",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_pavement/normal": {
+      "file": "concrete_pavement/normal.webp",
+      "sha256": "0cb5fdd9644d3213e5004e382844fd805c6ca5b62088b65275b9202091e84aaa",
+      "encodedBytes": 2097460,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [5.906, 5.906],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_pavement",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_pavement/arm": {
+      "file": "concrete_pavement/arm.webp",
+      "sha256": "08b8a94a297ec653e9b21c82005563782ecb0d458836728f3dff58733cc51b0f",
+      "encodedBytes": 582730,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [5.906, 5.906],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_pavement",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_slab_wall/albedo": {
+      "file": "concrete_slab_wall/albedo.webp",
+      "sha256": "e546d5b2fecb787a28a740d91208e8e647c4d70d283c85f15119871b8bd3c85e",
+      "encodedBytes": 61538,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [7.546, 7.546],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_slab_wall",
+      "authors": ["Dimitrios Savva"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_slab_wall/normal": {
+      "file": "concrete_slab_wall/normal.webp",
+      "sha256": "e0332655ca090fd9f6e8ed9c973348c60532174f8be2221426416c4335336654",
+      "encodedBytes": 176152,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [7.546, 7.546],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_slab_wall",
+      "authors": ["Dimitrios Savva"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_slab_wall/arm": {
+      "file": "concrete_slab_wall/arm.webp",
+      "sha256": "7465a13b3a420b880d45fb51842273caf12955636816fbcb8c24bec94f8af8b1",
+      "encodedBytes": 28696,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [7.546, 7.546],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_slab_wall",
+      "authors": ["Dimitrios Savva"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_wall_001/albedo": {
+      "file": "concrete_wall_001/albedo.webp",
+      "sha256": "95caec0c9c6986915a8aaa387c7d889268244109135533367c8bb491b05d9101",
+      "encodedBytes": 23276,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [4.921, 4.921],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_wall_001/normal": {
+      "file": "concrete_wall_001/normal.webp",
+      "sha256": "57c17a1fd46edf70c7a0b0146846cdf5f8e237648aab273bb09ec53edb9e173b",
+      "encodedBytes": 170466,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [4.921, 4.921],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "concrete_wall_001/arm": {
+      "file": "concrete_wall_001/arm.webp",
+      "sha256": "a68c61d76823c291b7b7708a82b5ac737450237071191e8054ead039142f330f",
+      "encodedBytes": 39724,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [4.921, 4.921],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/concrete_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "dry_ground_01/albedo": {
+      "file": "dry_ground_01/albedo.webp",
+      "sha256": "3f595c245a87f53ee836325c260bc094400e6f411eb33af0a945d7fceb5e3a54",
+      "encodedBytes": 233812,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [13.123, 13.123],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/dry_ground_01",
+      "authors": ["Rob Tuytel"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "dry_ground_01/normal": {
+      "file": "dry_ground_01/normal.webp",
+      "sha256": "efa934aa30a24e04676f197d066dc9ce94be3dbc13c52ac9db0caef82856d167",
+      "encodedBytes": 268854,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [13.123, 13.123],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/dry_ground_01",
+      "authors": ["Rob Tuytel"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "dry_ground_01/arm": {
+      "file": "dry_ground_01/arm.webp",
+      "sha256": "6685c51025bafc34d8b6b00ce894a6b91618d23b011328bf397b7d6ca4306f5b",
+      "encodedBytes": 112138,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [13.123, 13.123],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/dry_ground_01",
+      "authors": ["Rob Tuytel"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "granite_tile_04/albedo": {
+      "file": "granite_tile_04/albedo.webp",
+      "sha256": "09d9353c4833192dcb3a0f36aa06fc1e9149fbfd2a8eb6255c728a475e144097",
+      "encodedBytes": 1643236,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/granite_tile_04",
+      "authors": ["Amal Kumar"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "granite_tile_04/normal": {
+      "file": "granite_tile_04/normal.webp",
+      "sha256": "ce8010bdc55f9159466463f0d9eec5d6f14eb92007a24f409771ef9ca20f773c",
+      "encodedBytes": 652776,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/granite_tile_04",
+      "authors": ["Amal Kumar"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "granite_tile_04/arm": {
+      "file": "granite_tile_04/arm.webp",
+      "sha256": "8301458f88b2efb2495b5df3dba7733633884ea219ace1cb0bceba4b0b44d87e",
+      "encodedBytes": 920346,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/granite_tile_04",
+      "authors": ["Amal Kumar"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "hinoki_planks/albedo": {
+      "file": "hinoki_planks/albedo.webp",
+      "sha256": "fcb11093d76c50c9be634f7fa734d2e66d97abe4a451c70f96edeee81efc8c25",
+      "encodedBytes": 72644,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.201, 6.201],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/hinoki_planks",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "hinoki_planks/normal": {
+      "file": "hinoki_planks/normal.webp",
+      "sha256": "bf56644db18ac267f0217817668777212ba40acd7f2c9be7ccee98cd3d92721b",
+      "encodedBytes": 36690,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.201, 6.201],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/hinoki_planks",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "hinoki_planks/arm": {
+      "file": "hinoki_planks/arm.webp",
+      "sha256": "a7534b2d146c12c67e936135a87dc3d8f0b8ad51887b854c3e6c4af747f72793",
+      "encodedBytes": 17428,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.201, 6.201],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/hinoki_planks",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "knurling/normal": {
+      "file": "knurling/normal.webp",
+      "sha256": "29e08464c318e54e6c7b9bebfd8f368ab02bfb43e251a4e21b3e10f6f7a7d90c",
+      "encodedBytes": 27362,
+      "width": 256,
+      "height": 256,
+      "decodedBytesRGBA": 262144,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [0.1, 0.1],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "scripts/build-textures.py#knurling",
+      "authors": ["FURY configurator procedural generator"],
+      "license": "project-authored procedural",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 92
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "knurling/arm": {
+      "file": "knurling/arm.webp",
+      "sha256": "ff49d0130d6ff444c28d6e5419bdc3411c2affd3cbe40b1a092bc5071d1d63a4",
+      "encodedBytes": 8414,
+      "width": 256,
+      "height": 256,
+      "decodedBytesRGBA": 262144,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [0.1, 0.1],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "scripts/build-textures.py#knurling",
+      "authors": ["FURY configurator procedural generator"],
+      "license": "project-authored procedural",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 88
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "laminate_floor_02/albedo": {
+      "file": "laminate_floor_02/albedo.webp",
+      "sha256": "34c756d5201e0b189d4d3c3124b1534923c471819eaf0228432b83e7e4fe45e0",
+      "encodedBytes": 850722,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [5.577, 5.577],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/laminate_floor_02",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "laminate_floor_02/normal": {
+      "file": "laminate_floor_02/normal.webp",
+      "sha256": "c5630f2bb85f851489e86bf7ac8bb26a79e1ee909cd9a48473672e614cf553fe",
+      "encodedBytes": 445486,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [5.577, 5.577],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/laminate_floor_02",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "laminate_floor_02/arm": {
+      "file": "laminate_floor_02/arm.webp",
+      "sha256": "e12f849cca38eb4f21a661b2e252b06425c3a2edf23555cc7bc43a6e7e2c1c35",
+      "encodedBytes": 356408,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [5.577, 5.577],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/laminate_floor_02",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "leafy_grass/albedo": {
+      "file": "leafy_grass/albedo.webp",
+      "sha256": "a5ef24a1ba65b30fd18769f757a2acd17d3eb9a4f275613ba7ba93ccb7d306f8",
+      "encodedBytes": 374648,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/leafy_grass",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "leafy_grass/normal": {
+      "file": "leafy_grass/normal.webp",
+      "sha256": "76fcc8c604ad0c28e014633d6ae3a368e8b177749795081e49fc6e4a52c97041",
+      "encodedBytes": 603758,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/leafy_grass",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "leafy_grass/arm": {
+      "file": "leafy_grass/arm.webp",
+      "sha256": "b7fe4d56dfecedc06ef18f0fcce126556de3d8ba9701fd278837de16d97403c8",
+      "encodedBytes": 234916,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/leafy_grass",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "leather_white/albedo": {
+      "file": "leather_white/albedo.webp",
+      "sha256": "f0fd207901ac56c385d77fca9386328358ac1526c38d777b5e6d80b14ea1a420",
+      "encodedBytes": 264816,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [0.984, 0.984],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/leather_white",
+      "authors": ["Rob Tuytel"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "leather_white/normal": {
+      "file": "leather_white/normal.webp",
+      "sha256": "f199b418e9e5b1d0f3273a4e2f7bc93ba61c9e95c1f1eee3e2b18b4e30e79027",
+      "encodedBytes": 142288,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [0.984, 0.984],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/leather_white",
+      "authors": ["Rob Tuytel"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "leather_white/arm": {
+      "file": "leather_white/arm.webp",
+      "sha256": "1657e2c309cacc38d205bc31e61d5c0ab40caf0ae5d81b5feddf582639077697",
+      "encodedBytes": 169874,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [0.984, 0.984],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/leather_white",
+      "authors": ["Rob Tuytel"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "oak_veneer_01/albedo": {
+      "file": "oak_veneer_01/albedo.webp",
+      "sha256": "1911800ff7d834e011a4f631b6753cc48484fd7f002afe65230cd349f99a5d88",
+      "encodedBytes": 99182,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.004, 6.004],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/oak_veneer_01",
+      "authors": ["Jenelle van Heerden"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "oak_veneer_01/normal": {
+      "file": "oak_veneer_01/normal.webp",
+      "sha256": "79ca8b2462acc4c42fc89129d9ce74c568cdd72b55623172ae4977589567d91f",
+      "encodedBytes": 50968,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.004, 6.004],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/oak_veneer_01",
+      "authors": ["Jenelle van Heerden"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "oak_veneer_01/arm": {
+      "file": "oak_veneer_01/arm.webp",
+      "sha256": "64af69ddab94a487ecabe12a3d4a672a527c91d38aa08da595c4bb54847964d7",
+      "encodedBytes": 223272,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.004, 6.004],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/oak_veneer_01",
+      "authors": ["Jenelle van Heerden"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "painted_metal_shutter/albedo": {
+      "file": "painted_metal_shutter/albedo.webp",
+      "sha256": "9980b2eac41a0cdaea0236ad6a4fdf998cd147bd4f168e25b4fd116e44bd9623",
+      "encodedBytes": 152000,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/painted_metal_shutter",
+      "authors": ["Dario Barresi", "Rico Cilliers", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "painted_metal_shutter/normal": {
+      "file": "painted_metal_shutter/normal.webp",
+      "sha256": "88d26a2ef5e41bb73c7cc19c18efd8080f3c03aeec9040ee45503cbd6847f2b7",
+      "encodedBytes": 130824,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/painted_metal_shutter",
+      "authors": ["Dario Barresi", "Rico Cilliers", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "painted_metal_shutter/arm": {
+      "file": "painted_metal_shutter/arm.webp",
+      "sha256": "cac3cd447334769e9b9569321088c202d42bf29e057cf7e45aa74b0c9919aa90",
+      "encodedBytes": 46586,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/painted_metal_shutter",
+      "authors": ["Dario Barresi", "Rico Cilliers", "Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "powder_coat/normal": {
+      "file": "powder_coat/normal.webp",
+      "sha256": "54e18c29e0e0f09fafd3592d46d38403cb9db67221285aff8fa9e82aacfce8fc",
+      "encodedBytes": 39868,
+      "width": 512,
+      "height": 512,
+      "decodedBytesRGBA": 1048576,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [0.25, 0.25],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "scripts/build-textures.py#powder_coat",
+      "authors": ["FURY configurator procedural generator"],
+      "license": "project-authored procedural",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 92
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "powder_coat/arm": {
+      "file": "powder_coat/arm.webp",
+      "sha256": "b19a050f0c8eb1d098b8499f56ee017c725edc1c9e320fb2870541f13997240e",
+      "encodedBytes": 2092,
+      "width": 512,
+      "height": 512,
+      "decodedBytesRGBA": 1048576,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [0.25, 0.25],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "scripts/build-textures.py#powder_coat",
+      "authors": ["FURY configurator procedural generator"],
+      "license": "project-authored procedural",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 88
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rough_linen/albedo": {
+      "file": "rough_linen/albedo.webp",
+      "sha256": "17d2deee29f58275b390b80df5c56befb12d94e207056d5c59019ce83fc5c76c",
+      "encodedBytes": 289444,
+      "width": 1024,
+      "height": 1026,
+      "decodedBytesRGBA": 4202496,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [0.888, 0.89],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rough_linen",
+      "authors": ["colormass", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rough_linen/normal": {
+      "file": "rough_linen/normal.webp",
+      "sha256": "42bf3893c746aaefaf7c4dbccc2578198124e86bb3ff8ade6e974e41aaa12172",
+      "encodedBytes": 341816,
+      "width": 1024,
+      "height": 1026,
+      "decodedBytesRGBA": 4202496,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [0.888, 0.89],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rough_linen",
+      "authors": ["colormass", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rough_linen/arm": {
+      "file": "rough_linen/arm.webp",
+      "sha256": "d1e39dc83ef8869610388c1fa7365ef251a14756182b228e7cb78540eb05e0fa",
+      "encodedBytes": 386312,
+      "width": 1024,
+      "height": 1026,
+      "decodedBytesRGBA": 4202496,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [0.888, 0.89],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rough_linen",
+      "authors": ["colormass", "Rico Cilliers"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rubber_tiles/albedo": {
+      "file": "rubber_tiles/albedo.webp",
+      "sha256": "0a5c3c650f2c00700087fdfbac61cae270fd7a9951381896a0bd139a49547c6e",
+      "encodedBytes": 38248,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rubber_tiles",
+      "authors": ["Amal Kumar"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rubber_tiles/normal": {
+      "file": "rubber_tiles/normal.webp",
+      "sha256": "48050b454e7a117b2561697a74983085c2d2a7b258b94fb4f0de7960a4b5857a",
+      "encodedBytes": 267464,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rubber_tiles",
+      "authors": ["Amal Kumar"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rubber_tiles/arm": {
+      "file": "rubber_tiles/arm.webp",
+      "sha256": "0ff61feb158b2ddccebc225d0a7dab1e0df6d51c3db21e50e80cc502a2773c29",
+      "encodedBytes": 302208,
+      "width": 2048,
+      "height": 2048,
+      "decodedBytesRGBA": 16777216,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rubber_tiles",
+      "authors": ["Amal Kumar"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rubberized_track/albedo": {
+      "file": "rubberized_track/albedo.webp",
+      "sha256": "841a7bbcb76865888a36a4e32ced53611fa5e6f34aeef1c8866d368733aa4008",
+      "encodedBytes": 379586,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rubberized_track",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": true,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rubberized_track/normal": {
+      "file": "rubberized_track/normal.webp",
+      "sha256": "e0949341724244895a12b9fa07b82392c71d43844cb9631c34704da2091112f2",
+      "encodedBytes": 501464,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rubberized_track",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "rubberized_track/arm": {
+      "file": "rubberized_track/arm.webp",
+      "sha256": "3766e51c303219d2f9f5909e6ea77d1f750af310c6b98e00cebc64ddc02b1168",
+      "encodedBytes": 105840,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [6.562, 6.562],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/rubberized_track",
+      "authors": ["Charlotte Baglioni"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "teak_veneer/albedo": {
+      "file": "teak_veneer/albedo.webp",
+      "sha256": "2031048d562234ec551e185b0dad5da38122b7f2ee387e436125494e553b3419",
+      "encodedBytes": 72010,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "albedo",
+      "colorSpace": "srgb",
+      "channels": "RGB color",
+      "repeatFeet": [3.281, 3.281],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/teak_veneer",
+      "authors": ["Jenelle van Heerden"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 0.5
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "teak_veneer/normal": {
+      "file": "teak_veneer/normal.webp",
+      "sha256": "d76a5341b3d15375349e0fc5b9ac6feb2bdd4d1dce8a95dd335ea495b0a2731a",
+      "encodedBytes": 29328,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "normal",
+      "colorSpace": "none",
+      "channels": "OpenGL tangent +Y",
+      "repeatFeet": [3.281, 3.281],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/teak_veneer",
+      "authors": ["Jenelle van Heerden"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 90
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    },
+    "teak_veneer/arm": {
+      "file": "teak_veneer/arm.webp",
+      "sha256": "1ccd3136a6e52643c3f2524a641fc38f66532b526d4ae31b4ebb4feff5affada",
+      "encodedBytes": 113750,
+      "width": 1024,
+      "height": 1024,
+      "decodedBytesRGBA": 4194304,
+      "role": "arm",
+      "colorSpace": "none",
+      "channels": "R=AO G=roughness B=metalness",
+      "repeatFeet": [3.281, 3.281],
+      "runtimeFormat": "WebP decoded to RGBA; uncompressed GPU texture",
+      "mips": "runtime generated; trilinear minification",
+      "source": "https://polyhaven.com/a/teak_veneer",
+      "authors": ["Jenelle van Heerden"],
+      "license": "CC0-1.0",
+      "sourceInput": null,
+      "encoding": {
+        "format": "WebP",
+        "method": 6,
+        "quality": 84
+      },
+      "transform": {
+        "neutralize": false,
+        "saturation": 1
+      },
+      "fallback": "deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness"
+    }
+  }
+}
