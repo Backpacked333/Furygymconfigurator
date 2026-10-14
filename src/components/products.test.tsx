@@ -23,14 +23,14 @@ const panel = (config: Config, step: number) =>
 
 describe('family-specific presentation', () => {
   it('shows source-backed Container dimensions and no Studio configuration selector', () => {
-    const html = panel(setFamily(DEFAULT_CONFIG, 'container'), 0)
+    const html = panel(setFamily({ ...DEFAULT_CONFIG, items: [] }, 'container'), 0)
     expect(html).toContain('9.5′')
     expect(html).toContain('gym-design/container')
     expect(html).not.toContain('Configuration request')
     expect(html).toContain('not a price for this size or configuration')
   })
   it('offers Container openings, not Studio additions or timber accents', () => {
-    const html = panel(setFamily(DEFAULT_CONFIG, 'container'), 1)
+    const html = panel(setFamily({ ...DEFAULT_CONFIG, items: [] }, 'container'), 1)
     for (const name of [
       '10′ roll-up door',
       'Center opening',
@@ -55,7 +55,10 @@ describe('family-specific presentation', () => {
     'labels %s prices as family starting prices without a total or financing calculator',
     (family) => {
       const html = renderToStaticMarkup(
-        <EstimateDialog config={setFamily(DEFAULT_CONFIG, family)} onClose={vi.fn()} />,
+        <EstimateDialog
+          config={setFamily({ ...DEFAULT_CONFIG, items: [] }, family)}
+          onClose={vi.fn()}
+        />,
       )
       expect(html).toContain(family === 'studio' ? '$35,000' : '$20,000')
       expect(html).toContain('Quote required')

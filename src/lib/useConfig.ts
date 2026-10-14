@@ -14,6 +14,8 @@ import {
   recoveryRecord,
   type Initialization,
   type Preservation,
+  type RecoveryRecord,
+  type Outcome,
 } from './recovery'
 import { openDocumentRepository } from './repository'
 
@@ -28,9 +30,11 @@ export function useConfig() {
     future: [],
     notice: initial.notice,
     revision: 0,
+    repairWorkspace: initial.acceptance === 'repair',
   })
   const stateRef = useRef(state)
   const persistenceRef = useRef<DraftPersistence | null>(null)
+  const recoveryOperationRef = useRef(0)
   const [persistence, setPersistence] = useState<PersistenceState>({
     status: 'initializing',
     writeSafe: false,
@@ -47,6 +51,7 @@ export function useConfig() {
     const next = configReducer(before, action)
     stateRef.current = next
     dispatch(action)
+    if (next.repairWorkspace) persistenceRef.current?.suspend('corrupt-store')
     if (next.present !== before.present || next.revision !== before.revision)
       void persistenceRef.current?.enqueue(next.present, next.revision ?? 0)
     if (action.type !== 'preview' && next.result?.recoveryRaw && next.result !== before.result) {
@@ -123,6 +128,7 @@ export function useConfig() {
           config: loaded.initial.config,
           notice: loaded.initial.notice,
           expectedRevision: 0,
+          repairWorkspace: loaded.initial.acceptance === 'repair',
         })
       else {
         controller.suspend('conflict')
@@ -172,6 +178,48 @@ export function useConfig() {
     }
   }, [])
 
+  const openRepair = useCallback(
+    async (
+      candidate: Config,
+      original?: Pick<RecoveryRecord, 'raw' | 'format'>,
+    ): Promise<Outcome<{ status: 'repair'; revision: number }>> => {
+      const inspected = inspectDocument(candidate)
+      if (inspected.status === 'rejected') return { ok: false, reason: 'corrupt-store' }
+      const controller = persistenceRef.current
+      if (!controller) return { ok: false, reason: 'unavailable' }
+      const baseRevision = stateRef.current.revision ?? 0
+      const operation = ++recoveryOperationRef.current
+      const result = await controller.preserveRepair(stateRef.current.present, candidate, original)
+      if (!result.ok) return result
+      if (
+        stateRef.current.revision !== baseRevision ||
+        persistenceRef.current !== controller ||
+        operation !== recoveryOperationRef.current
+      ) {
+        controller.suspend('conflict')
+        return { ok: false, reason: 'conflict' }
+      }
+      const restored = apply({
+        type: 'restore',
+        config: inspected.config,
+        expectedRevision: baseRevision,
+        repairWorkspace: true,
+        notice:
+          'Repair workspace: originals preserved; autosave is suspended until you explicitly accept a valid design.',
+      })
+      if (restored.status !== 'committed') return { ok: false, reason: 'conflict' }
+      setInitialization((previous) => ({
+        ...previous,
+        config: inspected.config,
+        acceptance: inspected.status,
+        issues: inspected.issues,
+        writeSafe: false,
+        originalPreserved: 'durable',
+      }))
+      return { ok: true, value: { status: 'repair', revision: baseRevision + 1 } }
+    },
+    [apply],
+  )
   const acceptRecovery = useCallback(
     async (candidate?: Config) => {
       const config = candidate ?? stateRef.current.present
@@ -181,19 +229,26 @@ export function useConfig() {
       const controller = persistenceRef.current
       if (!controller) return { ok: false as const, reason: 'unavailable' as const }
       const baseRevision = stateRef.current.revision ?? 0
-      if (!sameConfig(config, stateRef.current.present))
-        await controller.preserveCandidate(stateRef.current.present, 'displaced-draft')
-      const result = await controller.accept(
-        config,
-        baseRevision,
-        () => stateRef.current.revision === baseRevision,
-      )
+      const operation = ++recoveryOperationRef.current
+      const isCurrent = () =>
+        stateRef.current.revision === baseRevision &&
+        persistenceRef.current === controller &&
+        operation === recoveryOperationRef.current
+      if (!sameConfig(config, stateRef.current.present)) {
+        const preserved = await controller.preserveCandidate(
+          stateRef.current.present,
+          'displaced-draft',
+        )
+        if (preserved.status !== 'durable')
+          return { ok: false as const, reason: preserved.reason ?? ('unavailable' as const) }
+      }
+      const result = await controller.accept(config, baseRevision + 1, isCurrent)
       if (result.ok && result.value.status === 'saved') {
-        if (stateRef.current.revision !== baseRevision) {
+        if (!isCurrent()) {
           controller.suspend('conflict')
           return { ok: false as const, reason: 'conflict' as const }
         }
-        apply({ type: 'set', config })
+        apply({ type: 'restore', config, expectedRevision: baseRevision, preserveHistory: true })
         setInitialization((previous) => ({
           ...previous,
           config,
@@ -244,12 +299,16 @@ export function useConfig() {
     ],
     repair: {
       required:
+        !!state.repairWorkspace ||
         inspection.status !== 'accepted' ||
         (initialization.acceptance === 'rejected' && !persistence.writeSafe),
-      issues: inspection.status !== 'accepted' ? inspection.issues : initialization.issues,
+      issues: inspection.status !== 'accepted' ? inspection.issues : [],
+      canAccept: inspection.status === 'accepted',
+      workspace: !!state.repairWorkspace,
     },
     lastEditResult: state.result,
     acceptRecovery,
+    openRepair,
     resetConfig,
     flushPersistence,
   }

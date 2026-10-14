@@ -10,6 +10,7 @@ import {
   type Initialization,
   type Outcome,
   type Preservation,
+  type RecoveryRecord,
   type StorageAccess,
   type StorageFailure,
 } from './recovery'
@@ -177,6 +178,27 @@ export class DraftPersistence {
     }
     this.remember(preservation)
     return preservation
+  }
+  async preserveRepair(
+    current: Config,
+    candidate: Config,
+    original?: Pick<RecoveryRecord, 'raw' | 'format'>,
+  ): Promise<Outcome<Preservation[]>> {
+    this.suspend('corrupt-store')
+    await this.queue
+    const records = [
+      recoveryRecord(JSON.stringify(current), 'displaced-draft', 'json'),
+      recoveryRecord(JSON.stringify(candidate), 'transaction', 'json'),
+      ...(original ? [recoveryRecord(original.raw, 'transaction', original.format)] : []),
+    ]
+    const result = await this.repository.preserve(records)
+    const preserved: Preservation[] = records.map((record, index) => ({
+      status: result.ok ? 'durable' : 'volatile',
+      record: result.ok ? { ...record, id: result.value[index].replace(/^recovery:/, '') } : record,
+      ...(!result.ok ? { reason: result.reason } : {}),
+    }))
+    preserved.forEach((entry) => this.remember(entry))
+    return result.ok ? { ok: true, value: preserved } : result
   }
   suspend(reason: StorageFailure = 'conflict') {
     this.update({

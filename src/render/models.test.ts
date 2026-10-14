@@ -130,7 +130,7 @@ describe('architecture', () => {
     (opening) => {
       for (const length of [20, 40] as const) {
         const c: Config = {
-          ...setFamily(DEFAULT_CONFIG, 'container'),
+          ...setFamily({ ...DEFAULT_CONFIG, items: [] }, 'container'),
           containerOpening: opening,
           length,
         }
