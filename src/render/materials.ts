@@ -101,6 +101,7 @@ type Channel = {
   controller?: AbortController
   timer?: ReturnType<typeof setTimeout>
   source?: Source
+  started?: boolean
 }
 type Consumer = (maps: Maps, states: readonly AssetMapState[]) => void
 type Resource = {
@@ -113,7 +114,9 @@ type Resource = {
 }
 
 const MAX_ATTEMPTS = 3
-const TIMEOUT_MS = 8000
+const LOAD_CONCURRENCY = 3
+const DOWNLOAD_TIMEOUT_MS = 45000
+const DECODE_TIMEOUT_MS = 30000
 const SOURCE_LIMIT_BYTES = 64 * 1024 * 1024
 const SOURCE_LIMIT_COUNT = 24
 const sources = new Map<string, Source>()
@@ -211,6 +214,30 @@ function bindSource(resource: Resource, role: Role, source: Source) {
   notify(resource)
   previous?.dispose()
 }
+type LoadJob = {
+  run: () => Promise<void>
+  cancel: () => void
+  stalled: boolean
+}
+const loadQueue: LoadJob[] = []
+const activeLoads = new Set<LoadJob>()
+
+function admitLoads() {
+  // Native image decode cannot be aborted. Never recycle its permit before it settles.
+  if (activeLoads.size === LOAD_CONCURRENCY && [...activeLoads].every((job) => job.stalled)) {
+    loadQueue.splice(0).forEach((job) => job.cancel())
+    return
+  }
+  while (activeLoads.size < LOAD_CONCURRENCY && loadQueue.length) {
+    const job = loadQueue.shift()!
+    activeLoads.add(job)
+    void job.run().finally(() => {
+      activeLoads.delete(job)
+      admitLoads()
+    })
+  }
+}
+
 function request(resource: Resource, role: Role, manual = false) {
   const channel = resource.channels[role]!
   const info = mapInfo(resource.set, role)
@@ -235,87 +262,116 @@ function request(resource: Resource, role: Role, manual = false) {
     notify(resource)
     return
   }
-  attempts.set(key, tried + 1)
   const controller = new AbortController()
   channel.controller = controller
+  channel.started = false
   channel.state = {
     ...channel.state,
     status: 'pending',
     source: 'pending',
-    attempts: tried + 1,
+    attempts: tried,
     error: undefined,
   }
-  notify(resource)
-  let expired = false
-  let timeout: ReturnType<typeof setTimeout>
-  const deadline = new Promise<never>((_, reject) => {
-    controller.signal.addEventListener('abort', () => reject(new Error('Request cancelled.')), {
-      once: true,
-    })
-    timeout = setTimeout(() => {
-      expired = true
-      controller.abort()
-      reject(new Error('Timed out after 8 seconds.'))
-    }, TIMEOUT_MS)
-  })
+  let finished = false
+  let timeout: ReturnType<typeof setTimeout> | undefined
   const live = () =>
-    resource.active && resource.generation === generation && !controller.signal.aborted
-  void (async () => {
-    try {
-      const decode = async () => {
+    !finished && resource.active && resource.generation === generation && !controller.signal.aborted
+  const finish = () => {
+    finished = true
+    if (channel.controller === controller) {
+      channel.controller = undefined
+      channel.started = false
+    }
+  }
+  const fail = (error: unknown, retryable = true) => {
+    if (finished) return
+    finish()
+    if (!resource.active || resource.generation !== generation) return
+    const reason = error instanceof Error ? error.message : 'Image download or decode failed.'
+    failures.set(key, reason)
+    const automatic = retryable && tried === 0
+    channel.state = {
+      ...channel.state,
+      status: automatic ? 'pending' : 'degraded',
+      source: automatic ? 'pending' : 'failed',
+      error: reason,
+    }
+    if (automatic)
+      channel.timer = setTimeout(() => {
+        channel.timer = undefined
+        request(resource, role, true)
+      }, 300)
+    notify(resource)
+  }
+  const deadline = (stage: string, ms: number) => {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => {
+      job.stalled = true
+      fail(new Error(`${stage} timed out after ${ms / 1000} seconds.`))
+      controller.abort()
+      admitLoads()
+    }, ms)
+  }
+  const abort = () => {
+    const queued = loadQueue.indexOf(job)
+    if (queued !== -1) loadQueue.splice(queued, 1)
+    finish()
+    if (!activeLoads.has(job)) controller.signal.removeEventListener('abort', abort)
+  }
+  const job: LoadJob = {
+    stalled: false,
+    cancel() {
+      fail(
+        new Error('Texture loader is waiting for a stalled operation to finish; retry later.'),
+        false,
+      )
+      controller.abort()
+    },
+    async run() {
+      try {
+        if (!live()) return
+        channel.started = true
+        attempts.set(key, tried + 1)
+        channel.state = { ...channel.state, attempts: tried + 1 }
+        notify(resource)
+        if (!live()) return
+        deadline('Download', DOWNLOAD_TIMEOUT_MS)
         const response = await fetch(info.url, { signal: controller.signal })
+        if (!live()) return
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const image = await createImageBitmap(await response.blob(), {
+        const blob = await response.blob()
+        if (!live()) return
+        deadline('Decode', DECODE_TIMEOUT_MS)
+        const image = await createImageBitmap(blob, {
           colorSpaceConversion: 'none',
           premultiplyAlpha: 'none',
           imageOrientation: 'flipY',
         })
         if (!live()) {
           image.close()
-          throw new Error('Stale image decode.')
+          return
         }
-        return image
+        const existing = sources.get(key)
+        const source = existing ?? { image, refs: 0, bytes: image.width * image.height * 4 }
+        if (existing) image.close()
+        else sources.set(key, source)
+        failures.delete(key)
+        attempts.delete(key)
+        bindSource(resource, role, source)
+        pruneSources()
+      } catch (error) {
+        fail(error)
+      } finally {
+        clearTimeout(timeout)
+        controller.signal.removeEventListener('abort', abort)
+        finish()
       }
-      const image = await Promise.race([decode(), deadline])
-      if (!live()) {
-        image.close()
-        return
-      }
-      const existing = sources.get(key)
-      const source = existing ?? { image, refs: 0, bytes: image.width * image.height * 4 }
-      if (existing) image.close()
-      else sources.set(key, source)
-      failures.delete(key)
-      attempts.delete(key)
-      bindSource(resource, role, source)
-      pruneSources()
-    } catch (error) {
-      if (!resource.active || resource.generation !== generation) return
-      const reason = expired
-        ? 'Timed out after 8 seconds.'
-        : error instanceof Error
-          ? error.message
-          : 'Image download or decode failed.'
-      failures.set(key, reason)
-      // One automatic retry. A third attempt is explicit, not an offline retry loop.
-      const automatic = tried === 0
-      channel.state = {
-        ...channel.state,
-        status: automatic ? 'pending' : 'degraded',
-        source: automatic ? 'pending' : 'failed',
-        error: reason,
-      }
-      if (automatic)
-        channel.timer = setTimeout(() => {
-          channel.timer = undefined
-          request(resource, role, true)
-        }, 300)
-      notify(resource)
-    } finally {
-      clearTimeout(timeout!)
-      channel.controller = undefined
-    }
-  })()
+    },
+  }
+  controller.signal.addEventListener('abort', abort, { once: true })
+  loadQueue.push(job)
+  notify(resource)
+  admitLoads()
 }
 function createResource(set: TextureSet): Resource {
   const maps = Object.fromEntries(roles(set).map((role) => [role, fallback(set, role)])) as Maps
@@ -347,7 +403,12 @@ function disposeResource(resource: Resource) {
   if (!resource.active) return
   resource.active = false
   Object.values(resource.channels).forEach((channel) => {
-    if (channel.controller && !channel.source && channel.state.source === 'pending') {
+    if (
+      channel.controller &&
+      channel.started &&
+      !channel.source &&
+      channel.state.source === 'pending'
+    ) {
       const key = mapInfo(resource.set, channel.state.role).sha256
       attempts.set(key, Math.max(0, (attempts.get(key) ?? 1) - 1))
     }
@@ -430,6 +491,10 @@ export function materialInventory() {
   return {
     generation,
     activeSets: resources.size,
+    activeLoads: activeLoads.size,
+    queuedLoads: loadQueue.length,
+    stalledLoads: [...activeLoads].filter((job) => job.stalled).length,
+    loadConcurrency: LOAD_CONCURRENCY,
     owners: textureProgress.snapshot().owners,
     activeEncodedBytes: [...resources.values()].reduce(
       (sum, r) => sum + roles(r.set).reduce((n, role) => n + mapInfo(r.set, role).encodedBytes, 0),
