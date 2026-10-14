@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FURY — development material stage</title>
+    <style>
+      body {
+        margin: 0;
+        background: #171918;
+        color: #eee;
+        font: 14px/1.5 system-ui;
+      }
+      header {
+        padding: 12px 20px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      p {
+        margin: 4px 0;
+      }
+      a {
+        color: #bde7d3;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+      }
+      #status {
+        white-space: pre-wrap;
+      }
+      :focus-visible {
+        outline: 2px solid #bde7d3;
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Neutral stage · development only</h1>
+      <p>
+        18% linear gray · one-foot checker · AgX / exposure 1 · fixed camera. No visual approval
+        implied.
+      </p>
+      <nav aria-label="Stage presets">
+        <a href="?backend=webgl2">WebGL 2 / day</a> · <a href="?backend=webgpu">WebGPU / day</a> ·
+        <a href="?backend=webgl2&amp;light=warm">Warm comparison</a> ·
+        <a href="?backend=webgl2&amp;materials=production">Production material swatches</a>
+      </nav>
+      <p id="status" role="status">Initializing…</p>
+    </header>
+    <canvas id="stage" aria-label="Neutral material calibration scene"></canvas>
+    <script type="module" src="./stage-entry.ts"></script>
+  </body>
+</html>
