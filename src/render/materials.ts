@@ -1,8 +1,6 @@
 import {
   Color,
   FrontSide,
-  MeshPhysicalMaterial,
-  MeshStandardMaterial,
   NoColorSpace,
   RepeatWrapping,
   SRGBColorSpace,
@@ -12,6 +10,8 @@ import {
   type Side,
   type Texture,
 } from 'three'
+import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
+import { pmremTexture } from 'three/tsl'
 import { textureProgress } from './progress'
 
 /**
@@ -121,9 +121,14 @@ function load(set: TextureSet): Promise<Maps> {
 
 // --- Material library ----------------------------------------------------------
 
-const materials = new Map<string, MeshStandardMaterial>()
-const interiorMaterials = new Set<MeshStandardMaterial>()
-let interiorEnvironment: Texture | null = null
+const materials = new Map<string, MeshStandardNodeMaterial>()
+const interiorMaterials = new Set<MeshStandardNodeMaterial>()
+/**
+ * One environment node shared by every interior material. Node materials resolve `envMap` into a
+ * fixed texture when their shader is built, so swapping probe captures through `envMap` would be
+ * ignored; updating this node's value rebinds every interior material without recompiling.
+ */
+let interiorEnvironment: ReturnType<typeof pmremTexture> | null = null
 export type MaterialChange = 'textures' | 'probe'
 const changeListeners = new Set<(change: MaterialChange) => void>()
 
@@ -138,7 +143,7 @@ function changed(change: MaterialChange) {
   changeListeners.forEach((listener) => listener(change))
 }
 
-function applyMaps(material: MeshStandardMaterial, spec: MaterialSpec, maps: Maps) {
+function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps: Maps) {
   const info = TEXTURE_SETS[spec.set!] as { metallic?: boolean }
   if (maps.albedo) material.map = maps.albedo
   material.normalMap = maps.normal
@@ -148,7 +153,7 @@ function applyMaps(material: MeshStandardMaterial, spec: MaterialSpec, maps: Map
   material.needsUpdate = true
 }
 
-export function material(spec: MaterialSpec): MeshStandardMaterial {
+export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
   const key = JSON.stringify(spec)
   const existing = materials.get(key)
   if (existing) return existing
@@ -157,7 +162,7 @@ export function material(spec: MaterialSpec): MeshStandardMaterial {
     spec.sheen !== undefined ||
     spec.transmission !== undefined ||
     spec.specularIntensity !== undefined
-  const m = physical ? new MeshPhysicalMaterial() : new MeshStandardMaterial()
+  const m = physical ? new MeshPhysicalNodeMaterial() : new MeshStandardNodeMaterial()
   m.color = new Color(spec.color ?? '#ffffff')
   m.roughness = spec.roughness ?? (spec.set ? 1 : 0.6)
   m.metalness = spec.metalness ?? 0
@@ -172,7 +177,7 @@ export function material(spec: MaterialSpec): MeshStandardMaterial {
     m.emissive = new Color(spec.emissive)
     m.emissiveIntensity = spec.emissiveIntensity ?? 1
   }
-  if (m instanceof MeshPhysicalMaterial) {
+  if (m instanceof MeshPhysicalNodeMaterial) {
     m.clearcoat = spec.clearcoat ?? 0
     m.clearcoatRoughness = spec.clearcoatRoughness ?? 0.1
     m.sheen = spec.sheen ?? 0
@@ -196,7 +201,7 @@ export function material(spec: MaterialSpec): MeshStandardMaterial {
   }
   if (spec.interior) {
     interiorMaterials.add(m)
-    if (interiorEnvironment) m.envMap = interiorEnvironment
+    if (interiorEnvironment) m.envNode = interiorEnvironment
   }
   materials.set(key, m)
   return m
@@ -204,12 +209,16 @@ export function material(spec: MaterialSpec): MeshStandardMaterial {
 
 /** Point every interior material at the latest captured interior radiance probe. */
 export function setInteriorEnvironment(texture: Texture | null) {
-  interiorEnvironment = texture
-  interiorMaterials.forEach((m) => {
-    // Swapping between same-format probe textures only rebinds; adding or removing one recompiles.
-    if (!m.envMap !== !texture) m.needsUpdate = true
-    m.envMap = texture
-  })
+  if (texture && interiorEnvironment) {
+    interiorEnvironment.value = texture
+  } else if (texture !== null || interiorEnvironment !== null) {
+    // Adding or removing the probe changes the shader: rebuild once.
+    interiorEnvironment = texture ? pmremTexture(texture) : null
+    interiorMaterials.forEach((m) => {
+      m.envNode = interiorEnvironment
+      m.needsUpdate = true
+    })
+  }
   changed('probe')
 }
 

@@ -254,7 +254,8 @@ export default function Scene({
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
         shadows="percentage"
-        dpr={quality === 'lite' ? 1 : [1, 2]}
+        // Temporal AA resolves edges, so screen-space GI need not pay for full Retina density.
+        dpr={quality === 'lite' ? 1 : [1, 1.5]}
         frameloop="demand"
         camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
         gl={async ({ canvas }) => {

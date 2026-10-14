@@ -6,6 +6,7 @@ import {
   InstancedMesh,
   Matrix4,
   MeshStandardMaterial,
+  type Material,
   MeshStandardNodeMaterial,
   Object3D,
   Quaternion,
@@ -186,7 +187,7 @@ function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
 // --- Trees --------------------------------------------------------------------------------
 
 const _up = new Vector3(0, 1, 0)
-function limbParts(shape: ReturnType<typeof treeShape>, bark: MeshStandardMaterial): Part[] {
+function limbParts(shape: ReturnType<typeof treeShape>, bark: Material): Part[] {
   return shape.limbs.map(({ from, to, r0, r1 }, i) => {
     const direction = to.clone().sub(from)
     const length = direction.length()
@@ -314,7 +315,13 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
   return (
     <group position={[0, 0, -10.75]}>
       <Parts parts={core} />
-      <instancedMesh ref={mesh} args={[card, leaves, matrices.length]} castShadow receiveShadow />
+      <instancedMesh
+        ref={mesh}
+        args={[card, leaves, matrices.length]}
+        castShadow
+        receiveShadow
+        userData={{ noProbe: true }}
+      />
     </group>
   )
 })
@@ -390,6 +397,7 @@ function Tufts({
       args={[geometry, grass, Math.max(1, count)]}
       castShadow={shadow}
       receiveShadow
+      userData={{ noProbe: true }}
     />
   )
 }

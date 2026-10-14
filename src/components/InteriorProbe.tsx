@@ -3,6 +3,9 @@ import { useFrame, useThree } from '@react-three/fiber'
 import {
   PMREMGenerator,
   Vector3,
+  type Light,
+  type LightShadow,
+  type Mesh,
   type Object3D,
   type RenderTarget,
   type WebGPURenderer,
@@ -10,6 +13,9 @@ import {
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setInteriorEnvironment } from '../render/materials'
 import type { Quality } from '../render/quality'
+
+/** Changes arriving faster than this (slider drags) are captured once, after they stop. */
+const DEBOUNCE_MS = 250
 
 /**
  * Interior image-based lighting. A radiance cube is captured from the middle of the room and used
@@ -26,7 +32,7 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
     targets: (RenderTarget | null)[]
     current: number
     passes: number
-    wait: number
+    due: number
   } | null>(null)
   const center = useRef(new Vector3())
   center.current.set(0, productHeight(config) * 0.52, 0.3)
@@ -37,7 +43,7 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
       targets: [null, null],
       current: 0,
       passes: 0,
-      wait: 0,
+      due: 0,
     }
     return () => {
       setInteriorEnvironment(null)
@@ -51,15 +57,15 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
   useEffect(() => {
     if (!state.current) return
     state.current.passes = 2
-    state.current.wait = 2
+    state.current.due = performance.now() + DEBOUNCE_MS
     invalidate()
   }, [config, quality, invalidate])
   useEffect(
     () =>
       onMaterialsChanged((change) => {
-        if (change !== 'textures' || !state.current || state.current.passes > 0) return
+        if (change !== 'textures' || !state.current) return
         state.current.passes = 2
-        state.current.wait = 4
+        state.current.due = performance.now() + DEBOUNCE_MS
       }),
     [],
   )
@@ -67,19 +73,28 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
   useFrame(() => {
     const probe = state.current
     if (!probe || probe.passes <= 0) return
-    if (probe.wait > 0) {
-      probe.wait--
+    if (performance.now() < probe.due) {
       invalidate()
       return
     }
     const next = 1 - probe.current
-    // Planar reflectors keep a render target per camera; they must not render into the six
-    // capture cameras (and a mirror adds nothing to the room's diffuse light anyway).
+    // Planar reflectors keep a render target per camera and must not render into the six capture
+    // cameras. Transmissive surfaces sample a copy of the frame being drawn, which here is the
+    // probe itself. Dense instanced foliage adds cost but no meaningful light to the room. Shadow
+    // maps are rendered once for the capture rather than once per cube face.
     const hidden: Object3D[] = []
+    const shadows: { shadow: LightShadow; autoUpdate: boolean }[] = []
     scene.traverse((object) => {
-      if (object.userData.noProbe && object.visible) {
+      const surface = (object as Mesh).material as { transmission?: number } | undefined
+      if ((object.userData.noProbe || (surface?.transmission ?? 0) > 0) && object.visible) {
         object.visible = false
         hidden.push(object)
+      }
+      const light = object as Light & { shadow?: LightShadow }
+      if (light.isLight && light.castShadow && light.shadow) {
+        shadows.push({ shadow: light.shadow, autoUpdate: light.shadow.autoUpdate })
+        light.shadow.autoUpdate = false
+        light.shadow.needsUpdate = true
       }
     })
     let target: RenderTarget
@@ -91,6 +106,7 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
       })
     } finally {
       hidden.forEach((object) => (object.visible = true))
+      shadows.forEach(({ shadow, autoUpdate }) => (shadow.autoUpdate = autoUpdate))
     }
     probe.targets[next] = target
     probe.current = next
