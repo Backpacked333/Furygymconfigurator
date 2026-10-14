@@ -22,12 +22,16 @@ import {
   normalView,
   positionWorld,
   texture,
+  uniform,
   uv,
   vec4,
 } from 'three/tsl'
 import { noise } from '../lib/visuals'
 
 export type Biome = 'courtyard' | 'desert'
+
+/** Sunlight available for leaf translucency (0 at night, 1 in full sun); set by the atmosphere. */
+export const foliageDaylight = uniform(1)
 
 const PALETTES: Record<Biome, { leaves: string[]; grass: [string, string][] }> = {
   courtyard: {
@@ -116,8 +120,8 @@ export function leafMaterial(biome: Biome, crownHeight: number, hedge = false) {
   const direction = hedge ? vec3(0, offset.y, offset.z) : offset
   const outward = cameraViewMatrix.mul(vec4(normalize(direction), 0)).xyz
   m.normalNode = normalize(mix(normalView, outward, 0.72))
-  // Thin leaves transmit light; a small self-lit term stands in for that translucency.
-  m.emissiveNode = sample.rgb.mul(0.16)
+  // Thin leaves transmit sunlight; a small self-lit term stands in for that translucency.
+  m.emissiveNode = sample.rgb.mul(foliageDaylight.mul(0.16))
   return m
 }
 

@@ -35,7 +35,7 @@ import {
 import { material, textureMaps, type TextureSet } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
-import type { Quality } from '../render/renderer'
+import type { Quality } from '../render/quality'
 import {
   grassBlade,
   grassMaterial,

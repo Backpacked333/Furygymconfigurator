@@ -36,7 +36,7 @@ import {
   type PackageId,
   type Unit,
 } from '../lib/config'
-import type { Quality } from '../render/renderer'
+import { QUALITY_DETAILS, type Quality } from '../render/quality'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
@@ -696,6 +696,7 @@ export default function ConfigPanel({
                 ))}
               </div>
             </div>
+            <p className="muted small quality-detail">{QUALITY_DETAILS[quality]}</p>
             <div className="nature-note">
               <Leaf size={22} />
               <p>

@@ -35,8 +35,9 @@ import {
   sunlightAt,
   type Vec3,
 } from '../lib/visuals'
-import type { Quality } from '../render/renderer'
+import type { Quality } from '../render/quality'
 import { useResource } from '../render/useResource'
+import { foliageDaylight } from '../render/vegetation'
 
 /**
  * three's Preetham sky is calibrated for a ~0.5 exposure with a 60,000-unit sun disc. Scaling its
@@ -56,10 +57,14 @@ const INTERIOR_EXPOSURE = 1.6
 
 type Environment = Config['environment']
 
-function configureSky(sky: Sky, environment: Environment, sun: Vec3) {
+/** Airglow and scattered starlight keep a moonless sky deep blue rather than black. */
+const NIGHT_SKY: Vec3 = [0.0022, 0.0034, 0.0078]
+
+function configureSky(sky: Sky, environment: Environment, sun: Vec3, night: number) {
   const preset = SKY_PRESETS[environment]
+  const horizon = horizonRadiance(sun, preset)
   sky.fill.value.setRGB(
-    ...(horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL) as Vec3),
+    ...(horizon.map((v, i) => v * SKY_SCALE * SKY_FILL + NIGHT_SKY[i] * night) as Vec3),
   )
   sky.turbidity.value = preset.turbidity
   sky.rayleigh.value = preset.rayleigh
@@ -158,11 +163,15 @@ export function Atmosphere({
     const preset = SKY_PRESETS[environment]
     const sunlight = sunlightAt(time, preset)
     const sun = sunlight.direction
-    configureSky(background, environment, sun)
-    configureSky(capture.sky, environment, sun)
+    const night = nightAt(time)
+    configureSky(background, environment, sun, night)
+    configureSky(capture.sky, environment, sun, night)
+    foliageDaylight.value = Math.min(1, sunlight.intensity / 0.6)
     const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
     const horizonFill = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL)
-    const sky = skyRadiance([0, 1, 0], sun, preset).map((v, i) => v * SKY_SCALE + horizonFill[i])
+    const sky = skyRadiance([0, 1, 0], sun, preset).map(
+      (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[i] * night,
+    )
     const direct = (SUN_INTENSITY * sunlight.intensity * Math.max(0, sun[1])) / Math.PI
     ;(capture.ground.material as MeshBasicMaterial).color.setRGB(
       ...(groundAlbedo.map((a, i) => a * (direct * sunlight.color[i] + sky[i] * Math.PI)) as Vec3),

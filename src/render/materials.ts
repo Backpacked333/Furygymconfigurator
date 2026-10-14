@@ -12,6 +12,7 @@ import {
   type Side,
   type Texture,
 } from 'three'
+import { textureProgress } from './progress'
 
 /**
  * Physical sizes (feet per tile) of the bundled CC0 Poly Haven scans plus three baked
@@ -80,23 +81,7 @@ export function setMaxAnisotropy(value: number) {
 
 // --- Load tracking ------------------------------------------------------------
 
-type Listener = () => void
-const listeners = new Set<Listener>()
-const progress = { requested: 0, loaded: 0 }
-let snapshot = { ...progress }
-function emit() {
-  snapshot = { ...progress }
-  listeners.forEach((listener) => listener())
-}
-export const textureProgress = {
-  subscribe(listener: Listener) {
-    listeners.add(listener)
-    return () => {
-      listeners.delete(listener)
-    }
-  },
-  get: () => snapshot,
-}
+export { textureProgress }
 
 const loader = new TextureLoader()
 const base = `${import.meta.env.BASE_URL}textures/`
@@ -117,13 +102,11 @@ function load(set: TextureSet): Promise<Maps> {
   if (pending) return pending
   const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
   const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
-  progress.requested += names.length
-  emit()
+  textureProgress.update(names.length, 0)
   pending = Promise.all(
     names.map((name) =>
       loader.loadAsync(`${base}${set}/${name}.webp`).then((texture) => {
-        progress.loaded++
-        emit()
+        textureProgress.update(0, 1)
         return [name, configure(texture, info.size, name === 'albedo')] as const
       }),
     ),

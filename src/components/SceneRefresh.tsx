@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import type { Config, Unit, View } from '../lib/config'
-import type { Quality } from '../render/renderer'
+import type { Quality } from '../render/quality'
 
 export function SceneRefresh({
   config,

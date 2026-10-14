@@ -9,7 +9,7 @@ import {
 } from 'three/webgpu'
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setInteriorEnvironment } from '../render/materials'
-import type { Quality } from '../render/renderer'
+import type { Quality } from '../render/quality'
 
 /**
  * Interior image-based lighting. A radiance cube is captured from the middle of the room and used

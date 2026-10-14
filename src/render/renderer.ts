@@ -1,24 +1,9 @@
 import { AgXToneMapping, RectAreaLightNode, WebGPURenderer } from 'three/webgpu'
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js'
 
-export type Quality = 'ultra' | 'high' | 'lite'
-export type Backend = 'webgpu' | 'webgl2'
+import { requestedBackend, type Backend, type Quality } from './quality'
 
-/** `?renderer=webgl` forces the WebGL 2 backend, useful for comparing or working around drivers. */
-export function requestedBackend(search = window.location.search): Backend | null {
-  const value = new URLSearchParams(search).get('renderer')
-  return value === 'webgl' || value === 'webgl2' ? 'webgl2' : value === 'webgpu' ? 'webgpu' : null
-}
-
-/** Starting tier: `?quality=` wins, otherwise the viewport decides. Users can change it later. */
-export function defaultQuality(
-  width = window.innerWidth,
-  search = window.location.search,
-): Quality {
-  const requested = new URLSearchParams(search).get('quality')
-  if (requested === 'ultra' || requested === 'high' || requested === 'lite') return requested
-  return width >= 1100 ? 'ultra' : width >= 700 ? 'high' : 'lite'
-}
+export type { Backend, Quality }
 
 let viewShimInstalled = false
 type ViewDescriptor = Record<string, unknown> & { swizzle?: unknown }

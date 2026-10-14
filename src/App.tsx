@@ -1,4 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -46,7 +54,8 @@ import {
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
-import { defaultQuality, type Backend, type Quality } from './render/renderer'
+import { defaultQuality, type Backend, type Quality } from './render/quality'
+import { textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
@@ -59,6 +68,8 @@ export default function App() {
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
     [backend, setBackend] = useState<Backend | null>(null)
+  // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
+  const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
   const [dialog, setDialog] = useState<Dialog>(null),
     [toast, setToast] = useState(initialNotice),
     [reset, setReset] = useState(0)
@@ -72,6 +83,18 @@ export default function App() {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setToast(''), 6500)
   }, [])
+  const chooseQuality = useCallback((next: Quality) => {
+    qualityChosen.current = true
+    setQuality(next)
+  }, [])
+  const onSlow = useCallback(() => {
+    if (qualityChosen.current || quality === 'lite') return
+    const next = quality === 'ultra' ? 'high' : 'lite'
+    setQuality(next)
+    notify(
+      `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
+    )
+  }, [quality, notify])
   const onCaptureReady = useCallback((capture: () => string) => {
     captureRef.current = capture
   }, [])
@@ -234,6 +257,7 @@ export default function App() {
                 onCaptureReady={onCaptureReady}
                 onFallback={() => setView('plan')}
                 onBackend={setBackend}
+                onSlow={onSlow}
               />
             </Suspense>
           )}
@@ -345,6 +369,7 @@ export default function App() {
               </button>
             </div>
           )}
+          {view !== 'plan' && <MaterialProgress />}
           {view !== 'plan' && (
             <div className="stage-bottom">
               <div className="scene-status">
@@ -399,7 +424,7 @@ export default function App() {
             unit={unit}
             setUnit={setUnit}
             quality={quality}
-            setQuality={setQuality}
+            setQuality={chooseQuality}
             notify={notify}
             onPlan={() => {
               setView('plan')
@@ -532,6 +557,17 @@ export default function App() {
           </button>
         </Modal>
       )}
+    </div>
+  )
+}
+/** Shows progress while the photo-scanned material library streams in. */
+function MaterialProgress() {
+  const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
+  if (!requested || loaded >= requested) return null
+  return (
+    <div className="material-progress" role="status">
+      <span style={{ width: `${Math.round((loaded / requested) * 100)}%` }} />
+      Loading scanned materials · {Math.round((loaded / requested) * 100)}%
     </div>
   )
 }

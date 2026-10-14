@@ -236,6 +236,7 @@ export default function Scene({
   onCaptureReady,
   onFallback,
   onBackend,
+  onSlow,
 }: {
   config: Config
   view: View
@@ -247,6 +248,7 @@ export default function Scene({
   onCaptureReady: (capture: () => string) => void
   onFallback: () => void
   onBackend?: (backend: Backend) => void
+  onSlow?: () => void
 }) {
   return (
     <GraphicsBoundary onFallback={onFallback}>
@@ -268,7 +270,7 @@ export default function Scene({
         {dimensions && <Dimensions config={config} unit={unit} />}
         <CameraRig config={config} view={view} reset={reset} autoRotate={autoRotate} />
         <InteriorProbe config={config} quality={quality} />
-        <RenderEffects quality={quality} onCaptureReady={onCaptureReady} />
+        <RenderEffects quality={quality} onCaptureReady={onCaptureReady} onSlow={onSlow} />
         <SceneRefresh
           config={config}
           view={view}

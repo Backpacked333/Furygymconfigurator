@@ -1,6 +1,6 @@
 import { MeshBasicNodeMaterial, MeshStandardMaterial, type Object3D } from 'three/webgpu'
 import { color, reflector } from 'three/tsl'
-import type { Quality } from '../render/renderer'
+import type { Quality } from '../render/quality'
 import { useResource } from '../render/useResource'
 
 type MirrorSurface = {
