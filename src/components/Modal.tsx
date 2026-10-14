@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
 export default function Modal({
@@ -15,17 +15,24 @@ export default function Modal({
   wide?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current
+    const opener = document.activeElement
     dialog?.showModal()
-    return () => dialog?.close()
+    return () => {
+      dialog?.close()
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true })
+    }
   }, [])
   return (
     <dialog
       ref={ref}
       className={`modal ${wide ? 'modal-wide' : ''}`}
       aria-labelledby="dialog-title"
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
       onClick={(e) => {
         if (e.target === ref.current) onClose()
       }}
