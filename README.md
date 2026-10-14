@@ -41,7 +41,9 @@ npm run build
 npm run preview
 ```
 
-`npm run format` applies Prettier. CI runs formatting, ESLint, TypeScript, Vitest, and the production build. There are no custom pre-commit hooks. Production output is `dist/`, suitable for Vercel, Netlify, Cloudflare Pages, or another static host. Configure `npm run build` as the build command and `dist` as the output directory; serve the app over HTTPS for clipboard sharing. Do not expose Vite's development server as the public production service.
+`npm run format` applies Prettier. CI runs formatting, ESLint, TypeScript, Vitest, and the production build. There are no custom pre-commit hooks. Production output is `dist/`, suitable for Vercel, Netlify, Cloudflare Pages, or another static host. Configure `npm run build` as the build command and `dist` as the output directory; serve the app over HTTPS for clipboard sharing and WebGPU (browsers only expose WebGPU to secure contexts). Do not expose Vite's development server as the public production service.
+
+The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/assets/*` for a year and the bundled `/textures/*` for a day with background revalidation, since texture filenames are not hashed. If you regenerate a texture set, returning visitors may see the previous version for up to a day.
 
 ## What works
 
