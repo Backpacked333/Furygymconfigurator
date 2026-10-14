@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useId, useMemo, useRef } from 'react'
 import {
   BufferGeometry,
   Color,
@@ -51,6 +51,20 @@ import {
 import { Parts } from './Parts'
 
 const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
+
+function useInstances(matrices: readonly Matrix4[]) {
+  // Refs run for every reconstructed mesh, even when its placement data is unchanged.
+  return useCallback(
+    (mesh: InstancedMesh | null) => {
+      if (!mesh) return
+      matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix))
+      mesh.count = matrices.length
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.computeBoundingSphere()
+    },
+    [matrices],
+  )
+}
 
 // --- Ground -----------------------------------------------------------------------------
 
@@ -238,32 +252,23 @@ const Tree = memo(function Tree({
       ),
     [shape, biome],
   )
-  const card = useMemo(leafCard, [])
-  const leaves = useMemo(() => leafMaterial(biome, shape.crownHeight), [biome, shape.crownHeight])
-  useEffect(
-    () => () => {
-      card.dispose()
-      leaves.dispose()
-    },
-    [card, leaves],
+  const card = useResource(leafCard, [])
+  const leaves = useResource(
+    () => leafMaterial(biome, shape.crownHeight),
+    [biome, shape.crownHeight],
   )
-  const mesh = useRef<InstancedMesh>(null)
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    shape.leaves.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [shape])
+  const mesh = useInstances(shape.leaves)
   return (
     <group position={position} scale={scale}>
       <Parts parts={limbs} />
-      <instancedMesh
-        ref={mesh}
-        args={[card, leaves, shape.leaves.length]}
-        castShadow
-        receiveShadow
-      />
+      {card && leaves && (
+        <instancedMesh
+          ref={mesh}
+          args={[card, leaves, shape.leaves.length]}
+          castShadow
+          receiveShadow
+        />
+      )}
     </group>
   )
 })
@@ -273,15 +278,8 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
   const height = 3.3,
     depth = 1.5
   const count = Math.round(4200 * DENSITY[quality]) + 500
-  const card = useMemo(leafCard, [])
-  const leaves = useMemo(() => leafMaterial('courtyard', height / 2, true), [])
-  useEffect(
-    () => () => {
-      card.dispose()
-      leaves.dispose()
-    },
-    [card, leaves],
-  )
+  const card = useResource(leafCard, [])
+  const leaves = useResource(() => leafMaterial('courtyard', height / 2, true), [])
   const matrices = useMemo(() => {
     const object = new Object3D()
     const list: Matrix4[] = []
@@ -304,14 +302,7 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
     }
     return list
   }, [count, length])
-  const mesh = useRef<InstancedMesh>(null)
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices])
+  const mesh = useInstances(matrices)
   const core = useMemo(
     () => [
       part(
@@ -325,13 +316,15 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
   return (
     <group position={[0, 0, -10.75]}>
       <Parts parts={core} />
-      <instancedMesh
-        ref={mesh}
-        args={[card, leaves, matrices.length]}
-        castShadow
-        receiveShadow
-        userData={{ noProbe: true }}
-      />
+      {card && leaves && (
+        <instancedMesh
+          ref={mesh}
+          args={[card, leaves, matrices.length]}
+          castShadow
+          receiveShadow
+          userData={{ noProbe: true }}
+        />
+      )}
     </group>
   )
 })
@@ -358,26 +351,22 @@ function Tufts({
   colors: [string, string]
   shadow: boolean
 }) {
-  const geometry = useMemo(() => {
+  const geometry = useResource(() => {
     const parts: BufferGeometry[] = []
     for (let b = 0; b < blades; b++) {
       const g = grassBlade(height * (0.65 + noise(b, 91) * 0.5), bend * (0.6 + noise(b, 92) * 0.8))
       g.rotateY((b / blades) * Math.PI * 2 + noise(b, 93))
       g.translate((noise(b, 94) - 0.5) * 0.12, 0, (noise(b, 95) - 0.5) * 0.12)
       parts.push(g.toNonIndexed())
+      g.dispose()
     }
     const merged = mergeGeometries(parts)
+    parts.forEach((geometry) => geometry.dispose())
     merged.computeVertexNormals()
     return merged
   }, [blades, height, bend])
-  const grass = useMemo(() => grassMaterial(colors[0], colors[1]), [colors])
-  useEffect(
-    () => () => {
-      geometry.dispose()
-      grass.dispose()
-    },
-    [geometry, grass],
-  )
+  const [baseColor, tipColor] = colors
+  const grass = useResource(() => grassMaterial(baseColor, tipColor), [baseColor, tipColor])
   const matrices = useMemo(() => {
     const object = new Object3D()
     const list: Matrix4[] = []
@@ -392,15 +381,8 @@ function Tufts({
     }
     return list
   }, [count, place, variant])
-  const mesh = useRef<InstancedMesh>(null)
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.count = matrices.length
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices])
+  const mesh = useInstances(matrices)
+  if (!geometry || !grass) return null
   return (
     <instancedMesh
       ref={mesh}
