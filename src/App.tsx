@@ -3,12 +3,12 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
 import {
-  ArrowDownToLine,
   ArrowRight,
   Bookmark,
   Camera,
@@ -35,7 +35,9 @@ import {
 import ConfigPanel from './components/ConfigPanel'
 import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
-import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
+import { EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
+import BriefDialog from './components/BriefDialog'
+import ImageExportControls from './components/ImageExportControls'
 import {
   DEFAULT_CONFIG,
   FINISHES,
@@ -46,7 +48,7 @@ import {
   money,
   productName,
   productHeight,
-  setFamily,
+  changeFamily,
   packageItems,
   type Config,
   type Unit,
@@ -54,68 +56,115 @@ import {
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
-import { defaultQuality, type Backend, type Quality } from './render/quality'
+import {
+  defaultQuality,
+  initialAutoQuality,
+  requestedQuality,
+  type Backend,
+  type Quality,
+  type QualityMode,
+  type DeviceProfile,
+} from './render/quality'
 import { textureProgress } from './render/progress'
+import { createCaptureRegistry } from './lib/capture'
+import type { PresentationState } from './lib/presentation'
+import type { CameraMemory } from './lib/camera'
 import { SceneBoundary, SceneLoading } from './components/SceneBoundary'
+import RecoveryDialog from './components/RecoveryDialog'
+import { storageMessage } from './components/useLibrary'
+import './components/document-status.css'
+import './components/export-controls.css'
 
-type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
+const sceneAssets = () => textureProgress.snapshot('scene')
+
+type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | 'recovery' | null
 
 export default function App() {
   const [Scene, setScene] = useState(() => lazy(() => import('./components/Scene')))
   const [sceneAttempt, setSceneAttempt] = useState(0)
-  const { config, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
+  const design = useConfig()
+  const {
+    config,
+    committedConfig,
+    revision,
+    isPreviewing,
+    persistence,
+    repair,
+    recovery,
+    setConfig,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    initialNotice,
+  } = design
+  const exportBlocked = isPreviewing || repair.required || persistence.status === 'initializing'
   const [step, setStep] = useState(0),
     [view, setView] = useState<View>('exterior'),
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
     [backend, setBackend] = useState<Backend | null>(null)
-  // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
-  const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
+  const [qualityMode, setQualityMode] = useState<QualityMode>(() => requestedQuality() ?? 'auto')
+  const [profile, setProfile] = useState<DeviceProfile>()
+  const [captureRegistry] = useState(createCaptureRegistry)
+  const cameraMemory = useRef<CameraMemory>({})
+  const [presentation, setPresentation] = useState<PresentationState | null>(null)
+  const assets = useSyncExternalStore(textureProgress.subscribe, sceneAssets)
+  const assetReadiness = useMemo(
+    () => ({
+      pending: assets.pending,
+      degraded: assets.degraded > 0 || assets.failed > 0,
+      revision: `${assets.generation}:${assets.revision}`,
+    }),
+    [assets],
+  )
+  const exportContext = {
+    config: committedConfig,
+    revision,
+    getProvider: captureRegistry.get,
+    blocked: exportBlocked,
+  }
   const [dialog, setDialog] = useState<Dialog>(null),
     [toast, setToast] = useState(initialNotice),
     [reset, setReset] = useState(0)
   const [autoRotate, setAutoRotate] = useState(false),
     [photoMode, setPhotoMode] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true)
-  const captureRef = useRef<(() => string) | null>(null),
-    timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
     setToast(s)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setToast(''), 6500)
   }, [])
   const chooseQuality = useCallback((next: Quality) => {
-    qualityChosen.current = true
+    setQualityMode(next)
     setQuality(next)
   }, [])
+  const onDeviceProfile = useCallback(
+    (next: DeviceProfile) => {
+      setProfile(next)
+      if (qualityMode === 'auto') setQuality(initialAutoQuality(next))
+    },
+    [qualityMode],
+  )
   const onSlow = useCallback(() => {
-    if (qualityChosen.current || quality === 'lite') return
+    if (qualityMode !== 'auto' || quality === 'lite') return
     const next = quality === 'ultra' ? 'high' : 'lite'
     setQuality(next)
     notify(
       `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
     )
-  }, [quality, notify])
-  const onCaptureReady = useCallback((capture: () => string) => {
-    captureRef.current = capture
-  }, [])
-  const capture = useCallback(() => {
-    if (view === 'plan') return null
-    try {
-      return captureRef.current?.() ?? null
-    } catch {
-      return null
-    }
-  }, [view])
+  }, [quality, qualityMode, notify])
   const close = () => setDialog(null)
   useEffect(() => {
+    if (!persistence.writeSafe || isPreviewing || repair.required) return
     window.history.replaceState(
       null,
       '',
-      `${window.location.pathname}${window.location.search}#c=${encodeConfig(config)}`,
+      `${window.location.pathname}${window.location.search}#c=${encodeConfig(committedConfig)}`,
     )
-  }, [config])
+  }, [committedConfig, persistence.writeSafe, isPreviewing, repair.required])
   useEffect(() => {
     if (initialNotice) timer.current = setTimeout(() => setToast(''), 6500)
     return () => {
@@ -164,22 +213,19 @@ export default function App() {
         time: 9,
       },
     }
-    setConfig(setFamily(templates[id], config.family))
+    const family = changeFamily(templates[id], config.family)
+    if (!family.accepted) {
+      notify(family.notice ?? family.issues.join(' '))
+      return
+    }
+    const applied = setConfig(family.config)
+    if (applied.status === 'rejected' || applied.status === 'conflict') {
+      notify(applied.issues.join(' '))
+      return
+    }
     setView('exterior')
     setReset((r) => r + 1)
     notify('Concept layout applied. This is not an official Fury package.')
-  }
-  const photo = () => {
-    const image = capture()
-    if (!image) {
-      notify('Your scene is still getting ready. Try again in a moment.')
-      return
-    }
-    const a = document.createElement('a')
-    a.href = image
-    a.download = `Fury-${config.family}-${config.length}-${config.finish}.png`
-    a.click()
-    notify('Your gym image is downloaded. Concept rendering, not manufacturer photography.')
   }
   const startingPrice = estimate(config).startingPrice,
     finish = FINISHES.find((f) => f.id === config.finish)!
@@ -215,11 +261,11 @@ export default function App() {
           <span className="live-dot" /> YOUR SPACE. YOUR WAY.
         </div>
         <nav className="header-actions" aria-label="Build actions">
-          <button onClick={() => setDialog('library')}>
+          <button disabled={exportBlocked} onClick={() => setDialog('library')}>
             <Bookmark size={16} />
             <span>My builds</span>
           </button>
-          <button onClick={() => setDialog('share')}>
+          <button disabled={exportBlocked} onClick={() => setDialog('share')}>
             <Share2 size={16} />
             <span>Share</span>
           </button>
@@ -232,6 +278,29 @@ export default function App() {
           </button>
         </nav>
       </header>
+      {(persistence.status !== 'saved' && persistence.status !== 'ready') ||
+      repair.required ||
+      recovery.length > 0 ||
+      isPreviewing ? (
+        <div className="document-status" role="status">
+          <span>
+            {isPreviewing
+              ? 'Previewing an edit — finish or cancel before sharing.'
+              : repair.required
+                ? 'Review required. Original design preserved; exports are paused.'
+                : persistence.status === 'initializing'
+                  ? 'Opening your saved design…'
+                  : persistence.status === 'saving'
+                    ? 'Saving on this browser…'
+                    : persistence.reason
+                      ? storageMessage(persistence.reason)
+                      : 'Recovery originals available.'}
+          </span>
+          {persistence.status !== 'initializing' && (
+            <button onClick={() => setDialog('recovery')}>Review & download originals</button>
+          )}
+        </div>
+      ) : null}
       <main className="workspace">
         <section
           className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
@@ -244,11 +313,11 @@ export default function App() {
               key={sceneAttempt}
               attempts={sceneAttempt}
               onFailure={() => {
-                captureRef.current = null
+                setPresentation(null)
               }}
               onPlan={() => setView('plan')}
               onRetry={() => {
-                captureRef.current = null
+                setPresentation(null)
                 setScene(() => lazy(() => import('./components/Scene')))
                 setSceneAttempt((n) => n + 1)
               }}
@@ -256,13 +325,20 @@ export default function App() {
               <Suspense fallback={<SceneLoading onPlan={() => setView('plan')} />}>
                 <Scene
                   config={config}
+                  revision={revision}
+                  isPreviewing={isPreviewing}
                   view={view}
                   dimensions={dimensions}
                   unit={unit}
                   reset={reset}
                   autoRotate={autoRotate}
                   quality={quality}
-                  onCaptureReady={onCaptureReady}
+                  onCaptureProvider={captureRegistry.register}
+                  onPresentation={setPresentation}
+                  cameraMemory={cameraMemory}
+                  assets={assetReadiness}
+                  qualityMode={qualityMode}
+                  onDeviceProfile={onDeviceProfile}
                   onFallback={() => setView('plan')}
                   onBackend={setBackend}
                   onSlow={onSlow}
@@ -350,7 +426,8 @@ export default function App() {
             <button
               aria-label="Enter photo mode"
               onClick={() => {
-                setView('exterior')
+                if (view === 'plan') setView('exterior')
+                setAutoRotate(false)
                 setPhotoMode(true)
                 setMobilePanel(false)
               }}
@@ -360,36 +437,41 @@ export default function App() {
             </button>
           </div>
           {photoMode && (
-            <div className="photo-controls">
-              <span>
-                PHOTO MODE <small>Concept rendering</small>
-              </span>
-              <button onClick={photo}>
-                <ArrowDownToLine size={16} /> Save image
-              </button>
-              <button
-                aria-label="Exit photo mode"
-                onClick={() => {
-                  setPhotoMode(false)
-                  setMobilePanel(true)
-                }}
-              >
-                <X size={18} />
-              </button>
-            </div>
+            <ImageExportControls
+              context={exportContext}
+              presentation={presentation}
+              onClose={() => {
+                setPhotoMode(false)
+                setMobilePanel(true)
+              }}
+            />
           )}
-          {view !== 'plan' && <MaterialProgress />}
+          {view !== 'plan' && <MaterialProgress assets={assets} />}
           {view !== 'plan' && (
             <div className="stage-bottom">
               <div className="scene-status">
                 <span className="status-dot" />
-                <strong>LIVE 3D</strong>
+                <strong>{presentation?.stage.toUpperCase() ?? 'INITIALIZING'}</strong>
                 {backend && (
                   <span className="render-backend">
-                    {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
+                    {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} ·{' '}
+                    {qualityMode === 'auto' ? 'Auto / ' : ''}
+                    {quality}
+                    {profile?.hardware === 'software' ? ' · software rendering' : ''}
                   </span>
                 )}
                 <span>Concept visualization · Not manufacturer CAD</span>
+                {qualityMode !== 'auto' && (
+                  <button
+                    className="quality-auto"
+                    onClick={() => {
+                      setQualityMode('auto')
+                      setQuality(initialAutoQuality(profile))
+                    }}
+                  >
+                    Use Auto quality
+                  </button>
+                )}
               </div>
               <div className="scene-hint">
                 {view === 'interior' ? 'Drag to look around' : 'Drag to orbit · Scroll to explore'}
@@ -470,7 +552,11 @@ export default function App() {
           </button>
           <small>Selected build: quote required</small>
         </div>
-        <button className="primary brief-cta" onClick={() => setDialog('brief')}>
+        <button
+          className="primary brief-cta"
+          disabled={exportBlocked}
+          onClick={() => setDialog('brief')}
+        >
           <span>
             Create build brief<small>Your vision, in one beautiful PDF.</small>
           </span>
@@ -487,17 +573,40 @@ export default function App() {
         </div>
       )}
       {dialog === 'estimate' && <EstimateDialog config={config} onClose={close} />}
-      {dialog === 'share' && <ShareDialog config={config} onClose={close} notify={notify} />}
+      {dialog === 'share' && !exportBlocked && (
+        <ShareDialog config={committedConfig} onClose={close} notify={notify} />
+      )}
       {dialog === 'brief' && (
-        <BriefDialog config={config} capture={capture} onClose={close} notify={notify} />
+        <BriefDialog context={exportContext} onClose={close} notify={notify} />
       )}
       {dialog === 'library' && (
         <LibraryDialog
-          config={config}
+          config={committedConfig}
           unit={unit}
-          onLoad={setConfig}
+          onLoad={(next) => {
+            const result = setConfig(next)
+            if (result.status === 'rejected' || result.status === 'conflict') {
+              notify(
+                result.issues.join(' ') ||
+                  'This saved build needs repair. Its original is preserved.',
+              )
+              return false
+            }
+            return true
+          }}
           onClose={close}
           notify={notify}
+        />
+      )}
+      {dialog === 'recovery' && (
+        <RecoveryDialog
+          document={design}
+          onClose={close}
+          notify={notify}
+          onPlan={() => {
+            setView('plan')
+            close()
+          }}
         />
       )}
       {dialog === 'help' && (
@@ -548,13 +657,17 @@ export default function App() {
           </p>
           <button
             className="secondary full"
-            onClick={() => {
+            onClick={async () => {
               if (
                 window.confirm(
                   'Reset to the original Studio concept? Saved builds will not be deleted.',
                 )
               ) {
-                setConfig(structuredClone(DEFAULT_CONFIG))
+                const result = await design.resetConfig()
+                if (!result.ok || result.value.status !== 'saved') {
+                  notify(storageMessage(result.ok ? 'conflict' : result.reason))
+                  return
+                }
                 setView('exterior')
                 setReset((r) => r + 1)
                 close()
@@ -570,13 +683,18 @@ export default function App() {
   )
 }
 /** Shows progress while the photo-scanned material library streams in. */
-function MaterialProgress() {
-  const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
-  if (!requested || loaded >= requested) return null
+function MaterialProgress({ assets }: { assets: ReturnType<typeof sceneAssets> }) {
+  const { requested, ready, pending, failed, degraded, canRetry } = assets
+  if (!requested || (!pending && !failed && !degraded)) return null
   return (
     <div className="material-progress" role="status">
-      <span style={{ width: `${Math.round((loaded / requested) * 100)}%` }} />
-      Loading scanned materials · {Math.round((loaded / requested) * 100)}%
+      <span style={{ width: `${Math.round((ready / requested) * 100)}%` }} />
+      {pending
+        ? `Loading scanned maps · ${ready}/${requested} ready`
+        : `Degraded materials · ${failed || degraded} maps use illustrative fallbacks`}
+      {canRetry && (
+        <button onClick={() => textureProgress.retry('scene')}>Retry failed maps</button>
+      )}
     </div>
   )
 }

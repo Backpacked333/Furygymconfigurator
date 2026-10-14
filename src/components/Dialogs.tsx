@@ -5,7 +5,6 @@ import {
   Bookmark,
   Check,
   Copy,
-  FileText,
   Info,
   Plus,
   Trash2,
@@ -20,11 +19,8 @@ import {
   money,
   productName,
   productHeight,
-  readSaved,
   shareUrl,
-  writeSaved,
   type Config,
-  type SavedBuild,
   type Unit,
 } from '../lib/config'
 import {
@@ -34,9 +30,10 @@ import {
   PRODUCT_SOURCE_DATE,
   productFamily,
 } from '../lib/products'
-import { downloadFile, exportBrief } from '../lib/export'
+import { downloadFile } from '../lib/export'
 import Modal from './Modal'
 import { MiniStudio } from './ConfigPanel'
+import { useLibrary, storageMessage } from './useLibrary'
 
 export function EstimateDialog({ config, onClose }: { config: Config; onClose: () => void }) {
   const { lines, startingPrice, source } = estimate(config)
@@ -173,84 +170,6 @@ export function ShareDialog({
     </Modal>
   )
 }
-export function BriefDialog({
-  config,
-  capture,
-  onClose,
-  notify,
-}: {
-  config: Config
-  capture: () => string | null
-  onClose: () => void
-  notify: (s: string) => void
-}) {
-  const [name, setName] = useState(`My ${productName(config)}`),
-    [notes, setNotes] = useState(''),
-    [busy, setBusy] = useState(false)
-  return (
-    <Modal
-      title="From a vision to a plan."
-      subtitle="A considered brief to start a real conversation."
-      onClose={onClose}
-    >
-      <div className="brief-includes">
-        <FileText size={30} strokeWidth={1} />
-        <div>
-          <strong>Your personal build brief</strong>
-          <span>Configuration · Scene image · Quote checklist · Floor plan</span>
-        </div>
-      </div>
-      <label className="field-label">
-        Project name
-        <input
-          value={name}
-          maxLength={60}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="My backyard gym"
-        />
-      </label>
-      <label className="field-label">
-        What else should be considered?
-        <textarea
-          value={notes}
-          maxLength={2000}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={4}
-          placeholder="Your training goals, site access, target timeline, or questions for Fury…"
-        />
-      </label>
-      <div className="notice">
-        <Info size={18} />
-        <p>
-          This creates a PDF on your device. It is <strong>not sent to sales</strong> and does not
-          reserve a production slot. No personal information is uploaded.
-        </p>
-      </div>
-      <p className="muted small">
-        Scene image included when 3D is available. Project names and notes currently support
-        Latin-script text in the PDF.
-      </p>
-      <button
-        className="primary full"
-        disabled={busy || !name.trim()}
-        onClick={async () => {
-          setBusy(true)
-          try {
-            await exportBrief(config, capture(), { name, notes })
-            notify('Build brief downloaded. Your next step: share it with your project team.')
-          } catch {
-            notify('Could not create the PDF. Try again, or download the configuration from Share.')
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <ArrowDownToLine size={17} />
-        {busy ? 'Preparing your brief…' : 'Download build brief'}
-      </button>
-    </Modal>
-  )
-}
 export function LibraryDialog({
   config,
   unit,
@@ -260,27 +179,16 @@ export function LibraryDialog({
 }: {
   config: Config
   unit: Unit
-  onLoad: (c: Config) => void
+  onLoad: (c: Config) => boolean
   onClose: () => void
   notify: (s: string) => void
 }) {
-  const [saved, setSaved] = useState<SavedBuild[]>(readSaved),
-    [name, setName] = useState(
+  const library = useLibrary()
+  const saved = library.snapshot?.entries.map((entry) => entry.build) ?? []
+  const [name, setName] = useState(
       `${productName(config)} / ${FINISHES.find((f) => f.id === config.finish)!.name}`,
     ),
     [compare, setCompare] = useState<string[]>([])
-  const persist = (next: SavedBuild[]) => {
-    try {
-      writeSaved(next)
-      setSaved(next)
-      return true
-    } catch {
-      notify(
-        'Browser storage is unavailable or full. Export your configuration from Share instead.',
-      )
-      return false
-    }
-  }
   const comparisons = compare.map((id) => saved.find((s) => s.id === id)!).filter(Boolean)
   return (
     <Modal
@@ -296,28 +204,54 @@ export function LibraryDialog({
         </label>
         <button
           className="primary"
-          disabled={!name.trim() || saved.length >= 12}
-          onClick={() => {
-            const next = [
-              {
-                id: crypto.randomUUID(),
-                name: name.trim(),
-                date: new Date().toISOString(),
-                config: structuredClone(config),
-              },
-              ...saved,
-            ]
-            if (persist(next)) notify('Build saved on this browser.')
+          disabled={!name.trim() || !library.snapshot || library.busy || saved.length >= 12}
+          onClick={async () => {
+            const result = await library.save({
+              id: crypto.randomUUID(),
+              name: name.trim(),
+              date: new Date().toISOString(),
+              config: structuredClone(config),
+            })
+            if (result.ok && result.value.status === 'saved') notify('Build saved on this browser.')
+            else notify(storageMessage(result.ok ? 'conflict' : result.reason))
           }}
         >
           <Plus size={16} /> Save current
         </button>
       </div>
+      {library.error && (
+        <div className="notice" role="alert">
+          <p>{storageMessage(library.error)}</p>
+          <button className="secondary" onClick={() => void library.refresh()}>
+            Refresh library
+          </button>
+        </div>
+      )}
+      {!library.snapshot && !library.error && <p role="status">Opening your saved builds…</p>}
+      {!!library.snapshot?.rejected.length && (
+        <div className="notice" role="alert">
+          <p>
+            {library.snapshot.rejected.length} unsupported or damaged records are preserved, not
+            deleted.
+          </p>
+          <button
+            className="secondary"
+            onClick={() =>
+              downloadFile(
+                'fury-library-recovery.json',
+                JSON.stringify(library.snapshot?.rejected, null, 2),
+              )
+            }
+          >
+            Download original records
+          </button>
+        </div>
+      )}
       <p className="muted small">
         {saved.length}/12 saved locally on this browser. No account or cloud backup. Select two
         builds to compare.
       </p>
-      {saved.length === 0 ? (
+      {library.snapshot && saved.length === 0 ? (
         <div className="empty-library">
           <Bookmark size={32} strokeWidth={1} />
           <h3>Your ideas belong here.</h3>
@@ -337,10 +271,16 @@ export function LibraryDialog({
                 <button
                   className="icon-button"
                   aria-label={`Delete ${build.name}`}
-                  onClick={() => {
+                  disabled={library.busy}
+                  onClick={async () => {
                     if (window.confirm(`Delete “${build.name}” from this browser?`)) {
-                      if (persist(saved.filter((s) => s.id !== build.id)))
+                      const entry = library.snapshot!.entries.find(
+                        (entry) => entry.build.id === build.id,
+                      )!
+                      const result = await library.remove(build.id, entry.revision)
+                      if (result.ok && result.value.status === 'saved')
                         setCompare(compare.filter((id) => id !== build.id))
+                      else notify(storageMessage(result.ok ? 'conflict' : result.reason))
                     }
                   }}
                 >
@@ -349,6 +289,10 @@ export function LibraryDialog({
               </div>
               <h3>{build.name}</h3>
               <p>{productName(build.config)} · Quote required</p>
+              {library.snapshot?.entries.find((entry) => entry.build.id === build.id)?.status ===
+                'repair' && (
+                <p className="muted small">Needs layout repair. Original build is preserved.</p>
+              )}
               <div className="saved-actions">
                 <label>
                   <input
@@ -367,9 +311,10 @@ export function LibraryDialog({
                 </label>
                 <button
                   onClick={() => {
-                    onLoad(build.config)
-                    onClose()
-                    notify(`Loaded “${build.name}”.`)
+                    if (onLoad(structuredClone(build.config))) {
+                      onClose()
+                      notify(`Loaded “${build.name}”.`)
+                    }
                   }}
                 >
                   Load <ArrowRight size={14} />

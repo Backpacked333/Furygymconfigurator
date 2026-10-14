@@ -1,0 +1,18 @@
+.document-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 8px 18px;
+  background: #eee9dd;
+  border-bottom: 1px solid #d3cbb9;
+  color: #34342f;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.document-status button {
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

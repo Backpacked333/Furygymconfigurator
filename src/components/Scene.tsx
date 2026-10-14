@@ -26,7 +26,7 @@ import {
   type Backend,
   type Quality,
 } from '../render/renderer'
-import { setMaxAnisotropy } from '../render/materials'
+import { setMaterialGeneration, setMaxAnisotropy } from '../render/materials'
 import { canRestoreCamera, transitionFraction, type CameraMemoryRef } from '../lib/camera'
 import {
   createPresentationStore,
@@ -555,6 +555,7 @@ function SceneCanvas({
               forceWebGL,
               signal: controller.signal,
             })
+            setMaterialGeneration(generation)
             onRendererGeneration?.(generation)
             setMaxAnisotropy(renderer.getMaxAnisotropy())
             return renderer

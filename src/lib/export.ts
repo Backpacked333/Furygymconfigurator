@@ -13,12 +13,16 @@ import {
 } from './config'
 import {
   CONTAINER_OPENINGS,
+  OPENING_CONCEPTS,
   STUDIO_LAYOUTS,
   PROJECT_URL,
   PRODUCT_SOURCE_DATE,
   productFamily,
 } from './products'
 import { pdfText, validateProject } from './pdfText'
+import type { CaptureResult } from './capture'
+
+export type BriefImageEvidence = Omit<Extract<CaptureResult, { blob: Blob }>, 'blob'>
 
 export function downloadFile(name: string, content: string | Blob, type = 'application/json') {
   const url = URL.createObjectURL(
@@ -32,11 +36,14 @@ export function downloadFile(name: string, content: string | Blob, type = 'appli
 }
 export async function createBrief(
   configuration: Config,
-  image: string | null,
+  imageInput: string | Uint8Array | null,
   projectInput: { name: string; notes: string },
+  evidenceInput?: BriefImageEvidence,
 ) {
   const config = structuredClone(configuration)
   const project = validateProject({ ...projectInput })
+  const image = imageInput instanceof Uint8Array ? imageInput.slice() : imageInput
+  const evidence = evidenceInput ? structuredClone(evidenceInput) : undefined
   const configurationUrl = shareUrl(config)
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF(),
@@ -96,6 +103,16 @@ export async function createBrief(
     }
     doc.addImage(image, 'PNG', 18 + (174 - width) / 2, y, width, height)
     y += height + 12
+    if (evidence)
+      text(
+        `Current-view concept rendering. Rendered ${evidence.rendered.width} x ${evidence.rendered.height}; encoded ${evidence.encoded.width} x ${evidence.encoded.height}. ${evidence.status === 'degraded' ? 'DEGRADED: ' + evidence.reasons.join('; ') : 'Settled rendering; not manufacturer photography.'}`,
+        8,
+      )
+  } else {
+    text(
+      'Image-free brief. No scene image is included; use the interactive configuration link to inspect this design.',
+      9,
+    )
   }
   heading('01 / Your configuration')
   const finish = FINISHES.find((f) => f.id === config.finish)!.name
@@ -109,6 +126,15 @@ export async function createBrief(
   if (config.family === 'container')
     text(
       `Opening request: ${CONTAINER_OPENINGS.find((o) => o.id === config.containerOpening)!.name}. Only the featured roll-up width is published; other opening geometry is conceptual.`,
+    )
+  text(
+    `Opening treatment: ${OPENING_CONCEPTS.find((opening) => opening.id === config.openingConcept)!.name}. Presentation pose: ${config.presentation.openingPose}. Nonstandard treatments are reference-backed concepts; rendered mechanics are not manufacturer-approved engineering.`,
+    9,
+  )
+  if (config.presentation.context !== 'product')
+    text(
+      `Presentation context: ${config.presentation.context}. Custom architecture/site context only; excluded from the configured unit and published family starting price. Discuss this separately with Fury.`,
+      9,
     )
   if (config.family === 'studio')
     text(

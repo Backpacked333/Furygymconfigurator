@@ -1,0 +1,70 @@
+.export-controls {
+  flex-wrap: wrap;
+  z-index: 5;
+}
+.export-controls label {
+  display: grid;
+  gap: 5px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.export-controls select {
+  padding: 7px;
+  background: #f4f4ee;
+  color: #22301f;
+  border: 1px solid #b8c9a6;
+  border-radius: 3px;
+  font: inherit;
+}
+.export-controls .export-detail {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+.export-controls .export-detail button {
+  margin-inline: 6px;
+  text-decoration: underline;
+}
+.presentation-frame {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+  border: 2px solid #e4e8c6;
+  box-shadow: 0 0 0 100vmax #0b160f66;
+}
+.presentation-frame span {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  padding: 5px;
+  background: #152418d9;
+  color: #f4f4ee;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.export-image-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.export-message {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.quality-auto,
+.material-progress button {
+  font-size: 11px;
+  text-decoration: underline;
+  margin-left: 8px;
+}
+.material-progress button {
+  position: relative;
+  z-index: 1;
+}
+.photo-mode .stage-heading {
+  display: none;
+}
