@@ -2,9 +2,13 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CatmullRomCurve3,
   CylinderGeometry,
   ExtrudeGeometry,
+  LatheGeometry,
   Shape,
+  TubeGeometry,
+  Vector2,
   Vector3,
 } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
@@ -170,3 +174,61 @@ export function custom<T extends BufferGeometry>(key: string, create: () => T) {
 }
 
 export { mergeGeometries, mergeVertices }
+
+/**
+ * ISO container trapezoidal corrugation (278 mm pitch, 36 mm deep): a panel whose outer face is
+ * corrugated along X and whose inner face is flat. Outer face lies at z = 0, inner at z = -depth.
+ * The panel spans x ∈ [0, length] and y ∈ [0, height].
+ */
+export function corrugatedPanel(length: number, height: number, pitch = 0.912, depth = 0.118) {
+  return custom(`corrugated:${k(length, height, pitch, depth)}`, () => {
+    const shape = new Shape()
+    const flatOuter = pitch * 0.26,
+      slope = pitch * 0.245,
+      flatInner = pitch * 0.25
+    const back = depth + 0.03
+    shape.moveTo(0, back)
+    shape.lineTo(0, 0)
+    let u = 0
+    const phase = (length % pitch) / 2
+    if (phase > 0.01) {
+      shape.lineTo(phase, 0)
+      u = phase
+    }
+    while (u + pitch <= length + 1e-6) {
+      shape.lineTo(u + flatOuter, 0)
+      shape.lineTo(u + flatOuter + slope, depth)
+      shape.lineTo(u + flatOuter + slope + flatInner, depth)
+      shape.lineTo(u + pitch, 0)
+      u += pitch
+    }
+    if (u < length) shape.lineTo(length, 0)
+    shape.lineTo(length, back)
+    shape.lineTo(0, back)
+    const geometry = new ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1 })
+    geometry.rotateX(-Math.PI / 2)
+    // Non-indexed extrusions keep per-face normals: crisp, correctly lit corrugation edges.
+    geometry.computeVertexNormals()
+    return boxProjectUV(geometry)
+  })
+}
+
+/** A tube along an arbitrary 3D path (bike frames, handrails, springs). */
+export function tube(key: string, points: [number, number, number][], radius: number, radial = 12) {
+  return custom(`tube:${key}:${k(radius, radial)}`, () => {
+    const curve = new CatmullRomCurve3(points.map((p) => new Vector3(...p)))
+    const geometry = new TubeGeometry(curve, Math.max(8, points.length * 8), radius, radial, false)
+    return boxProjectUV(geometry)
+  })
+}
+
+/** Revolved profile around Y (plates, wheels, knobs, pucks). Profile points are [radius, y]. */
+export function lathe(key: string, profile: [number, number][], segments = 40) {
+  return custom(`lathe:${key}:${segments}`, () => {
+    const geometry = new LatheGeometry(
+      profile.map(([r, y]) => new Vector2(r, y)),
+      segments,
+    )
+    return cylinderProjectUV(geometry)
+  })
+}

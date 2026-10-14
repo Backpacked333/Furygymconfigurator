@@ -1,4 +1,5 @@
-import { AgXToneMapping, WebGPURenderer } from 'three/webgpu'
+import { AgXToneMapping, RectAreaLightNode, WebGPURenderer } from 'three/webgpu'
+import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js'
 
 export type Quality = 'ultra' | 'high' | 'lite'
 export type Backend = 'webgpu' | 'webgl2'
@@ -57,6 +58,8 @@ export async function createRenderer(canvas: HTMLCanvasElement) {
     forceWebGL: requestedBackend() === 'webgl2',
   })
   await renderer.init()
+  // Linearly transformed cosine tables for physically based rectangular area lights.
+  RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init())
   renderer.toneMapping = AgXToneMapping
   renderer.toneMappingExposure = 1
   return renderer

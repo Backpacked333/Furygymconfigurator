@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { PMREMGenerator, Vector3, type RenderTarget, type WebGPURenderer } from 'three/webgpu'
+import {
+  PMREMGenerator,
+  Vector3,
+  type Object3D,
+  type RenderTarget,
+  type WebGPURenderer,
+} from 'three/webgpu'
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setInteriorEnvironment } from '../render/materials'
 import type { Quality } from '../render/renderer'
@@ -67,11 +73,25 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
       return
     }
     const next = 1 - probe.current
-    const target = probe.generator.fromScene(scene, 0, 0.05, 400, {
-      size: quality === 'lite' ? 64 : 128,
-      position: center.current,
-      renderTarget: probe.targets[next] ?? undefined,
+    // Planar reflectors keep a render target per camera; they must not render into the six
+    // capture cameras (and a mirror adds nothing to the room's diffuse light anyway).
+    const hidden: Object3D[] = []
+    scene.traverse((object) => {
+      if (object.userData.noProbe && object.visible) {
+        object.visible = false
+        hidden.push(object)
+      }
     })
+    let target: RenderTarget
+    try {
+      target = probe.generator.fromScene(scene, 0, 0.05, 400, {
+        size: quality === 'lite' ? 64 : 128,
+        position: center.current,
+        renderTarget: probe.targets[next] ?? undefined,
+      })
+    } finally {
+      hidden.forEach((object) => (object.visible = true))
+    }
     probe.targets[next] = target
     probe.current = next
     probe.passes--

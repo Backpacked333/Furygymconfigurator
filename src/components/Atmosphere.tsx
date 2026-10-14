@@ -3,20 +3,20 @@ import { useThree } from '@react-three/fiber'
 import {
   BackSide,
   Color,
-  DirectionalLight,
   Fog,
   Mesh,
   MeshBasicMaterial,
+  PMREMGenerator,
   PlaneGeometry,
   Scene,
   SphereGeometry,
   type Node,
+  type RenderTarget,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { PMREMGenerator, type RenderTarget } from 'three/webgpu'
 import { color, mix, screenUV, vec4 } from 'three/tsl'
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js'
-import type { Config } from '../lib/config'
+import type { Config, View } from '../lib/config'
 import {
   SKY_PRESETS,
   horizonRadiance,
@@ -26,6 +26,7 @@ import {
   type Vec3,
 } from '../lib/visuals'
 import type { Quality } from '../render/renderer'
+import { useResource } from '../render/useResource'
 
 /**
  * three's Preetham sky is calibrated for a ~0.5 exposure with a 60,000-unit sun disc. Scaling its
@@ -34,15 +35,19 @@ import type { Quality } from '../render/renderer'
 const SKY_SCALE = 0.1
 const SUN_INTENSITY = 4.2
 const CLOUDS = { courtyard: 0.32, desert: 0.12, studio: 0 }
+/** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
+const INTERIOR_EXPOSURE = 1.6
 
-function configureSky(sky: SkyMesh, config: Config, sun: Vec3) {
-  const preset = SKY_PRESETS[config.environment]
+type Environment = Config['environment']
+
+function configureSky(sky: SkyMesh, environment: Environment, sun: Vec3) {
+  const preset = SKY_PRESETS[environment]
   sky.turbidity.value = preset.turbidity
   sky.rayleigh.value = preset.rayleigh
   sky.mieCoefficient.value = preset.mieCoefficient
   sky.mieDirectionalG.value = preset.mieDirectionalG
   sky.sunPosition.value.set(...sun)
-  sky.cloudCoverage.value = CLOUDS[config.environment]
+  sky.cloudCoverage.value = CLOUDS[environment]
   sky.cloudDensity.value = 0.55
   sky.cloudScale.value = 0.00018
   sky.cloudSpeed.value = 0
@@ -65,11 +70,12 @@ function createSky(sunDisc: boolean) {
 /** Photo-studio light rig: overhead and side softboxes in a neutral cyclorama. */
 function studioScene() {
   const scene = new Scene()
-  const room = new Mesh(
-    new SphereGeometry(40, 32, 16),
-    new MeshBasicMaterial({ color: new Color(0.42, 0.41, 0.39), side: BackSide }),
+  scene.add(
+    new Mesh(
+      new SphereGeometry(40, 32, 16),
+      new MeshBasicMaterial({ color: new Color(0.42, 0.41, 0.39), side: BackSide }),
+    ),
   )
-  scene.add(room)
   const softbox = (w: number, h: number, intensity: number, x: number, y: number, z: number) => {
     const panel = new Mesh(
       new PlaneGeometry(w, h),
@@ -86,13 +92,19 @@ function studioScene() {
   return scene
 }
 
-export function Atmosphere({ config, quality }: { config: Config; quality: Quality }) {
+export function Atmosphere({
+  config,
+  quality,
+  view,
+}: {
+  config: Config
+  quality: Quality
+  view: View
+}) {
   const { gl, scene, invalidate } = useThree()
   const renderer = gl as unknown as WebGPURenderer
-  const preset = SKY_PRESETS[config.environment]
-  const sunlight = sunlightAt(config.time, preset)
-  const night = nightAt(config.time)
-  const studio = config.environment === 'studio'
+  const { environment, time } = config
+  const studio = environment === 'studio'
 
   const background = useMemo(() => createSky(true), [])
   const capture = useMemo(() => {
@@ -105,68 +117,59 @@ export function Atmosphere({ config, quality }: { config: Config; quality: Quali
     envScene.add(sky, ground)
     return { envScene, sky, ground, studio: studioScene() }
   }, [])
-  const pmrem = useRef<{ generator: PMREMGenerator; target: RenderTarget | null } | null>(null)
-
-  useEffect(() => {
-    pmrem.current = { generator: new PMREMGenerator(renderer), target: null }
-    return () => {
-      pmrem.current?.target?.dispose()
-      pmrem.current?.generator.dispose()
-      pmrem.current = null
+  const generator = useResource(() => new PMREMGenerator(renderer), [renderer])
+  const target = useRef<RenderTarget | null>(null)
+  useEffect(
+    () => () => {
+      target.current?.dispose()
+      target.current = null
       scene.environment = null
-    }
-  }, [renderer, scene])
+    },
+    [generator, scene],
+  )
 
   // Sky, fog, and the image-based lighting captured from them, keyed to time and surroundings.
   useLayoutEffect(() => {
+    const preset = SKY_PRESETS[environment]
+    const sunlight = sunlightAt(time, preset)
     const sun = sunlight.direction
-    configureSky(background, config, sun)
-    configureSky(capture.sky, config, sun)
-    const groundAlbedo = config.environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
+    configureSky(background, environment, sun)
+    configureSky(capture.sky, environment, sun)
+    const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
     const sky = skyRadiance([0, 1, 0], sun, preset).map((v) => v * SKY_SCALE)
     const direct = (SUN_INTENSITY * sunlight.intensity * Math.max(0, sun[1])) / Math.PI
     ;(capture.ground.material as MeshBasicMaterial).color.setRGB(
       ...(groundAlbedo.map((a, i) => a * (direct * sunlight.color[i] + sky[i] * Math.PI)) as Vec3),
     )
-    const horizon = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE) as Vec3
-    if (studio) {
+    if (environment === 'studio') {
       scene.background = null
       scene.backgroundNode = mix(color('#a9a59c'), color('#e7e3db'), screenUV.y.oneMinus().pow(0.8))
       scene.fog = new Fog(new Color('#d6d2ca'), 90, 420)
     } else {
       scene.backgroundNode = null
-      const fogColor = new Color(...horizon)
-      scene.fog = new Fog(fogColor, 120, 900)
+      const horizon = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE) as Vec3
+      scene.fog = new Fog(new Color(...horizon), 120, 900)
     }
-    const generator = pmrem.current?.generator
     if (generator) {
-      const previous = pmrem.current!.target
-      const target = generator.fromScene(studio ? capture.studio : capture.envScene, 0, 0.5, 2000, {
-        size: quality === 'lite' ? 128 : 256,
-        renderTarget: previous ?? undefined,
-      })
-      pmrem.current!.target = target
-      scene.environment = target.texture
+      target.current = generator.fromScene(
+        environment === 'studio' ? capture.studio : capture.envScene,
+        0,
+        0.5,
+        2000,
+        { size: quality === 'lite' ? 128 : 256, renderTarget: target.current ?? undefined },
+      )
+      scene.environment = target.current.texture
     }
-    scene.environmentIntensity = studio ? 0.9 : 1
-    // Eyes adapt after dark: lift exposure as the sky dims so lit interiors read naturally.
-    renderer.toneMappingExposure = 1 + night * 1.35
+    scene.environmentIntensity = environment === 'studio' ? 0.9 : 1
     invalidate()
-  }, [
-    background,
-    capture,
-    config,
-    preset,
-    quality,
-    renderer,
-    scene,
-    studio,
-    sunlight.color,
-    sunlight.direction,
-    sunlight.intensity,
-    night,
-    invalidate,
-  ])
+  }, [background, capture, environment, time, quality, generator, scene, invalidate])
+
+  // Eyes adapt after dark, and a camera inside meters for the dimmer room.
+  useLayoutEffect(() => {
+    renderer.toneMappingExposure =
+      (1 + nightAt(time) * 1.35) * (view === 'interior' ? INTERIOR_EXPOSURE : 1)
+    invalidate()
+  }, [renderer, time, view, invalidate])
 
   return (
     <>
@@ -180,18 +183,16 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
   const preset = SKY_PRESETS[config.environment]
   const sunlight = sunlightAt(config.time, preset)
   const night = nightAt(config.time)
-  const light = useRef<DirectionalLight>(null)
   const extent = config.length / 2 + 14
   const distance = 80
   const [x, y, z] = sunlight.direction
   return (
     <>
       <directionalLight
-        ref={light}
         position={[x * distance, Math.max(y, 0.02) * distance, z * distance]}
         color={new Color(...sunlight.color)}
         intensity={SUN_INTENSITY * sunlight.intensity}
-        castShadow={quality !== 'lite' || config.environment !== 'studio'}
+        castShadow
         shadow-mapSize={quality === 'lite' ? [1024, 1024] : [4096, 4096]}
         shadow-camera-left={-extent}
         shadow-camera-right={extent}

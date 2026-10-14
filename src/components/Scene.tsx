@@ -251,7 +251,7 @@ export default function Scene({
   return (
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
-        shadows
+        shadows="percentage"
         dpr={quality === 'lite' ? 1 : [1, 2]}
         frameloop="demand"
         camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
@@ -262,7 +262,7 @@ export default function Scene({
         }}
         onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
       >
-        <Atmosphere config={config} quality={quality} />
+        <Atmosphere config={config} quality={quality} view={view} />
         <Landscape config={config} quality={quality} />
         <StudioModel config={config} quality={quality} />
         {dimensions && <Dimensions config={config} unit={unit} />}
