@@ -18,7 +18,8 @@ import {
   distance,
   estimate,
   money,
-  monthlyPayment,
+  productName,
+  productHeight,
   readSaved,
   shareUrl,
   writeSaved,
@@ -26,91 +27,66 @@ import {
   type SavedBuild,
   type Unit,
 } from '../lib/config'
+import {
+  CONTAINER_OPENINGS,
+  STUDIO_LAYOUTS,
+  PROJECT_URL,
+  PRODUCT_SOURCE_DATE,
+  productFamily,
+} from '../lib/products'
 import { downloadFile, exportBrief } from '../lib/export'
 import Modal from './Modal'
 import { MiniStudio } from './ConfigPanel'
 
 export function EstimateDialog({ config, onClose }: { config: Config; onClose: () => void }) {
-  const { lines, total } = estimate(config)
-  const [deposit, setDeposit] = useState(20),
-    [apr, setApr] = useState(8.5),
-    [term, setTerm] = useState(120)
-  const payment = monthlyPayment(total, deposit, apr, term)
+  const { lines, startingPrice, source } = estimate(config)
   return (
     <Modal
-      title="The bigger picture."
-      subtitle="Understand your build, line by line."
+      title="A starting point. Not a quote."
+      subtitle="Published facts, separated from your planning selections."
       onClose={onClose}
     >
       <div className="notice">
         <Info size={18} />
         <p>
-          <strong>Illustrative pricing only.</strong> Not an approved price list, quotation, or
-          financing offer. Taxes, delivery, foundation, site works, permits, utilities, and
-          installation are not included.
+          <strong>
+            {productFamily(config.family).name}: base models starting at {money(startingPrice)}.
+          </strong>{' '}
+          Fury publishes one starting price for this family, not a separate price for each size. It
+          is not the cost of your selected build. Option prices and project costs are not published.
         </p>
       </div>
       <div className="price-lines">
         {lines.map((line, i) => (
           <div key={i}>
             <span>{line.name}</span>
-            <b>{money(line.amount)}</b>
+            <b>Quote required</b>
           </div>
         ))}
         <div className="price-total">
-          <strong>Illustrative total</strong>
-          <strong>{money(total)}</strong>
+          <strong>Your configured project</strong>
+          <strong>Quote required</strong>
         </div>
       </div>
-      <div className="finance">
-        <span className="eyebrow">EXPLORE THE NUMBERS</span>
-        <h3>A monthly perspective.</h3>
-        <div className="finance-fields">
-          <label>
-            Deposit
-            <select value={deposit} onChange={(e) => setDeposit(Number(e.target.value))}>
-              {[0, 10, 20, 30, 50].map((n) => (
-                <option key={n} value={n}>
-                  {n}%
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            APR assumption
-            <input
-              type="number"
-              min="0"
-              max="30"
-              step="0.25"
-              value={apr}
-              onChange={(e) => setApr(Math.max(0, Math.min(30, Number(e.target.value))))}
-            />
-          </label>
-          <label>
-            Term
-            <select value={term} onChange={(e) => setTerm(Number(e.target.value))}>
-              {[36, 60, 84, 120, 180].map((n) => (
-                <option key={n} value={n}>
-                  {n / 12} years
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="finance-result">
-          <strong>
-            {money(payment)}
-            <small>/ month</small>
-          </strong>
-          <span>{money((total * deposit) / 100)} initial deposit</span>
-        </div>
-        <p className="muted small">
-          Principal: {money(total * (1 - deposit / 100))}. Total of payments:{' '}
-          {money(payment * term)}. Interest: {money(payment * term - total * (1 - deposit / 100))}.
-          Excludes lender fees; no lending partner or approval is implied.
-        </p>
-      </div>
+      <p className="muted small">
+        Not a quotation or financing offer. Confirm tax, delivery, site work, foundation, permits,
+        utilities, installation, availability, and engineering directly with Fury. Concept finishes
+        and planning equipment are not an approved product catalog.
+      </p>
+      <p className="muted small">
+        Fury’s inquiry page separately says entry-level projects typically begin at $25,000. That is
+        project guidance, not an additional fee or a calculated total.
+      </p>
+      <a className="source-link" href={source} target="_blank" rel="noreferrer">
+        Published product source · checked {PRODUCT_SOURCE_DATE} ↗
+      </a>
+      <a className="primary full inquiry-link" href={PROJECT_URL} target="_blank" rel="noreferrer">
+        Start a project with Fury <ArrowRight size={16} />
+      </a>
+      <p className="muted small">
+        Opens Fury’s website. Your configuration and personal information are not automatically
+        sent; you can supply your downloaded brief yourself.
+      </p>
     </Modal>
   )
 }
@@ -133,11 +109,12 @@ export function ShareDialog({
     >
       <div className="share-visual">
         <MiniStudio
+          family={config.family}
           finish={FINISHES.find((f) => f.id === config.finish)!.color}
           deck={config.addons.deck}
         />
         <span>
-          S-{config.length}
+          {productName(config)}
           <small>
             {config.items.length} interior items ·{' '}
             {FINISHES.find((f) => f.id === config.finish)!.name}
@@ -171,12 +148,13 @@ export function ShareDialog({
         className="secondary full"
         onClick={() =>
           downloadFile(
-            `fury-s${config.length}-configuration.json`,
+            `fury-${config.family}-${config.length}-configuration.json`,
             JSON.stringify(
               {
                 configuration: config,
-                priceModel: estimate(config).version,
-                notice: 'Concept configuration; illustrative prices only.',
+                pricing: estimate(config),
+                notice:
+                  'Concept configuration. Published family starting price only; all selections require a quote. Not manufacturer CAD.',
               },
               null,
               2,
@@ -206,7 +184,7 @@ export function BriefDialog({
   onClose: () => void
   notify: (s: string) => void
 }) {
-  const [name, setName] = useState(`My S-${config.length} studio`),
+  const [name, setName] = useState(`My ${productName(config)}`),
     [notes, setNotes] = useState(''),
     [busy, setBusy] = useState(false)
   return (
@@ -219,7 +197,7 @@ export function BriefDialog({
         <FileText size={30} strokeWidth={1} />
         <div>
           <strong>Your personal build brief</strong>
-          <span>Configuration · Scene image · Itemized estimate · Floor plan</span>
+          <span>Configuration · Scene image · Quote checklist · Floor plan</span>
         </div>
       </div>
       <label className="field-label">
@@ -228,7 +206,7 @@ export function BriefDialog({
           value={name}
           maxLength={60}
           onChange={(e) => setName(e.target.value)}
-          placeholder="My backyard studio"
+          placeholder="My backyard gym"
         />
       </label>
       <label className="field-label">
@@ -238,7 +216,7 @@ export function BriefDialog({
           maxLength={2000}
           onChange={(e) => setNotes(e.target.value)}
           rows={4}
-          placeholder="Your training goals, site access, target timeline, or questions for the studio team…"
+          placeholder="Your training goals, site access, target timeline, or questions for Fury…"
         />
       </label>
       <div className="notice">
@@ -288,7 +266,7 @@ export function LibraryDialog({
 }) {
   const [saved, setSaved] = useState<SavedBuild[]>(readSaved),
     [name, setName] = useState(
-      `S-${config.length} / ${FINISHES.find((f) => f.id === config.finish)!.name}`,
+      `${productName(config)} / ${FINISHES.find((f) => f.id === config.finish)!.name}`,
     ),
     [compare, setCompare] = useState<string[]>([])
   const persist = (next: SavedBuild[]) => {
@@ -343,7 +321,7 @@ export function LibraryDialog({
         <div className="empty-library">
           <Bookmark size={32} strokeWidth={1} />
           <h3>Your ideas belong here.</h3>
-          <p>Save your first studio above. Come back to it whenever inspiration strikes.</p>
+          <p>Save your first design above. Come back to it whenever inspiration strikes.</p>
         </div>
       ) : (
         <div className="saved-grid">
@@ -351,6 +329,7 @@ export function LibraryDialog({
             <div className="saved-card" key={build.id}>
               <div className="saved-visual">
                 <MiniStudio
+                  family={build.config.family}
                   finish={FINISHES.find((f) => f.id === build.config.finish)!.color}
                   deck={build.config.addons.deck}
                   long={build.config.length === 40}
@@ -369,9 +348,7 @@ export function LibraryDialog({
                 </button>
               </div>
               <h3>{build.name}</h3>
-              <p>
-                S-{build.config.length} · {money(estimate(build.config).total)} illustrative
-              </p>
+              <p>{productName(build.config)} · Quote required</p>
               <div className="saved-actions">
                 <label>
                   <input
@@ -419,15 +396,17 @@ export function LibraryDialog({
               </thead>
               <tbody>
                 {[
+                  ['Product', (c: Config) => productName(c)],
+                  ['Height', (c: Config) => distance(productHeight(c), unit)],
                   [
                     'Footprint',
                     (c: Config) =>
                       `${distance(c.length, unit)} × ${distance(8, unit)} / ${area(c.length * 8, unit)}`,
                   ],
                   [
-                    'Exterior',
+                    'Concept exterior',
                     (c: Config) =>
-                      `${FINISHES.find((f) => f.id === c.finish)!.name}${c.accent ? ' + cedar' : ''}`,
+                      `${FINISHES.find((f) => f.id === c.finish)!.name}${c.accent ? ' + timber' : ''}${c.integratedFinish ? ' / Integrated exterior finish' : ''}`,
                   ],
                   [
                     'Outdoor',
@@ -438,7 +417,25 @@ export function LibraryDialog({
                   ],
                   ['Floor', (c: Config) => FLOORS.find((f) => f.id === c.flooring)!.name],
                   ['Equipment', (c: Config) => `${c.items.length} pieces / ${c.package}`],
-                  ['Illustrative total', (c: Config) => money(estimate(c).total)],
+                  [
+                    'Opening',
+                    (c: Config) =>
+                      c.family === 'container'
+                        ? CONTAINER_OPENINGS.find((o) => o.id === c.containerOpening)!.name
+                        : 'Studio concept glazing',
+                  ],
+                  [
+                    'Configuration request',
+                    (c: Config) =>
+                      c.family === 'studio'
+                        ? STUDIO_LAYOUTS.find((o) => o.id === c.studioLayout)!.name
+                        : 'Single unit',
+                  ],
+                  [
+                    'Published family starting price',
+                    (c: Config) => money(estimate(c).startingPrice),
+                  ],
+                  ['Configured price', () => 'Quote required'],
                 ].map(([label, getter]) => {
                   const get = getter as (c: Config) => string
                   const values = comparisons.map((s) => get(s.config))
@@ -455,7 +452,8 @@ export function LibraryDialog({
             </table>
           </div>
           <p className="muted small">
-            Highlighted rows differ. Neither estimate includes site costs or tax.
+            Highlighted rows differ. Family starting prices are not configured project totals. All
+            selections and site costs require a quote.
           </p>
         </div>
       )}

@@ -4,6 +4,9 @@ import {
   catalogItem,
   distance,
   footprint,
+  entryCenter,
+  openingGeometry,
+  productName,
   placementIssue,
   type Config,
   type PlacedItem,
@@ -85,7 +88,7 @@ export default function FloorPlan({
         className="plan-svg"
         viewBox={`${-config.length / 2 - 3.2} -7.5 ${config.length + 6.4} 15.5`}
         role="group"
-        aria-label="Editable studio floor plan"
+        aria-label={`Editable ${productName(config)} floor plan`}
         onPointerMove={(e) => {
           if (!drag.current) return
           const item = config.items.find((i) => i.id === drag.current!.id)
@@ -138,21 +141,34 @@ export default function FloorPlan({
           fill="url(#floor-grid)"
         />
         <path
-          d={`M ${-config.length / 2 + 0.8} 3.85 H ${config.length / 2 - 0.8}`}
+          d={
+            config.family === 'container'
+              ? `M ${openingGeometry(config).center - openingGeometry(config).width / 2} 3.85 h ${openingGeometry(config).width}`
+              : `M ${-config.length / 2 + 0.8} 3.85 H ${config.length / 2 - 0.8}`
+          }
           stroke="#abc2b1"
           strokeWidth="0.12"
         />
-        <rect x="-1.6" y="2.3" width="3.2" height="1.7" fill="#ced8b8" opacity="0.7" />
-        <path
-          d="M -1.6 4 V 2.4 H 1.6 V 4"
-          fill="none"
-          stroke="#788d66"
-          strokeWidth="0.045"
-          strokeDasharray="0.16 0.12"
-        />
-        <text x="0" y="4.9" textAnchor="middle" fontSize="0.28" fill="#6c7462" letterSpacing="0.09">
-          ENTRY / KEEP CLEAR
-        </text>
+        <g transform={`translate(${entryCenter(config)} 0)`}>
+          <rect x="-1.6" y="2.3" width="3.2" height="1.7" fill="#ced8b8" opacity="0.7" />
+          <path
+            d="M -1.6 4 V 2.4 H 1.6 V 4"
+            fill="none"
+            stroke="#788d66"
+            strokeWidth="0.045"
+            strokeDasharray="0.16 0.12"
+          />
+          <text
+            x="0"
+            y="4.9"
+            textAnchor="middle"
+            fontSize="0.28"
+            fill="#6c7462"
+            letterSpacing="0.09"
+          >
+            ENTRY / KEEP CLEAR
+          </text>
+        </g>
         <path
           d={`M ${-config.length / 2} -5.1 H ${config.length / 2} M ${-config.length / 2} -5.4 V -4.8 M ${config.length / 2} -5.4 V -4.8`}
           fill="none"

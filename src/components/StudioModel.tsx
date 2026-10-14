@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { CanvasTexture, DoubleSide, ExtrudeGeometry, Path, Shape, SRGBColorSpace } from 'three'
 import { MeshReflectorMaterial, RoundedBox } from '@react-three/drei'
-import { FINISHES, FLOORS, type Config } from '../lib/config'
+import { FINISHES, FLOORS, openingGeometry, productHeight, type Config } from '../lib/config'
 import { Equipment } from './Equipment'
 import { SurfaceMaterial } from './SurfaceMaterial'
 import type { Surface } from '../lib/visuals'
@@ -115,6 +115,80 @@ function Rail({
     </group>
   )
 }
+function ContainerShell({ config: c, color }: { config: Config; color: string }) {
+  const L = c.length,
+    H = productHeight(c),
+    opening = openingGeometry(c)
+  const left = opening.center - opening.width / 2,
+    right = opening.center + opening.width / 2
+  return (
+    <group>
+      <Box p={[0, H + 0.15, 0]} s={[L, 0.3, 8]} color={color} metal={0.35} />
+      {[-1, 1].map((side) => (
+        <group key={side}>
+          <Box
+            p={[side * (L / 2 - 0.16), H / 2 + 0.3, 0]}
+            s={[0.32, H, 8]}
+            color={color}
+            metal={0.3}
+          />
+          {Array.from({ length: 14 }, (_, i) => (
+            <Box
+              key={i}
+              p={[(side * L) / 2, H / 2 + 0.3, -3.6 + i * 0.55]}
+              s={[0.08, H - 0.8, 0.14]}
+              color={color}
+              metal={0.3}
+            />
+          ))}
+        </group>
+      ))}
+      <Box p={[(-L / 2 + left) / 2, H / 2 + 0.3, 3.86]} s={[left + L / 2, H, 0.28]} color={color} />
+      <Box
+        p={[(right + L / 2) / 2, H / 2 + 0.3, 3.86]}
+        s={[L / 2 - right, H, 0.28]}
+        color={color}
+      />
+      {Array.from({ length: L * 2 }, (_, i) => -L / 2 + 0.25 + i * 0.5)
+        .filter((x) => x < left - 0.12 || x > right + 0.12)
+        .map((x) => (
+          <Box
+            key={x}
+            p={[x, H / 2 + 0.3, 4.02]}
+            s={[0.13, H - 0.8, 0.08]}
+            color={color}
+            metal={0.3}
+          />
+        ))}
+      <Box p={[opening.center, H - 0.15, 3.87]} s={[opening.width, 0.9, 0.32]} color={color} />
+      {[left, right].map((x) => (
+        <Box
+          key={x}
+          p={[x, H / 2 + 0.25, 3.87]}
+          s={[0.16, H - 0.7, 0.42]}
+          color={c.integratedFinish ? color : '#838a80'}
+        />
+      ))}
+      {c.containerOpening === 'roll-up' && (
+        <Box
+          p={[opening.center, H - 0.1, 3.6]}
+          s={[10, 0.65, 0.85]}
+          color={c.integratedFinish ? color : '#838a80'}
+          metal={0.5}
+        />
+      )}
+      {Array.from({ length: L }, (_, i) => (
+        <Box
+          key={i}
+          p={[-L / 2 + i + 0.5, H + 0.32, 0]}
+          s={[0.08, 0.045, 7.6]}
+          color={color}
+          metal={0.3}
+        />
+      ))}
+    </group>
+  )
+}
 function Signature({ length }: { length: number }) {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas')
@@ -149,18 +223,29 @@ export function StudioModel({
   quality?: 'high' | 'lite'
 }) {
   const L = c.length,
+    H = productHeight(c),
     finish = FINISHES.find((f) => f.id === c.finish)!.color,
     floor = FLOORS.find((f) => f.id === c.flooring)!.color
   const n = L === 20 ? 6 : 12
   return (
     <group>
-      {!cutaway && <Portal length={L} depth={8} z={-4} color={finish} />}
+      {!cutaway &&
+        (c.family === 'studio' ? (
+          <Portal length={L} depth={8} z={-4} color={finish} />
+        ) : (
+          <ContainerShell config={c} color={finish} />
+        ))}
       {cutaway &&
         [-1, 1].map((side) => (
           <Box key={side} p={[side * (L / 2 - 0.18), 3, 0]} s={[0.36, 5.4, 8]} color={finish} />
         ))}
-      <Box p={[0, 5.2, -3.86]} s={[L - 1.2, 9.6, 0.25]} color={finish} />
-      <Box p={[0, 5.1, -3.69]} s={[L - 1.3, 8.8, 0.1]} color="#ddd5c6" surface="plaster" />
+      <Box p={[0, H / 2 + 0.2, -3.86]} s={[L - 1.2, H - 0.4, 0.25]} color={finish} />
+      <Box
+        p={[0, H / 2 + 0.1, -3.69]}
+        s={[L - 1.3, H - 1.2, 0.1]}
+        color="#ddd5c6"
+        surface="plaster"
+      />
       <Box p={[0, 0.65, 0]} s={[L - 0.6, 0.5, 7.7]} color={finish} />
       <Box
         p={[0, 0.92, 0]}
@@ -172,12 +257,12 @@ export function StudioModel({
       <Box p={[0, 1.15, -3.57]} s={[L - 1.3, 0.25, 0.08]} color="#3d403a" metal={0.4} />
       {!cutaway && (
         <>
-          <Signature length={L} />
-          <Box p={[0, 9.82, 0]} s={[L - 1.3, 0.12, 7.2]} color="#c0a582" surface="cedar" />
+          {c.family === 'studio' && <Signature length={L} />}
+          <Box p={[0, H - 0.18, 0]} s={[L - 1.3, 0.12, 7.2]} color="#c0a582" surface="cedar" />
           {Array.from({ length: Math.floor(L / 0.5) }, (_, i) => (
             <Box
               key={`ceiling-${i}`}
-              p={[-L / 2 + 0.8 + i * 0.5, 9.73, 0]}
+              p={[-L / 2 + 0.8 + i * 0.5, H - 0.27, 0]}
               s={[0.028, 0.025, 6.9]}
               color="#76654d"
             />
@@ -185,8 +270,8 @@ export function StudioModel({
           {[-1, 1].map((side) => (
             <Box
               key={side}
-              p={[side * (L / 2 - 0.44), 5, 0]}
-              s={[0.12, 8.3, 7.1]}
+              p={[side * (L / 2 - 0.44), H / 2, 0]}
+              s={[0.12, H - 1.7, 7.1]}
               color="#c7baa5"
               surface="plaster"
             />
@@ -235,7 +320,7 @@ export function StudioModel({
       <Box p={[L * 0.31, 4.05, -3.51]} s={[0.52, 0.8, 0.1]} color="#343b37" metal={0.4} />
       <Box p={[L * 0.31, 4.15, -3.45]} s={[0.35, 0.35, 0.014]} color="#95b8b0" />
       {[-1, 1].map((side) => (
-        <group key={`vent-${side}`} position={[side * L * 0.36, 8.8, -3.53]}>
+        <group key={`vent-${side}`} position={[side * L * 0.36, H - 1.2, -3.53]}>
           <Box p={[0, 0, 0]} s={[2.6, 0.55, 0.09]} color="#44453e" />
           {[0, 1, 2, 3].map((i) => (
             <Box
@@ -260,7 +345,7 @@ export function StudioModel({
             />
           )),
         )}
-      {!cutaway && (
+      {!cutaway && c.family === 'studio' && (
         <>
           {Array.from({ length: n - 1 }, (_, i) => (
             <Box
@@ -325,7 +410,7 @@ export function StudioModel({
       )}
       {c.lights && (
         <>
-          <mesh position={[0, 9.6, -3.5]}>
+          <mesh position={[0, H - 0.4, -3.5]}>
             <boxGeometry args={[L - 1.5, 0.06, 0.07]} />
             <meshStandardMaterial color="#ffe1a1" emissive="#ffc57a" emissiveIntensity={3} />
           </mesh>
@@ -334,7 +419,7 @@ export function StudioModel({
             <meshStandardMaterial emissive="#ffcb87" emissiveIntensity={2} color="#ffcb87" />
           </mesh>
           {Array.from({ length: L / 5 }, (_, i) => (
-            <group key={`downlight-${i}`} position={[-L / 2 + 2.5 + i * 5, 9.58, 0.8]}>
+            <group key={`downlight-${i}`} position={[-L / 2 + 2.5 + i * 5, H - 0.42, 0.8]}>
               <mesh>
                 <cylinderGeometry args={[0.16, 0.16, 0.08, 16]} />
                 <meshStandardMaterial color="#363a35" />
@@ -348,7 +433,7 @@ export function StudioModel({
           {Array.from({ length: L / 10 }, (_, i) => (
             <pointLight
               key={`light-${i}`}
-              position={[-L / 2 + 5 + i * 10, 7.8, 0]}
+              position={[-L / 2 + 5 + i * 10, H - 2.2, 0]}
               color="#ffe2b7"
               intensity={90}
               distance={15}

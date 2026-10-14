@@ -30,20 +30,31 @@ import {
   money,
   packageItems,
   setAddon,
+  setFamily,
+  productHeight,
   type Config,
   type PackageId,
   type Unit,
 } from '../lib/config'
+import {
+  PRODUCT_FAMILIES,
+  CONTAINER_OPENINGS,
+  STUDIO_LAYOUTS,
+  PRODUCT_SOURCE_DATE,
+  productFamily,
+} from '../lib/products'
 
-const STEPS = ['Studio', 'Exterior', 'Interior', 'Setting']
+const STEPS = ['Space', 'Exterior', 'Interior', 'Setting']
 export function MiniStudio({
   finish = '#353c33',
   long = false,
   deck = false,
+  family = 'studio',
 }: {
   finish?: string
   long?: boolean
   deck?: boolean
+  family?: Config['family']
 }) {
   return (
     <svg viewBox="0 0 180 86" aria-hidden="true" className="mini-studio">
@@ -55,7 +66,11 @@ export function MiniStudio({
       />
       <path d="M 30 27 L 55 14 L 165 24 L 140 35 Z" fill={finish} />
       <path d="M 140 35 L 165 24 L 165 51 L 140 63 Z" fill={finish} />
-      <path d="M 35 31 L 136 39 L 136 58 L 35 50 Z" fill="#afbfac" opacity=".65" />
+      {family === 'studio' ? (
+        <path d="M 35 31 L 136 39 L 136 58 L 35 50 Z" fill="#afbfac" opacity=".65" />
+      ) : (
+        <path d="M 69 34 L 109 38 L 109 57 L 69 53 Z" fill="#151c18" />
+      )}
       {[53, 73, 94, 115].map((x) => (
         <path
           key={x}
@@ -128,7 +143,15 @@ export default function ConfigPanel({
   onPlan: () => void
   onTemplate: (id: 'athlete' | 'retreat' | 'flow') => void
 }) {
+  const product = productFamily(c.family)
   const applyPackage = (id: PackageId) => {
+    const next = { ...c, package: id, items: packageItems(id, c.length) }
+    if (layoutIssues(next).length) {
+      notify(
+        'This concept layout does not keep the selected entry clear. Choose another layout or arrange equipment individually.',
+      )
+      return
+    }
     if (
       c.items.length > 0 &&
       !window.confirm(
@@ -136,13 +159,13 @@ export default function ConfigPanel({
       )
     )
       return
-    onChange({ ...c, package: id, items: packageItems(id, c.length) })
+    onChange(next)
     notify(
       `${PACKAGES.find((p) => p.id === id)!.name} layout applied. You can customize every item.`,
     )
   }
   return (
-    <aside className="config-panel" aria-label="Studio configuration">
+    <aside className="config-panel" aria-label="Gym configuration">
       <div className="panel-tabs" role="tablist" aria-label="Configuration steps">
         {STEPS.map((label, i) => (
           <button
@@ -177,10 +200,11 @@ export default function ConfigPanel({
         {step === 0 && (
           <>
             <div className="panel-title">
-              <span className="eyebrow">START WITH YOUR SPACE</span>
+              <span className="eyebrow">FURY CO GYMS / PORTABLE UNITS</span>
               <h2>
-                A little room.
-                <br />A lot of possibility.
+                Your space.
+                <br />
+                Your way to train.
               </h2>
               <p>
                 Purpose-built for your practice.
@@ -188,6 +212,41 @@ export default function ConfigPanel({
                 Designed to feel entirely yours.
               </p>
             </div>
+            <div className="section-label">Choose your product family</div>
+            <div className="family-options" role="group" aria-label="Product family">
+              {PRODUCT_FAMILIES.map((family) => (
+                <button
+                  key={family.id}
+                  className={`family-card ${c.family === family.id ? 'selected' : ''}`}
+                  aria-pressed={c.family === family.id}
+                  onClick={() => {
+                    const next = setFamily(c, family.id)
+                    if (layoutIssues(next).length) {
+                      notify(
+                        'Rearrange equipment to keep the new entry clear before changing family.',
+                      )
+                      return
+                    }
+                    onChange(next)
+                    if (c.family !== family.id)
+                      notify(
+                        `${family.name} selected. Studio-only additions and custom requests are cleared when switching to Containers. Undo restores the previous design.`,
+                      )
+                  }}
+                >
+                  <strong>{family.name}</strong>
+                  <small>{family.description}</small>
+                  <span>Family from {money(family.startingPrice)}</span>
+                </button>
+              ))}
+            </div>
+            <p className="muted small">
+              Published family starting prices—not a price for this size or configuration. All
+              selections require a quote.
+            </p>
+            <a className="source-link" href={product.source} target="_blank" rel="noreferrer">
+              Official {product.shortName} specifications ↗
+            </a>
             <div className="section-label">
               Choose your footprint <span>01 / 02</span>
             </div>
@@ -201,7 +260,7 @@ export default function ConfigPanel({
                     const updated = { ...c, length }
                     if (layoutIssues(updated).length) {
                       notify(
-                        'Your equipment needs more room. Rearrange or remove items in the floor plan before choosing S-20.',
+                        'Your equipment needs more room. Rearrange or remove items in the floor plan before choosing 20 feet.',
                       )
                       return
                     }
@@ -209,14 +268,16 @@ export default function ConfigPanel({
                   }}
                 >
                   <div className="size-card-top">
-                    <span>S-{length}</span>
+                    <span>
+                      {length}′ {product.shortName}
+                    </span>
                     <span className="selection-dot">
                       {c.length === length && <Check size={11} />}
                     </span>
                   </div>
-                  <MiniStudio long={length === 40} />
+                  <MiniStudio long={length === 40} family={c.family} />
                   <div className="size-card-bottom">
-                    <strong>{distance(length, unit)} studio</strong>
+                    <strong>{distance(length, unit)} footprint</strong>
                     <small>
                       {area(length * 8, unit)} · {length === 20 ? 'Focused' : 'Expansive'}
                     </small>
@@ -232,17 +293,43 @@ export default function ConfigPanel({
                 <b>{distance(c.length, unit)}</b>Length
               </span>
               <span>
-                <b>{distance(10, unit)}</b>Height
+                <b>{distance(productHeight(c), unit)}</b>Height
               </span>
             </div>
             <div className="included">
               <Check size={14} />
-              <p>
-                Concept shell includes insulation, electrical, lighting, and performance flooring.
-              </p>
+              <p>{product.features}</p>
             </div>
+            {c.family === 'studio' && (
+              <label className="field-label studio-layout">
+                Configuration request
+                <select
+                  value={c.studioLayout}
+                  onChange={(e) =>
+                    onChange({ ...c, studioLayout: e.target.value as Config['studioLayout'] })
+                  }
+                >
+                  {STUDIO_LAYOUTS.map((layout) => (
+                    <option key={layout.id} value={layout.id}>
+                      {layout.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {c.studioLayout !== 'single' && (
+              <p className="inline-notice">
+                Custom inquiry recorded. The scene shows one reference unit, not the connected or
+                stacked project. Unit count, arrangement, engineering, and pricing require Fury
+                review.
+              </p>
+            )}
+            <p className="muted small">
+              Sources checked {PRODUCT_SOURCE_DATE}. Nominal exterior sizes; usable space and
+              technical specifications require confirmation.
+            </p>
             <div className="section-label inspiration-label">
-              A starting point, not a limit <ArrowDownRight size={16} />
+              Concept inspiration, not Fury packages <ArrowDownRight size={16} />
             </div>
             <div className="inspiration-list">
               <button onClick={() => onTemplate('athlete')}>
@@ -287,11 +374,54 @@ export default function ConfigPanel({
                 <br />
                 From the outside in.
               </h2>
-              <p>Considered finishes. Open-air possibilities.</p>
+              <p>
+                {c.family === 'studio'
+                  ? 'Published Studio additions, with concept finishes.'
+                  : 'Published Container openings, with concept finishes.'}
+              </p>
             </div>
+            {c.family === 'container' && (
+              <>
+                <div className="section-label">Access + openings</div>
+                <div className="opening-options" role="group" aria-label="Container opening">
+                  {CONTAINER_OPENINGS.map((opening) => (
+                    <button
+                      key={opening.id}
+                      aria-pressed={c.containerOpening === opening.id}
+                      className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
+                      onClick={() => {
+                        const next = { ...c, containerOpening: opening.id }
+                        if (layoutIssues(next).length) {
+                          notify('Rearrange equipment to keep the selected opening’s entry clear.')
+                          return
+                        }
+                        onChange(next)
+                      }}
+                    >
+                      <strong>{opening.name}</strong>
+                      <small>{opening.detail}</small>
+                      <span>Quote required</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="muted small">
+                  Available on 20′ and 40′ builds. Roll-up shown open. Open-side widths, positions,
+                  door height, and structure are conceptual, not approved construction dimensions.
+                </p>
+                <Toggle
+                  label="Integrated exterior finish"
+                  detail="Published design option. Material, detailing, and cost require a quote."
+                  checked={c.integratedFinish}
+                  onChange={() => onChange({ ...c, integratedFinish: !c.integratedFinish })}
+                />
+              </>
+            )}
             <div className="section-label">
-              Powder-coat finish <span>{FINISHES.find((f) => f.id === c.finish)!.name}</span>
+              Concept color study <span>{FINISHES.find((f) => f.id === c.finish)!.name}</span>
             </div>
+            <p className="muted small">
+              Visualization palette only—not Fury’s approved finish names or availability.
+            </p>
             <div className="finish-options">
               {FINISHES.map((f) => (
                 <button
@@ -306,54 +436,62 @@ export default function ConfigPanel({
                     )}
                   </span>
                   <strong>{f.name}</strong>
-                  <small>{f.price ? `+${money((f.price * c.length) / 20)}` : 'Included'}</small>
+                  <small>Concept</small>
                 </button>
               ))}
             </div>
-            <Toggle
-              label="Cedar accent cladding"
-              detail={`Natural warmth. Slatted texture. +${money((3800 * c.length) / 20)}`}
-              checked={c.accent}
-              onChange={() => onChange({ ...c, accent: !c.accent })}
-            />
-            <div className="section-label separated">
-              Expand your horizons <span>4 additions</span>
-            </div>
-            <div className="addon-list">
-              {ADDONS.map((addon, i) => {
-                const icons = [Layers3, TreePine, Sun, Footprints],
-                  Icon = icons[i]
-                return (
-                  <button
-                    key={addon.id}
-                    className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
-                    aria-pressed={c.addons[addon.id]}
-                    onClick={() => {
-                      const result = setAddon(c, addon.id)
-                      onChange(result.config)
-                      if (result.notice) notify(result.notice)
-                    }}
-                  >
-                    <span className="addon-icon">
-                      <Icon size={21} strokeWidth={1.3} />
-                    </span>
-                    <span className="addon-description">
-                      <strong>{addon.name}</strong>
-                      <small>{addon.detail}</small>
-                      <b>+{money(addon.price * (addon.id === 'stairs' ? 1 : c.length / 20))}</b>
-                    </span>
-                    <span className="check-square">
-                      {c.addons[addon.id] ? <Check size={13} /> : <Plus size={13} />}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-            {c.addons.roof && !c.addons.stairs && (
-              <p className="inline-notice">
-                Rooftop selected without stairs. An approved access solution is required before
-                installation.
-              </p>
+            {c.family === 'studio' && (
+              <>
+                <Toggle
+                  label="Concept timber accent"
+                  detail="Visual study only. Material and availability unconfirmed."
+                  checked={c.accent}
+                  onChange={() => onChange({ ...c, accent: !c.accent })}
+                />
+                <div className="section-label separated">
+                  Published Studio additions <span>Quote required</span>
+                </div>
+                <div className="addon-list">
+                  {ADDONS.map((addon, i) => {
+                    const icons = [Layers3, TreePine, Sun, Footprints],
+                      Icon = icons[i]
+                    return (
+                      <button
+                        key={addon.id}
+                        className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
+                        aria-pressed={c.addons[addon.id]}
+                        onClick={() => {
+                          const result = setAddon(c, addon.id)
+                          onChange(result.config)
+                          if (result.notice) notify(result.notice)
+                        }}
+                      >
+                        <span className="addon-icon">
+                          <Icon size={21} strokeWidth={1.3} />
+                        </span>
+                        <span className="addon-description">
+                          <strong>{addon.name}</strong>
+                          <small>{addon.detail}</small>
+                          <b>Quote required</b>
+                        </span>
+                        <span className="check-square">
+                          {c.addons[addon.id] ? <Check size={13} /> : <Plus size={13} />}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="muted small">
+                  Available individually or combined. All add-on geometry is conceptual; support,
+                  access, and compatibility need Fury’s approval.
+                </p>
+                {c.addons.roof && !c.addons.stairs && (
+                  <p className="inline-notice">
+                    Rooftop selected without stairs. An approved access solution is required before
+                    installation.
+                  </p>
+                )}
+              </>
             )}
           </>
         )}
@@ -366,7 +504,7 @@ export default function ConfigPanel({
                 <br />
                 Right at home.
               </h2>
-              <p>Start with a curated layout. Make it your own.</p>
+              <p>Concept planning layouts—not Fury equipment packages.</p>
             </div>
             <div className="package-options">
               {PACKAGES.map((p) => {
@@ -394,7 +532,11 @@ export default function ConfigPanel({
               </span>
               <ArrowRight size={17} />
             </button>
-            <div className="section-label separated">Underfoot</div>
+            <div className="section-label separated">Concept floor appearance</div>
+            <p className="muted small">
+              Fury lists performance flooring. These looks and materials are not confirmed
+              purchasable options.
+            </p>
             <div className="floor-options">
               {FLOORS.map((f) => (
                 <button
@@ -410,8 +552,8 @@ export default function ConfigPanel({
               ))}
             </div>
             <Toggle
-              label="Mirror wall"
-              detail={`Add depth to your practice. +${money((1400 * c.length) / 20)}`}
+              label="Concept mirror wall"
+              detail="Visual study only. Availability requires confirmation."
               checked={c.mirror}
               onChange={() => onChange({ ...c, mirror: !c.mirror })}
             />
@@ -420,8 +562,8 @@ export default function ConfigPanel({
                 Add individual equipment <ChevronDown size={16} />
               </summary>
               <p className="muted small">
-                Generic planning models, not endorsed partner products. Prices and working
-                clearances are illustrative.
+                Generic planning models, not endorsed partner products. Dimensions and working
+                clearances are illustrative. Equipment pricing requires a quote.
               </p>
               <div className="catalog">
                 {CATALOG.map((p) => (
@@ -434,14 +576,14 @@ export default function ConfigPanel({
                         notify(`${p.name} added. Drag it into place in the floor plan.`)
                       } else
                         notify(
-                          'No collision-free position is available. Remove or rearrange equipment, or choose a larger studio.',
+                          'No collision-free position is available. Remove or rearrange equipment, or choose a larger footprint.',
                         )
                     }}
                   >
                     <span>
                       <strong>{p.name}</strong>
                       <small>
-                        {distance(p.w, unit)} × {distance(p.d, unit)} · {money(p.price)}
+                        {distance(p.w, unit)} × {distance(p.d, unit)} · Quote required
                       </small>
                     </span>
                     <Plus size={16} />
@@ -580,7 +722,7 @@ export default function ConfigPanel({
           <Flame size={13} /> MAKE ROOM FOR MORE.
         </span>
         <button onClick={() => setStep((step + 1) % 4)}>
-          {step === 3 ? 'Back to studio' : STEPS[step + 1]}
+          {step === 3 ? 'Back to space' : STEPS[step + 1]}
           <ArrowRight size={16} />
         </button>
       </div>

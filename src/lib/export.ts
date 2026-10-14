@@ -5,9 +5,19 @@ import {
   catalogItem,
   estimate,
   money,
+  productName,
+  productHeight,
+  entryCenter,
   shareUrl,
   type Config,
 } from './config'
+import {
+  CONTAINER_OPENINGS,
+  STUDIO_LAYOUTS,
+  PROJECT_URL,
+  PRODUCT_SOURCE_DATE,
+  productFamily,
+} from './products'
 
 export function downloadFile(name: string, content: string | Blob, type = 'application/json') {
   const url = URL.createObjectURL(
@@ -44,7 +54,7 @@ export async function createBrief(
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(size)
     doc.setTextColor(78, 83, 73)
-    const lines = doc.splitTextToSize(value, 174) as string[]
+    const lines = doc.splitTextToSize(value.replace(/′/g, "'"), 174) as string[]
     for (const line of lines) {
       if (y > 269) {
         doc.addPage()
@@ -60,13 +70,13 @@ export async function createBrief(
   doc.setTextColor(214, 233, 158)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(23)
-  doc.text('FURY / S-SERIES', 18, 22)
+  doc.text(config.family === 'studio' ? 'FURY / S-SERIES' : 'FURY / CONTAINER', 18, 22)
   doc.setFontSize(8)
-  doc.text('YOUR STUDIO. YOUR WAY.', 18, 31)
+  doc.text('YOUR SPACE. YOUR WAY.', 18, 31)
   y = 53
-  heading(project.name || `My S-${config.length} studio`)
+  heading((project.name || `My ${productName(config)}`).replace(/′/g, "'"))
   text(
-    `Concept build brief / ${new Date().toLocaleDateString('en-US')} / Pricing model: ${estimateData.version}`,
+    `Concept build brief / ${new Date().toLocaleDateString('en-US')} / Source snapshot: ${estimateData.version}`,
   )
   if (image) {
     const props = doc.getImageProperties(image),
@@ -78,17 +88,35 @@ export async function createBrief(
   heading('01 / Your configuration')
   const finish = FINISHES.find((f) => f.id === config.finish)!.name
   text(
-    `S-${config.length}: ${config.length} ft L x 8 ft W x 10 ft H / ${config.length * 8} sq ft gross floor area.\nExterior: ${finish}${config.accent ? ' with cedar accent cladding' : ''}.\nFloor: ${FLOORS.find((f) => f.id === config.flooring)!.name}. Mirror wall: ${config.mirror ? 'Yes' : 'No'}.\nOutdoor: ${
+    `${productFamily(config.family).name}: ${config.length} ft L x 8 ft W x ${productHeight(config)} ft H / ${config.length * 8} sq ft nominal gross floor area.\nConcept exterior: ${finish}${config.accent ? ' with timber accent' : ''}.\nConcept floor: ${FLOORS.find((f) => f.id === config.flooring)!.name}. Concept mirror wall: ${config.mirror ? 'Yes' : 'No'}.\nOutdoor: ${
       ADDONS.filter((a) => config.addons[a.id])
         .map((a) => a.name)
         .join(', ') || 'No additions'
     }.`,
   )
+  if (config.family === 'container')
+    text(
+      `Opening request: ${CONTAINER_OPENINGS.find((o) => o.id === config.containerOpening)!.name}. Only the featured roll-up width is published; other opening geometry is conceptual.`,
+    )
+  if (config.family === 'studio')
+    text(
+      `Configuration request: ${STUDIO_LAYOUTS.find((o) => o.id === config.studioLayout)!.name}.${config.studioLayout !== 'single' ? ' The scene and floor plan show one reference unit only, not the requested assembly. Unit count, arrangement, structure and access require Fury review.' : ''}`,
+    )
+  text('Published features: ' + productFamily(config.family).features, 9)
   if (y > 210) {
     doc.addPage()
     y = 22
   }
-  heading('02 / Illustrative estimate (USD)')
+  heading('02 / Published starting price (USD)')
+  text(
+    `${productFamily(config.family).name} base models starting at ${money(estimateData.startingPrice)}. This is a family-level published starting price, not a price for this size or your configured project.`,
+  )
+  text(`Source checked ${PRODUCT_SOURCE_DATE}: ${estimateData.source}`, 9)
+  text(
+    'The project inquiry page separately says entry-level projects typically begin at $25,000. That is project guidance, not an additional fee.',
+    9,
+  )
+  heading('Selections requiring a quote')
   for (const line of estimateData.lines) {
     if (y > 258) {
       doc.addPage()
@@ -97,14 +125,19 @@ export async function createBrief(
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
     doc.setTextColor(78, 83, 73)
-    doc.text(line.name, 18, y)
-    doc.text(money(line.amount), 192, y, { align: 'right' })
-    y += 7
+    const nameLines = doc.splitTextToSize(line.name.replace(/′/g, "'"), 125) as string[]
+    if (y + nameLines.length * 5 > 264) {
+      doc.addPage()
+      y = 22
+    }
+    doc.text(nameLines, 18, y)
+    doc.text('Quote required', 192, y, { align: 'right' })
+    y += Math.max(7, nameLines.length * 5 + 2)
   }
   y += 3
-  heading(`Illustrative total: ${money(estimateData.total)}`)
+  heading('Configured project: quote required')
   text(
-    'Not a quotation or an offer. All prices are demonstration assumptions, not an approved company price list. Tax, shipping, crane access, foundation, site work, permits, utility connections and installation are excluded. Availability, specifications and engineering require confirmation.',
+    'Not a quotation or an offer. No configured total or financing estimate has been calculated. Concept finish palettes, equipment and add-on geometry are not approved specifications. Confirm tax, delivery, foundation, site work, permits, utilities and installation with Fury. Availability, support, access and engineering require review.',
     9,
   )
   doc.addPage()
@@ -120,6 +153,14 @@ export async function createBrief(
   doc.setFillColor(231, 234, 223)
   doc.setDrawColor(70, 82, 62)
   doc.rect(left, top, config.length * scale, 8 * scale, 'FD')
+  doc.setFillColor(205, 218, 184)
+  doc.rect(
+    left + (entryCenter(config) + config.length / 2 - 1.6) * scale,
+    top + 6.3 * scale,
+    3.2 * scale,
+    1.7 * scale,
+    'F',
+  )
   for (const item of config.items) {
     const p = catalogItem(item.sku),
       w = item.rotation === 0 ? p.w : p.d,
@@ -132,7 +173,10 @@ export async function createBrief(
     doc.text(doc.splitTextToSize(p.name, w * scale - 2), x + 1, z + 4)
   }
   y = top + 8 * scale + 13
-  text(`${config.length} ft x 8 ft external footprint. Equipment positions:`, 10)
+  text(
+    `${config.length} ft x 8 ft external footprint of one unit. Shaded zone: planned entry. Equipment positions:`,
+    10,
+  )
   for (const item of config.items)
     text(
       `${catalogItem(item.sku).name}: x ${item.x} ft, z ${item.z} ft, rotation ${item.rotation} degrees.`,
@@ -142,27 +186,39 @@ export async function createBrief(
     heading('04 / Project notes')
     text(project.notes.slice(0, 2000))
   }
-  const continuationNotice =
-    'The link works wherever this application is hosted. Local development links require the application to be running at that address. This brief is downloaded to your device; it has not been sent to a sales team.'
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  const continuationHeight =
-    9 + 10 + doc.splitTextToSize(continuationNotice, 174).length * 9 * 0.48 + 3
-  if (y + continuationHeight > 269) {
-    doc.addPage()
-    y = 22
+  const linkSection = (title: string, label: string, url: string, notice: string) => {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    const sectionHeight = 9 + 10 + doc.splitTextToSize(notice, 174).length * 9 * 0.48 + 3
+    if (y + sectionHeight > 269) {
+      doc.addPage()
+      y = 22
+    }
+    heading(title)
+    doc.setFontSize(10)
+    doc.setTextColor(61, 94, 39)
+    doc.textWithLink(label, 18, y, { url })
+    y += 10
+    text(notice, 9)
   }
-  heading('Continue this design')
-  doc.setFontSize(10)
-  doc.setTextColor(61, 94, 39)
-  doc.textWithLink('Open the interactive configuration', 18, y, { url: shareUrl(config) })
-  y += 10
-  text(continuationNotice, 9)
+  linkSection(
+    'Continue this design',
+    'Open the interactive configuration',
+    shareUrl(config),
+    'The link works wherever this application is hosted. Local development links require the application to be running at that address. This brief is downloaded to your device; it has not been sent to a sales team.',
+  )
+  linkSection(
+    'Request an official quote',
+    'Start a project with Fury Co Gyms',
+    PROJECT_URL,
+    'Opening this link does not send your design. Supply this brief yourself through Fury’s inquiry process. Published product source: ' +
+      estimateData.source,
+  )
   for (let page = 1; page <= doc.getNumberOfPages(); page++) {
     doc.setPage(page)
     doc.setFontSize(7)
     doc.setTextColor(120, 125, 111)
-    doc.text('FURY / S-SERIES  -  CONCEPT ONLY  -  NOT FOR CONSTRUCTION', 18, 285)
+    doc.text('FURY / GYM CONFIGURATOR  -  CONCEPT ONLY  -  NOT FOR CONSTRUCTION', 18, 285)
     doc.text(`${page} / ${doc.getNumberOfPages()}`, 192, 285, { align: 'right' })
   }
   return doc
@@ -173,5 +229,5 @@ export async function exportBrief(
   project: { name: string; notes: string },
 ) {
   const doc = await createBrief(config, image, project)
-  doc.save(`Fury-S${config.length}-build-brief.pdf`)
+  doc.save(`Fury-${config.family}-${config.length}-build-brief.pdf`)
 }

@@ -2,7 +2,7 @@
 import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG } from '../lib/config'
+import { DEFAULT_CONFIG, setFamily } from '../lib/config'
 import { SceneRefresh } from './SceneRefresh'
 
 const { invalidate } = vi.hoisted(() => ({ invalidate: vi.fn() }))
@@ -46,6 +46,21 @@ describe('on-demand scene redraw', () => {
 
   it('redraws after all equipment is removed', () => {
     props.config = { ...props.config, items: [] }
+    act(() => root.render(<SceneRefresh {...props} />))
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('redraws after switching product families', () => {
+    props.config = setFamily(props.config, 'container')
+    act(() => root.render(<SceneRefresh {...props} />))
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('redraws after a Container opening changes', () => {
+    props.config = setFamily(props.config, 'container')
+    act(() => root.render(<SceneRefresh {...props} />))
+    invalidate.mockClear()
+    props.config = { ...props.config, containerOpening: 'full' }
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).toHaveBeenCalledTimes(1)
   })

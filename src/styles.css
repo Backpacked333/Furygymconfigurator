@@ -14,6 +14,73 @@
   --ink: #2c3825;
   --display: 'Manrope', sans-serif;
 }
+.family-options,
+.opening-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.family-card,
+.opening-card {
+  text-align: left;
+  padding: 15px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.family-card.selected,
+.opening-card.selected {
+  border-color: var(--accent);
+  background: #37422f;
+}
+.family-card strong,
+.opening-card strong {
+  font-size: 13px;
+}
+.family-card small,
+.opening-card small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.family-card span,
+.opening-card span {
+  font-size: 10px;
+  color: var(--accent);
+  margin-top: auto;
+}
+.source-link {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent);
+  margin: 12px 0;
+  text-underline-offset: 3px;
+}
+.family-options + p,
+.opening-options + p {
+  margin-top: 12px;
+}
+.studio-layout select {
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  width: 100%;
+}
+.custom-preview-note {
+  margin-top: 10px;
+  font-size: 10px;
+  color: #4a543e;
+  max-width: 210px;
+}
+.inquiry-link {
+  text-decoration: none;
+  margin-bottom: 12px;
+}
 * {
   box-sizing: border-box;
 }
