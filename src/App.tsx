@@ -46,6 +46,7 @@ import {
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
+import { defaultQuality, type Backend, type Quality } from './render/renderer'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
@@ -56,9 +57,8 @@ export default function App() {
     [view, setView] = useState<View>('exterior'),
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
-    [quality, setQuality] = useState<'high' | 'lite'>(() =>
-      window.innerWidth < 700 ? 'lite' : 'high',
-    )
+    [quality, setQuality] = useState<Quality>(() => defaultQuality()),
+    [backend, setBackend] = useState<Backend | null>(null)
   const [dialog, setDialog] = useState<Dialog>(null),
     [toast, setToast] = useState(initialNotice),
     [reset, setReset] = useState(0)
@@ -233,6 +233,7 @@ export default function App() {
                 quality={quality}
                 onCaptureReady={onCaptureReady}
                 onFallback={() => setView('plan')}
+                onBackend={setBackend}
               />
             </Suspense>
           )}
@@ -349,6 +350,11 @@ export default function App() {
               <div className="scene-status">
                 <span className="status-dot" />
                 <strong>LIVE 3D</strong>
+                {backend && (
+                  <span className="render-backend">
+                    {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
+                  </span>
+                )}
                 <span>Concept visualization · Not manufacturer CAD</span>
               </div>
               <div className="scene-hint">

@@ -10,6 +10,7 @@ import {
 import type { Config } from '../lib/config'
 import { noise } from '../lib/visuals'
 import { SurfaceMaterial } from './SurfaceMaterial'
+import type { Quality } from '../render/renderer'
 
 type Position = [number, number, number]
 
@@ -205,7 +206,7 @@ const Gravel = memo(function Gravel({ length, desert }: { length: number; desert
   )
 })
 
-export function Landscape({ config: c, quality }: { config: Config; quality: 'high' | 'lite' }) {
+export function Landscape({ config: c, quality }: { config: Config; quality: Quality }) {
   const desert = c.environment === 'desert',
     lite = quality === 'lite',
     L = c.length

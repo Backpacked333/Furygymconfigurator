@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from 'react'
 import { CanvasTexture, DoubleSide, ExtrudeGeometry, Path, Shape, SRGBColorSpace } from 'three'
-import { MeshReflectorMaterial, RoundedBox } from '@react-three/drei'
+import { RoundedBox } from '@react-three/drei'
+import { Mirror } from './Mirror'
 import { FINISHES, FLOORS, openingGeometry, productHeight, type Config } from '../lib/config'
 import { Equipment } from './Equipment'
-import { SurfaceMaterial } from './SurfaceMaterial'
-import type { Surface } from '../lib/visuals'
+import type { Quality } from '../render/renderer'
+import { SurfaceMaterial, type Surface } from './SurfaceMaterial'
 
 function roundedPath<T extends Shape | Path>(
   shape: T,
@@ -220,7 +221,7 @@ export function StudioModel({
 }: {
   config: Config
   cutaway?: boolean
-  quality?: 'high' | 'lite'
+  quality?: Quality
 }) {
   const L = c.length,
     H = productHeight(c),
@@ -290,22 +291,7 @@ export function StudioModel({
       {c.mirror && (
         <group position={[-L * 0.16, 4.9, -3.57]}>
           <Box p={[0, 0, -0.04]} s={[L * 0.48 + 0.12, 5.92, 0.07]} color="#252c27" metal={0.7} />
-          <mesh>
-            <planeGeometry args={[L * 0.48, 5.8]} />
-            {quality === 'high' ? (
-              <MeshReflectorMaterial
-                resolution={512}
-                mirror={0.92}
-                mixStrength={1}
-                mixBlur={0}
-                color="#e6ebe7"
-                metalness={0.15}
-                roughness={0.08}
-              />
-            ) : (
-              <meshStandardMaterial color="#b5c4bd" metalness={0.95} roughness={0.12} />
-            )}
-          </mesh>
+          <Mirror width={L * 0.48} height={5.8} quality={quality} />
           {Array.from({ length: Math.floor(L / 8) }, (_, i) => (
             <Box
               key={i}

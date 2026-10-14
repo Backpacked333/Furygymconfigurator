@@ -1,7 +1,6 @@
 import { RoundedBox } from '@react-three/drei'
 import type { PlacedItem } from '../lib/config'
-import { SurfaceMaterial } from './SurfaceMaterial'
-import type { Surface } from '../lib/visuals'
+import { SurfaceMaterial, type Surface } from './SurfaceMaterial'
 
 type BProps = {
   p: [number, number, number]

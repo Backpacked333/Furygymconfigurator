@@ -1,22 +1,18 @@
-import { Component, Suspense, useEffect, useRef, type ReactNode } from 'react'
+import { Component, useEffect, useRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import {
-  ContactShadows,
-  Environment,
-  Html,
-  Lightformer,
-  OrbitControls,
-  SoftShadows,
-} from '@react-three/drei'
-import { ACESFilmicToneMapping, BackSide, Color, Euler, PerspectiveCamera, Vector3 } from 'three'
+import { Html, OrbitControls } from '@react-three/drei'
+import { Euler, PerspectiveCamera, Vector3 } from 'three'
+import type { WebGPURenderer } from 'three/webgpu'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
 import { StudioModel } from './StudioModel'
 import { Landscape } from './Landscape'
-import { SurfaceProvider } from './SurfaceMaterial'
-import { lightingAt } from '../lib/visuals'
 import { RenderEffects } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
+import { Atmosphere } from './Atmosphere'
+import { InteriorProbe } from './InteriorProbe'
+import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
+import { setMaxAnisotropy } from '../render/materials'
 
 class GraphicsBoundary extends Component<
   { children: ReactNode; onFallback: () => void },
@@ -239,6 +235,7 @@ export default function Scene({
   quality,
   onCaptureReady,
   onFallback,
+  onBackend,
 }: {
   config: Config
   view: View
@@ -246,103 +243,31 @@ export default function Scene({
   unit: Unit
   reset: number
   autoRotate: boolean
-  quality: 'high' | 'lite'
+  quality: Quality
   onCaptureReady: (capture: () => string) => void
   onFallback: () => void
+  onBackend?: (backend: Backend) => void
 }) {
-  const { daylight, warmth, elevation } = lightingAt(config.time)
-  const bg = new Color('#333e51')
-    .lerp(new Color(config.environment === 'desert' ? '#ded0ba' : '#d7ddd8'), daylight)
-    .lerp(new Color('#d6bba0'), warmth * 0.35)
-  const sunlight = new Color('#fff5df').lerp(new Color('#ffc084'), warmth)
-  const sunAngle = ((config.time - 6) / 15) * Math.PI
   return (
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
-        shadows={quality === 'high'}
-        dpr={quality === 'high' ? [1, 2] : 1}
+        shadows
+        dpr={quality === 'lite' ? 1 : [1, 2]}
         frameloop="demand"
-        camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 350 }}
-        gl={{
-          antialias: true,
-          preserveDrawingBuffer: true,
-          powerPreference: 'high-performance',
-          toneMapping: ACESFilmicToneMapping,
-          toneMappingExposure: 1.05,
+        camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
+        gl={async ({ canvas }) => {
+          const renderer = await createRenderer(canvas as HTMLCanvasElement)
+          setMaxAnisotropy(renderer.getMaxAnisotropy())
+          return renderer
         }}
+        onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
       >
-        <color attach="background" args={[bg]} />
-        <fog attach="fog" args={[bg, 65, 175]} />
-        <hemisphereLight args={['#d8e7f1', '#777461', 0.3 + daylight * 0.55]} />
-        {quality === 'high' && <SoftShadows size={18} samples={12} focus={0.4} />}
-        <directionalLight
-          position={[Math.cos(sunAngle) * 35, Math.max(8, elevation * 45), 26]}
-          intensity={0.12 + daylight * 3.2}
-          color={sunlight}
-          castShadow
-          shadow-mapSize={quality === 'high' ? [2048, 2048] : [512, 512]}
-          shadow-camera-left={-config.length / 2 - 12}
-          shadow-camera-right={config.length / 2 + 12}
-          shadow-camera-top={28}
-          shadow-camera-bottom={-24}
-          shadow-camera-near={0.5}
-          shadow-camera-far={130}
-          shadow-normalBias={0.035}
-          shadow-bias={-0.0001}
-        />
-        <Suspense fallback={null}>
-          <Environment
-            key={`${config.time}-${config.environment}-${quality}`}
-            resolution={quality === 'high' ? 256 : 64}
-            environmentIntensity={0.3 + daylight * 0.65}
-          >
-            <mesh>
-              <sphereGeometry args={[90, 32, 16]} />
-              <meshBasicMaterial side={BackSide} color="#a9b5bc" />
-            </mesh>
-            <mesh position={[0, -10, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <planeGeometry args={[180, 180]} />
-              <meshBasicMaterial color="#777869" />
-            </mesh>
-            <Lightformer
-              intensity={1 + daylight}
-              position={[0, 25, 0]}
-              rotation={[Math.PI / 2, 0, 0]}
-              scale={[50, 40, 1]}
-            />
-            <Lightformer
-              intensity={0.4 + daylight * 1.5}
-              position={[-25, 8, 10]}
-              rotation={[0, Math.PI / 2, 0]}
-              scale={[8, 18, 1]}
-            />
-            <Lightformer
-              intensity={0.6 + daylight}
-              color="#e6e9df"
-              position={[0, 8, 30]}
-              scale={[35, 6, 1]}
-            />
-          </Environment>
-        </Suspense>
-        <SurfaceProvider>
-          <Landscape config={config} quality={quality} />
-          <StudioModel config={config} quality={quality} />
-        </SurfaceProvider>
-        {quality === 'high' && (
-          <ContactShadows
-            key={`${config.family}-${config.containerOpening}-${config.length}-${JSON.stringify(config.addons)}-${config.environment}`}
-            position={[0, 0.02, 0]}
-            opacity={0.38}
-            scale={config.length + 25}
-            blur={2.8}
-            far={16}
-            resolution={1024}
-            frames={1}
-            color="#343629"
-          />
-        )}
+        <Atmosphere config={config} quality={quality} />
+        <Landscape config={config} quality={quality} />
+        <StudioModel config={config} quality={quality} />
         {dimensions && <Dimensions config={config} unit={unit} />}
         <CameraRig config={config} view={view} reset={reset} autoRotate={autoRotate} />
+        <InteriorProbe config={config} quality={quality} />
         <RenderEffects quality={quality} onCaptureReady={onCaptureReady} />
         <SceneRefresh
           config={config}

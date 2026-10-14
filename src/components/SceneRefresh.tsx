@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import type { Config, Unit, View } from '../lib/config'
+import type { Quality } from '../render/renderer'
 
 export function SceneRefresh({
   config,
@@ -14,7 +15,7 @@ export function SceneRefresh({
   view: View
   dimensions: boolean
   unit: Unit
-  quality: 'high' | 'lite'
+  quality: Quality
   autoRotate: boolean
 }) {
   const invalidate = useThree((state) => state.invalidate)

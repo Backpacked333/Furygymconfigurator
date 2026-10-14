@@ -1,0 +1,279 @@
+[
+  {
+    "id": "bark_platanus",
+    "name": "Bark Platanus",
+    "authors": [
+      "Dimitrios Savva"
+    ],
+    "sizeFt": [
+      4.921,
+      4.921
+    ],
+    "source": "https://polyhaven.com/a/bark_platanus",
+    "role": "Tree bark",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "beige_wall_001",
+    "name": "Beige Wall 001",
+    "authors": [
+      "Dimitrios Savva",
+      "Rico Cilliers"
+    ],
+    "sizeFt": [
+      9.843,
+      9.843
+    ],
+    "source": "https://polyhaven.com/a/beige_wall_001",
+    "role": "Painted interior walls",
+    "resolution": "1k",
+    "tinted": true
+  },
+  {
+    "id": "clean_pebbles",
+    "name": "Clean Pebbles",
+    "authors": [
+      "Dario Barresi",
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/clean_pebbles",
+    "role": "Gravel beds",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "concrete_pavement",
+    "name": "Concrete Pavement",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      5.906,
+      5.906
+    ],
+    "source": "https://polyhaven.com/a/concrete_pavement",
+    "role": "Courtyard paving",
+    "resolution": "2k",
+    "tinted": false
+  },
+  {
+    "id": "concrete_slab_wall",
+    "name": "Concrete Slab Wall",
+    "authors": [
+      "Dimitrios Savva"
+    ],
+    "sizeFt": [
+      7.546,
+      7.546
+    ],
+    "source": "https://polyhaven.com/a/concrete_slab_wall",
+    "role": "Board-formed garden wall",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "concrete_wall_001",
+    "name": "Concrete Wall 001",
+    "authors": [
+      "Dimitrios Savva",
+      "Rico Cilliers"
+    ],
+    "sizeFt": [
+      4.921,
+      4.921
+    ],
+    "source": "https://polyhaven.com/a/concrete_wall_001",
+    "role": "Planters and stepping stones",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "dry_ground_01",
+    "name": "Dry Ground 01",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "sizeFt": [
+      13.123,
+      13.123
+    ],
+    "source": "https://polyhaven.com/a/dry_ground_01",
+    "role": "Desert ground",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "granite_tile_04",
+    "name": "Granite Tile 04",
+    "authors": [
+      "Amal Kumar"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/granite_tile_04",
+    "role": "Stone-look floor",
+    "resolution": "2k",
+    "tinted": true
+  },
+  {
+    "id": "hinoki_planks",
+    "name": "Hinoki Planks",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      6.201,
+      6.201
+    ],
+    "source": "https://polyhaven.com/a/hinoki_planks",
+    "role": "Sauna cladding",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "laminate_floor_02",
+    "name": "Laminate Floor 02",
+    "authors": [
+      "Dario Barresi",
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      5.577,
+      5.577
+    ],
+    "source": "https://polyhaven.com/a/laminate_floor_02",
+    "role": "Oak-look floor",
+    "resolution": "2k",
+    "tinted": false
+  },
+  {
+    "id": "leafy_grass",
+    "name": "Leafy Grass",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/leafy_grass",
+    "role": "Lawn",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "leather_white",
+    "name": "Leather White",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "sizeFt": [
+      0.984,
+      0.984
+    ],
+    "source": "https://polyhaven.com/a/leather_white",
+    "role": "Upholstery",
+    "resolution": "1k",
+    "tinted": true
+  },
+  {
+    "id": "oak_veneer_01",
+    "name": "Oak Veneer 01",
+    "authors": [
+      "Jenelle van Heerden"
+    ],
+    "sizeFt": [
+      6.004,
+      6.004
+    ],
+    "source": "https://polyhaven.com/a/oak_veneer_01",
+    "role": "Ceiling slats, trims, reformer",
+    "resolution": "1k",
+    "tinted": false
+  },
+  {
+    "id": "painted_metal_shutter",
+    "name": "Painted Metal Shutter",
+    "authors": [
+      "Dario Barresi",
+      "Rico Cilliers",
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/painted_metal_shutter",
+    "role": "Container roll-up door",
+    "resolution": "1k",
+    "tinted": true
+  },
+  {
+    "id": "rough_linen",
+    "name": "Rough Linen",
+    "authors": [
+      "colormass",
+      "Rico Cilliers"
+    ],
+    "sizeFt": [
+      0.888,
+      0.89
+    ],
+    "source": "https://polyhaven.com/a/rough_linen",
+    "role": "Lounger fabric",
+    "resolution": "1k",
+    "tinted": true
+  },
+  {
+    "id": "rubber_tiles",
+    "name": "Rubber Tiles",
+    "authors": [
+      "Amal Kumar"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/rubber_tiles",
+    "role": "Rubber-look floor",
+    "resolution": "2k",
+    "tinted": false
+  },
+  {
+    "id": "rubberized_track",
+    "name": "Rubberized Track",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "sizeFt": [
+      6.562,
+      6.562
+    ],
+    "source": "https://polyhaven.com/a/rubberized_track",
+    "role": "Rubber plates, dumbbells, mats",
+    "resolution": "1k",
+    "tinted": true
+  },
+  {
+    "id": "teak_veneer",
+    "name": "Teak Veneer",
+    "authors": [
+      "Jenelle van Heerden"
+    ],
+    "sizeFt": [
+      3.281,
+      3.281
+    ],
+    "source": "https://polyhaven.com/a/teak_veneer",
+    "role": "Exterior decking and gazebo",
+    "resolution": "1k",
+    "tinted": false
+  }
+]
