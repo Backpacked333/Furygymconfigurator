@@ -73,7 +73,10 @@ src/
   components/
     ConfigPanel.tsx           Four-step selection interface
     Scene.tsx                 Camera, light, environment, dimensions, graphics fallback
-    StudioModel.tsx           Parametric shell and outdoor structures
+    RenderEffects.tsx         High-mode ambient occlusion, filmic output, matching captures
+    StudioModel.tsx           Detailed parametric shell, glazing, mirror, outdoor structures
+    SurfaceMaterial.tsx       Shared local color/bump textures and material profiles
+    Landscape.tsx             Instanced foliage, grasses, gravel, and courtyard hardscape
     Equipment.tsx             Procedural generic equipment
     FloorPlan.tsx             Accessible SVG floor-plan editor
     Dialogs.tsx               Saved comparisons, quote checklist, sharing, brief form
@@ -84,6 +87,8 @@ src/
     useConfig.ts              Reducer-backed history and automatic draft
     export.ts                 On-demand PDF generation and downloads
     config.test.ts            Domain, storage, history, and PDF regression tests
+    visuals.ts                Deterministic surface generation and continuous lighting curves
+    visuals.test.ts           Material and lighting regression tests
 ```
 
 Dimensions use **feet internally**, with x along unit length and z along depth; the front is positive z. Both families are 20/40 × 8 feet, with heights from the product table above. The floor plan uses a conservative concept usable envelope and reserves a planned entry aligned to the chosen opening. Only the roll-up width is published; other opening widths/positions and all deck/gazebo/stair geometry are illustrative. Collision checks cover equipment footprints and a small placement buffer, **not manufacturer safety clearances, electrical requirements, accessibility, structural loading, or permitted occupancy**. Dashed envelopes are illustrative guidance and can overlap.
@@ -106,13 +111,17 @@ PDF generation loads jsPDF only when needed. Scene capture is omitted in floor-p
 
 ### Rendering and performance
 
-Three.js/React Three Fiber and PDF generation use separate bundles. Rendering is demand-driven except during camera animation and auto-rotation. High mode uses shadows and a capped pixel ratio; Lite removes shadows and uses device pixel ratio 1. Narrow screens initially select Lite; users can override it. This is viewport-based selection, not GPU/network benchmarking. Equipment, materials, and trees are procedural; no licensed model assets or external HDRIs are required.
+Three.js/React Three Fiber and PDF generation use separate bundles. Rendering is demand-driven except during camera animation and auto-rotation. High mode uses soft directional/contact shadows, screen-space ambient occlusion, a 512-pixel planar mirror reflection, a 256-pixel local lighting environment, and device pixel ratio capped at 2. Lite removes shadows and postprocessing, substitutes an environment-mapped mirror, lowers the lighting environment to 64 pixels, reduces foliage/grass instances, and uses device pixel ratio 1. Narrow screens initially select Lite; users can override it. This is viewport-based selection, not GPU/network benchmarking.
+
+The scene uses six shared, deterministic 256-pixel color/bump texture pairs for cedar, oak, rubber, stone, plaster, and powder-coated metal. Foliage, planting, and gravel use instancing rather than one mesh per leaf. Daylight intensity and warmth transition continuously across the time slider. Architectural detailing includes beveled shell edges, separately glazed bays, door hardware, slatted ceilings, ventilation grilles, luminaires, mirror seams, and equipment fasteners. All assets and textures are generated locally; there are no remote HDRI, model, or texture requests.
+
+These remain procedural concept models, not manufacturer-verified CAD or photographic scans. Glass uses layered transparency and environment reflections, not physically traced refraction. High mode's wall mirror renders the current scene; Lite's mirror is only an approximation. Lights do not simulate certified photometry or baked global illumination. Photo and PDF exports use the same current-view renderer, not a separate offline/path-traced pipeline.
 
 The Three.js vendor chunk exceeds Vite's 500 kB advisory threshold. It is loaded for the scene, not PDF generation. No 60 fps or low-end mobile performance claim has been validated on physical hardware.
 
 ## Verification
 
-Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, and real PDF generation for both families. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
+Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, deterministic surface textures, continuous lighting curves, and demand-render invalidation. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
 
 ## Before commercial launch
 

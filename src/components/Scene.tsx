@@ -1,10 +1,22 @@
-import { Component, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { ContactShadows, Environment, Html, Lightformer, OrbitControls } from '@react-three/drei'
-import { Color, Euler, InstancedMesh, Object3D, PerspectiveCamera, Vector3 } from 'three'
+import {
+  ContactShadows,
+  Environment,
+  Html,
+  Lightformer,
+  OrbitControls,
+  SoftShadows,
+} from '@react-three/drei'
+import { ACESFilmicToneMapping, BackSide, Color, Euler, PerspectiveCamera, Vector3 } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
 import { StudioModel } from './StudioModel'
+import { Landscape } from './Landscape'
+import { SurfaceProvider } from './SurfaceMaterial'
+import { lightingAt } from '../lib/visuals'
+import { RenderEffects } from './RenderEffects'
+import { SceneRefresh } from './SceneRefresh'
 
 class GraphicsBoundary extends Component<
   { children: ReactNode; onFallback: () => void },
@@ -30,124 +42,6 @@ class GraphicsBoundary extends Component<
       )
     return this.props.children
   }
-}
-function Tree({
-  x,
-  z,
-  size = 1,
-  desert,
-}: {
-  x: number
-  z: number
-  size?: number
-  desert: boolean
-}) {
-  const leaves = useRef<InstancedMesh>(null)
-  useLayoutEffect(() => {
-    if (!leaves.current) return
-    const obj = new Object3D()
-    for (let i = 0; i < 460; i++) {
-      const a = i * 2.39996,
-        t = ((i * 47) % 461) / 461,
-        y = 4.3 + t * (desert ? 2.7 : 4.1)
-      const radius =
-        Math.sqrt(1 - (t * 2 - 1) ** 2) * (desert ? 3.2 : 2.6) * Math.sqrt(((i * 71) % 461) / 461)
-      obj.position.set(Math.cos(a) * radius, y, Math.sin(a) * radius)
-      obj.scale.set(0.38 + (i % 3) * 0.12, 0.22 + (i % 4) * 0.06, 0.48)
-      obj.rotation.set(i * 0.4, i * 0.3, 0)
-      obj.updateMatrix()
-      leaves.current.setMatrixAt(i, obj.matrix)
-      leaves.current.setColorAt(
-        i,
-        new Color(
-          desert
-            ? ['#85875f', '#7e8056', '#9d9d75'][i % 3]
-            : ['#606b43', '#778154', '#849064'][i % 3],
-        ),
-      )
-    }
-    leaves.current.instanceMatrix.needsUpdate = true
-    if (leaves.current.instanceColor) leaves.current.instanceColor.needsUpdate = true
-  }, [desert])
-  return (
-    <group position={[x, 0, z]} scale={size}>
-      <mesh castShadow position={[0, 3.1, 0]}>
-        <cylinderGeometry args={[0.13, 0.24, 6.2, 9]} />
-        <meshStandardMaterial color="#746550" roughness={1} />
-      </mesh>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <group key={i} rotation={[0, i * 2.4, 0]}>
-          <mesh castShadow position={[0.65, 4.3 + i * 0.35, 0]} rotation={[0, 0, -0.7]}>
-            <cylinderGeometry args={[0.04, 0.1, 2.8, 6]} />
-            <meshStandardMaterial color="#746550" roughness={1} />
-          </mesh>
-        </group>
-      ))}
-      <instancedMesh ref={leaves} args={[undefined, undefined, 460]} castShadow>
-        <icosahedronGeometry args={[1, 0]} />
-        <meshStandardMaterial roughness={1} />
-      </instancedMesh>
-    </group>
-  )
-}
-function Landscaping({ config: c }: { config: Config }) {
-  const desert = c.environment === 'desert',
-    L = c.length
-  if (c.environment === 'studio')
-    return (
-      <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
-        <planeGeometry args={[300, 300]} />
-        <meshStandardMaterial color="#b5b7af" roughness={1} />
-      </mesh>
-    )
-  return (
-    <group>
-      <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.15, 0]}>
-        <planeGeometry args={[300, 300]} />
-        <meshStandardMaterial color={desert ? '#c0aa87' : '#a3aa8f'} roughness={1} />
-      </mesh>
-      <mesh receiveShadow position={[0, -0.11, 3]}>
-        <boxGeometry args={[L + 12, 0.2, 30]} />
-        <meshStandardMaterial color={desert ? '#c8b394' : '#c1c1b3'} roughness={0.95} />
-      </mesh>
-      {Array.from({ length: 7 }, (_, i) => (
-        <mesh key={i} receiveShadow position={[0, 0.008, 15 + i * 2.6]}>
-          <boxGeometry args={[4.5, 0.1, 1.9]} />
-          <meshStandardMaterial color="#d2d0c2" roughness={0.85} />
-        </mesh>
-      ))}
-      <mesh position={[0, 2.25, -11]} castShadow receiveShadow>
-        <boxGeometry args={[L + 18, 4.5, 0.5]} />
-        <meshStandardMaterial color={desert ? '#b4a68d' : '#727d63'} roughness={1} />
-      </mesh>
-      {[-1, 1].map((side) => (
-        <group key={side}>
-          <Tree x={side * (L / 2 + 5)} z={-9} size={1.7} desert={desert} />
-          <Tree x={side * (L / 2 + 10)} z={-14} size={2.1} desert={desert} />
-          <mesh position={[side * (L / 2 + 3.8), 0.35, 5]} castShadow>
-            <boxGeometry args={[2, 0.7, 10]} />
-            <meshStandardMaterial color="#8c917e" />
-          </mesh>
-          {Array.from({ length: 8 }, (_, i) => (
-            <mesh
-              key={i}
-              position={[side * (L / 2 + 3.8), 1.1 + Math.sin(i) * 0.1, 1 + i * 1.2]}
-              scale={[0.7, 1, 0.65]}
-              castShadow
-            >
-              <sphereGeometry args={[0.85, 8, 6]} />
-              <meshStandardMaterial color={desert ? '#8d9271' : '#747f4d'} roughness={1} />
-            </mesh>
-          ))}
-        </group>
-      ))}
-      <mesh position={[-L / 2 - 1.6, 1.05, 10.2]} castShadow>
-        <cylinderGeometry args={[0.85, 0.58, 2.1, 20]} />
-        <meshStandardMaterial color="#767c69" roughness={0.85} />
-      </mesh>
-      <Tree x={-L / 2 - 1.6} z={10.2} size={0.55} desert={desert} />
-    </group>
-  )
 }
 function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
   const z = c.addons.deck ? 14 : 6
@@ -201,7 +95,7 @@ function CameraRig({
     pitch = useRef(0)
   useEffect(() => {
     const p = camera as PerspectiveCamera
-    p.fov = view === 'interior' ? 72 : 34
+    p.fov = view === 'interior' ? 68 : 32
     p.updateProjectionMatrix()
     if (view === 'interior') {
       targetPosition.current.set(c.length / 2 - 2.2, 5.8, 1.4)
@@ -220,7 +114,7 @@ function CameraRig({
       targetLook.current.set(c.addons.stairs ? 2 : 0, c.addons.roof ? 5 : 3.5, hasOutdoor ? 2.2 : 0)
       targetPosition.current
         .copy(targetLook.current)
-        .addScaledVector(new Vector3(0.52, 0.3, 0.8).normalize(), d)
+        .addScaledVector(new Vector3(0.48, 0.24, 0.84).normalize(), d)
     }
     moving.current = true
     invalidate()
@@ -335,16 +229,6 @@ function CameraRig({
     />
   )
 }
-function Capture({ onCaptureReady }: { onCaptureReady: (capture: () => string) => void }) {
-  const { gl, scene, camera } = useThree()
-  useEffect(() => {
-    onCaptureReady(() => {
-      gl.render(scene, camera)
-      return gl.domElement.toDataURL('image/png')
-    })
-  }, [gl, scene, camera, onCaptureReady])
-  return null
-}
 export default function Scene({
   config,
   view,
@@ -366,75 +250,108 @@ export default function Scene({
   onCaptureReady: (capture: () => string) => void
   onFallback: () => void
 }) {
-  const night = config.time >= 19,
-    sunset = config.time >= 17 && !night
-  const bg = night
-    ? '#373f43'
-    : sunset
-      ? '#c8baaa'
-      : config.environment === 'desert'
-        ? '#d2c3ae'
-        : '#c7ccc2'
+  const { daylight, warmth, elevation } = lightingAt(config.time)
+  const bg = new Color('#333e51')
+    .lerp(new Color(config.environment === 'desert' ? '#ded0ba' : '#d7ddd8'), daylight)
+    .lerp(new Color('#d6bba0'), warmth * 0.35)
+  const sunlight = new Color('#fff5df').lerp(new Color('#ffc084'), warmth)
   const sunAngle = ((config.time - 6) / 15) * Math.PI
   return (
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
         shadows={quality === 'high'}
-        dpr={quality === 'high' ? [1, 1.6] : 1}
+        dpr={quality === 'high' ? [1, 2] : 1}
         frameloop="demand"
         camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 350 }}
-        gl={{ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' }}
+        gl={{
+          antialias: true,
+          preserveDrawingBuffer: true,
+          powerPreference: 'high-performance',
+          toneMapping: ACESFilmicToneMapping,
+          toneMappingExposure: 1.05,
+        }}
       >
         <color attach="background" args={[bg]} />
-        <fog attach="fog" args={[bg, 85, 190]} />
-        <hemisphereLight args={[night ? '#93a2bd' : '#f1f2e4', '#5b6450', night ? 0.75 : 1.2]} />
+        <fog attach="fog" args={[bg, 65, 175]} />
+        <hemisphereLight args={['#d8e7f1', '#777461', 0.3 + daylight * 0.55]} />
+        {quality === 'high' && <SoftShadows size={18} samples={12} focus={0.4} />}
         <directionalLight
-          position={[Math.cos(sunAngle) * 35, Math.max(8, Math.sin(sunAngle) * 45), 24]}
-          intensity={night ? 0.5 : sunset ? 3 : 3.5}
-          color={sunset ? '#ffce92' : '#fff4d9'}
+          position={[Math.cos(sunAngle) * 35, Math.max(8, elevation * 45), 26]}
+          intensity={0.12 + daylight * 3.2}
+          color={sunlight}
           castShadow
           shadow-mapSize={quality === 'high' ? [2048, 2048] : [512, 512]}
-          shadow-camera-left={-45}
-          shadow-camera-right={45}
-          shadow-camera-top={40}
-          shadow-camera-bottom={-30}
-          shadow-normalBias={0.06}
+          shadow-camera-left={-config.length / 2 - 12}
+          shadow-camera-right={config.length / 2 + 12}
+          shadow-camera-top={28}
+          shadow-camera-bottom={-24}
+          shadow-camera-near={0.5}
+          shadow-camera-far={130}
+          shadow-normalBias={0.035}
           shadow-bias={-0.0001}
         />
         <Suspense fallback={null}>
-          <Environment resolution={128}>
+          <Environment
+            key={`${config.time}-${config.environment}-${quality}`}
+            resolution={quality === 'high' ? 256 : 64}
+            environmentIntensity={0.3 + daylight * 0.65}
+          >
+            <mesh>
+              <sphereGeometry args={[90, 32, 16]} />
+              <meshBasicMaterial side={BackSide} color="#a9b5bc" />
+            </mesh>
+            <mesh position={[0, -10, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[180, 180]} />
+              <meshBasicMaterial color="#777869" />
+            </mesh>
             <Lightformer
-              intensity={2}
-              position={[0, 20, 0]}
+              intensity={1 + daylight}
+              position={[0, 25, 0]}
               rotation={[Math.PI / 2, 0, 0]}
-              scale={[40, 30, 1]}
+              scale={[50, 40, 1]}
             />
             <Lightformer
-              intensity={1.5}
-              position={[-15, 10, 8]}
+              intensity={0.4 + daylight * 1.5}
+              position={[-25, 8, 10]}
               rotation={[0, Math.PI / 2, 0]}
-              scale={[15, 20, 1]}
+              scale={[8, 18, 1]}
+            />
+            <Lightformer
+              intensity={0.6 + daylight}
+              color="#e6e9df"
+              position={[0, 8, 30]}
+              scale={[35, 6, 1]}
             />
           </Environment>
         </Suspense>
-        <Landscaping config={config} />
-        <StudioModel config={config} />
+        <SurfaceProvider>
+          <Landscape config={config} quality={quality} />
+          <StudioModel config={config} quality={quality} />
+        </SurfaceProvider>
         {quality === 'high' && (
           <ContactShadows
-            key={`${config.length}-${JSON.stringify(config.addons)}`}
+            key={`${config.family}-${config.containerOpening}-${config.length}-${JSON.stringify(config.addons)}-${config.environment}`}
             position={[0, 0.02, 0]}
-            opacity={0.32}
-            scale={100}
-            blur={2.5}
+            opacity={0.38}
+            scale={config.length + 25}
+            blur={2.8}
             far={16}
-            resolution={512}
+            resolution={1024}
             frames={1}
-            color="#303724"
+            color="#343629"
           />
         )}
         {dimensions && <Dimensions config={config} unit={unit} />}
         <CameraRig config={config} view={view} reset={reset} autoRotate={autoRotate} />
-        <Capture onCaptureReady={onCaptureReady} />
+        <RenderEffects quality={quality} onCaptureReady={onCaptureReady} />
+        <SceneRefresh
+          config={config}
+          view={view}
+          dimensions={dimensions}
+          unit={unit}
+          quality={quality}
+          autoRotate={autoRotate}
+        />
       </Canvas>
     </GraphicsBoundary>
   )
