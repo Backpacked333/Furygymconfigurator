@@ -1,3 +1,6 @@
+import { useEffect, useId, useRef, useState } from 'react'
+import type { EditInteractionProps } from './FloorPlan'
+import type { EditToken } from '../lib/editTransactions'
 import {
   ArrowDownRight,
   ArrowRight,
@@ -28,9 +31,9 @@ import {
   distance,
   layoutIssues,
   money,
-  packageItems,
+  packageDefinition,
   setAddon,
-  setFamily,
+  changeFamily,
   productHeight,
   type Config,
   type PackageId,
@@ -42,6 +45,8 @@ import {
   CONTAINER_OPENINGS,
   STUDIO_LAYOUTS,
   PRODUCT_SOURCE_DATE,
+  OPENING_CONCEPTS,
+  featureEvidence,
   productFamily,
 } from '../lib/products'
 
@@ -119,6 +124,236 @@ const packageIcons = {
   empty: ScanLine,
 }
 
+function DaylightControl(
+  props: {
+    config: Config
+    onChange: (config: Config) => void
+    notify: (message: string) => void
+  } & EditInteractionProps,
+) {
+  const latest = useRef(props)
+  latest.current = props
+  const input = useRef<HTMLInputElement>(null)
+  const pointer = useRef<number | null>(null)
+  const capturedInput = useRef<HTMLInputElement | null>(null)
+  const keys = useRef(new Set<string>())
+  const edit = useRef<{
+    base: Config
+    candidate: Config
+    token?: EditToken
+    revision?: number
+    key?: string | number
+  } | null>(null)
+  const [previewTime, setPreviewTime] = useState<number | null>(null)
+  const hint = useId()
+  const blocked = () =>
+    latest.current.interactionDisabled || !!document.querySelector('dialog[open]')
+  const isCurrent = () => {
+    const g = edit.current,
+      p = latest.current
+    return (
+      !blocked() &&
+      (!g ||
+        (g.revision === p.revision &&
+          g.key === p.interactionKey &&
+          [JSON.stringify(g.base), JSON.stringify(g.candidate)].includes(JSON.stringify(p.config))))
+    )
+  }
+  const release = () => {
+    const id = pointer.current
+    pointer.current = null
+    keys.current.clear()
+    if (id !== null && capturedInput.current?.hasPointerCapture?.(id))
+      capturedInput.current.releasePointerCapture(id)
+    capturedInput.current = null
+  }
+  const cancel = () => {
+    const g = edit.current
+    edit.current = null
+    if (g?.token) latest.current.onCancelEdit?.(g.token)
+    release()
+    setPreviewTime(null)
+  }
+  const cancelRef = useRef(cancel)
+  cancelRef.current = cancel
+  useEffect(() => {
+    if (!isCurrent()) cancelRef.current()
+  })
+  useEffect(() => {
+    const stop = () => cancelRef.current()
+    const hidden = () => {
+      if (document.hidden) stop()
+    }
+    window.addEventListener('blur', stop)
+    window.addEventListener('fury:modal-open', stop)
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      window.removeEventListener('blur', stop)
+      window.removeEventListener('fury:modal-open', stop)
+      document.removeEventListener('visibilitychange', hidden)
+      stop()
+    }
+  }, [])
+  const finish = () => {
+    if (!isCurrent()) {
+      cancel()
+      return
+    }
+    const g = edit.current
+    if (!g || g.base.time === g.candidate.time) {
+      cancel()
+      return
+    }
+    edit.current = null
+    release()
+    setPreviewTime(null)
+    const result = g.token
+      ? latest.current.onCommitEdit?.(g.token, g.candidate)
+      : latest.current.onChange(g.candidate)
+    if (result?.status === 'conflict' || result?.status === 'rejected')
+      latest.current.notify(result.issues.join(' '))
+  }
+  const preview = (time: number) => {
+    if (!isCurrent()) {
+      cancel()
+      return
+    }
+    const p = latest.current
+    if (!edit.current && time === p.config.time) return
+    const g = edit.current ?? {
+      base: p.config,
+      candidate: p.config,
+      revision: p.revision,
+      key: p.interactionKey,
+      token:
+        p.onBeginEdit && p.onPreviewEdit && p.onCommitEdit && p.onCancelEdit
+          ? p.onBeginEdit()
+          : undefined,
+    }
+    edit.current = g
+    g.candidate = { ...g.base, time }
+    setPreviewTime(time)
+    if (g.token) {
+      const result = p.onPreviewEdit?.(g.token, g.candidate)
+      if (result?.status === 'conflict' || result?.status === 'rejected') {
+        cancel()
+        p.notify(result.issues.join(' '))
+      }
+    }
+  }
+  const time = previewTime ?? props.config.time
+  const label = `${Math.floor(time)}:${Math.round((time % 1) * 60)
+    .toString()
+    .padStart(2, '0')}`
+  return (
+    <>
+      <div className="section-label separated">
+        Chase the light <span>{label}</span>
+      </div>
+      <div className="daylight-presets" role="group" aria-label="Daylight presets">
+        {[
+          { label: 'Morning', time: 9 },
+          { label: 'Afternoon', time: 14 },
+          { label: 'Golden hour', time: 17.5 },
+          { label: 'Evening', time: 20 },
+        ].map((preset) => (
+          <button
+            key={preset.time}
+            disabled={props.interactionDisabled}
+            aria-pressed={time === preset.time}
+            onClick={() => {
+              cancel()
+              preview(preset.time)
+              finish()
+            }}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <input
+        ref={input}
+        className="time-slider"
+        type="range"
+        min="6"
+        max="21"
+        step="0.25"
+        value={time}
+        disabled={props.interactionDisabled}
+        aria-label="Time of day"
+        aria-valuetext={label}
+        aria-describedby={hint}
+        onPointerDown={(e) => {
+          if (
+            blocked() ||
+            e.button !== 0 ||
+            e.isPrimary === false ||
+            pointer.current !== null ||
+            keys.current.size
+          )
+            return
+          pointer.current = e.pointerId
+          capturedInput.current = e.currentTarget
+          e.currentTarget.setPointerCapture?.(e.pointerId)
+        }}
+        onPointerUp={(e) => {
+          if (pointer.current === e.pointerId) finish()
+        }}
+        onPointerCancel={(e) => {
+          if (pointer.current === e.pointerId) cancel()
+        }}
+        onLostPointerCapture={(e) => {
+          if (pointer.current === e.pointerId) cancel()
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            cancel()
+          } else if (
+            [
+              'ArrowLeft',
+              'ArrowRight',
+              'ArrowUp',
+              'ArrowDown',
+              'Home',
+              'End',
+              'PageUp',
+              'PageDown',
+            ].includes(e.key)
+          ) {
+            if (blocked() || pointer.current !== null || (e.repeat && !keys.current.size)) {
+              e.preventDefault()
+              return
+            }
+            keys.current.add(e.key)
+          }
+        }}
+        onKeyUp={(e) => {
+          if (keys.current.delete(e.key) && !keys.current.size) finish()
+        }}
+        onBlur={cancel}
+        onChange={(e) => {
+          preview(Number(e.target.value))
+          if (pointer.current === null && !keys.current.size) finish()
+        }}
+      />
+      <p id={hint} className="muted small daylight-hint" role="status">
+        {previewTime === null
+          ? 'One lighting edit per gesture. Escape cancels.'
+          : 'Lighting preview — release to apply. Not part of an export.'}
+      </p>
+      <div className="time-labels">
+        <span>
+          <Sun size={13} /> Morning
+        </span>
+        <span>
+          <Moon size={13} /> After dark
+        </span>
+      </div>
+    </>
+  )
+}
+
 export default function ConfigPanel({
   config: c,
   onChange,
@@ -131,6 +366,9 @@ export default function ConfigPanel({
   notify,
   onPlan,
   onTemplate,
+  qualityMode,
+  setQualityMode,
+  ...editing
 }: {
   config: Config
   onChange: (c: Config) => void
@@ -143,14 +381,28 @@ export default function ConfigPanel({
   notify: (message: string) => void
   onPlan: () => void
   onTemplate: (id: 'athlete' | 'retreat' | 'flow') => void
-}) {
+  qualityMode?: 'auto' | Quality
+  setQualityMode?: (mode: 'auto' | Quality) => void
+} & EditInteractionProps) {
+  const [notice, setNotice] = useState('')
+  const announce = (message: string) => {
+    setNotice(message)
+    notify(message)
+  }
+  const update = (next: Config) => {
+    const issues = layoutIssues(next)
+    if (issues.length) {
+      announce(issues.join(' '))
+      return
+    }
+    onChange(next)
+  }
   const product = productFamily(c.family)
   const applyPackage = (id: PackageId) => {
-    const next = { ...c, package: id, items: packageItems(id, c.length) }
-    if (layoutIssues(next).length) {
-      notify(
-        'This concept layout does not keep the selected entry clear. Choose another layout or arrange equipment individually.',
-      )
+    const definition = packageDefinition(id, c)
+    const next = { ...c, package: id, items: definition.items }
+    if (!definition.available) {
+      announce(definition.issues.join(' '))
       return
     }
     if (
@@ -161,8 +413,8 @@ export default function ConfigPanel({
     )
       return
     onChange(next)
-    notify(
-      `${PACKAGES.find((p) => p.id === id)!.name} layout applied. You can customize every item.`,
+    announce(
+      definition.notice ?? `${definition.label} layout applied. You can customize every item.`,
     )
   }
   return (
@@ -198,6 +450,11 @@ export default function ConfigPanel({
         aria-labelledby={`step-${step}`}
         key={step}
       >
+        {notice && (
+          <p className="inline-notice panel-notice" role="status">
+            {notice}
+          </p>
+        )}
         {step === 0 && (
           <>
             <div className="panel-title">
@@ -221,18 +478,15 @@ export default function ConfigPanel({
                   className={`family-card ${c.family === family.id ? 'selected' : ''}`}
                   aria-pressed={c.family === family.id}
                   onClick={() => {
-                    const next = setFamily(c, family.id)
-                    if (layoutIssues(next).length) {
-                      notify(
-                        'Rearrange equipment to keep the new entry clear before changing family.',
-                      )
+                    const result = changeFamily(c, family.id)
+                    if (!result.accepted) {
+                      announce(result.notice ?? result.issues.join(' '))
                       return
                     }
-                    onChange(next)
-                    if (c.family !== family.id)
-                      notify(
-                        `${family.name} selected. Studio-only additions and custom requests are cleared when switching to Containers. Undo restores the previous design.`,
-                      )
+                    if (c.family !== family.id) {
+                      onChange(result.config)
+                      announce(`${family.name} selected. Existing compatible features preserved.`)
+                    }
                   }}
                 >
                   <strong>{family.name}</strong>
@@ -377,26 +631,23 @@ export default function ConfigPanel({
               </h2>
               <p>
                 {c.family === 'studio'
-                  ? 'Published Studio additions, with concept finishes.'
-                  : 'Published Container openings, with concept finishes.'}
+                  ? 'Published Studio additions, with illustrative finishes.'
+                  : 'Published openings and separately labeled reference concepts.'}
               </p>
             </div>
             {c.family === 'container' && (
               <>
-                <div className="section-label">Access + openings</div>
+                <div className="section-label">Published access + openings</div>
                 <div className="opening-options" role="group" aria-label="Container opening">
                   {CONTAINER_OPENINGS.map((opening) => (
                     <button
                       key={opening.id}
-                      aria-pressed={c.containerOpening === opening.id}
-                      className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
+                      aria-pressed={
+                        c.openingConcept === 'standard' && c.containerOpening === opening.id
+                      }
+                      className={`opening-card ${c.openingConcept === 'standard' && c.containerOpening === opening.id ? 'selected' : ''}`}
                       onClick={() => {
-                        const next = { ...c, containerOpening: opening.id }
-                        if (layoutIssues(next).length) {
-                          notify('Rearrange equipment to keep the selected opening’s entry clear.')
-                          return
-                        }
-                        onChange(next)
+                        update({ ...c, openingConcept: 'standard', containerOpening: opening.id })
                       }}
                     >
                       <strong>{opening.name}</strong>
@@ -406,9 +657,41 @@ export default function ConfigPanel({
                   ))}
                 </div>
                 <p className="muted small">
-                  Available on 20′ and 40′ builds. Roll-up shown open. Open-side widths, positions,
-                  door height, and structure are conceptual, not approved construction dimensions.
+                  Available on 20′ and 40′ builds. Open-side widths, positions, door height, and
+                  structure are conceptual, not approved construction dimensions.
                 </p>
+                <div className="section-label separated">Reference-backed opening studies</div>
+                <p className="muted small">
+                  Visual concepts from R04, R05, R07 and R09—not published manufacturer options.
+                  Mechanisms, dimensions and feasibility require review.
+                </p>
+                <div
+                  className="opening-options concept-options"
+                  role="group"
+                  aria-label="Reference opening concept"
+                >
+                  {OPENING_CONCEPTS.filter((opening) => opening.id !== 'standard').map(
+                    (opening) => (
+                      <button
+                        key={opening.id}
+                        className={`opening-card ${c.openingConcept === opening.id ? 'selected' : ''}`}
+                        aria-pressed={c.openingConcept === opening.id}
+                        onClick={() => update({ ...c, openingConcept: opening.id })}
+                      >
+                        <strong>{opening.name}</strong>
+                        <small>
+                          {featureEvidence(opening.id)?.references.join(' / ')} · Reference concept
+                        </small>
+                      </button>
+                    ),
+                  )}
+                </div>
+                {c.openingConcept !== 'standard' && (
+                  <p className="inline-notice">
+                    {featureEvidence(c.openingConcept)?.wording} Select a published opening above to
+                    return to sourced options.
+                  </p>
+                )}
                 <Toggle
                   label="Integrated exterior finish"
                   detail="Published design option. Material, detailing, and cost require a quote."
@@ -417,6 +700,27 @@ export default function ConfigPanel({
                 />
               </>
             )}
+            <div className="setting-row opening-pose">
+              <span>Opening visual pose</span>
+              <div className="segmented" role="group" aria-label="Opening visual pose">
+                {(['closed', 'open'] as const).map((pose) => (
+                  <button
+                    key={pose}
+                    aria-pressed={c.presentation.openingPose === pose}
+                    className={c.presentation.openingPose === pose ? 'active' : ''}
+                    onClick={() =>
+                      update({ ...c, presentation: { ...c.presentation, openingPose: pose } })
+                    }
+                  >
+                    {pose === 'open' ? 'Open' : 'Closed'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="muted small">
+              Presentation pose only—not a separate product or certified door movement. Permanently
+              open concepts retain their opening in either pose.
+            </p>
             <div className="section-label">
               Concept color study <span>{FINISHES.find((f) => f.id === c.finish)!.name}</span>
             </div>
@@ -442,57 +746,66 @@ export default function ConfigPanel({
               ))}
             </div>
             {c.family === 'studio' && (
-              <>
-                <Toggle
-                  label="Concept timber accent"
-                  detail="Visual study only. Material and availability unconfirmed."
-                  checked={c.accent}
-                  onChange={() => onChange({ ...c, accent: !c.accent })}
-                />
-                <div className="section-label separated">
-                  Published Studio additions <span>Quote required</span>
-                </div>
-                <div className="addon-list">
-                  {ADDONS.map((addon, i) => {
-                    const icons = [Layers3, TreePine, Sun, Footprints],
-                      Icon = icons[i]
-                    return (
-                      <button
-                        key={addon.id}
-                        className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
-                        aria-pressed={c.addons[addon.id]}
-                        onClick={() => {
-                          const result = setAddon(c, addon.id)
-                          onChange(result.config)
-                          if (result.notice) notify(result.notice)
-                        }}
-                      >
-                        <span className="addon-icon">
-                          <Icon size={21} strokeWidth={1.3} />
-                        </span>
-                        <span className="addon-description">
-                          <strong>{addon.name}</strong>
-                          <small>{addon.detail}</small>
-                          <b>Quote required</b>
-                        </span>
-                        <span className="check-square">
-                          {c.addons[addon.id] ? <Check size={13} /> : <Plus size={13} />}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-                <p className="muted small">
-                  Available individually or combined. All add-on geometry is conceptual; support,
-                  access, and compatibility need Fury’s approval.
-                </p>
-                {c.addons.roof && !c.addons.stairs && (
-                  <p className="inline-notice">
-                    Rooftop selected without stairs. An approved access solution is required before
-                    installation.
-                  </p>
-                )}
-              </>
+              <Toggle
+                label="Concept timber accent"
+                detail="Visual study only. Material and availability unconfirmed."
+                checked={c.accent}
+                onChange={() => onChange({ ...c, accent: !c.accent })}
+              />
+            )}
+            <div className="section-label separated">
+              {c.family === 'studio'
+                ? 'Published Studio additions'
+                : 'Reference-backed Container additions'}{' '}
+              <span>Quote required</span>
+            </div>
+            <div className="addon-list">
+              {ADDONS.map((addon, i) => {
+                if (c.family === 'container' && addon.id === 'gazebo') return null
+                const icons = [Layers3, TreePine, Sun, Footprints],
+                  Icon = icons[i]
+                return (
+                  <button
+                    key={addon.id}
+                    className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
+                    aria-pressed={c.addons[addon.id]}
+                    onClick={() => {
+                      const result = setAddon(c, addon.id)
+                      if (result.notice) announce(result.notice)
+                      else update(result.config)
+                    }}
+                  >
+                    <span className="addon-icon">
+                      <Icon size={21} strokeWidth={1.3} />
+                    </span>
+                    <span className="addon-description">
+                      <strong>{addon.name}</strong>
+                      <small>
+                        {c.family === 'studio'
+                          ? addon.detail
+                          : featureEvidence(`container:${addon.id}`)?.wording}
+                      </small>
+                      <b>Quote required</b>
+                    </span>
+                    <span className="check-square">
+                      {c.addons[addon.id] ? <Check size={13} /> : <Plus size={13} />}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="muted small">
+              {c.family === 'studio'
+                ? 'Published addition names; '
+                : 'R05 / R07 reference concepts, not published Container options; '}
+              all geometry is illustrative. Support, access, roof occupancy and compatibility
+              require professional review.
+            </p>
+            {c.addons.roof && !c.addons.stairs && (
+              <p className="inline-notice">
+                Rooftop selected without stairs. An approved access solution is required before
+                installation.
+              </p>
             )}
           </>
         )}
@@ -510,6 +823,7 @@ export default function ConfigPanel({
             <div className="package-options">
               {PACKAGES.map((p) => {
                 const Icon = packageIcons[p.icon]
+                const definition = packageDefinition(p.id, c)
                 return (
                   <button
                     key={p.id}
@@ -518,13 +832,19 @@ export default function ConfigPanel({
                     onClick={() => applyPackage(p.id)}
                   >
                     <Icon size={21} strokeWidth={1.4} />
-                    <strong>{p.name}</strong>
-                    <small>{p.subtitle}</small>
+                    <strong>{definition.label}</strong>
+                    <small>
+                      {p.id === 'movement' ? 'Pilates / movement · generic reformer' : p.subtitle}
+                    </small>
+                    {!definition.available && <small>Layout needs adjustment</small>}
                     {c.package === p.id && <Check className="package-check" size={13} />}
                   </button>
                 )
               })}
             </div>
+            {c.family === 'container' && c.package === 'strength' && (
+              <p className="muted small">{packageDefinition('strength', c).notice}</p>
+            )}
             <button className="plan-button" onClick={onPlan}>
               <ScanLine size={19} />
               <span>
@@ -584,7 +904,8 @@ export default function ConfigPanel({
                     <span>
                       <strong>{p.name}</strong>
                       <small>
-                        {distance(p.w, unit)} × {distance(p.d, unit)} · Quote required
+                        {distance(p.w, unit)} × {distance(p.d, unit)} · Modeled occupied bounds ·
+                        Quote required
                       </small>
                     </span>
                     <Plus size={16} />
@@ -605,6 +926,57 @@ export default function ConfigPanel({
               </h2>
               <p>Find your light. Set the scene.</p>
             </div>
+            <div className="section-label">Project + site inquiry context</div>
+            <div className="context-options" role="group" aria-label="Project and site context">
+              {[
+                {
+                  id: 'product',
+                  label: 'Product only',
+                  detail: 'One reference unit; no additional site scope.',
+                },
+                {
+                  id: 'custom-wellness',
+                  label: 'Custom wellness inquiry',
+                  detail: 'R08 · Architectural context, not a third standard family.',
+                },
+                {
+                  id: 'sunken-lounge',
+                  label: 'Sunken lounge site context',
+                  detail: 'R09 · Site context only, not included or priced.',
+                },
+              ].map((context) => (
+                <button
+                  key={context.id}
+                  className={`opening-card ${c.presentation.context === context.id ? 'selected' : ''}`}
+                  aria-pressed={c.presentation.context === context.id}
+                  onClick={() =>
+                    onChange({
+                      ...c,
+                      presentation: {
+                        ...c.presentation,
+                        context: context.id as Config['presentation']['context'],
+                      },
+                    })
+                  }
+                >
+                  <strong>{context.label}</strong>
+                  <small>{context.detail}</small>
+                </button>
+              ))}
+            </div>
+            {c.presentation.context !== 'product' && (
+              <p className="inline-notice">
+                {featureEvidence(c.presentation.context)?.wording} Save/share retains inquiry
+                intent—not a bundled or priced product.{' '}
+                <a
+                  href="https://www.furycogyms.com/start-a-project"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Discuss a custom project with Fury ↗
+                </a>
+              </p>
+            )}
             <div className="section-label">
               Surroundings <span>Concept settings</span>
             </div>
@@ -632,30 +1004,7 @@ export default function ConfigPanel({
                 )
               })}
             </div>
-            <div className="section-label separated">
-              Chase the light{' '}
-              <span>
-                {Math.floor(c.time)}:{c.time % 1 ? '30' : '00'}
-              </span>
-            </div>
-            <input
-              className="time-slider"
-              type="range"
-              min="6"
-              max="21"
-              step="0.5"
-              value={c.time}
-              aria-label="Time of day"
-              onChange={(e) => onChange({ ...c, time: Number(e.target.value) })}
-            />
-            <div className="time-labels">
-              <span>
-                <Sun size={13} /> Morning
-              </span>
-              <span>
-                <Moon size={13} /> After dark
-              </span>
-            </div>
+            <DaylightControl config={c} onChange={onChange} notify={announce} {...editing} />
             <Toggle
               label="Architectural lighting"
               detail="A warm welcome, any time of day."
@@ -684,19 +1033,31 @@ export default function ConfigPanel({
             <div className="setting-row">
               <span>Render quality</span>
               <div className="segmented">
+                {setQualityMode && (
+                  <button
+                    aria-pressed={qualityMode === 'auto'}
+                    className={qualityMode === 'auto' ? 'active' : ''}
+                    onClick={() => setQualityMode('auto')}
+                  >
+                    Auto
+                  </button>
+                )}
                 {(['ultra', 'high', 'lite'] as const).map((q) => (
                   <button
                     key={q}
-                    className={quality === q ? 'active' : ''}
-                    aria-pressed={quality === q}
-                    onClick={() => setQuality(q)}
+                    className={(qualityMode ?? quality) === q ? 'active' : ''}
+                    aria-pressed={(qualityMode ?? quality) === q}
+                    onClick={() => (setQualityMode ? setQualityMode(q) : setQuality(q))}
                   >
                     {q === 'ultra' ? 'Ultra' : q === 'high' ? 'High' : 'Lite'}
                   </button>
                 ))}
               </div>
             </div>
-            <p className="muted small quality-detail">{QUALITY_DETAILS[quality]}</p>
+            <p className="muted small quality-detail">
+              {qualityMode === 'auto' && `Auto · current tier: ${quality}. `}
+              {QUALITY_DETAILS[quality]} Quality is not a hardware or visual certification.
+            </p>
             <div className="nature-note">
               <Leaf size={22} />
               <p>

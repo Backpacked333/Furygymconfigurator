@@ -2850,3 +2850,366 @@ h3 {
 .photo-mode .stage::after {
   display: none;
 }
+
+.control-notice {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #8fa270;
+  border-radius: 8px;
+  color: #e6eddb;
+  background: #35412d;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.panel-footnote {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.context-options {
+  display: grid;
+  gap: 10px;
+}
+.context-options button {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+  background: var(--surface);
+  font-size: 13px;
+}
+.context-options button.selected {
+  border-color: var(--accent);
+  background: #37422f;
+}
+.context-options small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.concept-options .opening-card small,
+.family-card small,
+.opening-card small {
+  font-size: 12px;
+}
+.daylight-control {
+  margin-top: 14px;
+}
+.daylight-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.daylight-presets button {
+  flex: 1;
+  min-height: 44px;
+  min-width: 74px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.daylight-presets button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--ink);
+}
+.time-slider {
+  min-height: 44px;
+}
+.daylight-hint {
+  min-height: 3em;
+  line-height: 1.5;
+}
+.family-card,
+.opening-card,
+.context-options button,
+.segmented button,
+.toggle-card,
+.check-row,
+.toggle-row {
+  min-height: 44px;
+}
+.panel-tabs button {
+  min-height: 44px;
+}
+.panel-scroll,
+.modal {
+  overscroll-behavior: contain;
+}
+.modal {
+  overflow: auto;
+}
+.modal-header .icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.floor-plan {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  justify-content: flex-start;
+  padding: 100px 28px 105px;
+  gap: 14px;
+}
+.plan-heading {
+  display: block;
+  position: static;
+  flex: none;
+  align-self: stretch;
+}
+.plan-heading p {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.plan-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 240px;
+  max-height: none;
+  padding: 0;
+  flex: none;
+  touch-action: none;
+}
+.plan-svg:focus-visible,
+.plan-item:focus-visible {
+  outline-color: #315b18;
+}
+.plan-item:focus-visible .plan-occupied {
+  stroke: #315b18;
+  stroke-width: 0.09;
+}
+.plan-item.invalid .plan-occupied {
+  fill: #e1c0b8;
+  stroke: #993b2b;
+  stroke-dasharray: 0.16 0.08;
+}
+.plan-item.invalid text {
+  fill: #5e2119;
+}
+.plan-working,
+.plan-item .plan-working {
+  fill: #74875d12;
+  stroke: #647054;
+  stroke-width: 0.025;
+  stroke-dasharray: 0.14 0.1;
+}
+.plan-zone rect {
+  fill: #bba77e30;
+  stroke: #96805b;
+  stroke-width: 0.04;
+  stroke-dasharray: 0.2 0.1;
+}
+.plan-zone.elevated rect {
+  fill: #87729718;
+  stroke: #78558e;
+  stroke-dasharray: 0.3 0.15;
+}
+.plan-travel rect {
+  fill: #dbc89330;
+  stroke: #98804b;
+  stroke-width: 0.04;
+  stroke-dasharray: 0.08 0.1;
+}
+.plan-advisory rect {
+  fill: #74875d12;
+  stroke: #647054;
+  stroke-width: 0.03;
+  stroke-dasharray: 0.14 0.1;
+}
+.plan-context rect {
+  fill: #d6bfa72b;
+  stroke: #8d664b;
+  stroke-width: 0.04;
+  stroke-dasharray: 0.1 0.14;
+}
+.plan-context text {
+  fill: #694d30;
+}
+.plan-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+}
+.plan-layers label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+}
+.plan-layers input {
+  width: 18px;
+  height: 18px;
+  accent-color: #536a3b;
+}
+.plan-legend {
+  align-self: stretch;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #4b5742;
+}
+.plan-legend summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding-block: 12px;
+  font-size: 12px;
+}
+.plan-status {
+  min-height: 1.5em;
+  font-size: 12px;
+  line-height: 1.5;
+  align-self: stretch;
+  color: #48543f;
+}
+.plan-status.invalid {
+  color: #762d20;
+  border-left: 3px solid #993b2b;
+  padding-left: 10px;
+}
+.plan-toolbar {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  padding: 10px 12px;
+  gap: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.plan-selection {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 180px;
+}
+.plan-selection small {
+  font-size: 11px;
+}
+.plan-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.plan-toolbar button {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #536146;
+  border-radius: 5px;
+  font-size: 12px;
+  justify-content: center;
+}
+.plan-toolbar button > svg {
+  width: 16px;
+}
+.plan-toolbar .danger {
+  color: #f2c8c1;
+}
+.plan-nudge {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.plan-nudge button {
+  min-width: 44px;
+}
+.plan-coordinates {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.plan-coordinates label {
+  display: grid;
+  gap: 5px;
+  flex: 1 1 85px;
+  font-size: 11px;
+}
+.plan-coordinates input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #778565;
+  border-radius: 5px;
+  background: #202a1b;
+  color: #f0f1e9;
+}
+.plan-disclaimer {
+  display: block;
+  position: static;
+  flex: none;
+  max-width: 640px;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+@media (max-width: 680px) {
+  .floor-plan {
+    padding: 65px 16px 105px;
+  }
+  .plan-toolbar {
+    padding: 10px;
+  }
+  .plan-svg {
+    min-height: 200px;
+  }
+  .panel-tabs {
+    padding-inline: 10px;
+    gap: 5px;
+  }
+  .panel-scroll {
+    padding-inline: 16px;
+  }
+  .family-options,
+  .opening-options {
+    gap: 8px;
+  }
+  .family-card,
+  .opening-card {
+    padding: 12px 10px;
+  }
+  .panel-scroll,
+  .modal-content {
+    overflow-wrap: anywhere;
+  }
+  .summary-bar {
+    flex-wrap: wrap;
+    height: auto;
+  }
+  .summary-bar .brief-cta {
+    min-width: 0;
+    flex: 1 1 155px;
+  }
+  .summary-estimate {
+    flex: 1 1 115px;
+  }
+  .modal-content {
+    padding: 20px 16px;
+  }
+}
+@media (max-height: 600px) {
+  .app {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .workspace {
+    min-height: 560px;
+  }
+  .panel-scroll {
+    max-height: 65dvh;
+    min-height: 220px;
+  }
+  .modal {
+    max-height: calc(100dvh - 24px);
+  }
+}
