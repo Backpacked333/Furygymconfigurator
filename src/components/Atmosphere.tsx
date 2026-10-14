@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import {
   BackSide,
@@ -7,6 +7,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   PMREMGenerator,
+  RendererUtils,
   PlaneGeometry,
   Scene,
   SphereGeometry,
@@ -134,8 +135,8 @@ export function Atmosphere({
   const { environment, time } = config
   const studio = environment === 'studio'
 
-  const background = useMemo(() => createSky(true), [])
-  const capture = useMemo(() => {
+  const resources = useResource(() => {
+    const background = createSky(true)
     const envScene = new Scene()
     const sky = createSky(false)
     const ground = new Mesh(
@@ -143,23 +144,47 @@ export function Atmosphere({
       new MeshBasicMaterial({ side: BackSide }),
     )
     envScene.add(sky, ground)
-    return { envScene, sky, ground, studio: studioScene() }
+    const studio = studioScene()
+    return {
+      background,
+      envScene,
+      sky,
+      ground,
+      studio,
+      dispose() {
+        for (const root of [background, envScene, studio])
+          root.traverse((object) => {
+            if (object instanceof Mesh) {
+              object.geometry.dispose()
+              const materials = Array.isArray(object.material) ? object.material : [object.material]
+              materials.forEach((material) => material.dispose())
+            }
+          })
+      },
+    }
   }, [])
   const generator = useResource(() => new PMREMGenerator(renderer), [renderer])
   const target = useRef<RenderTarget | null>(null)
+  const targetSize = useRef(0)
   // A layout effect, declared before the capture below, so the previous generator's target is
   // released before (never after) the new one is captured.
   useLayoutEffect(
     () => () => {
+      scene.environment = null
       target.current?.dispose()
       target.current = null
-      scene.environment = null
+      targetSize.current = 0
+      scene.backgroundNode = null
+      scene.fog = null
     },
     [generator, scene],
   )
 
   // Sky, fog, and the image-based lighting captured from them, keyed to time and surroundings.
   useLayoutEffect(() => {
+    if (!resources) return
+    const { background } = resources
+    const capture = resources
     const preset = SKY_PRESETS[environment]
     const sunlight = sunlightAt(time, preset)
     const sun = sunlight.direction
@@ -186,18 +211,27 @@ export function Atmosphere({
       scene.fog = new Fog(new Color(...horizon), 70, 520)
     }
     if (generator) {
-      target.current = generator.fromScene(
-        environment === 'studio' ? capture.studio : capture.envScene,
-        0,
-        0.5,
-        2000,
-        { size: quality === 'lite' ? 128 : 256, renderTarget: target.current ?? undefined },
-      )
+      const size = quality === 'lite' ? 128 : 256
+      const old = target.current
+      const rendererState = RendererUtils.saveRendererState(renderer)
+      try {
+        target.current = generator.fromScene(
+          environment === 'studio' ? capture.studio : capture.envScene,
+          0,
+          0.5,
+          2000,
+          { size, renderTarget: targetSize.current === size ? (old ?? undefined) : undefined },
+        )
+      } finally {
+        RendererUtils.restoreRendererState(renderer, rendererState)
+      }
       scene.environment = target.current.texture
+      targetSize.current = size
+      if (old && old !== target.current) old.dispose()
     }
     scene.environmentIntensity = environment === 'studio' ? 0.9 : 1
     invalidate()
-  }, [background, capture, environment, time, quality, generator, scene, invalidate])
+  }, [resources, environment, time, quality, generator, scene, invalidate, renderer])
 
   // Eyes adapt after dark, and a camera inside meters for the dimmer room.
   useLayoutEffect(() => {
@@ -208,7 +242,7 @@ export function Atmosphere({
 
   return (
     <>
-      {!studio && <primitive object={background} />}
+      {!studio && resources && <primitive object={resources.background} />}
       <SunLight config={config} quality={quality} />
     </>
   )
