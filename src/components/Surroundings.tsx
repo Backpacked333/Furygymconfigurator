@@ -243,7 +243,7 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
   const flame = c.lights && c.time > 17
   const furniture = useMemo(() => {
     const parts: Part[] = [
-      ...place(planter(14, 3.2, 2.2), [-L / 2 - 6, 0, 9], [0, 0.04, 0]),
+      ...place(planter(14, 3.2, 2.2), [-L / 2 - 12, 0, 7], [0, 0.04, 0]),
       ...place(planter(3.2, 16, 2.2), [L / 2 + 7.5, 0, 2]),
       ...place(planter(L + 14, 3.6, 2.2), [0, 0, -13]),
       ...place(loungeSet({ flame }), [L / 2 + 17, 0, 12], [0, -0.5, 0]),
@@ -267,7 +267,7 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
       <Ground set="herringbone_pavement" size={6.562} tint="#cdbfae" />
       <Parts parts={buildings} />
       <Parts parts={furniture} />
-      <GrassBed x={-L / 2 - 6} z={9} w={13} d={2.6} y={2.4} count={70} quality={quality} />
+      <GrassBed x={-L / 2 - 12} z={7} w={13} d={2.6} y={2.4} count={70} quality={quality} />
       <GrassBed x={L / 2 + 7.5} z={2} w={2.6} d={15} y={2.4} count={80} quality={quality} />
       <GrassBed
         x={0}
@@ -291,7 +291,7 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
         />
       ))}
       <Tree
-        position={[-L / 2 - 10, 2.4, 9]}
+        position={[-L / 2 - 16, 2.4, 7]}
         scale={1.2}
         seed={6}
         biome="courtyard"

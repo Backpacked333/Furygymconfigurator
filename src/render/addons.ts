@@ -263,7 +263,7 @@ export function roofDeck(c: Config): Part[] {
   let x: number, z: number
   if (c.family === 'container') {
     const H = productHeight(c)
-    const cedar = palette.cedar(false, '#8f7b6b')
+    const cedar = palette.cedar(false, '#857a70')
     const band = (w: number, d: number, at: V3) =>
       part(box(w, ROOF_FRAME, d, { swap: true }), cedar, at)
     // Timber-clad deck frame around the container top, then the deck boards.

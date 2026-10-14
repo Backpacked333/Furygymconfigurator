@@ -597,7 +597,7 @@ export const SIGNATURES: Signature[] = [
     id: 'clubhouse',
     name: 'Clubhouse container',
     subtitle: 'Espresso, glass overhead door, canopy, cedar',
-    camera: [-0.1, 0.1, 1],
+    camera: [-0.42, 0.1, 0.9],
     config: {
       ...DEFAULT_CONFIG,
       family: 'container',
