@@ -6,8 +6,44 @@ import LZString from 'lz-string'
 import { DEFAULT_CONFIG, encodeConfig, inspectDocument, type Config } from './config'
 import { useConfig } from './useConfig'
 import * as repository from './repository'
-import { DRAFT_KEY } from './recovery'
+import { DRAFT_KEY, type Outcome, type RecoveryRecord } from './recovery'
 import { TestBackend } from './persistenceTestFixtures'
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function holdPreservation() {
+  const entered = deferred(),
+    released = deferred()
+  const preserve = repository.DocumentRepository.prototype.preserve
+  vi.spyOn(repository.DocumentRepository.prototype, 'preserve').mockImplementationOnce(
+    async function (this: repository.DocumentRepository, records) {
+      entered.resolve()
+      await released.promise
+      return preserve.call(this, records)
+    },
+  )
+  return { entered: entered.promise, release: released.resolve }
+}
+
+function holdDraftWrite() {
+  const entered = deferred(),
+    released = deferred()
+  const save = repository.DocumentRepository.prototype.saveDraft
+  vi.spyOn(repository.DocumentRepository.prototype, 'saveDraft').mockImplementationOnce(
+    async function (this: repository.DocumentRepository, ...args) {
+      entered.resolve()
+      await released.promise
+      return save.apply(this, args)
+    },
+  )
+  return { entered: entered.promise, release: released.resolve }
+}
 
 describe('committed hook lifecycle', () => {
   let root: Root, container: HTMLDivElement, backend: TestBackend
@@ -413,6 +449,171 @@ describe('committed hook lifecycle', () => {
       expect(await current.resetConfig()).toEqual({ ok: false, reason: 'quota' })
     })
     expect(current.committedConfig).toBe(original)
+    expect(current.persistence.writeSafe).toBe(false)
+  })
+  for (const action of ['repair', 'accept'] as const) {
+    it(`${action} refuses to start while a preview owns the workspace`, async () => {
+      await mount()
+      const base = current.committedConfig,
+        revision = current.revision,
+        writes = backend.writes
+      let token!: ReturnType<typeof current.beginEdit>
+      act(() => {
+        token = current.beginEdit()
+        current.previewEdit(token, { ...base, time: 9 })
+      })
+      const candidate = { ...base, finish: 'chalk' as const }
+      await act(async () => {
+        const result = await (action === 'repair'
+          ? current.openRepair(candidate)
+          : current.acceptRecovery(candidate))
+        expect(result).toEqual({ ok: false, reason: 'conflict' })
+      })
+      expect(current.isPreviewing).toBe(true)
+      expect(current.config.time).toBe(9)
+      expect(current.committedConfig).toBe(base)
+      expect(current.revision).toBe(revision)
+      expect(backend.writes).toBe(writes)
+      expect(current.persistence.writeSafe).toBe(true)
+      act(() => {
+        current.cancelEdit(token)
+      })
+    })
+    it.each(['active', 'cancelled', 'noop', 'replaced'] as const)(
+      `${action} rejects a stale completion after a %s preview during held preservation`,
+      async (mode) => {
+        await mount()
+        const base = current.committedConfig,
+          revision = current.revision
+        const raw = backend.rows.get('draft')?.raw
+        const candidate = { ...base, finish: 'chalk' as const }
+        const gate = holdPreservation()
+        let pending!: Promise<Outcome<unknown>>
+        await act(async () => {
+          pending =
+            action === 'repair' ? current.openRepair(candidate) : current.acceptRecovery(candidate)
+          await gate.entered
+        })
+        let token!: ReturnType<typeof current.beginEdit>
+        act(() => {
+          token = current.beginEdit()
+          if (mode !== 'noop') current.previewEdit(token, { ...base, time: 9 })
+          if (mode === 'cancelled') current.cancelEdit(token)
+          if (mode === 'noop') current.commitEdit(token)
+          if (mode === 'replaced') {
+            token = current.beginEdit()
+            current.previewEdit(token, { ...base, time: 10 })
+          }
+        })
+        expect(current.revision).toBe(revision)
+        await act(async () => {
+          gate.release()
+          expect(await pending).toEqual({ ok: false, reason: 'conflict' })
+        })
+        expect(current.committedConfig).toBe(base)
+        expect(current.revision).toBe(revision)
+        expect(current.isPreviewing).toBe(mode === 'active' || mode === 'replaced')
+        expect(current.config.time).toBe(
+          mode === 'active' ? 9 : mode === 'replaced' ? 10 : base.time,
+        )
+        expect(current.canUndo).toBe(false)
+        expect(current.persistence.writeSafe).toBe(false)
+        expect(backend.rows.get('draft')?.raw).toBe(raw)
+        expect(
+          current.recovery
+            .filter((entry) => entry.status === 'durable')
+            .map((entry) => entry.record.raw),
+        ).toEqual(expect.arrayContaining([JSON.stringify(base), JSON.stringify(candidate)]))
+        act(() => {
+          current.cancelEdit(token)
+        })
+      },
+    )
+  }
+  it('snapshots repair configs and exact source bytes before waiting for a queued write', async () => {
+    await mount()
+    const gate = holdDraftWrite()
+    await act(async () => {
+      current.setConfig({ ...current.committedConfig, finish: 'olive' })
+      await gate.entered
+    })
+    const base = structuredClone(current.committedConfig)
+    const candidate: Config = { ...structuredClone(DEFAULT_CONFIG), family: 'container' }
+    const expected = structuredClone(candidate)
+    const original: Pick<RecoveryRecord, 'raw' | 'format'> = {
+      raw: '  \n' + JSON.stringify(candidate),
+      format: 'json',
+    }
+    const expectedRaw = original.raw
+    let pending!: ReturnType<typeof current.openRepair>
+    act(() => {
+      pending = current.openRepair(candidate, original)
+      candidate.finish = 'chalk'
+      candidate.items[0].x = 100
+      original.raw = 'changed after call'
+      original.format = 'hash'
+    })
+    await act(async () => {
+      gate.release()
+      expect(await pending).toMatchObject({ ok: true, value: { status: 'repair' } })
+    })
+    expect(current.committedConfig).toEqual(expected)
+    const records = current.recovery
+      .filter((entry) => entry.status === 'durable')
+      .map((entry) => entry.record)
+    expect(records.map((record) => record.raw)).toEqual(
+      expect.arrayContaining([JSON.stringify(base), JSON.stringify(expected), expectedRaw]),
+    )
+    expect(records).toContainEqual(expect.objectContaining({ raw: expectedRaw, format: 'json' }))
+    expect(records.map((record) => record.raw)).not.toContain(JSON.stringify(candidate))
+    expect(backend.rows.get('draft')?.raw).toBe(encodeConfig(base))
+  })
+  it('accepts the call-time candidate snapshot even if the caller mutates nested data during preservation', async () => {
+    await mount()
+    const candidate = { ...structuredClone(DEFAULT_CONFIG), finish: 'chalk' as const }
+    const expected = structuredClone(candidate)
+    const gate = holdPreservation()
+    let pending!: ReturnType<typeof current.acceptRecovery>
+    await act(async () => {
+      pending = current.acceptRecovery(candidate)
+      await gate.entered
+    })
+    candidate.items[0].x = 100
+    candidate.addons.stairs = true
+    await act(async () => {
+      gate.release()
+      expect(await pending).toMatchObject({ ok: true, value: { status: 'saved' } })
+    })
+    expect(current.committedConfig).toEqual(expected)
+    expect(current.initialization.config).toEqual(expected)
+    expect(current.persistence.savedRevision).toBe(current.revision)
+    expect(backend.rows.get('draft')?.raw).toBe(encodeConfig(expected))
+  })
+  it('rejects a preview acquired after preservation while the acceptance write is held', async () => {
+    await mount()
+    const raw = backend.rows.get('draft')?.raw,
+      base = current.committedConfig,
+      revision = current.revision
+    const candidate = { ...base, finish: 'chalk' as const }
+    const gate = holdDraftWrite()
+    let pending!: ReturnType<typeof current.acceptRecovery>
+    await act(async () => {
+      pending = current.acceptRecovery(candidate)
+      await gate.entered
+    })
+    act(() => {
+      const token = current.beginEdit()
+      current.previewEdit(token, { ...base, time: 9 })
+    })
+    await act(async () => {
+      gate.release()
+      expect(await pending).toMatchObject({ ok: true, value: { status: 'conflict' } })
+    })
+    expect(current.isPreviewing).toBe(true)
+    expect(current.config.time).toBe(9)
+    expect(current.committedConfig).toBe(base)
+    expect(current.revision).toBe(revision)
+    expect(backend.rows.get('draft')?.raw).toBe(raw)
     expect(current.persistence.writeSafe).toBe(false)
   })
 })

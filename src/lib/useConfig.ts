@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { DEFAULT_CONFIG, initialConfig, inspectDocument, type Config } from './config'
-import {
-  configReducer,
-  sameConfig,
-  type EditAction,
-  type EditResult,
-  type EditToken,
-} from './editTransactions'
+import { configReducer, type EditAction, type EditResult, type EditToken } from './editTransactions'
 import { DraftPersistence, initializeRepository, type PersistenceState } from './draftSession'
 import {
   browserStorage,
@@ -49,6 +43,7 @@ export function useConfig() {
   const apply = useCallback((action: EditAction): EditResult => {
     const before = stateRef.current
     const next = configReducer(before, action)
+    if (next.preview?.token.id !== before.preview?.token.id) recoveryOperationRef.current++
     stateRef.current = next
     dispatch(action)
     if (next.repairWorkspace) persistenceRef.current?.suspend('corrupt-store')
@@ -183,6 +178,7 @@ export function useConfig() {
       candidate: Config,
       original?: Pick<RecoveryRecord, 'raw' | 'format'>,
     ): Promise<Outcome<{ status: 'repair'; revision: number }>> => {
+      if (stateRef.current.preview) return { ok: false, reason: 'conflict' }
       const inspected = inspectDocument(candidate)
       if (inspected.status === 'rejected') return { ok: false, reason: 'corrupt-store' }
       const controller = persistenceRef.current
@@ -222,25 +218,25 @@ export function useConfig() {
   )
   const acceptRecovery = useCallback(
     async (candidate?: Config) => {
-      const config = candidate ?? stateRef.current.present
-      const inspected = inspectDocument(config)
+      if (stateRef.current.preview) return { ok: false as const, reason: 'conflict' as const }
+      const inspected = inspectDocument(candidate ?? stateRef.current.present)
       if (inspected.status !== 'accepted')
         return { ok: false as const, reason: 'corrupt-store' as const }
+      const config = inspected.config
       const controller = persistenceRef.current
       if (!controller) return { ok: false as const, reason: 'unavailable' as const }
       const baseRevision = stateRef.current.revision ?? 0
       const operation = ++recoveryOperationRef.current
       const isCurrent = () =>
+        !stateRef.current.preview &&
         stateRef.current.revision === baseRevision &&
         persistenceRef.current === controller &&
         operation === recoveryOperationRef.current
-      if (!sameConfig(config, stateRef.current.present)) {
-        const preserved = await controller.preserveCandidate(
-          stateRef.current.present,
-          'displaced-draft',
-        )
-        if (preserved.status !== 'durable')
-          return { ok: false as const, reason: preserved.reason ?? ('unavailable' as const) }
+      const preserved = await controller.preserveRepair(stateRef.current.present, config)
+      if (!preserved.ok) return preserved
+      if (!isCurrent()) {
+        controller.suspend('conflict')
+        return { ok: false as const, reason: 'conflict' as const }
       }
       const result = await controller.accept(config, baseRevision + 1, isCurrent)
       if (result.ok && result.value.status === 'saved') {
