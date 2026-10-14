@@ -14,6 +14,7 @@ export type EditState = {
   revision?: number
   preview?: { token: EditToken; base: Config; config: Config }
   result?: EditResult
+  repairWorkspace?: boolean
 }
 export type EditAction =
   | { type: 'set'; config: Config }
@@ -22,7 +23,14 @@ export type EditAction =
   | { type: 'preview'; token: EditToken; config: Config }
   | { type: 'commit'; token: EditToken; config?: Config }
   | { type: 'cancel'; token?: EditToken }
-  | { type: 'restore'; config: Config; notice?: string; expectedRevision: number }
+  | {
+      type: 'restore'
+      config: Config
+      notice?: string
+      expectedRevision: number
+      repairWorkspace?: boolean
+      preserveHistory?: boolean
+    }
 
 export function semanticConfig(candidate: Config, base: Config): Config {
   const parsed = configSchema.parse(candidate)
@@ -51,7 +59,8 @@ function reject(
 }
 function commit(state: EditState, candidate: Config): EditState {
   const inspected = inspectDocument(candidate)
-  if (inspected.status !== 'accepted') return reject(state, candidate, 'rejected', inspected.issues)
+  if (inspected.status === 'rejected' || (inspected.status === 'repair' && !state.repairWorkspace))
+    return reject(state, candidate, 'rejected', inspected.issues)
   const config = semanticConfig(inspected.config, state.present)
   if (sameConfig(config, state.present)) {
     return state.preview
@@ -65,7 +74,7 @@ function commit(state: EditState, candidate: Config): EditState {
     future: [],
     preview: undefined,
     revision: (state.revision ?? 0) + 1,
-    result: { status: 'committed', issues: [] },
+    result: { status: 'committed', issues: inspected.issues },
   }
 }
 export function configReducer(state: EditState, action: EditAction): EditState {
@@ -120,18 +129,33 @@ export function configReducer(state: EditState, action: EditAction): EditState {
       return reject(state, action.config, 'conflict', [
         'The live document changed while recovery was loading. Both documents remain available.',
       ])
+    const inspected = inspectDocument(action.config)
+    if (
+      inspected.status === 'rejected' ||
+      (inspected.status === 'repair' && !action.repairWorkspace)
+    )
+      return reject(state, action.config, 'rejected', inspected.issues)
     return {
       ...state,
-      present: action.config,
-      past: [],
-      future: [],
+      present: inspected.config,
+      past: action.preserveHistory
+        ? sameConfig(state.present, inspected.config)
+          ? state.past
+          : [...state.past.slice(-49), state.present]
+        : [],
+      future:
+        action.preserveHistory && sameConfig(state.present, inspected.config) ? state.future : [],
+      repairWorkspace: action.repairWorkspace ?? false,
       preview: undefined,
       revision: revision + 1,
       notice: action.notice ?? state.notice,
-      result: { status: 'committed', issues: [] },
+      result: { status: 'committed', issues: inspected.issues },
     }
   }
-  if (action.type === 'undo' && state.past.length)
+  if (action.type === 'undo' && state.past.length) {
+    const inspected = inspectDocument(state.past.at(-1)!)
+    if (inspected.status === 'rejected')
+      return reject(state, state.past.at(-1), 'rejected', inspected.issues)
     return {
       ...state,
       past: state.past.slice(0, -1),
@@ -139,9 +163,14 @@ export function configReducer(state: EditState, action: EditAction): EditState {
       future: [state.present, ...state.future],
       preview: undefined,
       revision: revision + 1,
-      result: { status: 'committed', issues: [] },
+      repairWorkspace: state.repairWorkspace || inspected.status === 'repair',
+      result: { status: 'committed', issues: inspected.issues },
     }
-  if (action.type === 'redo' && state.future.length)
+  }
+  if (action.type === 'redo' && state.future.length) {
+    const inspected = inspectDocument(state.future[0])
+    if (inspected.status === 'rejected')
+      return reject(state, state.future[0], 'rejected', inspected.issues)
     return {
       ...state,
       past: [...state.past.slice(-49), state.present],
@@ -149,8 +178,10 @@ export function configReducer(state: EditState, action: EditAction): EditState {
       future: state.future.slice(1),
       preview: undefined,
       revision: revision + 1,
-      result: { status: 'committed', issues: [] },
+      repairWorkspace: state.repairWorkspace || inspected.status === 'repair',
+      result: { status: 'committed', issues: inspected.issues },
     }
+  }
   if (state.preview)
     return { ...state, preview: undefined, result: { status: 'cancelled', issues: [] } }
   return state

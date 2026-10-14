@@ -123,6 +123,7 @@ describe('REF-05..07 schema and honest metadata', () => {
               openingConcept: opening.id,
               presentation: { openingPose, context },
               addons: { deck: true, roof: true, stairs: true, gazebo: false },
+              items: [],
             }
             expect(decodeConfig(encodeConfig(config))).toEqual(config)
             expect(estimate(config).total).toBeNull()

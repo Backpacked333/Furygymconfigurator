@@ -51,13 +51,13 @@ describe('on-demand scene redraw', () => {
   })
 
   it('redraws after switching product families', () => {
-    props.config = setFamily(props.config, 'container')
+    props.config = setFamily({ ...props.config, items: [] }, 'container')
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).toHaveBeenCalledTimes(1)
   })
 
   it('redraws after a Container opening changes', () => {
-    props.config = setFamily(props.config, 'container')
+    props.config = setFamily({ ...props.config, items: [] }, 'container')
     act(() => root.render(<SceneRefresh {...props} />))
     invalidate.mockClear()
     props.config = { ...props.config, containerOpening: 'full' }

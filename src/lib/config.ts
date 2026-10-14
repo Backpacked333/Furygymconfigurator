@@ -9,6 +9,17 @@ import {
   type Outcome,
 } from './recovery'
 import { readSavedCompat, writeSavedCompat } from './legacyLibrary'
+import {
+  constructionOpening,
+  EQUIPMENT_ENVELOPES,
+  equipmentFootprint,
+  occupiedEnvelope,
+  placementIssues,
+  spatialPlacementIssue,
+  usableInterior,
+  workingEnvelope,
+  type SpatialConfig,
+} from './spatial'
 export { readSavedState } from './legacyLibrary'
 import {
   CONTAINER_OPENINGS,
@@ -48,98 +59,72 @@ export const ADDONS = [
     detail: 'Access to your rooftop retreat.',
   },
 ] as const
-export const CATALOG = [
-  {
-    id: 'rack',
-    name: 'Power rack',
-    category: 'Strength',
-    w: 4.8,
-    d: 3.2,
-    h: 7.5,
-    clearance: 1.5,
-  },
-  {
-    id: 'bench',
-    name: 'Adjustable bench',
-    category: 'Strength',
-    w: 1.9,
-    d: 4.3,
-    h: 1.8,
-    clearance: 1,
-  },
-  {
-    id: 'weights',
-    name: 'Dumbbell station',
-    category: 'Strength',
-    w: 4.2,
-    d: 1.8,
-    h: 3,
-    clearance: 1.5,
-  },
-  {
-    id: 'bike',
-    name: 'Indoor cycle',
-    category: 'Cardio',
-    w: 2,
-    d: 4,
-    h: 4.2,
-    clearance: 1,
-  },
-  {
-    id: 'treadmill',
-    name: 'Running deck',
-    category: 'Cardio',
-    w: 2.7,
-    d: 5.8,
-    h: 4.5,
-    clearance: 2,
-  },
-  {
-    id: 'sauna',
-    name: 'Two-person sauna',
-    category: 'Recovery',
-    w: 4.8,
-    d: 4.4,
-    h: 7,
-    clearance: 1,
-  },
-  {
-    id: 'plunge',
-    name: 'Cold plunge',
-    category: 'Recovery',
-    w: 2.9,
-    d: 5.2,
-    h: 2.8,
-    clearance: 1,
-  },
-  {
-    id: 'mat',
-    name: 'Movement mat',
-    category: 'Movement',
-    w: 2.2,
-    d: 5.4,
-    h: 0.08,
-    clearance: 0.5,
-  },
-  {
-    id: 'reformer',
-    name: 'Pilates reformer',
-    category: 'Movement',
-    w: 2.4,
-    d: 6.5,
-    h: 1.4,
-    clearance: 0.5,
-  },
-  {
-    id: 'lounge',
-    name: 'Recovery lounger',
-    category: 'Recovery',
-    w: 2.6,
-    d: 5,
-    h: 2.4,
-    clearance: 0.5,
-  },
-] as const
+export const CATALOG = (
+  [
+    {
+      id: 'rack',
+      name: 'Power rack',
+      category: 'Strength',
+    },
+    {
+      id: 'bench',
+      name: 'Adjustable bench',
+      category: 'Strength',
+    },
+    {
+      id: 'weights',
+      name: 'Dumbbell station',
+      category: 'Strength',
+    },
+    {
+      id: 'bike',
+      name: 'Indoor cycle',
+      category: 'Cardio',
+    },
+    {
+      id: 'treadmill',
+      name: 'Running deck',
+      category: 'Cardio',
+    },
+    {
+      id: 'sauna',
+      name: 'Two-person sauna',
+      category: 'Recovery',
+    },
+    {
+      id: 'plunge',
+      name: 'Cold plunge',
+      category: 'Recovery',
+    },
+    {
+      id: 'mat',
+      name: 'Movement mat',
+      category: 'Movement',
+    },
+    {
+      id: 'reformer',
+      name: 'Pilates reformer',
+      category: 'Movement',
+    },
+    {
+      id: 'lounge',
+      name: 'Recovery lounger',
+      category: 'Recovery',
+    },
+  ] as const
+).map((item) => {
+  const bounds = EQUIPMENT_ENVELOPES[item.id]
+  const placed = { id: item.id, sku: item.id, rotation: 0 as const, x: 0, z: 0 }
+  const working = workingEnvelope(placed)
+  return {
+    ...item,
+    ...equipmentFootprint(placed),
+    h: bounds.max.y - bounds.min.y,
+    clearance: bounds.min.x - working.min.x,
+    dimensionLabel: 'Modeled occupied bounds, not manufacturer specifications',
+    clearanceLabel: 'Illustrative working-space margin, not a certified clearance',
+  }
+})
 export const PACKAGES = [
   { id: 'strength', name: 'Strength', subtitle: 'Your daily pursuit.', icon: 'strength' },
   { id: 'recovery', name: 'Recovery', subtitle: 'Come back to yourself.', icon: 'recovery' },
@@ -229,22 +214,46 @@ export type PackageId = (typeof PACKAGES)[number]['id']
 export type View = 'exterior' | 'interior' | 'plan'
 export type Unit = 'ft' | 'm'
 
-export function packageItems(kind: PackageId, length: 20 | 40): PlacedItem[] {
+export function packageItems(
+  kind: PackageId,
+  length: 20 | 40,
+  context: Pick<SpatialConfig, 'family'> = { family: 'studio' },
+): PlacedItem[] {
   const item = (
     sku: PlacedItem['sku'],
     x: number,
     z: number,
     rotation: 0 | 90 = 0,
   ): PlacedItem => ({ id: `${kind}-${sku}-${x}`, sku, x, z, rotation })
-  const offset = length === 40 ? -9 : 0
   const presets: Record<PackageId, PlacedItem[]> = {
-    strength: [item('rack', -5, -0.8), item('bench', 0, -0.5), item('weights', 5.2, -1.9)],
-    recovery: [item('sauna', -5.2, -0.9), item('plunge', 3.5, -1.2, 90)],
-    movement: [item('mat', -4.5, -0.5), item('mat', 0, -0.5), item('reformer', 4.5, 0)],
-    cardio: [item('treadmill', 4.5, 0), item('bike', 0, -0.6), item('bike', -4.5, -0.6)],
+    strength:
+      context.family === 'studio'
+        ? [item('rack', -4.9, -1.7), item('bench', 3, -2.4, 90), item('weights', 5.8, 1.8)]
+        : [item('bench', -5, -2.4, 90), item('weights', 5.8, 1.3)],
+    recovery: [item('sauna', -6, -1.2), item('plunge', 5, -0.5)],
+    movement: [item('mat', -6, -0.5), item('mat', 0, -2, 90), item('reformer', 5, -0.1)],
+    cardio: [item('treadmill', -6, -0.7), item('bike', 0, -0.6), item('bike', 5, -0.6)],
     empty: [],
   }
-  return presets[kind].map((i) => ({ ...i, x: i.x + offset }))
+  return presets[kind].map((i) => ({ ...i, x: (i.x * length) / 20 }))
+}
+export function packageDefinition(kind: PackageId, config: Config) {
+  const items = packageItems(kind, config.length, config)
+  const candidate = { ...config, package: kind, items }
+  const issues = layoutIssues(candidate)
+  return {
+    items,
+    issues,
+    available: issues.length === 0,
+    label:
+      kind === 'strength' && config.family === 'container'
+        ? 'Strength — bench + dumbbells'
+        : PACKAGES.find((p) => p.id === kind)!.name,
+    notice:
+      kind === 'strength' && config.family === 'container'
+        ? 'Container Strength includes a bench and dumbbells. The modeled rack exceeds the Container ceiling; existing rack designs are never replaced automatically.'
+        : undefined,
+  }
 }
 export const DEFAULT_CONFIG: Config = {
   v: 3,
@@ -280,16 +289,9 @@ export const catalogItem = (sku: PlacedItem['sku']) => CATALOG.find((i) => i.id 
 export const productName = (config: Config) =>
   `${config.length}′ ${productFamily(config.family).name}`
 export const productHeight = (config: Config) => productFamily(config.family).height
-export const entryCenter = (config: Config) =>
-  config.family === 'container' && config.containerOpening === 'partial' ? -config.length / 4 : 0
+export const entryCenter = (config: Config) => constructionOpening(config).center
 export function openingGeometry(config: Config) {
-  const widths = {
-    'roll-up': 10,
-    center: config.length * 0.6,
-    partial: config.length / 2 - 0.6,
-    full: config.length - 1.2,
-  }
-  return { width: widths[config.containerOpening], center: entryCenter(config) }
+  return constructionOpening(config)
 }
 export function changeFamily(
   config: Config,
@@ -297,47 +299,54 @@ export function changeFamily(
 ): { config: Config; accepted: boolean; notice?: string; issues: string[] } {
   if (config.family === family) return { config, accepted: true, issues: [] }
   const candidate = { ...config, family }
-  const parsed = configSchema.safeParse(candidate)
-  const issues = parsed.success ? [] : parsed.error.issues.map((issue) => issue.message)
+  const inspected = inspectDocument(candidate)
+  const issues = inspected.issues
   return issues.length
     ? { config, accepted: false, notice: issues.join(' '), issues }
-    : { config: parsed.data!, accepted: true, issues }
+    : { config: candidate, accepted: true, issues }
 }
 export function setFamily(config: Config, family: ProductFamily): Config {
   return changeFamily(config, family).config
 }
 export function footprint(item: PlacedItem) {
-  const p = catalogItem(item.sku)
-  return { w: item.rotation === 90 ? p.d : p.w, d: item.rotation === 90 ? p.w : p.d }
+  return equipmentFootprint(item)
 }
 export function placementIssue(item: PlacedItem, config: Config): string | null {
-  const { w, d } = footprint(item)
-  if (Math.abs(item.x) + w / 2 > config.length / 2 - 0.7 || Math.abs(item.z) + d / 2 > 3.35)
-    return 'Keep equipment inside the usable floor area.'
-  if (Math.abs(item.x - entryCenter(config)) < w / 2 + 1.6 && item.z + d / 2 > 2.3)
-    return 'Keep the planned entry clear.'
-  for (const other of config.items) {
-    if (other.id === item.id) continue
-    const f = footprint(other)
-    if (
-      Math.abs(item.x - other.x) < (w + f.w) / 2 + 0.12 &&
-      Math.abs(item.z - other.z) < (d + f.d) / 2 + 0.12
-    )
-      return `That position overlaps ${catalogItem(other.sku).name.toLowerCase()}.`
-  }
-  return null
+  return spatialPlacementIssue(item, config)
+}
+export function layoutDiagnostics(config: Config) {
+  return config.items.flatMap((item) => placementIssues(item, config))
 }
 export function layoutIssues(config: Config) {
   return [
-    ...new Set(config.items.map((i) => placementIssue(i, config)).filter((v): v is string => !!v)),
+    ...(config.addons.stairs && !config.addons.roof
+      ? ['Select a rooftop deck before adding its exterior staircase.']
+      : []),
+    ...new Set(
+      layoutDiagnostics(config).map(
+        (issue) =>
+          `${catalogItem(config.items.find((item) => item.id === issue.itemId)!.sku).name}: ${issue.message}`,
+      ),
+    ),
   ]
 }
 export function addEquipment(config: Config, sku: PlacedItem['sku']): Config | null {
-  if (config.items.length >= 16) return null
+  if (config.items.length >= 16 || inspectDocument(config).status !== 'accepted') return null
+  const room = usableInterior(config)
+  const id = crypto.randomUUID()
   for (const rotation of [0, 90] as const) {
-    for (let z = -2; z <= 2; z += 0.5) {
-      for (let x = -config.length / 2 + 2; x < config.length / 2 - 1; x += 0.5) {
-        const candidate = { id: crypto.randomUUID(), sku, x, z, rotation }
+    const local = occupiedEnvelope({ id, sku, x: 0, z: 0, rotation })
+    for (
+      let z = Math.ceil((room.min.z - local.min.z) * 4) / 4;
+      z <= room.max.z - local.max.z;
+      z += 0.25
+    ) {
+      for (
+        let x = Math.ceil((room.min.x - local.min.x) * 4) / 4;
+        x <= room.max.x - local.max.x;
+        x += 0.25
+      ) {
+        const candidate = { id, sku, x, z, rotation }
         if (!placementIssue(candidate, config))
           return { ...config, package: 'custom', items: [...config.items, candidate] }
       }
@@ -348,7 +357,14 @@ export function addEquipment(config: Config, sku: PlacedItem['sku']): Config | n
 export function setAddon(config: Config, id: AddonId): { config: Config; notice?: string } {
   if (config.family === 'container' && id === 'gazebo')
     return { config, notice: 'Gazebo is Studio-only. Switch to Studio to request this addition.' }
-  return { config: { ...config, addons: { ...config.addons, [id]: !config.addons[id] } } }
+  const candidate = { ...config, addons: { ...config.addons, [id]: !config.addons[id] } }
+  if (candidate.addons.stairs && !candidate.addons.roof)
+    return {
+      config,
+      notice:
+        'Select a rooftop deck before adding stairs; remove stairs before removing their rooftop deck.',
+    }
+  return { config: candidate }
 }
 export const PRICE_VERSION = `fury-published-${PRODUCT_SOURCE_DATE}`
 export function estimate(config: Config) {

@@ -26,11 +26,18 @@ import {
   writeSaved,
   type Config,
 } from './config'
+import { equipmentFootprint } from './spatial'
 import { configReducer } from './useConfig'
 import { createBrief } from './export'
 import { CONTAINER_OPENINGS, PRODUCT_FAMILIES, STUDIO_LAYOUTS } from './products'
 
 const fresh = (): Config => structuredClone(DEFAULT_CONFIG)
+const container = (length: 20 | 40 = 20): Config => ({
+  ...fresh(),
+  family: 'container',
+  length,
+  items: packageItems('strength', length, { family: 'container' }),
+})
 const encoded = (value: unknown) => LZString.compressToEncodedURIComponent(JSON.stringify(value))
 beforeEach(() => {
   const data = new Map<string, string>()
@@ -98,15 +105,16 @@ describe('configuration and packages', () => {
     expect(layoutIssues(c).length).toBeGreaterThan(0)
   })
 })
-describe('independent published add-on transitions', () => {
-  it('allows individual Studio add-ons without invented dependency rules', () => {
+describe('explicit modeled add-on transitions', () => {
+  it('allows gazebo without a deck but explains the modeled staircase roof dependency', () => {
     const c = { ...fresh(), addons: { deck: false, gazebo: false, roof: false, stairs: false } }
     const pergola = setAddon(c, 'gazebo'),
       stairs = setAddon(c, 'stairs')
     expect(pergola.config.addons.deck).toBe(false)
     expect(pergola.config.addons.gazebo).toBe(true)
     expect(stairs.config.addons.roof).toBe(false)
-    expect(stairs.config.addons.stairs).toBe(true)
+    expect(stairs.config.addons.stairs).toBe(false)
+    expect(stairs.notice).toContain('rooftop deck')
     expect(decodeConfig(encodeConfig(pergola.config))).toEqual(pergola.config)
     expect(decodeConfig(encodeConfig(stairs.config))).toEqual(stairs.config)
     expect(c.addons.deck).toBe(false)
@@ -135,8 +143,8 @@ describe('placement rules', () => {
   it('rejects wall intersections and entry obstruction', () => {
     const c = fresh(),
       item = c.items[1]
-    expect(placementIssue({ ...item, x: 12 }, c)).toContain('usable floor')
-    expect(placementIssue({ ...item, x: 0, z: 1 }, c)).toContain('entry')
+    expect(placementIssue({ ...item, x: 12 }, c)).toContain('usable lined floor')
+    expect(placementIssue({ ...item, x: 0, z: 1.5 }, { ...c, items: [] })).toContain('entry')
   })
   it('rejects overlap but not an unchanged position', () => {
     const c = fresh(),
@@ -146,8 +154,10 @@ describe('placement rules', () => {
   })
   it('rotates the collision footprint', () => {
     const item = fresh().items[1]
-    expect(footprint(item)).toEqual({ w: 1.9, d: 4.3 })
-    expect(footprint({ ...item, rotation: 90 })).toEqual({ w: 4.3, d: 1.9 })
+    expect(footprint(item)).toEqual(equipmentFootprint(item))
+    expect(footprint({ ...item, rotation: 0 })).toEqual(
+      equipmentFootprint({ ...item, rotation: 0 }),
+    )
   })
   for (const product of CATALOG)
     it(`finds a valid location for ${product.id}`, () => {
@@ -176,7 +186,7 @@ describe('published pricing boundaries', () => {
   for (const family of PRODUCT_FAMILIES)
     for (const length of [20, 40] as const)
       it(`${family.id} ${length} uses a family starting price, never a configured total`, () => {
-        const price = estimate({ ...setFamily(fresh(), family.id), length })
+        const price = estimate({ ...fresh(), family: family.id, length })
         expect(price.startingPrice).toBe(family.id === 'studio' ? 35000 : 20000)
         expect(price.source).toBe(family.source)
         expect(price.total).toBeNull()
@@ -212,11 +222,11 @@ describe('product families', () => {
       for (const pack of PACKAGES)
         it(`${length} ${opening.id} Container fits the ${pack.id} planning preset`, () => {
           const config: Config = {
-            ...setFamily(fresh(), 'container'),
+            ...container(length),
             length,
             containerOpening: opening.id,
             package: pack.id,
-            items: packageItems(pack.id, length),
+            items: packageItems(pack.id, length, { family: 'container' }),
           }
           expect(layoutIssues(config)).toEqual([])
         })
@@ -244,6 +254,7 @@ describe('product families', () => {
       studioLayout: 'single' as const,
       accent: false,
       addons: { ...original.addons, gazebo: false },
+      items: original.items.filter((item) => item.sku !== 'rack'),
     }
     const container = setFamily(compatible, 'container')
     expect(productHeight(container)).toBe(9.5)
@@ -251,7 +262,7 @@ describe('product families', () => {
     expect(container.addons).toEqual(compatible.addons)
     expect(container.accent).toBe(false)
     expect(container.studioLayout).toBe('single')
-    expect(container.items).toEqual(original.items)
+    expect(container.items).toEqual(compatible.items)
     expect(container.finish).toBe(original.finish)
     expect(original.addons.deck).toBe(true)
     const incompatible = {
@@ -272,7 +283,7 @@ describe('product families', () => {
     for (const opening of CONTAINER_OPENINGS)
       it(`round-trips the ${length} Container with ${opening.id} and integrated finish`, () => {
         const config: Config = {
-          ...setFamily(fresh(), 'container'),
+          ...container(length),
           length,
           containerOpening: opening.id,
           integratedFinish: true,
@@ -294,13 +305,13 @@ describe('product families', () => {
       expect(estimate(config).total).toBeNull()
     })
   it('protects the selected partial opening entry rather than a closed wall', () => {
-    const c: Config = { ...setFamily(fresh(), 'container'), containerOpening: 'partial', items: [] }
-    const item = { ...fresh().items[1], x: -5, z: 1.2 }
+    const c: Config = { ...container(), containerOpening: 'partial', items: [] }
+    const item = { ...fresh().items[1], x: -5, z: 1.5 }
     expect(placementIssue(item, c)).toContain('entry')
     expect(placementIssue({ ...item, x: 0 }, c)).toBe(null)
   })
-  it('undoes and redoes family changes including cleared options', () => {
-    const c = setAddon(fresh(), 'deck').config
+  it('undoes and redoes feasible family changes without clearing options', () => {
+    const c = setAddon({ ...fresh(), items: [] }, 'deck').config
     const state = configReducer(
       { past: [], present: c, future: [], notice: '' },
       { type: 'set', config: setFamily(c, 'container') },
@@ -346,7 +357,7 @@ describe('sharing and browser persistence', () => {
         name: 'Open training',
         date: '2026-10-14',
         config: {
-          ...setFamily(fresh(), 'container'),
+          ...container(),
           containerOpening: 'full' as const,
           integratedFinish: true,
         },
@@ -436,7 +447,7 @@ describe('history', () => {
 describe('PDF brief', () => {
   it('exports Container dimensions, openings, price provenance, and inquiry link', async () => {
     const c: Config = {
-      ...setFamily(fresh(), 'container'),
+      ...container(),
       length: 40,
       containerOpening: 'full',
       integratedFinish: true,
