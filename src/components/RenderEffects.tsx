@@ -195,6 +195,8 @@ export function RenderEffects({
               renderer.setViewport(0, 0, latest.size.width, latest.size.height)
               renderer.setScissor(0, 0, latest.size.width, latest.size.height)
             }
+            const restoredBuffer = renderer.getDrawingBufferSize(new Vector2())
+            active.resize(restoredBuffer.x, restoredBuffer.y)
             active.resetHistory()
           } finally {
             if (orbit && enabled !== undefined)
