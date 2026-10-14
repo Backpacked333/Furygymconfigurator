@@ -42,7 +42,7 @@ export const TEXTURE_SETS = {
 } as const satisfies Record<string, { size: number; detailOnly?: boolean; metallic?: boolean }>
 export type TextureSet = keyof typeof TEXTURE_SETS
 
-type Maps = { albedo?: Texture; normal: Texture; arm: Texture }
+export type Maps = { albedo?: Texture; normal: Texture; arm: Texture }
 
 export type MaterialSpec = {
   set?: TextureSet
@@ -232,6 +232,11 @@ export function setInteriorEnvironment(texture: Texture | null) {
 
 export function isInteriorMaterial(m: unknown) {
   return interiorMaterials.has(m as MeshStandardMaterial)
+}
+
+/** Loaded maps of a set, for custom node materials (shared with the library's materials). */
+export function textureMaps(set: TextureSet) {
+  return load(set)
 }
 
 /** Warm the cache for sets the first view needs, before meshes ask for them. */

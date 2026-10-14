@@ -59,7 +59,7 @@
     "source": "https://polyhaven.com/a/concrete_pavement",
     "role": "Courtyard paving",
     "resolution": "2k",
-    "tinted": false
+    "tinted": true
   },
   {
     "id": "concrete_slab_wall",

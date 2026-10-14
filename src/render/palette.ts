@@ -18,10 +18,10 @@ export const palette = {
     m({
       set: 'powder_coat',
       color,
-      roughness: 0.5,
+      roughness: 0.48,
       normalScale: 0.3,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.32,
+      clearcoat: 0.75,
+      clearcoatRoughness: 0.16,
     }),
   brushed: (interior = true, color = '#d7d9da') =>
     m({ set: 'brushed_metal', color, metalness: 1, roughness: 1, interior }),

@@ -25,6 +25,7 @@ import {
   screenUV,
   smoothstep,
   unpackRGBToNormal,
+  vec3,
   vec4,
   velocity,
 } from 'three/tsl'
@@ -120,6 +121,12 @@ export function createPipeline(
   const resolved = traa(lit, preDepth, preVelocity, camera)
   disposables.push(resolved)
   pipeline.outputNode = finish(resolved)
+  // `?debug=ao` shows the occlusion buffer for tuning.
+  const debug = new URLSearchParams(window.location.search).get('debug')
+  if (debug === 'ao')
+    pipeline.outputNode = vec4(vec3(occlusion.getTextureNode().sample(screenUV).r), 1)
+  if (debug === 'normal')
+    pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
   return {
     render: () => pipeline.render(),
     dispose: () => disposables.forEach((d) => d.dispose()),

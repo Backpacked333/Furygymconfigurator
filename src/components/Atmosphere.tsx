@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import {
   BackSide,
@@ -12,9 +12,19 @@ import {
   SphereGeometry,
   type Node,
   type RenderTarget,
+  type UniformNode,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { color, mix, screenUV, vec4 } from 'three/tsl'
+import {
+  cameraPosition,
+  color,
+  mix,
+  normalize,
+  positionWorld,
+  screenUV,
+  uniform,
+  vec4,
+} from 'three/tsl'
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js'
 import type { Config, View } from '../lib/config'
 import {
@@ -32,7 +42,13 @@ import { useResource } from '../render/useResource'
  * three's Preetham sky is calibrated for a ~0.5 exposure with a 60,000-unit sun disc. Scaling its
  * radiance down puts clear-sky illuminance at roughly 1/3.5 of direct sun, as measured outdoors.
  */
-const SKY_SCALE = 0.1
+const SKY_SCALE = 0.13
+/**
+ * Preetham's single-scattering zenith is ~12x darker than its horizon; measured clear skies are
+ * 2-4x. A fill proportional to the horizon stands in for multiple scattering, so dark glossy
+ * finishes facing the sky reflect it as they do in photographs.
+ */
+const SKY_FILL = 0.12
 const SUN_INTENSITY = 4.2
 const CLOUDS = { courtyard: 0.32, desert: 0.12, studio: 0 }
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
@@ -40,8 +56,11 @@ const INTERIOR_EXPOSURE = 1.6
 
 type Environment = Config['environment']
 
-function configureSky(sky: SkyMesh, environment: Environment, sun: Vec3) {
+function configureSky(sky: Sky, environment: Environment, sun: Vec3) {
   const preset = SKY_PRESETS[environment]
+  sky.fill.value.setRGB(
+    ...(horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL) as Vec3),
+  )
   sky.turbidity.value = preset.turbidity
   sky.rayleigh.value = preset.rayleigh
   sky.mieCoefficient.value = preset.mieCoefficient
@@ -54,10 +73,14 @@ function configureSky(sky: SkyMesh, environment: Environment, sun: Vec3) {
   sky.cloudElevation.value = 0.55
 }
 
-function createSky(sunDisc: boolean) {
-  const sky = new SkyMesh()
+type Sky = SkyMesh & { fill: UniformNode<'color', Color> }
+
+function createSky(sunDisc: boolean): Sky {
+  const sky = new SkyMesh() as Sky
   const radiance = sky.material.colorNode as Node<'vec4'>
-  sky.material.colorNode = vec4(radiance.rgb.mul(SKY_SCALE), 1)
+  sky.fill = uniform(new Color(0, 0, 0))
+  const up = normalize(positionWorld.sub(cameraPosition)).y.clamp(0, 1).pow(0.6)
+  sky.material.colorNode = vec4(radiance.rgb.mul(SKY_SCALE).add(sky.fill.mul(up)), 1)
   // A tiny 6000-unit disc would only add fireflies to the filtered environment; the directional
   // light already carries the sun.
   sky.showSunDisc.value = sunDisc ? 1 : 0
@@ -119,7 +142,9 @@ export function Atmosphere({
   }, [])
   const generator = useResource(() => new PMREMGenerator(renderer), [renderer])
   const target = useRef<RenderTarget | null>(null)
-  useEffect(
+  // A layout effect, declared before the capture below, so the previous generator's target is
+  // released before (never after) the new one is captured.
+  useLayoutEffect(
     () => () => {
       target.current?.dispose()
       target.current = null
@@ -136,7 +161,8 @@ export function Atmosphere({
     configureSky(background, environment, sun)
     configureSky(capture.sky, environment, sun)
     const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
-    const sky = skyRadiance([0, 1, 0], sun, preset).map((v) => v * SKY_SCALE)
+    const horizonFill = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL)
+    const sky = skyRadiance([0, 1, 0], sun, preset).map((v, i) => v * SKY_SCALE + horizonFill[i])
     const direct = (SUN_INTENSITY * sunlight.intensity * Math.max(0, sun[1])) / Math.PI
     ;(capture.ground.material as MeshBasicMaterial).color.setRGB(
       ...(groundAlbedo.map((a, i) => a * (direct * sunlight.color[i] + sky[i] * Math.PI)) as Vec3),
@@ -148,7 +174,7 @@ export function Atmosphere({
     } else {
       scene.backgroundNode = null
       const horizon = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE) as Vec3
-      scene.fog = new Fog(new Color(...horizon), 120, 900)
+      scene.fog = new Fog(new Color(...horizon), 70, 520)
     }
     if (generator) {
       target.current = generator.fromScene(

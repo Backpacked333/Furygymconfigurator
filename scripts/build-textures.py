@@ -37,7 +37,7 @@ PHOTO_SETS = {
     'rough_linen': ('1k', True, 'Lounger fabric'),
     'rubberized_track': ('1k', True, 'Rubber plates, dumbbells, mats'),
     'painted_metal_shutter': ('1k', True, 'Container roll-up door'),
-    'concrete_pavement': ('2k', False, 'Courtyard paving'),
+    'concrete_pavement': ('2k', True, 'Courtyard paving'),
     'leafy_grass': ('1k', False, 'Lawn'),
     'dry_ground_01': ('1k', False, 'Desert ground'),
     'clean_pebbles': ('1k', False, 'Gravel beds'),
