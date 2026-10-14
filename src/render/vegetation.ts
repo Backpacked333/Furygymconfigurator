@@ -244,7 +244,7 @@ export function palmFrond() {
       const x = 3.2 + Math.cos(a) * r,
         z = Math.sin(a) * r
       const y = -0.9 * t * t * (0.6 + Math.abs(Math.sin(a)) * 0.6)
-      const w = 0.13 * (1 - t * 0.7)
+      const w = 0.15 * (1 - t * 0.7)
       const left = [x - Math.sin(a) * w, y, z + Math.cos(a) * w]
       const right = [x + Math.sin(a) * w, y, z - Math.cos(a) * w]
       if (prev) quad(prev.slice(0, 3), prev.slice(3), right, left)
@@ -295,7 +295,7 @@ export function palmShape(seed: number, height: number): PalmShape {
     up = new Vector3(0, 1, 0),
     pitch = new Quaternion(),
     s = new Vector3(1, 1, 1)
-  const count = 24
+  const count = 32
   for (let i = 0; i < count; i++) {
     const yaw = (i / count) * Math.PI * 2 * 1.618 + rand(10 + i)
     // Upper fronds stand up; lower ones droop, as in mature crowns.
@@ -304,9 +304,7 @@ export function palmShape(seed: number, height: number): PalmShape {
     pitch.setFromAxisAngle(new Vector3(0, 0, 1), elevation)
     q.setFromAxisAngle(up, yaw).multiply(pitch)
     s.setScalar(0.85 + rand(60 + i) * 0.3)
-    fronds.push(
-      new Matrix4().compose(crown.clone().add(new Vector3(0, -tier * 0.8, 0)), q.clone(), s),
-    )
+    fronds.push(new Matrix4().compose(new Vector3(0, -tier * 0.8, 0), q.clone(), s))
   }
   return { trunk, crown, fronds }
 }

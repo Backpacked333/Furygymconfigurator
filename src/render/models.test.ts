@@ -168,11 +168,11 @@ describe('architecture', () => {
 describe('surroundings', () => {
   it('builds every background building with valid batched geometry', () => {
     for (const parts of [
-      apartmentBlock({ length: 120, style: 'brick', glow: 0 }),
-      apartmentBlock({ length: 90, style: 'timber', glow: 2 }),
+      apartmentBlock({ length: 120, style: 'brick' }),
+      apartmentBlock({ length: 90, style: 'timber' }),
       curtainWallOffice({ length: 100, floors: 5, depth: 60 }),
-      precastOffice({ length: 90, floors: 4, depth: 50, glow: 1 }),
-      modernHouse({ glow: 0.5 }),
+      precastOffice({ length: 90, floors: 4, depth: 50 }),
+      modernHouse(),
       loungeSet({ flame: true }),
     ]) {
       expect(parts.length).toBeGreaterThan(5)

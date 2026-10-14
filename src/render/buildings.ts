@@ -22,14 +22,32 @@ export const facadeGlass = (tint = '#1e2729') =>
     clearcoatRoughness: 0.03,
     envIntensity: 1.35,
   })
-/** A window lit from inside: warm, curtained light whose strength follows dusk. */
-export const litWindow = (strength: number, color = '#ffcf98') =>
-  material({
-    color: '#2a2622',
-    roughness: 0.2,
+/**
+ * Glazing with a room lit behind it. Its emissive strength is a live material property set by
+ * `setWindowGlow` as the time of day changes, so dusk never rebuilds the background geometry;
+ * by day it is indistinguishable from `facadeGlass`.
+ */
+const LIT_COLORS = new Set<string>()
+export const litWindow = (color = '#ffcf98', tint = '#1e2729') => {
+  LIT_COLORS.add(`${color}|${tint}`)
+  return material({
+    color: tint,
+    roughness: 0.04,
+    metalness: 0.2,
+    clearcoat: 1,
+    clearcoatRoughness: 0.03,
+    envIntensity: 1.35,
     emissive: color,
-    emissiveIntensity: Math.max(0.05, strength),
+    emissiveIntensity: 0,
   })
+}
+/** Sets how brightly every lit background window glows (0 by day, about 2.4 at night). */
+export function setWindowGlow(strength: number) {
+  for (const key of LIT_COLORS) {
+    const [color, tint] = key.split('|')
+    litWindow(color, tint).emissiveIntensity = strength
+  }
+}
 
 type Window = {
   x: number
@@ -39,17 +57,16 @@ type Window = {
   z: number
   frame: ReturnType<typeof material>
   lit: boolean
-  glow: number
   mullion?: boolean
   sill?: ReturnType<typeof material>
 }
 /** A framed window (or glazed door) standing proud of a wall plane at depth z. */
-function windowParts({ x, y, w, h, z, frame, lit, glow, mullion = true, sill }: Window): Part[] {
+function windowParts({ x, y, w, h, z, frame, lit, mullion = true, sill }: Window): Part[] {
   const f = 0.22
   const parts: Part[] = [
     part(
       box(w, h, 0.06),
-      lit && glow > 0.05 ? litWindow(glow) : facadeGlass(),
+      lit ? litWindow() : facadeGlass(),
       [x, y + h / 2, z + 0.06],
       undefined,
       undefined,
@@ -102,9 +119,8 @@ export function apartmentBlock(opts: {
   depth?: number
   style?: ApartmentStyle
   seed?: number
-  glow: number
 }): Part[] {
-  const { length, floors = 4, depth = 46, style = 'brick', seed = 1, glow } = opts
+  const { length, floors = 4, depth = 46, style = 'brick', seed = 1 } = opts
   const ground = 12,
     storey = 10.5
   const H = ground + (floors - 1) * storey + 3
@@ -143,7 +159,6 @@ export function apartmentBlock(opts: {
               z: 0,
               frame: trim,
               lit,
-              glow,
               sill,
             }),
           )
@@ -170,7 +185,6 @@ export function apartmentBlock(opts: {
               z: -3.6,
               frame: trim,
               lit,
-              glow,
               mullion: true,
             }),
           )
@@ -261,13 +275,8 @@ export function curtainWallOffice(opts: { length: number; floors: number; depth:
 }
 
 /** A precast-concrete office with deep punched windows on a regular grid. */
-export function precastOffice(opts: {
-  length: number
-  floors: number
-  depth: number
-  glow: number
-}): Part[] {
-  const { length, floors, depth, glow } = opts
+export function precastOffice(opts: { length: number; floors: number; depth: number }): Part[] {
+  const { length, floors, depth } = opts
   const storey = 13
   const H = floors * storey + 3.5
   const precast = palette.stucco('#dccdb4')
@@ -285,7 +294,7 @@ export function precastOffice(opts: {
     for (let i = 0; i < cols; i++) {
       const x = -((cols - 1) * pitch) / 2 + i * pitch
       const lit = noise(index++, 19) < 0.3
-      parts.push(...windowParts({ x, y, w: 5.2, h: 7, z: 0, frame, lit, glow, mullion: false }))
+      parts.push(...windowParts({ x, y, w: 5.2, h: 7, z: 0, frame, lit, mullion: false }))
       // Deep reveal: a shadowed return above each window.
       parts.push(part(box(5.6, 0.5, 0.9), precast, [x, y + 7.45, 0.45]))
     }
@@ -298,8 +307,7 @@ export function precastOffice(opts: {
  * A two-story modern house: a glazed ground floor under a cedar-clad upper volume, thin white
  * roof plates with deep overhangs, and a timber terrace.
  */
-export function modernHouse(opts: { glow: number }): Part[] {
-  const { glow } = opts
+export function modernHouse(): Part[] {
   const cedar = palette.cedar(false, '#c9a07c')
   const render = palette.stucco('#ece9e3')
   const roof = palette.plastic('#f1efea', 0.5)
@@ -307,7 +315,7 @@ export function modernHouse(opts: { glow: number }): Part[] {
   const parts: Part[] = []
   // Ground floor: 64 x 11 ft glazed volume set back behind a terrace.
   parts.push(part(box(64, 11, 34), render, [0, 5.5, -17]))
-  const glass = glow > 0.05 ? litWindow(glow * 0.8, '#ffd9a8') : facadeGlass('#273032')
+  const glass = litWindow('#e6bf92', '#273032')
   for (let i = 0; i < 8; i++) {
     const x = -24 + i * 6.8
     parts.push(part(box(6.6, 9.4, 0.08), glass, [x, 5.6, 0.08], undefined, undefined, false))
@@ -320,14 +328,7 @@ export function modernHouse(opts: { glow: number }): Part[] {
   // Upper volume, cantilevered toward the garden, with a ribbon window.
   parts.push(part(box(44, 10.5, 30), cedar, [-8, 16.25, -13]))
   parts.push(
-    part(
-      box(30, 4.2, 0.08),
-      glow > 0.05 ? litWindow(glow * 0.6) : facadeGlass(),
-      [-12, 16.8, 2.08],
-      undefined,
-      undefined,
-      false,
-    ),
+    part(box(30, 4.2, 0.08), litWindow('#c9a47c'), [-12, 16.8, 2.08], undefined, undefined, false),
   )
   parts.push(part(box(30.6, 4.8, 0.3), frame, [-12, 16.8, 2.0]))
   // Thin roof plates with overhangs.

@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useThree } from '@react-three/fiber'
 import { InstancedMesh, type Matrix4 } from 'three/webgpu'
 import type { Config } from '../lib/config'
 import { noise, smoothstep } from '../lib/visuals'
@@ -14,6 +15,7 @@ import {
   modernHouse,
   planter,
   precastOffice,
+  setWindowGlow,
   slatBench,
 } from '../render/buildings'
 import {
@@ -36,7 +38,13 @@ import { Parts } from './Parts'
  */
 
 /** Interior light in background windows: off by day, warming through dusk into night. */
-const windowGlow = (time: number) => smoothstep(17.25, 20.5, time) * 2.4
+function useWindowGlow(time: number) {
+  const invalidate = useThree((state) => state.invalidate)
+  useEffect(() => {
+    setWindowGlow(smoothstep(17.25, 20.5, time) * 2.4)
+    invalidate()
+  }, [time, invalidate])
+}
 
 function useInstances(matrices: Matrix4[]) {
   const mesh = useRef<InstancedMesh>(null)
@@ -71,12 +79,13 @@ const Palm = memo(function Palm({
       ),
     [shape],
   )
+  // Shag of dry, hanging fronds under the living crown, typical of Washingtonia.
   const skirt = useMemo(
     () => [
       part(
-        cylinder(1.1, 0.75, 4.5, 18),
-        material({ set: 'bark_platanus', color: '#6b5a44', roughness: 1 }),
-        [shape.crown.x, shape.crown.y - 3, shape.crown.z],
+        cylinder(1.35, 0.62, 3.4, 20),
+        material({ set: 'bark_platanus', color: '#a38a64', roughness: 1 }),
+        [shape.crown.x, shape.crown.y - 1.9, shape.crown.z],
       ),
     ],
     [shape],
@@ -214,31 +223,30 @@ function GrassBed({
 
 export function Residences({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
-  const glow = windowGlow(c.time)
-  const glowKey = glow.toFixed(2)
+  useWindowGlow(c.time)
   const buildings = useMemo(
     () => [
-      ...place(apartmentBlock({ length: 160, style: 'brick', seed: 1, glow }), [0, 0, -34]),
+      ...place(apartmentBlock({ length: 160, style: 'brick', seed: 1 }), [0, 0, -34]),
       ...place(
-        apartmentBlock({ length: 110, style: 'timber', seed: 2, glow }),
+        apartmentBlock({ length: 110, style: 'timber', seed: 2 }),
         [-(L / 2 + 44), 0, 6],
         [0, Math.PI / 2, 0],
       ),
       ...place(
-        apartmentBlock({ length: 110, style: 'brick', seed: 3, glow }),
+        apartmentBlock({ length: 110, style: 'brick', seed: 3 }),
         [L / 2 + 50, 0, 2],
         [0, -Math.PI / 2, 0],
       ),
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [L, glowKey],
+    [L],
   )
+  const flame = c.lights && c.time > 17
   const furniture = useMemo(() => {
     const parts: Part[] = [
       ...place(planter(14, 3.2, 2.2), [-L / 2 - 6, 0, 9], [0, 0.04, 0]),
       ...place(planter(3.2, 16, 2.2), [L / 2 + 7.5, 0, 2]),
       ...place(planter(L + 14, 3.6, 2.2), [0, 0, -13]),
-      ...place(loungeSet({ flame: c.lights && c.time > 17 }), [L / 2 + 17, 0, 12], [0, -0.5, 0]),
+      ...place(loungeSet({ flame }), [L / 2 + 17, 0, 12], [0, -0.5, 0]),
     ]
     // Courtyard pole lights.
     const pole = palette.powder('#1a1b1a', false, 0.6)
@@ -253,7 +261,7 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
       parts.push(part(box(0.55, 0.8, 0.55), lamp, [x, 12.2, z], undefined, undefined, false))
     }
     return parts
-  }, [L, c.lights, c.time])
+  }, [L, c.lights, flame])
   return (
     <group>
       <Ground set="herringbone_pavement" size={6.562} tint="#cdbfae" />
@@ -311,8 +319,7 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
 
 export function Campus({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
-  const glow = windowGlow(c.time)
-  const glowKey = glow.toFixed(2)
+  useWindowGlow(c.time)
   const buildings = useMemo(
     () => [
       ...place(
@@ -320,15 +327,14 @@ export function Campus({ config: c, quality }: { config: Config; quality: Qualit
         [-58, 0, -52],
         [0, 0.12, 0],
       ),
-      ...place(precastOffice({ length: 96, floors: 4, depth: 60, glow }), [46, 0, -60]),
+      ...place(precastOffice({ length: 96, floors: 4, depth: 60 }), [46, 0, -60]),
       ...place(
         curtainWallOffice({ length: 90, floors: 4, depth: 60 }),
         [L / 2 + 70, 0, 10],
         [0, -Math.PI / 2, 0],
       ),
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [L, glowKey],
+    [L],
   )
   const site = useMemo(() => {
     const gravel = material({ set: 'clean_pebbles', color: '#efe3cf', roughness: 1 })
@@ -403,11 +409,11 @@ export function Campus({ config: c, quality }: { config: Config; quality: Qualit
       />
       <Tree position={[L / 2 + 22, 0, 14]} scale={1.5} seed={12} biome="desert" quality={quality} />
       {[
-        [-12, -26, 34],
-        [8, -32, 40],
-        [26, -24, 30],
-        [-30, -20, 38],
-        [L / 2 + 24, -6, 32],
+        [-14, -38, 20],
+        [6, -42, 24],
+        [22, -36, 18],
+        [-32, -34, 22],
+        [L / 2 + 26, -14, 20],
       ].map(([x, z, h], i) => (
         <Palm key={i} position={[x, 0, z]} height={h} seed={i + 1} />
       ))}
@@ -429,16 +435,14 @@ export function Campus({ config: c, quality }: { config: Config; quality: Qualit
 
 export function Backyard({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
-  const glow = windowGlow(c.time)
-  const glowKey = glow.toFixed(2)
+  useWindowGlow(c.time)
   const house = useMemo(
     () => [
-      ...place(modernHouse({ glow }), [-(L / 2 + 34), 0, -26], [0, 0.42, 0]),
+      ...place(modernHouse(), [-(L / 2 + 34), 0, -26], [0, 0.42, 0]),
       // A neighbor's house beyond the hedge on the other side.
-      ...place(modernHouse({ glow: glow * 0.7 }), [L / 2 + 52, 0, -40], [0, -0.55, 0]),
+      ...place(modernHouse(), [L / 2 + 52, 0, -40], [0, -0.55, 0]),
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [L, glowKey],
+    [L],
   )
   const hardscape = useMemo(() => {
     const slab = material({ set: 'concrete_pavement', color: '#ece8e1', roughness: 1 })

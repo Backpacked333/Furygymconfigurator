@@ -12,7 +12,7 @@ import {
 
 export const FINISHES = [
   { id: 'obsidian', name: 'Obsidian', color: '#262927' },
-  { id: 'graphite', name: 'Graphite', color: '#5a554d' },
+  { id: 'graphite', name: 'Graphite', color: '#5f574d' },
   { id: 'espresso', name: 'Espresso', color: '#3b3128' },
   { id: 'bronze', name: 'Bronze', color: '#807061' },
   { id: 'olive', name: 'Olive', color: '#66705a' },
@@ -573,7 +573,7 @@ export const SIGNATURES: Signature[] = [
     id: 'campus-pod',
     name: 'Campus pod',
     subtitle: 'Graphite S-Series, sliding door, oak floor',
-    camera: [-0.62, 0.2, 0.76],
+    camera: [-0.62, 0.07, 0.78],
     config: {
       ...DEFAULT_CONFIG,
       finish: 'graphite',

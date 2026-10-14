@@ -1,6 +1,6 @@
 # FURY / Container Gyms + S-Series Studios
 
-A laptop-first configurator built for [Fury Co Gyms](https://www.furycogyms.com/), designed around 12–16-inch displays (roughly 1280–1728 CSS pixels wide). Explore separate Container Gym and S-Series Studio families, choose published options, arrange generic equipment in a collision-aware floor plan, and take away a shareable concept design and PDF inquiry brief. Mobile has a basic responsive fallback but is not the primary experience.
+A laptop-first configurator built for [Fury Co Gyms](https://www.furycogyms.com/), designed around 12–16-inch displays (roughly 1280–1728 CSS pixels wide). Explore separate Container Gym and S-Series Studio families, start from five signature builds recreated from Fury's portfolio, choose published and portfolio options, arrange generic equipment in a collision-aware floor plan, and take away a shareable concept design and PDF inquiry brief. Mobile has a basic responsive fallback but is not the primary experience.
 
 **This is a working concept configurator, not a live purchasing system.** Published family starting prices are source-backed, but every selected build requires a quote. Geometry is not manufacturer CAD; finish palettes, floor looks, equipment, and working clearances are generic visual studies. No customer details, payments, or sales emails are sent anywhere. The official inquiry link opens Fury's website without transferring this configuration.
 
@@ -14,6 +14,20 @@ Reviewed **October 14, 2026**. `src/lib/products.ts` contains the source URLs, n
 | [S-Series Studios](https://www.furycogyms.com/gym-design/studio)  | 20′ or 40′ L × 8′ W × 10′ H; 160 / 320 SF  | $35,000 USD                     | Front deck, gazebo, rooftop deck, exterior stairs; connected, double-wide, multi-level, stacked, custom inquiries |
 
 Fury does **not** publish separate 20′/40′ prices or a full option price list on these pages. Starting prices therefore never scale by length or become configured totals. `estimate()` returns `total: null` and `amount: null` for unpriced selections—not zero. There is no financing calculator based on an invented principal. The [project inquiry page](https://www.furycogyms.com/start-a-project) separately says smaller entry-level projects typically start at $25,000; this is different project guidance, not an extra fee added to the Container starting price.
+
+### Portfolio reference designs
+
+Five client-supplied photographs of built Fury units (reviewed **October 14, 2026**) define the portfolio options and the signature builds that reproduce them:
+
+| Signature build     | Photographed build                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| Courtyard pod       | Light S-Series pod, five black-framed bays, hinged door, functional trainer and air bike, apartments |
+| Campus pod          | Dark S-Series pod, sliding door, oak floor, trainer, dumbbells, plyo box, med balls, office campus   |
+| Clubhouse container | Bronze container, full-view glass overhead door, lit canopy, cedar interior, half racks, at dusk     |
+| Garden Pilates      | Charcoal container, top-hung glass sashes propped open, timber deck, birch interior, reformer        |
+| Rooftop container   | Black container, raised glass door, timber-clad roof deck, cable rail, black steel stair, power rack |
+
+Options taken from these photographs (Studio hinged/sliding doors, Container glass overhead doors and awning sashes, Container decks, roof decks, stairs and entry canopy, cable railing) are labeled **“Seen in Fury builds”** or **Portfolio** in the app. They are concept interpretations of the photographs, not published specifications: none has a published price, all are quote-only, and geometry is illustrative.
 
 Connected and stacked Studio requests are saved in the design and brief, but the scene and floor plan show **one reference unit**, not an engineered assembly. The website does not specify unit counts, connection geometry, loads, or permitted arrangements. Other door widths and colors are also inquiry-only. Performance flooring is published; the app's oak/stone looks, timber accent, named colors, mirror wall, and equipment presets are not an approved Fury catalog.
 
@@ -49,13 +63,14 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 
 | Area          | Implemented                                                                                                                                                             |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Products      | Two families, 20-/40-foot footprints, family-specific nominal heights and source-linked features                                                                        |
-| Exterior      | Container opening previews and integrated finish request; independent Studio front deck, gazebo, rooftop deck, stairs; four concept colors                              |
-| Visualization | WebGPU renderer with WebGL 2 fallback, photo-scanned materials, physical sky and sun by time of day, exterior orbit, interior look-around, three environments, lights   |
+| Products      | Two families, 20-/40-foot footprints, family-specific nominal heights and source-linked features; five signature builds with matching camera angles                     |
+| Exterior      | Studio hinged or sliding door; Container openings with open side, glass overhead door, or awning sashes, each shown open or closed; integrated finish; seven colors     |
+| Additions     | Studio front deck and gazebo; Container grade deck and entry canopy with downlights; roof deck with glass or cable rail and exterior stair for both families            |
+| Visualization | WebGPU renderer with WebGL 2 fallback, photo-scanned materials, physical sky and sun by time of day, exterior orbit, interior look-around, six settings, lights         |
 | Rendering     | Ultra (screen-space GI), High (GTAO, bloom, temporal AA), Lite (MSAA); interior radiance probe, planar mirror, area-light washes, automatic quality step-down           |
-| Interior      | Strength, recovery, movement, cardio, and empty presets; ten generic equipment items                                                                                    |
+| Interior      | Gallery, oak-slat, cedar, and birch-ply finishes; four floors; strength, recovery, movement, cardio, and empty presets; sixteen generic equipment items                 |
 | Floor plan    | Pointer dragging, quarter-foot snapping, rotation, removal, entry and boundary protection, collision rejection, visible working-space envelopes                         |
-| Decisions     | Published family starting prices, unpriced quote checklist, custom Studio inquiry request, 50-step undo/redo, concept starter builds                                    |
+| Decisions     | Published family starting prices, unpriced quote checklist, custom Studio inquiry request, 50-step undo/redo, signature portfolio builds                                |
 | Persistence   | Automatic local draft, up to 12 named local builds, two-build comparison, versioned compressed share URLs                                                               |
 | Deliverables  | Configuration JSON, current-view PNG, multipage PDF with scene image when available, floor plan, sourced starting price, quote checklist, notes, and share link         |
 | Access        | Responsive controls, touch interaction, keyboard camera and floor-plan controls, labeled options, focus-trapped dialogs, reduced-motion camera transitions, 2D fallback |
@@ -76,7 +91,8 @@ One validated, versioned `Config` object drives the scene, layout, quote checkli
 src/
   App.tsx                     Workspace, dialogs, camera modes, history shortcuts, quality governor
   components/
-    ConfigPanel.tsx           Four-step selection interface
+    ConfigPanel.tsx           Four-step selection interface and signature builds
+    Elevation.tsx             Front-elevation drawing of any configuration (cards, dialogs)
     Scene.tsx                 Async WebGPU canvas, camera, dimensions, graphics fallback
     RenderEffects.tsx         Drives the TSL pipeline, settle frames, captures, frame-time governor
     Atmosphere.tsx            Physical sky, fog, image-based lighting, sun and moon, exposure
@@ -85,6 +101,7 @@ src/
     StudioModel.tsx           Shell, interior, glazing, add-ons, signature, mirror, equipment
     Equipment.tsx             Batched equipment models shared by every placed copy
     Landscape.tsx             Anti-tiled ground, hardscape, trees, hedge, grasses, desert plants
+    Surroundings.tsx          Residential courtyard, corporate campus, and backyard settings
     Mirror.tsx                Planar reflector (High/Ultra) or probe-lit metal (Lite)
     Parts.tsx                 Renders a part list as merged, per-material meshes
     FloorPlan.tsx             Accessible SVG floor-plan editor
@@ -98,10 +115,13 @@ src/
     palette.ts                Named physically based materials (powder coat, vinyl, glass...)
     geometry.ts               Geometry helpers with UVs in feet, corrugation, tubes, lathes
     parts.ts                  Part lists and static batching
-    architecture.ts           Studio and Container shells, interiors, glazing
-    addons.ts                 Deck, pergola, roof deck, stairs, timber accent
-    equipment.ts              Ten equipment models at real-world dimensions
-    vegetation.ts             Leaf atlas, trees, grass, foliage materials
+    architecture.ts           Studio and Container shells, interior finishes, glazing
+    openings.ts               Studio doors, glass overhead door, awning sashes, roll-up shutter
+    addons.ts                 Decks, pergola, roof deck, railings, stairs, canopy, timber accent
+    buildings.ts              Apartment blocks, offices, modern house, site furniture
+    scenery.ts                Landscape density tiers and plant/rock geometry
+    equipment.ts              Sixteen equipment models at real-world dimensions
+    vegetation.ts             Leaf atlas, trees, grass, fan palms, flowering shrubs
     progress.ts               Material streaming progress (no three.js imports)
     useResource.ts            StrictMode-safe GPU resource lifetime
   lib/
@@ -115,15 +135,16 @@ scripts/
 public/textures/              Bundled texture sets and sources.json (authors, sizes, roles)
 ```
 
-Dimensions use **feet internally**, with x along unit length and z along depth; the front is positive z. Both families are 20/40 × 8 feet, with heights from the product table above. The floor plan uses a conservative concept usable envelope and reserves a planned entry aligned to the chosen opening. Only the roll-up width is published; other opening widths/positions and all deck/gazebo/stair geometry are illustrative. Collision checks cover equipment footprints and a small placement buffer, **not manufacturer safety clearances, electrical requirements, accessibility, structural loading, or permitted occupancy**. Dashed envelopes are illustrative guidance and can overlap.
+Dimensions use **feet internally**, with x along unit length and z along depth; the front is positive z. Both families are 20/40 × 8 feet, with heights from the product table above. The floor plan uses a conservative concept usable envelope and reserves a planned entry aligned to the chosen opening or Studio door. The Studio glazing is divided into equal bays (five on 20 feet, eleven on 40); the hinged door takes the second bay from the end and the sliding door the center bay. Only the roll-up width is published; other opening widths/positions and all deck/gazebo/stair geometry are illustrative. Collision checks cover equipment footprints and a small placement buffer, **not manufacturer safety clearances, electrical requirements, accessibility, structural loading, or permitted occupancy**. Dashed envelopes are illustrative guidance and can overlap.
 
 Rules:
 
-- Studio add-ons can be selected individually or together, as the Studio page describes. The former automatic gazebo/deck and stairs/roof dependencies were prototype assumptions, not published engineering rules, and have been removed. All combinations still require support/access/engineering review; the model is not certification.
-- Switching to Containers clears Studio-only additions, timber accents, and custom Studio requests while preserving shared finishes, length, and equipment. Switching families resets opening-specific selections. Undo restores the previous state. A change that obstructs the new planned entry is blocked until equipment is rearranged.
-- Concept templates keep the chosen product family but reset the reference footprint to 20 feet after confirmation.
+- Additions can be selected individually or together. Decks, roof decks, and stairs apply to both families (the Container versions come from the portfolio photographs); the gazebo and timber accent are Studio-only; the entry canopy is Container-only. All combinations still require support/access/engineering review; the model is not certification.
+- Opening infills (glass overhead door, awning sashes) apply to the center, partial, and full open-side openings; the roll-up opening carries its own door. “Show open” is a visualization state saved with the design.
+- Switching to Containers clears Studio-only additions, timber accents, doors, and custom Studio requests while preserving decks, roof decks, stairs, shared finishes, length, and equipment. Switching to Studios clears Container openings, infills, and the canopy, and prefers the hinged door unless it would obstruct the current layout, in which case the centered sliding door is used. Undo restores the previous state. A change that obstructs the new planned entry is blocked until equipment is rearranged.
+- Signature builds replace the whole design, including family and length, after confirmation; every option stays editable.
 - Invalid, unsupported, oversized, duplicate-ID, or geometrically invalid shared configurations are rejected.
-- Schema `v: 2` adds `family`, `containerOpening`, `integratedFinish`, and `studioLayout`. Legacy `v: 1` links/drafts/saved builds migrate automatically to Studios and are fully revalidated. Existing selections are preserved; old conceptual prices are not. Unsupported versions are rejected. This is the implemented app contract, not a roadmap example.
+- Schema `v: 3` adds `studioDoor`, `openingInfill`, `doorsOpen`, `railing`, `interiorStyle`, and `addons.canopy` to v2's `family`, `containerOpening`, `integratedFinish`, and `studioLayout`. Legacy `v: 1` and `v: 2` links/drafts/saved builds migrate automatically and are fully revalidated: Studios get the centered sliding door (so their planned entry, and every saved layout, is unchanged) and the original oak-slat interior; Containers keep their opening shown open, as v2 rendered it. Existing selections are preserved; old conceptual prices are not. Unsupported versions are rejected. This is the implemented app contract, not a roadmap example.
 
 ### Local data and sharing
 
@@ -150,10 +171,12 @@ Lighting:
 - **Sky and sun:** a Preetham daylight sky with clouds is both the visible background and the image-based lighting (captured into a PMREM cube). Sun color comes from atmospheric extinction along the sun path. A multiple-scattering fill keeps the zenith-to-horizon ratio near measured clear skies. Fog matches the horizon. After dark, exposure adapts, moonlight takes over, and airglow keeps the sky deep blue. The sun follows an artistic summer path (sunrise 06:00, sunset 20:30, 60° at noon), not a location-based study.
 - **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. It is captured twice per change to approximate a second bounce. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
 - **Mirror:** High and Ultra render a true planar reflection; Lite uses a probe-lit polished surface.
+- **Interior finishes:** gallery and birch interiors use two continuous linear LED channels (area lights on High and Ultra, spot lights on Lite); slatted and cedar interiors use recessed downlights. The Container canopy carries real downlights that wash the ground at night.
+- **Settings:** background apartment, office, and house windows are reflective, non-transmissive glazing; a share of them light from inside through dusk. Their glow is a live material property, so the time slider never rebuilds the background geometry.
 
-Materials come from 18 CC0 photo-scanned PBR sets from [Poly Haven](https://polyhaven.com/) (albedo, OpenGL normal, and packed AO/roughness/metalness), plus baked powder-coat, brushed-steel, and knurl detail maps. `public/textures/sources.json` records each set's authors, physical size, and role; `scripts/build-textures.py` (Python 3, Pillow, NumPy) reproduces them. Every model carries UVs measured in feet, so each texture appears at its true physical scale. The ground blends two scales of its scan with noise so it never visibly repeats. Textures stream in after the scene appears, with a progress indicator. The library is about 17 MB of WebP; only the sets a view needs are downloaded.
+Materials come from 24 CC0 photo-scanned PBR sets from [Poly Haven](https://polyhaven.com/) (albedo, OpenGL normal, and packed AO/roughness/metalness), plus baked powder-coat, brushed-steel, and knurl detail maps. `public/textures/sources.json` records each set's authors, physical size, and role; `scripts/build-textures.py` (Python 3, Pillow, NumPy) reproduces them. Every model carries UVs measured in feet, so each texture appears at its true physical scale. The ground blends two scales of its scan with noise so it never visibly repeats. Textures stream in after the scene appears, with a progress indicator. The library is about 21 MB of WebP; only the sets a view needs are downloaded.
 
-Models are procedural and batched: each equipment item or architectural assembly is merged per material into a few draw calls and shared by every placed copy. Trees use alpha-tested leaf cards with crown-bent normals and daylight-scaled translucency; grass and foliage are instanced. Footprint tests keep every equipment model inside the planning envelope the floor-plan collision rules use; a racked Olympic bar is the one deliberate exception, overhanging its uprights into the rack's published side clearance as on real racks.
+Models are procedural and batched: each equipment item or architectural assembly is merged per material into a few draw calls and shared by every placed copy. Trees, shrubs, and blossoms use alpha-tested cards with crown-bent normals and daylight-scaled translucency; fan-palm fronds, grass, and foliage are instanced. Footprint tests keep every equipment model inside the planning envelope the floor-plan collision rules use; a racked Olympic bar on the power rack and half rack is the one deliberate exception, overhanging its uprights into the rack's side clearance as on real racks.
 
 These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Glass and water use physically based transmission, not traced caustics. Lights do not simulate certified photometry, and screen-space GI only bounces light that is on screen. Photo and PDF exports capture the current real-time view; they are not offline path-traced renders.
 
@@ -161,7 +184,7 @@ The three.js chunk (WebGPU and the classic renderer React Three Fiber references
 
 ## Verification
 
-Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, and both product shells staying inside their nominal envelopes for every opening and length. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
+Vitest covers presets at both sizes with every Studio door and Container opening, family transitions and heights, Container openings and infills, add-on availability per family, signature builds (valid, collision-free, shareable, matching their photographs), Studio door entry positions, v1 and v2 migration, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, both product shells staying inside their nominal envelopes for every door, opening, infill, open state, and length, the four interior finishes, Container additions with both railings, and the background buildings. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
 
 ## Before commercial launch
 
