@@ -18,6 +18,7 @@ import {
   PRODUCT_SOURCE_DATE,
   productFamily,
 } from './products'
+import { pdfText, validateProject } from './pdfText'
 
 export function downloadFile(name: string, content: string | Blob, type = 'application/json') {
   const url = URL.createObjectURL(
@@ -30,10 +31,13 @@ export function downloadFile(name: string, content: string | Blob, type = 'appli
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 export async function createBrief(
-  config: Config,
+  configuration: Config,
   image: string | null,
-  project: { name: string; notes: string },
+  projectInput: { name: string; notes: string },
 ) {
+  const config = structuredClone(configuration)
+  const project = validateProject({ ...projectInput })
+  const configurationUrl = shareUrl(config)
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF(),
     estimateData = estimate(config)
@@ -41,7 +45,7 @@ export async function createBrief(
   const heading = (title: string) => {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(13)
-    const lines = doc.splitTextToSize(title, 174) as string[]
+    const lines = doc.splitTextToSize(pdfText(title), 174) as string[]
     if (y + lines.length * 6 > 262) {
       doc.addPage()
       y = 22
@@ -54,7 +58,7 @@ export async function createBrief(
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(size)
     doc.setTextColor(78, 83, 73)
-    const lines = doc.splitTextToSize(value.replace(/′/g, "'"), 174) as string[]
+    const lines = doc.splitTextToSize(pdfText(value), 174) as string[]
     for (const line of lines) {
       if (y > 269) {
         doc.addPage()
@@ -82,6 +86,14 @@ export async function createBrief(
     const props = doc.getImageProperties(image),
       width = Math.min(174, (85 * props.width) / props.height),
       height = (width * props.height) / props.width
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+      throw new Error(
+        'The scene image has invalid dimensions. Retry or create an image-free brief.',
+      )
+    if (y + height + 12 > 269) {
+      doc.addPage()
+      y = 22
+    }
     doc.addImage(image, 'PNG', 18 + (174 - width) / 2, y, width, height)
     y += height + 12
   }
@@ -184,7 +196,7 @@ export async function createBrief(
     )
   if (project.notes.trim()) {
     heading('04 / Project notes')
-    text(project.notes.slice(0, 2000))
+    text(project.notes)
   }
   const linkSection = (title: string, label: string, url: string, notice: string) => {
     doc.setFont('helvetica', 'normal')
@@ -204,7 +216,7 @@ export async function createBrief(
   linkSection(
     'Continue this design',
     'Open the interactive configuration',
-    shareUrl(config),
+    configurationUrl,
     'The link works wherever this application is hosted. Local development links require the application to be running at that address. This brief is downloaded to your device; it has not been sent to a sales team.',
   )
   linkSection(

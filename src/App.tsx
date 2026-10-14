@@ -56,11 +56,13 @@ import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
 import { textureProgress } from './render/progress'
+import { SceneBoundary, SceneLoading } from './components/SceneBoundary'
 
-const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
 
 export default function App() {
+  const [Scene, setScene] = useState(() => lazy(() => import('./components/Scene')))
+  const [sceneAttempt, setSceneAttempt] = useState(0)
   const { config, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
   const [step, setStep] = useState(0),
     [view, setView] = useState<View>('exterior'),
@@ -238,28 +240,35 @@ export default function App() {
           {view === 'plan' ? (
             <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
           ) : (
-            <Suspense
-              fallback={
-                <div className="scene-loading">
-                  <span className="loading-mark">F</span>
-                  <p>Making room for possibility.</p>
-                </div>
-              }
+            <SceneBoundary
+              key={sceneAttempt}
+              attempts={sceneAttempt}
+              onFailure={() => {
+                captureRef.current = null
+              }}
+              onPlan={() => setView('plan')}
+              onRetry={() => {
+                captureRef.current = null
+                setScene(() => lazy(() => import('./components/Scene')))
+                setSceneAttempt((n) => n + 1)
+              }}
             >
-              <Scene
-                config={config}
-                view={view}
-                dimensions={dimensions}
-                unit={unit}
-                reset={reset}
-                autoRotate={autoRotate}
-                quality={quality}
-                onCaptureReady={onCaptureReady}
-                onFallback={() => setView('plan')}
-                onBackend={setBackend}
-                onSlow={onSlow}
-              />
-            </Suspense>
+              <Suspense fallback={<SceneLoading onPlan={() => setView('plan')} />}>
+                <Scene
+                  config={config}
+                  view={view}
+                  dimensions={dimensions}
+                  unit={unit}
+                  reset={reset}
+                  autoRotate={autoRotate}
+                  quality={quality}
+                  onCaptureReady={onCaptureReady}
+                  onFallback={() => setView('plan')}
+                  onBackend={setBackend}
+                  onSlow={onSlow}
+                />
+              </Suspense>
+            </SceneBoundary>
           )}
           <div className="stage-heading">
             <span className="eyebrow">
