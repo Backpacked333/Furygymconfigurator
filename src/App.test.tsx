@@ -188,4 +188,18 @@ describe('assembled application edit ownership', () => {
     expect(host.querySelector('.app')?.className).toBe(panelClass)
     expect(host.querySelector('[aria-label="Exit photo mode"]')).toBeNull()
   })
+
+  it.each(['button', 'Escape'])(
+    'restores the floor plan after %s exits photo mode',
+    async (exit) => {
+      await click(button('Floor plan'))
+      const opener = button('Enter photo mode')
+      await click(opener)
+      expect(host.querySelector('.plan-svg')).toBeNull()
+      if (exit === 'button') await click(button('Exit photo mode'))
+      else await key(button('Exit photo mode'), 'Escape')
+      expect(host.querySelector('.plan-svg')).not.toBeNull()
+      expect(document.activeElement).toBe(opener)
+    },
+  )
 })

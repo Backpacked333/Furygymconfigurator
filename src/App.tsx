@@ -135,10 +135,13 @@ export default function App() {
     [photoMode, setPhotoMode] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true)
   const photoOpener = useRef<HTMLButtonElement>(null)
-  const photoReturn = useRef<{ mobilePanel: boolean } | null>(null)
+  const photoReturn = useRef<{ mobilePanel: boolean; view: View } | null>(null)
   const exitPhoto = useCallback(() => {
     setPhotoMode(false)
-    if (photoReturn.current) setMobilePanel(photoReturn.current.mobilePanel)
+    if (photoReturn.current) {
+      setMobilePanel(photoReturn.current.mobilePanel)
+      setView(photoReturn.current.view)
+    }
   }, [])
   useLayoutEffect(() => {
     if (photoMode) {
@@ -486,7 +489,7 @@ export default function App() {
               ref={photoOpener}
               aria-label="Enter photo mode"
               onClick={() => {
-                photoReturn.current = { mobilePanel }
+                photoReturn.current = { mobilePanel, view }
                 if (view === 'plan') setView('exterior')
                 setAutoRotate(false)
                 setPhotoMode(true)
@@ -573,8 +576,8 @@ export default function App() {
             setQualityMode={chooseQualityMode}
             notify={notify}
             onPlan={() => {
-              setView('plan')
               exitPhoto()
+              setView('plan')
             }}
             onTemplate={template}
           />
