@@ -7,7 +7,6 @@ import {
   money,
   productName,
   productHeight,
-  entryCenter,
   shareUrl,
   type Config,
 } from './config'
@@ -21,6 +20,7 @@ import {
 } from './products'
 import { pdfText, validateProject } from './pdfText'
 import type { CaptureResult } from './capture'
+import { spatialContract, type Bounds3 } from './spatial'
 
 export type BriefImageEvidence = Omit<Extract<CaptureResult, { blob: Blob }>, 'blob'>
 
@@ -188,38 +188,104 @@ export async function createBrief(
   const scale = Math.min(174 / config.length, 10),
     left = 18,
     top = y + 5
+  const spatial = spatialContract(config)
+  const planRect = (bounds: Bounds3, style: 'F' | 'FD' | 'S') =>
+    doc.rect(
+      left + (bounds.min.x + config.length / 2) * scale,
+      top + (bounds.min.z + 4) * scale,
+      (bounds.max.x - bounds.min.x) * scale,
+      (bounds.max.z - bounds.min.z) * scale,
+      style,
+    )
   doc.setFillColor(231, 234, 223)
   doc.setDrawColor(70, 82, 62)
   doc.rect(left, top, config.length * scale, 8 * scale, 'FD')
   doc.setFillColor(205, 218, 184)
-  doc.rect(
-    left + (entryCenter(config) + config.length / 2 - 1.6) * scale,
-    top + 6.3 * scale,
-    3.2 * scale,
-    1.7 * scale,
-    'F',
-  )
+  planRect(spatial.entrance.bounds, 'F')
+  doc.setLineDashPattern([1, 1], 0)
+  planRect(spatial.usable, 'S')
+  doc.setLineDashPattern([], 0)
   for (const item of config.items) {
     const p = catalogItem(item.sku),
-      w = item.rotation === 0 ? p.w : p.d,
-      d = item.rotation === 0 ? p.d : p.w
-    const x = left + (item.x + config.length / 2 - w / 2) * scale,
-      z = top + (item.z + 4 - d / 2) * scale
+      occupied = spatial.equipment.find((entry) => entry.id === item.id)!.occupied,
+      w = occupied.max.x - occupied.min.x
+    const x = left + (occupied.min.x + config.length / 2) * scale,
+      z = top + (occupied.min.z + 4) * scale
     doc.setFillColor(187, 204, 164)
-    doc.rect(x, z, w * scale, d * scale, 'FD')
+    planRect(occupied, 'FD')
     doc.setFontSize(6)
     doc.text(doc.splitTextToSize(p.name, w * scale - 2), x + 1, z + 4)
   }
   y = top + 8 * scale + 13
   text(
-    `${config.length} ft x 8 ft external footprint of one unit. Shaded zone: planned entry. Equipment positions:`,
+    `${config.length} ft x 8 ft external footprint of one unit. Dashed boundary: usable lined floor. Shaded zone: illustrative entry approach, not a certified clearance. Equipment rectangles include modeled protrusions and origin offsets, not just catalog dimensions.`,
     10,
+  )
+  text(
+    `Finished floor: ${spatial.finishedFloor.toFixed(2)} ft above model ground. Usable ceiling: ${spatial.usable.max.y.toFixed(2)} ft above model ground. Working-space guidance is separate from physical occupancy and is not certified. Equipment origins:`,
+    9,
   )
   for (const item of config.items)
     text(
       `${catalogItem(item.sku).name}: x ${item.x} ft, z ${item.z} ft, rotation ${item.rotation} degrees.`,
       9,
     )
+  const zones = [...spatial.external, ...spatial.openings]
+  if (spatial.openingTravel) zones.push(spatial.openingTravel)
+  if (zones.length) {
+    heading('Opening and exterior elevation overlays')
+    text(
+      'Separate from the interior usable floor. Solid outlines show modeled physical zones; dashed outlines show illustrative opening projections. Ground-contact and raised zones are shown separately because an overhead deck is not an obstruction on the room floor. Opening travel, load capacity, stairs and guards require engineering review.',
+      9,
+    )
+    for (const [title, layer] of [
+      [
+        'Ground-contact and multilevel structures',
+        zones.filter((zone) => zone.bounds.min.y <= spatial.finishedFloor),
+      ],
+      [
+        'Raised structures and opening poses',
+        zones.filter((zone) => zone.bounds.min.y > spatial.finishedFloor),
+      ],
+    ] as const) {
+      if (!layer.length) continue
+      if (y + 100 > 269) {
+        doc.addPage()
+        y = 22
+      }
+      heading(title)
+      const minX = Math.min(-config.length / 2, ...layer.map((zone) => zone.bounds.min.x))
+      const maxX = Math.max(config.length / 2, ...layer.map((zone) => zone.bounds.max.x))
+      const minZ = Math.min(-4, ...layer.map((zone) => zone.bounds.min.z))
+      const maxZ = Math.max(4, ...layer.map((zone) => zone.bounds.max.z))
+      const layerScale = Math.min(174 / (maxX - minX), 65 / (maxZ - minZ))
+      doc.setDrawColor(133, 141, 123)
+      doc.rect(
+        18 + (-config.length / 2 - minX) * layerScale,
+        y + (-4 - minZ) * layerScale,
+        config.length * layerScale,
+        8 * layerScale,
+      )
+      for (const zone of layer) {
+        const bounds = zone.bounds
+        doc.setDrawColor(zone.kind === 'physical' ? 62 : 141, 105, 65)
+        doc.setLineDashPattern(zone.kind === 'physical' ? [] : [1, 1], 0)
+        doc.rect(
+          18 + (bounds.min.x - minX) * layerScale,
+          y + (bounds.min.z - minZ) * layerScale,
+          (bounds.max.x - bounds.min.x) * layerScale,
+          (bounds.max.z - bounds.min.z) * layerScale,
+        )
+      }
+      doc.setLineDashPattern([], 0)
+      y += (maxZ - minZ) * layerScale + 8
+      for (const zone of layer)
+        text(
+          `${zone.label}: model elevation ${zone.bounds.min.y.toFixed(2)} to ${zone.bounds.max.y.toFixed(2)} ft.`,
+          8,
+        )
+    }
+  }
   if (project.notes.trim()) {
     heading('04 / Project notes')
     text(project.notes)

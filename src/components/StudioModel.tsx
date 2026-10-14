@@ -9,7 +9,7 @@ import {
   studioInterior,
   studioShell,
 } from '../render/architecture'
-import { deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
+import { deck, pergola, roofDeck, siteContext, stairs, timberAccent } from '../render/addons'
 import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
@@ -90,7 +90,7 @@ export function StudioModel({
   const root = useRef<Group>(null)
   useMaterialOwner(root, [c, quality], 'scene:model')
   const studio = c.family === 'studio'
-  const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
+  const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}|${c.openingConcept}|${c.presentation.openingPose}`
   const interiorKey = `${shellKey}|${c.flooring}`
   const shell = useParts(
     (x) => (x.family === 'studio' ? studioShell(x) : containerShell(x)),
@@ -113,14 +113,17 @@ export function StudioModel({
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}
       {studio && c.accent && <OptionalParts build={timberAccent} config={c} partKey={shellKey} />}
-      {studio && a.deck && (
-        <OptionalParts build={deck} config={c} partKey={`${shellKey}|${c.lights}`} />
-      )}
+      {a.deck && <OptionalParts build={deck} config={c} partKey={`${shellKey}|${c.lights}`} />}
       {studio && a.gazebo && <OptionalParts build={pergola} config={c} partKey={shellKey} />}
-      {studio && a.roof && (
-        <OptionalParts build={roofDeck} config={c} partKey={`${shellKey}|${a.stairs}`} />
+      {a.roof && <OptionalParts build={roofDeck} config={c} partKey={`${shellKey}|${a.stairs}`} />}
+      {a.stairs && <OptionalParts build={stairs} config={c} partKey={shellKey} />}
+      {c.presentation.context !== 'product' && (
+        <OptionalParts
+          build={siteContext}
+          config={c}
+          partKey={`${shellKey}|${c.presentation.context}|${a.deck}`}
+        />
       )}
-      {studio && a.stairs && <OptionalParts build={stairs} config={c} partKey={shellKey} />}
       {c.items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}
