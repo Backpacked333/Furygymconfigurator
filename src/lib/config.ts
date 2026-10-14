@@ -213,7 +213,7 @@ export function packageItems(kind: PackageId, length: 20 | 40): PlacedItem[] {
     strength: [item('rack', -5, -0.8), item('bench', 0, -0.5), item('weights', 5.2, -1.9)],
     recovery: [item('sauna', -5.2, -0.9), item('plunge', 3.5, -1.2, 90)],
     movement: [item('mat', -4.5, -0.5), item('mat', 0, -0.5), item('reformer', 4.5, 0)],
-    cardio: [item('treadmill', -4.5, -0.65), item('bike', 0, -0.6), item('bike', 4, -0.6)],
+    cardio: [item('treadmill', 4.5, 0), item('bike', 0, -0.6), item('bike', -4.5, -0.6)],
     empty: [],
   }
   return presets[kind].map((i) => ({ ...i, x: i.x + offset }))
