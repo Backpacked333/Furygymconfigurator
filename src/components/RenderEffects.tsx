@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Quaternion, Vector3, type WebGPURenderer } from 'three/webgpu'
 import { createPipeline, type Pipeline } from '../render/pipeline'
 import { onMaterialsChanged } from '../render/materials'
+import { sceneProgress } from '../render/progress'
 import type { Quality } from '../render/quality'
 import { FRAME_BEGIN, beginFrame } from '../render/renderer'
 import { invalidateShadows, refreshShadows } from '../render/shadows'
@@ -101,6 +102,7 @@ export function RenderEffects({
     // shaders, uploads textures, and redraws shadows: one-off work, not the cost of the tier.
     const eventful = refreshShadows(scene)
     active.render()
+    sceneProgress.drawn()
     settle.current--
     if (settle.current > 0) invalidate()
     // Back-to-back settle frames measure what this GPU can sustain at this tier. The first frames

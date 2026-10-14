@@ -96,8 +96,10 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
     const hidden: Object3D[] = []
     const shadows: { shadow: LightShadow; autoUpdate: boolean }[] = []
     scene.traverse((object) => {
-      const surface = (object as Mesh).material as { transmission?: number } | undefined
-      if ((object.userData.noProbe || (surface?.transmission ?? 0) > 0) && object.visible) {
+      const surface = (object as Mesh).material as
+        { transmission?: number; userData?: { glass?: boolean } } | undefined
+      const glazing = (surface?.transmission ?? 0) > 0 || surface?.userData?.glass
+      if ((object.userData.noProbe || glazing) && object.visible) {
         object.visible = false
         hidden.push(object)
       }

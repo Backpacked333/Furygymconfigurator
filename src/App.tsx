@@ -36,6 +36,7 @@ import ConfigPanel from './components/ConfigPanel'
 import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
 import { SceneLoadBoundary } from './components/SceneLoadBoundary'
+import { SceneLoading } from './components/SceneLoading'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import {
   DEFAULT_CONFIG,
@@ -55,9 +56,10 @@ import {
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
 import { useShareFragment } from './lib/useShareFragment'
+import { useStagedScene } from './lib/useStagedScene'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
-import { textureProgress } from './render/progress'
+import { sceneProgress, textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
@@ -101,6 +103,7 @@ export default function App() {
     captureRef.current = capture
   }, [])
   const openPlan = useCallback(() => setView('plan'), [])
+  const staged = useStagedScene(config, quality)
   // The 3D scene stays mounted, hidden and paused, under the floor plan, so returning keeps the
   // renderer, its compiled shaders, and the camera rather than starting cold. It keeps the last
   // 3D view meanwhile.
@@ -252,23 +255,16 @@ export default function App() {
         >
           <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
             <SceneLoadBoundary onFallback={openPlan}>
-              <Suspense
-                fallback={
-                  <div className="scene-loading">
-                    <span className="loading-mark">F</span>
-                    <p>Making room for possibility.</p>
-                  </div>
-                }
-              >
+              <Suspense fallback={<SceneLoading phase="engine" />}>
                 <Scene
                   active={view !== 'plan'}
-                  config={config}
+                  config={staged.config}
                   view={sceneView}
                   dimensions={dimensions}
                   unit={unit}
                   reset={reset}
                   autoRotate={autoRotate}
-                  quality={quality}
+                  quality={staged.quality}
                   onCaptureReady={onCaptureReady}
                   onFallback={openPlan}
                   onBackend={setBackend}
@@ -388,7 +384,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {view !== 'plan' && <MaterialProgress />}
+          {view !== 'plan' && <SceneActivity updating={staged.updating} />}
           {view !== 'plan' && (
             <div className="stage-bottom">
               <div className="scene-status">
@@ -579,14 +575,36 @@ export default function App() {
     </div>
   )
 }
-/** Shows progress while the photo-scanned material library streams in. */
-function MaterialProgress() {
+/**
+ * What the 3D view is busy with once it has a picture: applying a change that rebuilds the scene,
+ * or streaming the photo-scanned materials. Hidden while the start-up screen is showing.
+ */
+function SceneActivity({ updating }: { updating: boolean }) {
+  const phase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
   const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
+  if (phase !== 'ready') return null
+  if (updating)
+    return (
+      <div className="scene-activity is-updating" role="status">
+        <i className="activity-spinner" aria-hidden="true" />
+        Updating the 3D view…
+      </div>
+    )
   if (!requested || loaded >= requested) return null
+  const percent = Math.round((loaded / requested) * 100)
   return (
-    <div className="material-progress" role="status">
-      <span style={{ width: `${Math.round((loaded / requested) * 100)}%` }} />
-      Loading scanned materials · {Math.round((loaded / requested) * 100)}%
+    <div className="scene-activity" role="status">
+      <i className="activity-spinner" aria-hidden="true" />
+      Loading photo-scanned materials · {percent}%
+      <span
+        className="activity-bar"
+        role="progressbar"
+        aria-label="Materials loaded"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        style={{ transform: `scaleX(${loaded / requested})` }}
+      />
     </div>
   )
 }

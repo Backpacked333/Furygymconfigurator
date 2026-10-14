@@ -1315,8 +1315,9 @@ h3 {
   padding: 40px;
   color: #4c5e3d;
 }
-.scene-loading > p {
-  font-size: 12px;
+.scene-loading {
+  z-index: 2;
+  background: #c7ccc2;
 }
 .loading-mark {
   font-family: var(--display);
@@ -2787,29 +2788,146 @@ h3 {
   font-weight: 600;
   color: #4d5a43;
 }
-.material-progress {
+.scene-activity {
   position: absolute;
   left: 50%;
   top: 22px;
   transform: translateX(-50%);
   overflow: hidden;
-  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 9px;
   border-radius: 999px;
-  background: rgb(240 238 229 / 0.86);
+  background: rgb(240 238 229 / 0.92);
   border: 1px solid #c9cdbd;
-  color: #4a5541;
-  font-size: 8px;
-  letter-spacing: 0.06em;
-  backdrop-filter: blur(8px);
+  color: #3f4a37;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgb(40 48 34 / 0.12);
   pointer-events: none;
   z-index: 3;
 }
-.material-progress > span {
+/* Quick changes finish before this fades in, so it never flashes. */
+.scene-activity.is-updating {
+  animation: activity-in 0.2s ease 0.25s both;
+}
+.activity-bar {
   position: absolute;
   inset: auto 0 0 0;
-  height: 2px;
+  height: 3px;
   background: #627a4c;
-  transition: width 0.3s ease;
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+/* Transform-only motion keeps animating on the compositor while the main thread is busy. */
+.activity-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid #c3cbb5;
+  border-top-color: #4f6a3a;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes activity-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.scene-loading-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  color: #323c2c;
+}
+.loading-bar {
+  position: relative;
+  width: min(320px, 80%);
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgb(98 122 76 / 0.18);
+}
+.loading-bar > span {
+  position: absolute;
+  inset: 0;
+  background: #627a4c;
+  transform-origin: left;
+  transition: transform 0.6s ease;
+}
+.loading-bar > i {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.loading-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  font-size: 12px;
+  color: #8a9480;
+}
+.loading-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.loading-steps li::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+.loading-steps li.is-done {
+  color: #4c5e3d;
+}
+.loading-steps li.is-done::before {
+  background: #627a4c;
+  border-color: #627a4c;
+}
+.loading-steps li.is-active {
+  color: #323c2c;
+  font-weight: 600;
+}
+.loading-steps li.is-active::before {
+  border-color: #c3cbb5;
+  border-top-color: #4f6a3a;
+  animation: spin 0.8s linear infinite;
+}
+.scene-loading-note {
+  font-size: 11px;
+  color: #7a846f;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar > i,
+  .activity-spinner,
+  .loading-steps li.is-active::before {
+    animation-duration: 2.4s;
+  }
 }
 .quality-detail {
   margin-top: 6px;

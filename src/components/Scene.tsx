@@ -13,6 +13,8 @@ import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
+import { sceneProgress } from '../render/progress'
+import { SceneLoadingStatus } from './SceneLoading'
 
 /** Renderer rebuilds after device loss before the scene gives up and offers the floor plan. */
 const MAX_RENDERER_REBUILDS = 3
@@ -320,6 +322,7 @@ export default memo(function Scene({
           gl={async ({ canvas }) => {
             // Scans uploaded by a previous renderer released their decoded pixels; R3F renders
             // nothing until this factory resolves, so no frame can see a released map.
+            sceneProgress.set('renderer')
             // Only the live renderer recovers, never one that is being torn down.
             const rebuild = () => {
               if (live.current === mounted) setGeneration(generation + 1)
@@ -339,6 +342,8 @@ export default memo(function Scene({
             // Lost while it was still being set up, before anything listened.
             if ((renderer as unknown as { _isDeviceLost?: boolean })._isDeviceLost) rebuild()
             setMaxAnisotropy(renderer.getMaxAnisotropy())
+            // The first frame compiles every shader in view.
+            sceneProgress.set('shaders')
             return renderer
           }}
           onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
@@ -361,6 +366,7 @@ export default memo(function Scene({
           />
         </Canvas>
       )}
+      <SceneLoadingStatus />
     </GraphicsBoundary>
   )
 })

@@ -1,5 +1,6 @@
 import {
   Color,
+  CustomBlending,
   DataTexture,
   DataUtils,
   FrontSide,
@@ -7,6 +8,8 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   NoColorSpace,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
   RGBAFormat,
   RepeatWrapping,
   SRGBColorSpace,
@@ -19,7 +22,7 @@ import {
   type Side,
 } from 'three'
 import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
-import { pmremTexture } from 'three/tsl'
+import { float, normalView, pmremTexture, positionViewDirection } from 'three/tsl'
 import { textureProgress } from './progress'
 
 /**
@@ -74,6 +77,11 @@ export type MaterialSpec = {
   attenuationColor?: ColorRepresentation
   attenuationDistance?: number
   specularIntensity?: number
+  /**
+   * Clear glazing drawn over the scene behind it rather than through a filtered copy of it:
+   * sharp at any distance, reflecting and dimming by Fresnel's law like a real pane.
+   */
+  thinGlass?: boolean
   emissive?: ColorRepresentation
   emissiveIntensity?: number
   transparent?: boolean
@@ -345,6 +353,22 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     if (spec.attenuationColor) m.attenuationColor = new Color(spec.attenuationColor)
     m.attenuationDistance = spec.attenuationDistance ?? Infinity
     m.specularIntensity = spec.specularIntensity ?? 1
+  }
+  if (spec.thinGlass) {
+    // The lit color is the pane's reflection alone (its albedo is black). Blending adds it to what
+    // lies behind, dimmed by the share the pane reflects: Schlick's Fresnel for a 1.5 surface,
+    // combined for the pane's two faces.
+    const grazing = normalView.dot(positionViewDirection).abs().oneMinus().pow(5)
+    const surface = float(0.04).add(grazing.mul(0.96))
+    m.opacityNode = surface.mul(2).div(surface.add(1))
+    m.transparent = true
+    m.depthWrite = false
+    m.blending = CustomBlending
+    m.blendSrc = m.blendSrcAlpha = OneFactor
+    m.blendDst = m.blendDstAlpha = OneMinusSrcAlphaFactor
+    // What lies behind is already fogged; fogging the reflection's sum would veil the pane.
+    m.fog = false
+    m.userData.glass = true
   }
   if (spec.set) {
     const maps = ready.get(spec.set)
