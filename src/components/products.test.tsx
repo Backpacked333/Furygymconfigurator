@@ -29,7 +29,7 @@ describe('family-specific presentation', () => {
     expect(html).not.toContain('Configuration request')
     expect(html).toContain('not a price for this size or configuration')
   })
-  it('offers Container openings, not Studio additions or timber accents', () => {
+  it('separates published Container openings from reference additions and omits Studio-only options', () => {
     const html = panel(setFamily({ ...DEFAULT_CONFIG, items: [] }, 'container'), 1)
     for (const name of [
       '10′ roll-up door',
@@ -39,7 +39,9 @@ describe('family-specific presentation', () => {
       'Integrated exterior finish',
     ])
       expect(html).toContain(name)
-    expect(html).not.toContain('Front deck')
+    expect(html).toContain('Front deck')
+    expect(html).toContain('Reference-backed Container additions')
+    expect(html).not.toContain('Gazebo')
     expect(html).not.toContain('Concept timber accent')
     expect(html).toContain('not approved construction dimensions')
   })

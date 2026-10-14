@@ -89,7 +89,13 @@ describe('dialog focus lifecycle', () => {
   })
 
   it('returns focus after a backdrop click', () => {
-    act(() => container.querySelector('dialog')!.click())
+    const dialog = container.querySelector('dialog')!
+    act(() => {
+      dialog.dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true, clientX: -10, clientY: -10 }),
+      )
+      dialog.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: -10, clientY: -10 }))
+    })
     expect(container.querySelector('dialog')).toBeNull()
     expect(document.activeElement).toBe(trigger)
   })
@@ -97,6 +103,18 @@ describe('dialog focus lifecycle', () => {
   it('does not close when the dialog content is clicked', () => {
     act(() => container.querySelector<HTMLElement>('.modal-content')!.click())
     expect(container.querySelector('dialog')?.open).toBe(true)
+  })
+  it('does not mistake dialog padding or an inside-to-outside drag for a backdrop click', () => {
+    const dialog = container.querySelector('dialog')!
+    act(() => dialog.click())
+    expect(dialog.open).toBe(true)
+    act(() => {
+      container
+        .querySelector('.modal-content')!
+        .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      dialog.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: -10, clientY: -10 }))
+    })
+    expect(dialog.open).toBe(true)
   })
 
   it('restores focus across repeated openings under Strict Mode', () => {
