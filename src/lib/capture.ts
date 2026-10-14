@@ -64,15 +64,44 @@ export function captureCapability(
     size.height > 0
   const estimatedMB = valid ? (size.width * size.height * bytesPerPixel) / 1024 ** 2 : Infinity
   const fits = (s: CaptureSize) =>
+    s.width > 0 &&
+    s.height > 0 &&
     s.width <= profile.maxTextureSize &&
     s.height <= profile.maxTextureSize &&
     s.width * s.height <= maxPixels &&
     (s.width * s.height * bytesPerPixel) / 1024 ** 2 <= profile.memoryBudgetMB
   const aspect = valid ? size.width / size.height : 16 / 9
   const alternatives = [1920, 1280, 960]
-    .map((width) => ({ width, height: Math.max(1, Math.round(width / aspect)) }))
-    .filter(fits)
+    .map((edge) => {
+      const width = Math.round(edge * Math.min(1, aspect))
+      return { width, height: Math.max(1, Math.round(width / aspect)) }
+    })
+    .filter(
+      (candidate) =>
+        valid && candidate.width < size.width && candidate.height <= size.height && fits(candidate),
+    )
   const allowed = valid && fits(size)
+  if (valid && !allowed && !alternatives.length) {
+    const pixelBudget = Math.min(maxPixels, (profile.memoryBudgetMB * 1024 ** 2) / bytesPerPixel)
+    const width = Math.floor(
+      Math.min(
+        size.width - 1,
+        profile.maxTextureSize,
+        profile.maxTextureSize * aspect,
+        Math.sqrt(pixelBudget * aspect),
+      ),
+    )
+    for (const candidateWidth of [width, width - 1]) {
+      const candidate = {
+        width: candidateWidth,
+        height: Math.max(1, Math.round(candidateWidth / aspect)),
+      }
+      if (fits(candidate)) {
+        alternatives.push(candidate)
+        break
+      }
+    }
+  }
   return {
     allowed,
     estimatedMB,

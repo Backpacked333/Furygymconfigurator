@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -133,6 +134,20 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(false),
     [photoMode, setPhotoMode] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true)
+  const photoOpener = useRef<HTMLButtonElement>(null)
+  const photoReturn = useRef<{ mobilePanel: boolean } | null>(null)
+  const exitPhoto = useCallback(() => {
+    setPhotoMode(false)
+    if (photoReturn.current) setMobilePanel(photoReturn.current.mobilePanel)
+  }, [])
+  useLayoutEffect(() => {
+    if (photoMode) {
+      document.querySelector<HTMLButtonElement>('[aria-label="Exit photo mode"]')?.focus()
+    } else if (photoReturn.current) {
+      photoReturn.current = null
+      photoOpener.current?.focus()
+    }
+  }, [photoMode])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
     setToast(s)
@@ -143,6 +158,30 @@ export default function App() {
     setQualityMode(next)
     setQuality(next)
   }, [])
+  const chooseQualityMode = useCallback(
+    (next: QualityMode) => {
+      setQualityMode(next)
+      setQuality(next === 'auto' ? initialAutoQuality(profile) : next)
+      autoAdmitted.current = next === 'auto' && !!profile
+    },
+    [profile],
+  )
+  const editInteractions = {
+    revision,
+    interactionKey: `${view}:${photoMode}:${dialog ?? ''}:${step}:${unit}:${mobilePanel}`,
+    interactionDisabled: !!dialog || photoMode || persistence.status === 'initializing',
+    onBeginEdit: () => {
+      setAutoRotate(false)
+      return design.beginEdit()
+    },
+    onPreviewEdit: design.previewEdit,
+    onCommitEdit: design.commitEdit,
+    onCancelEdit: design.cancelEdit,
+  }
+  const applyConfiguration = (next: Config) => {
+    setAutoRotate(false)
+    return setConfig(next)
+  }
   const onDeviceProfile = useCallback(
     (next: DeviceProfile) => {
       setProfile(next)
@@ -158,7 +197,7 @@ export default function App() {
     const next = quality === 'ultra' ? 'high' : 'lite'
     setQuality(next)
     notify(
-      `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
+      `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Setting.`,
     )
   }, [quality, qualityMode, notify])
   const close = () => setDialog(null)
@@ -185,11 +224,11 @@ export default function App() {
         if (e.shiftKey) redo()
         else undo()
       }
-      if (e.key === 'Escape') setPhotoMode(false)
+      if (e.key === 'Escape') exitPhoto()
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [dialog, undo, redo])
+  }, [dialog, undo, redo, exitPhoto])
   const template = (id: 'athlete' | 'retreat' | 'flow') => {
     if (
       !window.confirm(
@@ -314,13 +353,20 @@ export default function App() {
           )}
         </div>
       ) : null}
-      <main className="workspace">
+      <main className="workspace" tabIndex={-1} data-modal-focus-fallback>
         <section
           className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
           aria-label="Gym visualization"
         >
           {view === 'plan' ? (
-            <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
+            <FloorPlan
+              {...editInteractions}
+              config={config}
+              unit={unit}
+              onChange={applyConfiguration}
+              notify={notify}
+              repairWorkspace={repair.workspace}
+            />
           ) : (
             <SceneBoundary
               key={sceneAttempt}
@@ -344,7 +390,7 @@ export default function App() {
                   dimensions={dimensions}
                   unit={unit}
                   reset={reset}
-                  autoRotate={autoRotate}
+                  autoRotate={autoRotate && !dialog && !photoMode && !isPreviewing}
                   quality={quality}
                   onCaptureProvider={captureRegistry.register}
                   onPresentation={setPresentation}
@@ -437,8 +483,10 @@ export default function App() {
             </button>
             <span className="tool-divider" />
             <button
+              ref={photoOpener}
               aria-label="Enter photo mode"
               onClick={() => {
+                photoReturn.current = { mobilePanel }
                 if (view === 'plan') setView('exterior')
                 setAutoRotate(false)
                 setPhotoMode(true)
@@ -453,10 +501,7 @@ export default function App() {
             <ImageExportControls
               context={exportContext}
               presentation={presentation}
-              onClose={() => {
-                setPhotoMode(false)
-                setMobilePanel(true)
-              }}
+              onClose={exitPhoto}
             />
           )}
           {view !== 'plan' && <MaterialProgress assets={assets} />}
@@ -475,14 +520,7 @@ export default function App() {
                 )}
                 <span>Concept visualization · Not manufacturer CAD</span>
                 {qualityMode !== 'auto' && (
-                  <button
-                    className="quality-auto"
-                    onClick={() => {
-                      autoAdmitted.current = !!profile
-                      setQualityMode('auto')
-                      setQuality(initialAutoQuality(profile))
-                    }}
-                  >
+                  <button className="quality-auto" onClick={() => chooseQualityMode('auto')}>
                     Use Auto quality
                   </button>
                 )}
@@ -522,18 +560,21 @@ export default function App() {
         </section>
         <div id="configuration" className="panel-wrapper">
           <ConfigPanel
+            {...editInteractions}
             config={config}
-            onChange={setConfig}
+            onChange={applyConfiguration}
             step={step}
             setStep={setStep}
             unit={unit}
             setUnit={setUnit}
             quality={quality}
             setQuality={chooseQuality}
+            qualityMode={qualityMode}
+            setQualityMode={chooseQualityMode}
             notify={notify}
             onPlan={() => {
               setView('plan')
-              setPhotoMode(false)
+              exitPhoto()
             }}
             onTemplate={template}
           />

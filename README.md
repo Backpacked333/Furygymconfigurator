@@ -38,12 +38,13 @@ npm run lint
 npm run format:check
 npm test
 npm run build
+node scripts/check-delivery.mjs
 npm run preview
 ```
 
 `npm run format` applies Prettier. CI runs formatting, ESLint, TypeScript, Vitest, and the production build. There are no custom pre-commit hooks. Production output is `dist/`, suitable for Vercel, Netlify, Cloudflare Pages, or another static host. Configure `npm run build` as the build command and `dist` as the output directory; serve the app over HTTPS for clipboard sharing and WebGPU (browsers only expose WebGPU to secure contexts). Do not expose Vite's development server as the public production service.
 
-The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/assets/*` for a year and the bundled `/textures/*` for a day with background revalidation, since texture filenames are not hashed. If you regenerate a texture set, returning visitors may see the previous version for up to a day.
+The hosting configuration targets Vercel; no deployment is required for local use. `vercel.json` caches content-hashed `/assets/*` for a year. Production material maps use verified, hashed asset URLs; unversioned `/textures/*` must revalidate. `scripts/check-delivery.mjs` checks the built import graph, lazy Scene/PDF boundaries, shell budget, and all 60 map hashes against `public/textures/manifest.json`. Run it after building. Catalog bytes are not cold-start transfer or measured GPU memory.
 
 ## What works
 
@@ -66,7 +67,7 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 - **Interior:** drag or use arrows to look around from a fixed point inside the studio. This is not a collision-enabled walk-through.
 - **Floor plan:** drag an item; arrows move it 3 inches, Shift+arrows move it 1 foot, `R` rotates, Delete/Backspace removes. Invalid moves are rejected with an explanation. Rotation is 0° or 90°.
 - **History:** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z redoes. Changing size preserves selections, and downsizing is blocked if current equipment would no longer fit.
-- **Photo mode:** expands the scene and downloads a rasterized PNG at the current canvas resolution. It is not 4K path tracing.
+- **Photo mode:** choose the exact current-view aspect or a visible, centered 16:9 crop. Native output includes 3840×2160 only when capability/memory preflight permits it; lower resolutions remain available. Capture is cancellable and reports rendered and encoded dimensions. This is real-time raster rendering, not path tracing or an upscaled substitute.
 
 ## Configuration architecture
 
@@ -88,7 +89,11 @@ src/
     Mirror.tsx                Planar reflector (High/Ultra) or probe-lit metal (Lite)
     Parts.tsx                 Renders a part list as merged, per-material meshes
     FloorPlan.tsx             Accessible SVG floor-plan editor
-    Dialogs.tsx               Saved comparisons, quote checklist, sharing, brief form
+    Dialogs.tsx               Saved comparisons, quote checklist, sharing
+    BriefDialog.tsx           Frozen-config PDF, image-free option, progress and cancellation
+    RecoveryDialog.tsx        Original-byte downloads, explicit repair/acceptance
+    ImageExportControls.tsx   Current-view and native 16:9 capture controls
+    useExportJob.ts           Revision/provider/generation-safe asynchronous export jobs
     Modal.tsx                 Native dialog lifecycle
   render/
     renderer.ts               WebGPURenderer creation, area-light tables, texture-view shim
@@ -108,6 +113,13 @@ src/
     config.ts                 Domain model, rules, estimates, URLs, persistence
     products.ts               Official product facts, sources, and published choices
     useConfig.ts              Reducer-backed history and automatic draft
+    spatial.ts                Shared physical envelopes, elevations, openings and site context
+    editTransactions.ts       Preview/commit/cancel ownership and bounded committed history
+    repository.ts             Transactional IndexedDB records, CAS conflicts and tombstones
+    draftSession.ts           Preservation, draft write barriers and explicit recovery
+    recovery.ts               Bounded original-byte retention and storage-failure outcomes
+    capture.ts                Shell-safe asynchronous capture registry and contracts
+    presentation.ts           Renderer-generation and committed-presentation readiness
     export.ts                 On-demand PDF generation and downloads
     visuals.ts                Sun path, Preetham sky model, sunlight color, horizon fog
 scripts/
@@ -115,23 +127,25 @@ scripts/
 public/textures/              Bundled texture sets and sources.json (authors, sizes, roles)
 ```
 
-Dimensions use **feet internally**, with x along unit length and z along depth; the front is positive z. Both families are 20/40 × 8 feet, with heights from the product table above. The floor plan uses a conservative concept usable envelope and reserves a planned entry aligned to the chosen opening. Only the roll-up width is published; other opening widths/positions and all deck/gazebo/stair geometry are illustrative. Collision checks cover equipment footprints and a small placement buffer, **not manufacturer safety clearances, electrical requirements, accessibility, structural loading, or permitted occupancy**. Dashed envelopes are illustrative guidance and can overlap.
+Dimensions use **feet internally**, with x along unit length, y up and positive z toward the front. `spatial.ts` is the shared source for the finished floor, family/lining-specific usable walls and ceiling, occupied equipment bounds (including protrusions and origin offsets), entries, openings, external elevations and site context. SVG/PDF planning and placement validation consume this contract. Only the Container roll-up width is published; other opening widths/positions and all deck/gazebo/stair geometry are illustrative. Working-space guidance is separate from physical occupancy and is **not manufacturer safety clearance, electrical guidance, accessibility approval, structural loading or permitted occupancy**.
 
 Rules:
 
-- Studio add-ons can be selected individually or together, as the Studio page describes. The former automatic gazebo/deck and stairs/roof dependencies were prototype assumptions, not published engineering rules, and have been removed. All combinations still require support/access/engineering review; the model is not certification.
-- Switching to Containers clears Studio-only additions, timber accents, and custom Studio requests while preserving shared finishes, length, and equipment. Switching families resets opening-specific selections. Undo restores the previous state. A change that obstructs the new planned entry is blocked until equipment is rearranged.
+- Studio additions are distinct from reference-backed Container deck/roof/stair concepts. The modeled stair needs its roof destination; this is a construction-model dependency, not a claim about Fury engineering. Invalid older stairs-only designs open for repair rather than silently losing selections.
+- Family changes are rejected when a current family-only selection or physical layout cannot be retained; they never silently clear options or delete equipment. The generic rack's measured top exceeds the Container usable ceiling. Container Strength therefore offers bench/dumbbells, and legacy rack layouts remain recoverable rather than being shrunk or accepted through the ceiling.
 - Concept templates keep the chosen product family but reset the reference footprint to 20 feet after confirmation.
-- Invalid, unsupported, oversized, duplicate-ID, or geometrically invalid shared configurations are rejected.
-- Schema `v: 2` adds `family`, `containerOpening`, `integratedFinish`, and `studioLayout`. Legacy `v: 1` links/drafts/saved builds migrate automatically to Studios and are fully revalidated. Existing selections are preserved; old conceptual prices are not. Unsupported versions are rejected. This is the implemented app contract, not a roadmap example.
+- Malformed, unsupported, oversized and structurally invalid inputs are preserved within explicit recovery limits; they are not silently replaced with an autosaved default. Schema-valid but spatially invalid designs can enter a suspended repair workspace. Correct them deliberately, then explicitly accept the valid repair before automatic saving resumes.
+- Schema `v: 3` adds `openingConcept` and `presentation` (`openingPose`, `context`) without erasing the v2 product-family fields. v1/v2 migration preserves choices and original source data. Sectional/raised glazing, open-front and hinged-solid studies are reference-backed concepts, not published manufacturing options. Custom wellness and sunken-lounge context are inquiry/site-only and excluded from product pricing and interior equipment occupancy.
 
 ### Local data and sharing
 
 The URL fragment `#c=…` contains the entire LZ-string-compressed configuration. It updates with edits and is not sent in HTTP requests to the static host. Anyone with the full link can read the configuration. There is no short-link service, authentication, cross-device account, or automatic social-preview image. A link needs a running deployment of this app; localhost and session-preview links are not permanent public links.
 
-`fury-draft-v1` and `fury-builds-v1` remain the only localStorage keys to preserve existing drafts and saved builds; their payloads migrate to schema v2. A valid URL configuration takes precedence over the draft. Storage failure does not prevent configuration or file export; named-save failures show a message. Clearing browser storage removes local drafts and saved builds, so export important designs.
+The `fury-documents-v1` IndexedDB repository stores individual drafts, named builds, recovery records and deletion tombstones. Writes use revision-checked transactions; simultaneous-tab conflicts are explicit instead of last-writer-wins overwrites. Legacy localStorage drafts/libraries are imported with per-record salvage and original retention; unreadable records do not hide valid siblings. A valid shared design can displace the local draft only through preservation. Invalid incoming links suspend unsafe writes and retain the current design and rejected source. Preview gestures do not persist or change share URLs; only committed, accepted documents do.
 
-PDF generation loads jsPDF only when needed. Scene capture is omitted in floor-plan mode or when graphics are unavailable; the floor-plan drawing and other brief sections still export. Core PDF fonts target Latin-script text. No analytics or session replay is installed.
+The recovery panel downloads originals and the current in-memory configuration, opens invalid candidates for repair after preserving both designs, and explicitly resumes saving after a valid repair. Storage failures, conflicts and retention limits remain visible. Clearing browser storage removes local drafts, saved builds and recovery copies, so download important designs first. Recovery copies are bounded, not an unlimited backup service. There is no cloud synchronization.
+
+PDF generation loads jsPDF only on export intent. It binds the committed configuration to the captured revision, camera policy, renderer generation and asset state; superseded or cancelled jobs cannot download stale output. In floor-plan mode, or when choosing the image-free option, no old 3D screenshot is reused. Floor plans, separate elevation/site overlays, notes, source links and quote sections still export. Core fonts support ASCII/Latin-1 plus normalized common punctuation; unsupported scripts produce a visible error rather than missing glyphs. No analytics or session replay is installed.
 
 ### Rendering and performance
 
@@ -143,7 +157,7 @@ The scene renders with three.js r186's `WebGPURenderer`. It runs natively on Web
 | High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, emissive bloom, temporal reprojection anti-aliasing, 4096-pixel sun shadows |
 | Lite  | One 4× MSAA pass, 1024-pixel sun shadows, probe-lit mirror                                                                                      |
 
-Laptop-width screens start on Ultra, tablets on High, and phones on Lite. If back-to-back frames stay slow, the app steps down one tier and says so, unless a tier was chosen explicitly. Rendering is on demand: after any change it keeps drawing for a short settle window (about 28–40 frames) so temporal anti-aliasing, AO, and GI converge into a clean still, then stops.
+Auto admission is capability-aware: unknown/software profiles start conservatively on Lite, not Ultra merely because the window is wide. Sustained active-frame sampling, cooldown and hysteresis govern automatic step-down; a valid explicit tier override locks the choice until Auto is restored. Invalid URL overrides do not disable Auto. Rendering is on demand, with bounded refinement after meaningful changes and probe work deferred until active material loading settles. The status reports actual CSS and drawing-buffer dimensions; a tier label is not a native-resolution guarantee.
 
 Lighting:
 
@@ -151,17 +165,21 @@ Lighting:
 - **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. It is captured twice per change to approximate a second bounce. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
 - **Mirror:** High and Ultra render a true planar reflection; Lite uses a probe-lit polished surface.
 
-Materials come from 18 CC0 photo-scanned PBR sets from [Poly Haven](https://polyhaven.com/) (albedo, OpenGL normal, and packed AO/roughness/metalness), plus baked powder-coat, brushed-steel, and knurl detail maps. `public/textures/sources.json` records each set's authors, physical size, and role; `scripts/build-textures.py` (Python 3, Pillow, NumPy) reproduces them. Every model carries UVs measured in feet, so each texture appears at its true physical scale. The ground blends two scales of its scan with noise so it never visibly repeats. Textures stream in after the scene appears, with a progress indicator. The library is about 17 MB of WebP; only the sets a view needs are downloaded.
+Materials come from 18 CC0 photo-scanned PBR sets from [Poly Haven](https://polyhaven.com/) (albedo, OpenGL normal, and packed AO/roughness/metalness), plus baked powder-coat, brushed-steel, and knurl detail maps. `public/textures/sources.json` records authors, physical sizes and roles; `scripts/build-textures.py` (Python 3, Pillow, NumPy) reproduces them. UVs use feet and the ground blends two scan scales with noise. Active mounted owners request only their maps. Albedo/normal/ARM outcomes are independent: failures use visible fallbacks, successful siblings stay bound, and manual retries are finite. Three concurrent download/decode slots have deadlines that start on admission rather than while queued. Readiness distinguishes pending, settled and degraded; settled fallbacks are not source-map success or proof of GPU upload.
 
-Models are procedural and batched: each equipment item or architectural assembly is merged per material into a few draw calls and shared by every placed copy. Trees use alpha-tested leaf cards with crown-bent normals and daylight-scaled translucency; grass and foliage are instanced. Footprint tests keep every equipment model inside the planning envelope the floor-plan collision rules use; a racked Olympic bar is the one deliberate exception, overhanging its uprights into the rack's published side clearance as on real racks.
+Models are procedural and batched: equipment and architecture are merged per material, while grass and foliage are instanced. Physical bounds include the rack's Olympic bar and every measured protrusion; there is no overhang exception hidden in advisory clearances. Model/contract tests compare generated geometry across rotations, families and sizes. Construction includes explicit seams, reveals, corrugation, hardware, opening poses, connected stair/landing geometry and generic equipment detail. These remain illustrative, not manufacturer CAD or certified dimensions.
 
 These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Glass and water use physically based transmission, not traced caustics. Lights do not simulate certified photometry, and screen-space GI only bounces light that is on screen. Photo and PDF exports capture the current real-time view; they are not offline path-traced renders.
 
-The three.js chunk (WebGPU and the classic renderer React Three Fiber references) is about 2.2 MB minified, 630 kB gzipped, and loads only with the scene; the app shell stays about 160 kB. No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
+Scene and PDF dependencies stay behind separate dynamic import boundaries; use the delivery report from the current build for exact compressed sizes. No 60 fps, low-end mobile, physical-GPU or native-4K hardware performance claim is established by shell tests or software-renderer runs. Auto quality and preflight are safeguards, not device certification.
 
 ## Verification
 
-Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, and both product shells staying inside their nominal envelopes for every opening and length. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
+Vitest covers schema/migration/raw retention, atomic repository conflicts, suspended repair, preview/history ownership, measured spatial parity, actual PDF generation, lazy delivery, per-channel material retry, renderer/capture lifecycle, quality policy and camera bounds. Injected renderer/GL doubles are not physical-device evidence. Development fixtures under `src/dev/visual` cover VF01–VF12 and all nine supplied references; they are not imported by the customer entry. The neutral stage is available from Vite at `/src/dev/visual/index.html`.
+
+`src/dev/asset-pilot` contains an isolated, provenance-pinned GLB/KTX2 experiment. Neither asset format was adopted in production: the sampled bike was not reference-quality, and the sampled KTX2 payload was larger than WebP before decoder cost. GPU transcode, visual/motion quality and device working-set benefits remain unmeasured. The pilot's result does not waive procedural geometry or material defects.
+
+Release evidence must separately identify automated checks, integrated browser results, actual decoded PNG/PDF inspection, reference/detail comparisons, human premium approval and physical-device measurements. A test count, tier label, fixture definition or software-renderer screenshot cannot certify the other categories. There is no committed full browser E2E suite; session recordings/reports document what was actually exercised.
 
 ## Before commercial launch
 

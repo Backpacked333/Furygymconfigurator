@@ -68,6 +68,24 @@ function fixture(overrides: Partial<CaptureTransaction> = {}) {
 afterEach(() => vi.useRealTimers())
 
 describe('native capture capability budget', () => {
+  it.each([
+    [{ width: 900, height: 1800 }, 4096, 128],
+    [{ width: 1600, height: 900 }, 4096, 16],
+    [{ width: 600, height: 600 }, 128, 128],
+  ] as const)(
+    'offers admitted aspect-preserving alternatives for %o',
+    (size, maxTextureSize, memoryBudgetMB) => {
+      const profile = { ...capable, hardware: 'software' as const, maxTextureSize, memoryBudgetMB }
+      const capability = captureCapability(size, profile)
+      expect(capability.allowed).toBe(false)
+      expect(capability.alternatives.length).toBeGreaterThan(0)
+      for (const alternative of capability.alternatives) {
+        expect(alternative.width).toBeLessThan(size.width)
+        expect(alternative.height).toBe(Math.round((alternative.width * size.height) / size.width))
+        expect(captureCapability(alternative, profile).allowed).toBe(true)
+      }
+    },
+  )
   it('allows native 4K only under the capable policy budget', () => {
     expect(captureCapability({ width: 3840, height: 2160 }, capable).allowed).toBe(true)
     expect(
