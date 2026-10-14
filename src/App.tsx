@@ -107,6 +107,7 @@ export default function App() {
     [backend, setBackend] = useState<Backend | null>(null)
   const [qualityMode, setQualityMode] = useState<QualityMode>(() => requestedQuality() ?? 'auto')
   const [profile, setProfile] = useState<DeviceProfile>()
+  const autoAdmitted = useRef(false)
   const [captureRegistry] = useState(createCaptureRegistry)
   const cameraMemory = useRef<CameraMemory>({})
   const [presentation, setPresentation] = useState<PresentationState | null>(null)
@@ -144,7 +145,10 @@ export default function App() {
   const onDeviceProfile = useCallback(
     (next: DeviceProfile) => {
       setProfile(next)
-      if (qualityMode === 'auto') setQuality(initialAutoQuality(next))
+      if (qualityMode === 'auto' && !autoAdmitted.current) {
+        autoAdmitted.current = true
+        setQuality(initialAutoQuality(next))
+      }
     },
     [qualityMode],
   )
@@ -456,7 +460,7 @@ export default function App() {
                   <span className="render-backend">
                     {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} ·{' '}
                     {qualityMode === 'auto' ? 'Auto / ' : ''}
-                    {quality}
+                    {presentation?.token.quality ?? quality}
                     {profile?.hardware === 'software' ? ' · software rendering' : ''}
                   </span>
                 )}
@@ -465,6 +469,7 @@ export default function App() {
                   <button
                     className="quality-auto"
                     onClick={() => {
+                      autoAdmitted.current = !!profile
                       setQualityMode('auto')
                       setQuality(initialAutoQuality(profile))
                     }}
@@ -688,7 +693,7 @@ function MaterialProgress({ assets }: { assets: ReturnType<typeof sceneAssets> }
   if (!requested || (!pending && !failed && !degraded)) return null
   return (
     <div className="material-progress" role="status">
-      <span style={{ width: `${Math.round((ready / requested) * 100)}%` }} />
+      <span aria-hidden="true" style={{ width: `${Math.round((ready / requested) * 100)}%` }} />
       {pending
         ? `Loading scanned maps · ${ready}/${requested} ready`
         : `Degraded materials · ${failed || degraded} maps use illustrative fallbacks`}

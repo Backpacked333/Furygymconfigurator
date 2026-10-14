@@ -64,6 +64,9 @@
 .material-progress button {
   position: relative;
   z-index: 1;
+  pointer-events: auto;
+  min-height: 32px;
+  padding: 4px 8px;
 }
 .photo-mode .stage-heading {
   display: none;
