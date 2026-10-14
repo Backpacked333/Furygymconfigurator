@@ -8,7 +8,7 @@ let unavailable: Set<string>
 let decodeFailure = false
 const bitmap = () => ({ width: 16, height: 16, close: vi.fn() }) as unknown as ImageBitmap
 const flush = async () => {
-  for (let i = 0; i < 30; i++) await Promise.resolve()
+  for (let i = 0; i < 300; i++) await Promise.resolve()
 }
 
 beforeEach(async () => {
@@ -131,7 +131,7 @@ describe('recoverable maps and material ownership', () => {
     )
     own({ set: 'powder_coat' })
     await flush()
-    await vi.advanceTimersByTimeAsync(16300)
+    await vi.advanceTimersByTimeAsync(60300)
     expect(library.textureProgress.snapshot()).toMatchObject({
       ready: 0,
       failed: 2,
@@ -143,6 +143,12 @@ describe('recoverable maps and material ownership', () => {
     await flush()
     images.forEach((image) => expect(image.close).toHaveBeenCalledOnce())
     expect(library.textureProgress.snapshot().ready).toBe(0)
+    expect(createImageBitmap).toHaveBeenCalledTimes(3)
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 0, queuedLoads: 0 })
+    vi.mocked(createImageBitmap).mockImplementation(async () => bitmap())
+    library.textureProgress.retry()
+    await flush()
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 2, failed: 0, pending: 0 })
   })
   it('shares maps and disposes exactly once only after the last consumer releases', async () => {
     const a = own({ set: 'oak_veneer_01', color: '#aaa' })
@@ -259,7 +265,10 @@ describe('recoverable maps and material ownership', () => {
     expect(disposed).toHaveBeenCalledOnce()
   })
   it('does not exhaust retry limits merely by cancelling uncommitted generations', async () => {
-    vi.mocked(createImageBitmap).mockImplementation(() => new Promise(() => {}))
+    const completions: ((image: ImageBitmap) => void)[] = []
+    vi.mocked(createImageBitmap).mockImplementation(
+      () => new Promise((resolve) => completions.push(resolve)),
+    )
     const m = own({ set: 'powder_coat' })
     for (let i = 1; i < 10; i++) {
       await flush()
@@ -268,6 +277,8 @@ describe('recoverable maps and material ownership', () => {
     expect(library.textureProgress.snapshot()).toMatchObject({ failed: 0, pending: 2 })
     vi.mocked(createImageBitmap).mockImplementation(async () => bitmap())
     library.setMaterialGeneration(10)
+    expect(createImageBitmap).toHaveBeenCalledTimes(3)
+    completions.forEach((complete) => complete(bitmap()))
     await flush()
     expect(library.textureProgress.snapshot()).toMatchObject({ ready: 2, failed: 0, pending: 0 })
     expect(m.normalMap!.name).not.toContain('fallback:')
@@ -330,5 +341,217 @@ describe('recoverable maps and material ownership', () => {
     expect((await next).normal).not.toBe(previous.normal)
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(library.materialInventory().owners).toBe(1)
+  })
+  it('admits at most three complete download/decode pipelines and serves queued maps FIFO', async () => {
+    const decodes: (() => void)[] = []
+    let running = 0
+    let maximum = 0
+    vi.mocked(createImageBitmap).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          maximum = Math.max(maximum, ++running)
+          decodes.push(() => {
+            running--
+            resolve(bitmap())
+          })
+        }),
+    )
+    own({ set: 'oak_veneer_01' })
+    own({ set: 'rubber_tiles' })
+    await flush()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(createImageBitmap).toHaveBeenCalledTimes(3)
+    expect(library.materialInventory()).toMatchObject({
+      activeLoads: 3,
+      queuedLoads: 3,
+      loadConcurrency: 3,
+    })
+    for (let i = 0; i < 6; i++) {
+      decodes[i]()
+      await flush()
+      expect(library.materialInventory().activeLoads).toBeLessThanOrEqual(3)
+    }
+    expect(maximum).toBe(3)
+    expect(
+      vi.mocked(fetch).mock.calls.map(([url]) => String(url).match(/textures\/([^?]+)/)![1]),
+    ).toEqual([
+      'oak_veneer_01/albedo.webp',
+      'oak_veneer_01/normal.webp',
+      'oak_veneer_01/arm.webp',
+      'rubber_tiles/albedo.webp',
+      'rubber_tiles/normal.webp',
+      'rubber_tiles/arm.webp',
+    ])
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 6, failed: 0 })
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 0, queuedLoads: 0 })
+  })
+  it('starts deadlines on admission, not during long queue waits, and gives decode its own budget', async () => {
+    vi.mocked(fetch).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ ok: true, blob: async () => new Blob() } as Response), 30000)
+        }),
+    )
+    vi.mocked(createImageBitmap).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(bitmap()), 20000)
+        }),
+    )
+    own({ set: 'oak_veneer_01' })
+    own({ set: 'rubber_tiles' })
+    await vi.advanceTimersByTimeAsync(49999)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    const queued = library.textureProgress
+      .snapshot()
+      .maps.filter((map) => map.set === 'rubber_tiles')
+    expect(queued).toHaveLength(3)
+    queued.forEach((map) =>
+      expect(map).toMatchObject({ attempts: 0, source: 'pending', error: undefined }),
+    )
+    expect(library.textureProgress.snapshot()).toMatchObject({ failed: 0, pending: 6 })
+    await vi.advanceTimersByTimeAsync(50001)
+    expect(fetch).toHaveBeenCalledTimes(6)
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 6, failed: 0, pending: 0 })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('removes canceled queued owners without spending attempts or starting their downloads', async () => {
+    const completions: ((image: ImageBitmap) => void)[] = []
+    vi.mocked(createImageBitmap).mockImplementation(
+      () => new Promise((resolve) => completions.push(resolve)),
+    )
+    own({ set: 'oak_veneer_01' })
+    own({ set: 'rubber_tiles' })
+    await flush()
+    releases[1]()
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 3, queuedLoads: 0 })
+    vi.mocked(createImageBitmap).mockImplementation(async () => bitmap())
+    completions.forEach((resolve) => resolve(bitmap()))
+    await flush()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    own({ set: 'rubber_tiles' })
+    await flush()
+    expect(fetch).toHaveBeenCalledTimes(6)
+    expect(
+      library.textureProgress
+        .snapshot()
+        .maps.filter((map) => map.set === 'rubber_tiles')
+        .every((map) => map.attempts === 1),
+    ).toBe(true)
+  })
+  it('drops old queued generations and holds canceled native decode permits until their late results close', async () => {
+    const completions: ((image: ImageBitmap) => void)[] = []
+    vi.mocked(createImageBitmap).mockImplementation(
+      () => new Promise((resolve) => completions.push(resolve)),
+    )
+    own({ set: 'oak_veneer_01' })
+    own({ set: 'rubber_tiles' })
+    await flush()
+    library.setMaterialGeneration(1)
+    await flush()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 3, queuedLoads: 6 })
+    expect(library.textureProgress.snapshot().maps.every((map) => map.attempts === 0)).toBe(true)
+    const stale = completions.map(() => bitmap())
+    vi.mocked(createImageBitmap).mockImplementation(async () => bitmap())
+    completions.forEach((resolve, i) => resolve(stale[i]))
+    await flush()
+    stale.forEach((image) => expect(image.close).toHaveBeenCalledOnce())
+    expect(fetch).toHaveBeenCalledTimes(9)
+    expect(library.textureProgress.snapshot()).toMatchObject({ generation: 1, ready: 6, failed: 0 })
+    expect(library.textureProgress.snapshot().maps.every((map) => map.attempts === 1)).toBe(true)
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 0, queuedLoads: 0 })
+  })
+  it('bounds a genuinely stalled download including its body, retaining successful siblings', async () => {
+    const goodFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation((url, options) => {
+      if (!String(url).includes('/normal.webp')) return goodFetch(url, options)
+      return Promise.resolve({
+        ok: true,
+        blob: () =>
+          new Promise((_, reject) => {
+            options!.signal!.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            })
+          }),
+      } as unknown as Response)
+    })
+    const m = own({ set: 'oak_veneer_01' })
+    await flush()
+    const albedo = m.map
+    await vi.advanceTimersByTimeAsync(90300)
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 2, failed: 1, settled: true })
+    expect(
+      library.textureProgress.snapshot().maps.find((map) => map.role === 'normal'),
+    ).toMatchObject({ attempts: 2, error: 'Download timed out after 45 seconds.' })
+    expect(fetch).toHaveBeenCalledTimes(4)
+    vi.mocked(fetch).mockImplementation(goodFetch)
+    library.textureProgress.retry()
+    await flush()
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 3, failed: 0 })
+    expect(m.map).toBe(albedo)
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 0, queuedLoads: 0 })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('continues on remaining permits when one decoder stalls without admitting extra native work', async () => {
+    let complete!: (image: ImageBitmap) => void
+    vi.mocked(createImageBitmap).mockImplementationOnce(
+      () => new Promise((resolve) => (complete = resolve)),
+    )
+    own({ set: 'oak_veneer_01' })
+    own({ set: 'rubber_tiles' })
+    await flush()
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 5, pending: 1 })
+    await vi.advanceTimersByTimeAsync(30300)
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 6, pending: 0, failed: 0 })
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 1, stalledLoads: 1 })
+    const late = bitmap()
+    complete(late)
+    await flush()
+    expect(late.close).toHaveBeenCalledOnce()
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 0, queuedLoads: 0 })
+  })
+  it('settles queued owners honestly if every native permit stalls without spending their retries', async () => {
+    const completions: ((image: ImageBitmap) => void)[] = []
+    vi.mocked(createImageBitmap).mockImplementation(
+      () => new Promise((resolve) => completions.push(resolve)),
+    )
+    own({ set: 'oak_veneer_01' })
+    own({ set: 'rubber_tiles' })
+    await flush()
+    await vi.advanceTimersByTimeAsync(30300)
+    expect(library.textureProgress.snapshot()).toMatchObject({
+      ready: 0,
+      failed: 6,
+      pending: 0,
+      settled: true,
+    })
+    expect(library.materialInventory()).toMatchObject({
+      activeLoads: 3,
+      stalledLoads: 3,
+      queuedLoads: 0,
+    })
+    for (let i = 0; i < 5; i++) library.textureProgress.retry()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    const queued = library.textureProgress
+      .snapshot()
+      .maps.filter((map) => map.set === 'rubber_tiles')
+    expect(queued.every((map) => map.attempts === 0)).toBe(true)
+    const late = completions.map(() => bitmap())
+    completions.forEach((resolve, i) => resolve(late[i]))
+    await flush()
+    late.forEach((image) => expect(image.close).toHaveBeenCalledOnce())
+    vi.mocked(createImageBitmap).mockImplementation(async () => bitmap())
+    library.textureProgress.retry()
+    await flush()
+    expect(library.textureProgress.snapshot()).toMatchObject({ ready: 6, failed: 0 })
+    expect(
+      library.textureProgress
+        .snapshot()
+        .maps.filter((map) => map.set === 'rubber_tiles')
+        .every((map) => map.attempts === 1),
+    ).toBe(true)
+    expect(library.materialInventory()).toMatchObject({ activeLoads: 0, queuedLoads: 0 })
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
