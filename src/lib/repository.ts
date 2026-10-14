@@ -227,6 +227,8 @@ export type RecordConflict = {
   currentRevision: number | null
   deleted: boolean
   raw?: string
+  candidateRaw?: string
+  recoveryKey?: string
 }
 export type RecordWrite = { status: 'saved'; revision: number } | RecordConflict
 function conflict(row: StoredRecord | undefined): RecordConflict {
@@ -387,8 +389,18 @@ export class DocumentRepository {
         current?.deleted ||
         (current?.revision ?? null) !== expectedRevision ||
         (current && current.version !== 1)
-      )
-        return { value: conflict(current) }
+      ) {
+        const preserved = recoveryWrites(records, [recoveryRecord(raw, 'library', 'json')])
+        if (!preserved.ok) return { failure: preserved.reason }
+        return {
+          value: {
+            ...conflict(current),
+            candidateRaw: raw,
+            recoveryKey: preserved.value.references[0],
+          },
+          writes: preserved.value.writes,
+        }
+      }
       const revision = (current?.revision ?? 0) + 1
       if (current?.raw === raw) return { value: { status: 'saved', revision: current.revision } }
       return {
