@@ -233,6 +233,10 @@ describe('PRES-04..08 transactional repository', () => {
     ])
     expect(race[0]).toMatchObject({ ok: true, value: { status: 'saved', revision: 2 } })
     expect(race[1]).toMatchObject({ ok: true, value: { status: 'conflict', currentRevision: 2 } })
+    if (race[1].ok && race[1].value.status === 'conflict') {
+      expect(race[1].value.candidateRaw).toContain('right')
+      expect(backend.rows.get(race[1].value.recoveryKey!)?.raw).toContain('right')
+    }
     expect(await b.delete('a', 1)).toMatchObject({ ok: true, value: { status: 'conflict' } })
     expect(await a.delete('a', 2)).toMatchObject({
       ok: true,
