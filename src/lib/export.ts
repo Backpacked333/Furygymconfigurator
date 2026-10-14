@@ -142,15 +142,22 @@ export async function createBrief(
     heading('04 / Project notes')
     text(project.notes.slice(0, 2000))
   }
+  const continuationNotice =
+    'The link works wherever this application is hosted. Local development links require the application to be running at that address. This brief is downloaded to your device; it has not been sent to a sales team.'
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  const continuationHeight =
+    9 + 10 + doc.splitTextToSize(continuationNotice, 174).length * 9 * 0.48 + 3
+  if (y + continuationHeight > 269) {
+    doc.addPage()
+    y = 22
+  }
   heading('Continue this design')
   doc.setFontSize(10)
   doc.setTextColor(61, 94, 39)
   doc.textWithLink('Open the interactive configuration', 18, y, { url: shareUrl(config) })
   y += 10
-  text(
-    'The link works wherever this application is hosted. Local development links require the application to be running at that address. This brief is downloaded to your device; it has not been sent to a sales team.',
-    9,
-  )
+  text(continuationNotice, 9)
   for (let page = 1; page <= doc.getNumberOfPages(); page++) {
     doc.setPage(page)
     doc.setFontSize(7)
