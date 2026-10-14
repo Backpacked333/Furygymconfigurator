@@ -1,0 +1,150 @@
+{
+  "version": "q11-pilot-1",
+  "baseline": "3ee25d26ceb3a3ecb165d962667c1c5aff0a9ad4",
+  "scope": "Development-only experiment. No production imports, catalog replacement or certified geometry.",
+  "model": {
+    "id": "grab3d-exercise-bike",
+    "comparisonSku": "bike",
+    "sourcePage": "https://grab3d.com/models/sports/exercise-bike/",
+    "sourceUrl": "https://grab3d.com/dl/exercise-bike/exercise-bike.glb",
+    "sourceSha256": "4735be11d13be927cee81f95967a98420f786dd9f2918fc5a5feb6b652e22c04",
+    "sourceBytes": 1393164,
+    "manifestUrl": "https://grab3d.com/dl/exercise-bike/manifest.json",
+    "manifestSnapshotSha256": "21219a38f0bfa399eb99953a2e02331f20a6ce609b00c6386d571e7e24054bdc",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://grab3d.com/license/",
+    "licenseSnapshotSha256": "1ee8704c29f66b02279b0adacff5188ff7f33b3eaf5102e595c069085f417ba7",
+    "legalCode": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
+    "creator": "Grab3D",
+    "origin": "Independent procedural Blender scripts with AI-assisted code, per source manifest. Not exported from FURY and not a hand-authored/manufacturer model.",
+    "sourceUnits": "meters",
+    "sourceForward": "-x",
+    "sourceUp": "+y",
+    "sourceGroundMeters": 0,
+    "expectedDimensionsMeters": [0.9575, 1.14186, 0.58],
+    "dimensionToleranceMeters": 0.00002,
+    "adapter": "Preserve local hierarchy. Rotate +PI/2 about Y, center measured XZ and ground measured Y in meters, then apply 1/0.3048 once. Never scale to catalog dimensions.",
+    "lodPolicy": "Single source LOD only. Crank is static. No decimation, animation, distance transition or performance claim.",
+    "materialRoles": [
+      "body base color / tangent-space RGB normal / metallic-roughness",
+      "crank base color / tangent-space RGB normal / metallic-roughness"
+    ],
+    "preservation": "Keep indices, attributes, hierarchy, two double-sided material slots and six embedded JPEG images. Never pass the GLB through render/parts.batch, which drops extra attributes and groups.",
+    "optimizedSha256": "491c03c3a29d5412a63f4ad4fb81fc2655bbc70915fb93b2cf3d5880a6721b88",
+    "optimization": [
+      "gltf-transform dedup source.glb dedup.glb",
+      "gltf-transform prune dedup.glb optimized.glb"
+    ],
+    "toolVersions": {
+      "cli": "4.2.1",
+      "core": "4.2.1",
+      "extensions": "4.2.1",
+      "functions": "4.2.1"
+    },
+    "decision": "Reject as production hero replacement: stylized independent procedural source, not proof of authored-quality improvement. Browser quality/performance unmeasured. Keep as a licensed transport/adapter comparison only."
+  },
+  "textures": [
+    {
+      "set": "leather_white",
+      "role": "hero upholstery (bike saddle / bench)",
+      "source": "https://polyhaven.com/a/leather_white",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://polyhaven.com/license",
+      "tileFeet": 0.984,
+      "maps": {
+        "albedo": "f0fd207901ac56c385d77fca9386328358ac1526c38d777b5e6d80b14ea1a420",
+        "normal": "f199b418e9e5b1d0f3273a4e2f7bc93ba61c9e95c1f1eee3e2b18b4e30e79027",
+        "arm": "1657e2c309cacc38d205bc31e61d5c0ab40caf0ae5d81b5feddf582639077697"
+      }
+    },
+    {
+      "set": "beige_wall_001",
+      "role": "background interior wall",
+      "source": "https://polyhaven.com/a/beige_wall_001",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://polyhaven.com/license",
+      "tileFeet": 9.843,
+      "maps": {
+        "albedo": "fa93ec4fa6c5a227c4cbe07543dc62026da1dbce1f9406688efcd8579cd4e6f9",
+        "normal": "b4fd286472f205a650ae713e80e474a783955f9cf4d53eecc212b064e7e5fd98",
+        "arm": "9221c8e3640a9d110df8c2c9cbd53133cb09acbbb69b1784350f270d873f7353"
+      }
+    }
+  ],
+  "textureOutputExpectations": [
+    {
+      "set": "leather_white",
+      "map": "albedo",
+      "bytes": 227883,
+      "sha256": "7c0a8a0b37ff77b2270d3e6f7d47797ba60623367242b78f48018268137a8fa2"
+    },
+    {
+      "set": "leather_white",
+      "map": "normal",
+      "bytes": 878050,
+      "sha256": "07cd264e52fd11d8c5e697dc5e581d8a7695a27697fa469c146f0ff1bcf1ab4c"
+    },
+    {
+      "set": "leather_white",
+      "map": "arm",
+      "bytes": 1117429,
+      "sha256": "20114be4ea3a1ba9a09ad199b76b78a6615603124f4eab0bb7ed488699bfa98f"
+    },
+    {
+      "set": "beige_wall_001",
+      "map": "albedo",
+      "bytes": 9737,
+      "sha256": "70a63e48f8f91ced61167aad2d30c946eece7f41b1578f81845262feeb7a632e"
+    },
+    {
+      "set": "beige_wall_001",
+      "map": "normal",
+      "bytes": 797949,
+      "sha256": "466b588bf0468a54d2fc9a7b6b559e2ac29060819727f39c19ab571eaa1af656"
+    },
+    {
+      "set": "beige_wall_001",
+      "map": "arm",
+      "bytes": 485951,
+      "sha256": "c2efb1ea944349f3abba6c9665f42fdc2470c71f73bb14956cf5ef99a5d8f262"
+    }
+  ],
+  "encoder": {
+    "name": "KTX-Software",
+    "version": "4.4.0",
+    "url": "https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.0/KTX-Software-4.4.0-Linux-x86_64.tar.bz2",
+    "archiveSha256": "942f7dd615a9330f54544dc4857a44a91c85d461376b11ec43065c8f49b1e048",
+    "toktxSha256": "ac26fc3d6f87a7d9f3ee35f91c050f1128473dddf65333805d3d72feb4930512",
+    "ktxSha256": "51683f73dfad1a69f6c9580daf3492d96b8561cd48493cf0be98c3eaaf6ca9f8",
+    "pillowVersion": "12.3.0",
+    "libwebpVersion": "1.6.0",
+    "policy": "ETC1S qlevel 255 clevel 2 color; UASTC quality 2 + Zstd 18 non-color, normals normalized with RGB retained (no normal_mode swizzle); 1 encoder thread; full wrap-filtered mip chain via --wrapping (4.4.0 help incorrectly says --wmode), lower-left stored rows for compressed flipY=false. Conversion starts from checked-in lossy WebP, not original scans.",
+    "wrappingParserSource": "https://github.com/KhronosGroup/KTX-Software/blob/v4.4.0/tools/toktx/toktx.cc#L476"
+  },
+  "decoder": {
+    "package": "three",
+    "version": "0.186.1",
+    "workerLimit": 1,
+    "path": "node_modules/three/examples/jsm/libs/basis",
+    "jsSha256": "8478b5b6d6b74e7d3082b89f6417321d8d1dc0307f2b30d4484bb11b441696a1",
+    "wasmSha256": "6cf17dc889352c42e9acf8897107978d127005fe3386c36a0e3845e27967630a",
+    "license": "Apache-2.0",
+    "policy": "No CDN/latest decoder; expose these hash-pinned bytes from a versioned same-origin DEV-only path. One loader/worker pool per pilot owner; detectSupport(renderer) before loading; dispose loader and owned textures on release. Actual supported target format and worker heap unmeasured."
+  },
+  "searchEvidence": [
+    {
+      "query": "exercise bike 3D model glb Creative Commons download",
+      "url": "https://grab3d.com/models/sports/exercise-bike/",
+      "result": "Downloaded source GLB and origin manifest; explicit CC0 dedication. Preview inspected; stylized not reference-matching."
+    },
+    {
+      "url": "https://imeshh.com/assets/gym-bike-3d-model",
+      "result": "Page offers Blender/glTF, 28360 polygons; paid plan/sign-in. No existing entitlement established; not downloaded."
+    },
+    {
+      "query": "gym weight bench glb CC0 model download",
+      "url": "https://3dassets.dev/assets/gym-and-fitness-studio-flat-bench-7fd01050",
+      "result": "Page reports CC0, 1100 triangles, four materials, no textures, AI use. Not downloaded: different SKU and not evidence of reference-quality hero machine."
+    }
+  ]
+}
