@@ -35,13 +35,14 @@ import {
 import ConfigPanel from './components/ConfigPanel'
 import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
+import { SceneLoadBoundary } from './components/SceneLoadBoundary'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import {
   DEFAULT_CONFIG,
   FINISHES,
   area,
+  decodeConfig,
   distance,
-  encodeConfig,
   estimate,
   money,
   productName,
@@ -53,6 +54,7 @@ import {
   type View,
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
+import { useShareFragment } from './lib/useShareFragment'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
 import { textureProgress } from './render/progress'
@@ -61,7 +63,7 @@ const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
 
 export default function App() {
-  const { config, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
+  const { config, encoded, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
   const [step, setStep] = useState(0),
     [view, setView] = useState<View>('exterior'),
     [unit, setUnit] = useState<Unit>('ft')
@@ -95,9 +97,15 @@ export default function App() {
       `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
     )
   }, [quality, notify])
-  const onCaptureReady = useCallback((capture: () => string) => {
+  const onCaptureReady = useCallback((capture: (() => string) | null) => {
     captureRef.current = capture
   }, [])
+  const openPlan = useCallback(() => setView('plan'), [])
+  // The 3D scene stays mounted, hidden and paused, under the floor plan, so returning keeps the
+  // renderer, its compiled shaders, and the camera rather than starting cold. It keeps the last
+  // 3D view meanwhile.
+  const [sceneView, setSceneView] = useState<View>('exterior')
+  if (view !== 'plan' && view !== sceneView) setSceneView(view)
   const capture = useCallback(() => {
     if (view === 'plan') return null
     try {
@@ -107,13 +115,20 @@ export default function App() {
     }
   }, [view])
   const close = () => setDialog(null)
-  useEffect(() => {
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${window.location.search}#c=${encodeConfig(config)}`,
-    )
-  }, [config])
+  const openShared = useCallback(
+    (value: string) => {
+      const shared = decodeConfig(value)
+      if (!shared) {
+        notify('This share link is invalid or unsupported. Your design is unchanged.')
+        return false
+      }
+      setConfig(shared)
+      notify('Shared design loaded. Undo returns to your previous design.')
+      return true
+    },
+    [setConfig, notify],
+  )
+  useShareFragment(encoded, openShared)
   useEffect(() => {
     if (initialNotice) timer.current = setTimeout(() => setToast(''), 6500)
     return () => {
@@ -235,31 +250,35 @@ export default function App() {
           className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
           aria-label="Gym visualization"
         >
-          {view === 'plan' ? (
+          <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
+            <SceneLoadBoundary onFallback={openPlan}>
+              <Suspense
+                fallback={
+                  <div className="scene-loading">
+                    <span className="loading-mark">F</span>
+                    <p>Making room for possibility.</p>
+                  </div>
+                }
+              >
+                <Scene
+                  active={view !== 'plan'}
+                  config={config}
+                  view={sceneView}
+                  dimensions={dimensions}
+                  unit={unit}
+                  reset={reset}
+                  autoRotate={autoRotate}
+                  quality={quality}
+                  onCaptureReady={onCaptureReady}
+                  onFallback={openPlan}
+                  onBackend={setBackend}
+                  onSlow={onSlow}
+                />
+              </Suspense>
+            </SceneLoadBoundary>
+          </div>
+          {view === 'plan' && (
             <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
-          ) : (
-            <Suspense
-              fallback={
-                <div className="scene-loading">
-                  <span className="loading-mark">F</span>
-                  <p>Making room for possibility.</p>
-                </div>
-              }
-            >
-              <Scene
-                config={config}
-                view={view}
-                dimensions={dimensions}
-                unit={unit}
-                reset={reset}
-                autoRotate={autoRotate}
-                quality={quality}
-                onCaptureReady={onCaptureReady}
-                onFallback={() => setView('plan')}
-                onBackend={setBackend}
-                onSlow={onSlow}
-              />
-            </Suspense>
           )}
           <div className="stage-heading">
             <span className="eyebrow">

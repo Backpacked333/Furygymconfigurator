@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   PMREMGenerator,
@@ -36,6 +36,15 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
   } | null>(null)
   const center = useRef(new Vector3())
   center.current.set(0, productHeight(config) * 0.52, 0.3)
+  const wake = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  /** Wakes the demand loop when a capture falls due, instead of drawing identical frames. */
+  const wakeAt = useCallback(
+    (due: number) => {
+      clearTimeout(wake.current)
+      wake.current = setTimeout(invalidate, Math.max(0, due - performance.now()))
+    },
+    [invalidate],
+  )
 
   useEffect(() => {
     state.current = {
@@ -46,6 +55,7 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
       due: 0,
     }
     return () => {
+      clearTimeout(wake.current)
       setInteriorEnvironment(null)
       state.current?.targets.forEach((t) => t?.dispose())
       state.current?.generator.dispose()
@@ -58,23 +68,24 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
     if (!state.current) return
     state.current.passes = 2
     state.current.due = performance.now() + DEBOUNCE_MS
-    invalidate()
-  }, [config, quality, invalidate])
+    wakeAt(state.current.due)
+  }, [config, quality, wakeAt])
   useEffect(
     () =>
       onMaterialsChanged((change) => {
         if (change !== 'textures' || !state.current) return
         state.current.passes = 2
         state.current.due = performance.now() + DEBOUNCE_MS
+        wakeAt(state.current.due)
       }),
-    [],
+    [wakeAt],
   )
 
   useFrame(() => {
     const probe = state.current
     if (!probe || probe.passes <= 0) return
     if (performance.now() < probe.due) {
-      invalidate()
+      wakeAt(probe.due)
       return
     }
     const next = 1 - probe.current
@@ -97,10 +108,16 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
         light.shadow.needsUpdate = true
       }
     })
+    const size = quality === 'lite' ? 64 : 128
+    // Reuse the idle target only at its own cube size; Lite and High/Ultra differ.
+    if (probe.targets[next] && probe.targets[next].height !== 4 * size) {
+      probe.targets[next].dispose()
+      probe.targets[next] = null
+    }
     let target: RenderTarget
     try {
       target = probe.generator.fromScene(scene, 0, 0.05, 400, {
-        size: quality === 'lite' ? 64 : 128,
+        size,
         position: center.current,
         renderTarget: probe.targets[next] ?? undefined,
       })

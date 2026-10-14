@@ -366,27 +366,45 @@ export function shareUrl(config: Config) {
   return url.toString()
 }
 export type SavedBuild = { id: string; name: string; date: string; config: Config }
-const savedSchema = z
-  .array(
-    z.object({
-      id: z.string().max(64),
-      name: z.string().min(1).max(60),
-      date: z.string(),
-      config: configSchema,
-    }),
-  )
-  .max(12)
+const savedBuildSchema = z.object({
+  id: z.string().max(64),
+  name: z.string().min(1).max(60),
+  date: z.string(),
+  config: configSchema,
+})
+const savedSchema = z.array(savedBuildSchema).max(12)
+/**
+ * Stored builds, read one by one: an entry this version cannot use (corrupted, or written by a
+ * newer schema) is set aside instead of hiding every other build.
+ */
+function storedBuilds() {
+  const raw: unknown = JSON.parse(localStorage.getItem('fury-builds-v1') || '[]')
+  const builds: SavedBuild[] = []
+  const unreadable: unknown[] = []
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    const parsed = savedBuildSchema.safeParse(entry)
+    if (parsed.success && !layoutIssues(parsed.data.config).length) builds.push(parsed.data)
+    else unreadable.push(entry)
+  }
+  return { builds: builds.slice(0, 12), unreadable }
+}
 export function readSaved(): SavedBuild[] {
   try {
-    return savedSchema
-      .parse(JSON.parse(localStorage.getItem('fury-builds-v1') || '[]'))
-      .filter((x) => !layoutIssues(x.config).length)
+    return storedBuilds().builds
   } catch {
     return []
   }
 }
 export function writeSaved(builds: SavedBuild[]) {
-  localStorage.setItem('fury-builds-v1', JSON.stringify(savedSchema.parse(builds)))
+  const valid = savedSchema.parse(builds)
+  // Entries set aside on reading are written back as they were, so a save never deletes them.
+  let unreadable: unknown[] = []
+  try {
+    unreadable = storedBuilds().unreadable
+  } catch {
+    /* Storage that is not JSON at all cannot be kept. */
+  }
+  localStorage.setItem('fury-builds-v1', JSON.stringify([...valid, ...unreadable]))
 }
 export function initialConfig(): { config: Config; notice: string } {
   const encoded = new URLSearchParams(window.location.hash.slice(1)).get('c')

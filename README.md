@@ -127,7 +127,7 @@ Rules:
 
 ### Local data and sharing
 
-The URL fragment `#c=…` contains the entire LZ-string-compressed configuration. It updates with edits and is not sent in HTTP requests to the static host. Anyone with the full link can read the configuration. There is no short-link service, authentication, cross-device account, or automatic social-preview image. A link needs a running deployment of this app; localhost and session-preview links are not permanent public links.
+The URL fragment `#c=…` contains the entire LZ-string-compressed configuration. It follows edits within half a second (at once when the tab is hidden or closed), so dragging a slider does not rewrite browser history on every step, and it is not sent in HTTP requests to the static host. Pasting another design's link into an open tab loads it; Undo returns to the previous design. Anyone with the full link can read the configuration. There is no short-link service, authentication, cross-device account, or automatic social-preview image. A link needs a running deployment of this app; localhost and session-preview links are not permanent public links.
 
 `fury-draft-v1` and `fury-builds-v1` remain the only localStorage keys to preserve existing drafts and saved builds; their payloads migrate to schema v2. A valid URL configuration takes precedence over the draft. Storage failure does not prevent configuration or file export; named-save failures show a message. Clearing browser storage removes local drafts and saved builds, so export important designs.
 
@@ -157,11 +157,20 @@ Models are procedural and batched: each equipment item or architectural assembly
 
 These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Glass and water use physically based transmission, not traced caustics. Lights do not simulate certified photometry, and screen-space GI only bounces light that is on screen. Photo and PDF exports capture the current real-time view; they are not offline path-traced renders.
 
-The three.js chunk (WebGPU and the classic renderer React Three Fiber references) is about 2.2 MB minified, 630 kB gzipped, and loads only with the scene; the app shell stays about 160 kB. No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
+The three.js chunk is about 1.6 MB minified, 480 kB gzipped, and loads only with the scene: React Three Fiber is pointed at three's WebGPU build, so the classic WebGL renderer is not bundled. The app shell (app code, React, and CSS) is about 430 kB minified, 130 kB gzipped, and paints the configurator before three.js or jsPDF arrive.
+
+Smoothness and reliability:
+
+- **Nothing runs at rest.** three's own animation loop is stopped; frames are drawn only on demand and for the settle window. Sun shadows re-render only when something changes, not on every settle frame. Sub-pixel camera damping no longer extends the settle window.
+- **No shader compiles on common toggles.** Lights that come and go (moonlight, interior luminaires, sauna heaters) stay mounted at zero intensity, and foliage, grass, ground, and studio floor materials are kept for the session, so switching lights, time of day, packages, or surroundings reuses compiled shaders instead of stalling. On WebGPU, instanced trees, hedges, and grass read their placements from vertex attributes, so every copy shares its material's shader rather than compiling one per mesh. (A 20↔40 ft change still recompiles lit materials once, because the larger unit has more downlights.)
+- **Textures decode off the main thread** where the browser supports it, retry on network errors (a whole set that fails tries again after growing pauses, then textures every surface that was waiting), and show neutral stand-ins until they arrive; a failed texture never leaves the progress indicator stuck.
+- **Recovery.** If the GPU device or WebGL context is lost, the scene rebuilds its renderer and textures (up to three times) instead of freezing. If the 3D code fails to download, configuration, pricing, and the floor plan keep working with a message in place of the scene; any other unexpected error shows a reload screen instead of a blank page, and the design survives the reload in the page's link.
+
+No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
 
 ## Verification
 
-Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, and both product shells staying inside their nominal envelopes for every opening and length. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
+Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, demand-loop frame bookkeeping, on-demand shadow refresh, texture retry and off-thread decoding, share-link throttling and pasted links, saved-build preservation, model part keys, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, and both product shells staying inside their nominal envelopes for every opening and length. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
 
 ## Before commercial launch
 

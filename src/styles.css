@@ -261,6 +261,10 @@ h3 {
 .stage > div:first-child:not(.floor-plan):not(.graphics-fallback) {
   height: 100%;
 }
+/* Under the floor plan the paused scene keeps its size (no resize work) but leaves the tab order. */
+.scene-layer.is-hidden {
+  visibility: hidden;
+}
 .stage canvas {
   touch-action: none;
   cursor: grab;
