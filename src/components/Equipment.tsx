@@ -1,5 +1,7 @@
 import { RoundedBox } from '@react-three/drei'
 import type { PlacedItem } from '../lib/config'
+import { SurfaceMaterial } from './SurfaceMaterial'
+import type { Surface } from '../lib/visuals'
 
 type BProps = {
   p: [number, number, number]
@@ -7,19 +9,31 @@ type BProps = {
   color?: string
   metal?: number
   glow?: string
+  surface?: Surface
 }
-function B({ p, s, color = '#272c29', metal = 0.2, glow }: BProps) {
+function B({ p, s, color = '#272c29', metal = 0.35, glow, surface }: BProps) {
   return (
-    <mesh position={p} castShadow receiveShadow>
-      <boxGeometry args={s} />
-      <meshStandardMaterial
-        color={color}
-        metalness={metal}
-        roughness={0.58}
-        emissive={glow}
-        emissiveIntensity={glow ? 0.8 : 0}
-      />
-    </mesh>
+    <RoundedBox
+      position={p}
+      args={s}
+      radius={Math.min(0.035, ...s.map((v) => v / 4))}
+      smoothness={2}
+      bevelSegments={2}
+      castShadow
+      receiveShadow
+    >
+      {surface ? (
+        <SurfaceMaterial kind={surface} color={color} />
+      ) : (
+        <meshStandardMaterial
+          color={color}
+          metalness={metal}
+          roughness={0.4}
+          emissive={glow}
+          emissiveIntensity={glow ? 0.8 : 0}
+        />
+      )}
+    </RoundedBox>
   )
 }
 function Cylinder({
@@ -37,8 +51,8 @@ function Cylinder({
 }) {
   return (
     <mesh position={p} rotation={rotation} castShadow>
-      <cylinderGeometry args={[r, r, h, 20]} />
-      <meshStandardMaterial color={color} roughness={0.6} metalness={0.25} />
+      <cylinderGeometry args={[r, r, h, 32]} />
+      <meshStandardMaterial color={color} roughness={0.32} metalness={0.65} />
     </mesh>
   )
 }
@@ -54,12 +68,16 @@ export function Equipment({ item }: { item: PlacedItem }) {
             [-1.35, 1.35].map((z) => (
               <group key={`${x}-${z}`}>
                 <B p={[x, 3.7, z]} s={[0.19, 7.4, 0.19]} />
+                <B p={[x, 0.035, z]} s={[0.48, 0.07, 0.48]} metal={0.6} />
+                {[-0.16, 0.16].map((dx) => (
+                  <Cylinder key={dx} p={[x + dx, 0.09, z]} r={0.045} h={0.04} color={chrome} />
+                ))}
                 {Array.from({ length: 13 }, (_, i) => (
                   <B
                     key={i}
                     p={[x, 1.2 + i * 0.36, z + 0.102]}
                     s={[0.06, 0.06, 0.01]}
-                    color="#90958b"
+                    color="#080c0a"
                   />
                 ))}
               </group>
@@ -87,21 +105,34 @@ export function Equipment({ item }: { item: PlacedItem }) {
             rotation={[0, 0, Math.PI / 2]}
             color={chrome}
           />
-          {[-1, 1].map((x) => (
-            <Cylinder
-              key={x}
-              p={[x * 2.03, 4.1, 0.9]}
-              r={0.72}
-              h={0.24}
-              rotation={[0, 0, Math.PI / 2]}
-            />
+          {[-1, 1].map((side) => (
+            <group key={side}>
+              <B p={[side * 2.15, 4.02, 1.1]} s={[0.24, 0.16, 0.5]} color="#55594e" />
+              <Cylinder
+                p={[side * 2.03, 4.1, 0.9]}
+                r={0.72}
+                h={0.24}
+                rotation={[0, 0, Math.PI / 2]}
+              />
+              <mesh position={[side * 2.16, 4.1, 0.9]} rotation={[0, Math.PI / 2, 0]}>
+                <torusGeometry args={[0.55, 0.022, 6, 32]} />
+                <meshStandardMaterial color="#737968" roughness={0.85} />
+              </mesh>
+              <Cylinder
+                p={[side * 2.19, 4.1, 0.9]}
+                r={0.13}
+                h={0.08}
+                rotation={[0, 0, Math.PI / 2]}
+                color={chrome}
+              />
+            </group>
           ))}
         </>
       )}
       {item.sku === 'bench' && (
         <>
           <RoundedBox args={[1.15, 0.27, 3.8]} radius={0.13} position={[0, 1.55, 0]} castShadow>
-            <meshStandardMaterial color="#353b35" roughness={0.9} />
+            <SurfaceMaterial kind="rubber" color="#454b45" roughness={0.88} />
           </RoundedBox>
           <B p={[0, 1.1, 0]} s={[0.22, 0.45, 3.4]} />
           {[-1.5, 1.5].map((z) => (
@@ -146,10 +177,10 @@ export function Equipment({ item }: { item: PlacedItem }) {
       )}
       {item.sku === 'sauna' && (
         <>
-          <B p={[0, 3.5, -2.1]} s={[4.8, 7, 0.2]} color={wood} />
-          <B p={[0, 6.9, 0]} s={[4.8, 0.2, 4.4]} color={wood} />
+          <B p={[0, 3.5, -2.1]} s={[4.8, 7, 0.2]} color={wood} surface="cedar" />
+          <B p={[0, 6.9, 0]} s={[4.8, 0.2, 4.4]} color={wood} surface="cedar" />
           {[-2.3, 2.3].map((x) => (
-            <B key={x} p={[x, 3.5, 0]} s={[0.2, 7, 4.4]} color={wood} />
+            <B key={x} p={[x, 3.5, 0]} s={[0.2, 7, 4.4]} color={wood} surface="cedar" />
           ))}
           {Array.from({ length: 20 }, (_, i) => (
             <B
@@ -159,8 +190,8 @@ export function Equipment({ item }: { item: PlacedItem }) {
               color="#735239"
             />
           ))}
-          <B p={[0, 1.5, -0.8]} s={[4.4, 0.18, 1.7]} color="#ceab78" />
-          <B p={[0, 0.65, 0.5]} s={[4.4, 0.15, 1.2]} color="#ceab78" />
+          <B p={[0, 1.5, -0.8]} s={[4.4, 0.18, 1.7]} color="#ceab78" surface="oak" />
+          <B p={[0, 0.65, 0.5]} s={[4.4, 0.15, 1.2]} color="#ceab78" surface="oak" />
           <mesh position={[0, 3.5, 2.13]}>
             <boxGeometry args={[4.4, 6.8, 0.04]} />
             <meshPhysicalMaterial
@@ -179,7 +210,7 @@ export function Equipment({ item }: { item: PlacedItem }) {
       {item.sku === 'plunge' && (
         <>
           <RoundedBox args={[2.9, 2.65, 5.2]} radius={0.3} position={[0, 1.33, 0]} castShadow>
-            <meshStandardMaterial color="#bba47c" roughness={0.7} />
+            <SurfaceMaterial kind="cedar" color="#bba47c" />
           </RoundedBox>
           <RoundedBox args={[2.42, 0.1, 4.6]} radius={0.04} position={[0, 2.68, 0]}>
             <meshPhysicalMaterial color="#6c9a95" roughness={0.08} metalness={0.45} />
@@ -213,7 +244,10 @@ export function Equipment({ item }: { item: PlacedItem }) {
       {item.sku === 'treadmill' && (
         <>
           <B p={[0, 0.24, 0]} s={[2.7, 0.48, 5.8]} />
-          <B p={[0, 0.5, 0.25]} s={[2.15, 0.05, 4.7]} color="#41473f" />
+          <B p={[0, 0.5, 0.25]} s={[2.15, 0.05, 4.7]} color="#41473f" surface="rubber" />
+          {Array.from({ length: 22 }, (_, i) => (
+            <B key={i} p={[0, 0.53, -1.9 + i * 0.2]} s={[2.1, 0.012, 0.018]} color="#272b27" />
+          ))}
           {[-1.2, 1.2].map((x) => (
             <group key={x}>
               <B p={[x, 2.2, -2.5]} s={[0.16, 3.7, 0.16]} />
@@ -227,7 +261,7 @@ export function Equipment({ item }: { item: PlacedItem }) {
       {item.sku === 'mat' && (
         <>
           <RoundedBox args={[2.2, 0.06, 5.4]} radius={0.025} position={[0, 0.035, 0]}>
-            <meshStandardMaterial color="#8f9670" roughness={1} />
+            <SurfaceMaterial kind="rubber" color="#a9b389" roughness={1} />
           </RoundedBox>
           <B p={[0, 0.25, -1.8]} s={[0.6, 0.45, 0.9]} color="#b69768" />
         </>
