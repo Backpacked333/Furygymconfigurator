@@ -44,7 +44,7 @@ npm run dev
 
 Open the URL printed by Vite. If you do not use nvm, install Node 24 and run the npm commands directly. No environment variables, API keys, database, or third-party accounts are required. Fonts, models, textures, and scripts are bundled or generated locally; there are no remote model, texture, or font requests at runtime.
 
-Optional URL parameters help when comparing devices or debugging: `?renderer=webgl` forces the WebGL 2 backend, `?quality=ultra|high|lite` fixes the render tier (and disables the automatic step-down), and `?debug=ao` or `?debug=normal` shows the ambient-occlusion or normal buffer on High and Ultra.
+Optional URL parameters help when comparing devices or debugging: `?renderer=webgl` forces the WebGL 2 backend, `?quality=ultra|high|lite` fixes the render tier (and disables the automatic step-down), `?trace=1|0` turns path-traced stills on or off, `?denoise=0` shows the raw path-traced accumulation, and `?debug=ao` or `?debug=normal` shows the ambient-occlusion or normal buffer on High and Ultra.
 
 ```sh
 npm run typecheck
@@ -109,7 +109,10 @@ src/
     Modal.tsx                 Native dialog lifecycle
   render/
     renderer.ts               WebGPURenderer creation, area-light tables, texture-view shim
-    pipeline.ts               TSL render pipelines per quality tier
+    pipeline.ts               TSL render pipelines per quality tier, traced-image presentation
+    pathtrace.ts              Path-traced stills: scene capture, sun disc, sky map, denoising
+    traceStatus.ts            Path-tracing progress store for the status line (no three.js)
+    framing.ts                Camera framing for the exterior and interior views
     quality.ts                Tiers, backend selection, defaults (no three.js imports)
     materials.ts              Material library over the scanned texture sets
     palette.ts                Named physically based materials (powder coat, vinyl, glass...)
@@ -166,6 +169,18 @@ The scene renders with three.js r186's `WebGPURenderer`. It runs natively on Web
 
 Laptop-width screens start on Ultra, tablets on High, and phones on Lite. If back-to-back frames stay slow, the app steps down one tier and says so, unless a tier was chosen explicitly. Rendering is on demand: after any change it keeps drawing for a short settle window (about 28–40 frames) so temporal anti-aliasing, AO, and GI converge into a clean still, then stops.
 
+#### Path-traced stills
+
+With WebGPU, a view that holds still refines into a path-traced image: true multi-bounce light, soft sun and area-light shadows, glass and mirror reflections, and light through the glazing into the room. Orbiting, walking the interior, and every edit stay real-time; the moment the camera or design changes, the rasterizer takes the frame back. `src/render/pathtrace.ts` drives [`three-gpu-pathtracer`](https://github.com/gkjohnson/three-gpu-pathtracer)'s WebGPU tracer on the app's own renderer, so the scene and textures are shared rather than duplicated.
+
+- **Capture:** the tracer reads plain PBR properties, so the scene is swapped into a traceable form only for the instant of capture: the raster sky dome and sun are hidden, TSL-only materials expose stand-ins through `material.userData.pathTrace` (foliage and blossom atlases, grass, palms, the scanned ground, the planar mirror as polished metal), unlit helpers hide, and volumetric glass becomes thin-walled glass tinted by its absorption. Captures are cached by a fingerprint of geometry, transforms, materials, and lights; a camera-only change re-traces without rebuilding.
+- **Sun and sky:** the sun is a disc light at its true 0.53° angular size carrying the same irradiance as the raster sun, so shadows soften with distance and glossy surfaces show real glints. The sky is a 1024×512 HDR map computed on the CPU from a line-for-line port of three's `SkyMesh` (Preetham scattering and its cloud layer), so the traced sky matches the real-time one. Calibration lives in `src/lib/visuals.ts` and is shared by both renderers.
+- **Denoising:** at 8, 32, 128, 384, and 1024 samples per pixel the accumulation is denoised with [Open Image Denoise](https://www.openimagedenoise.org/) on the GPU (`oidn-web`, guided by rasterized albedo and normals) and crossfaded in, so the image develops from the raster frame into a clean photograph without showing path-tracing noise. The 1.8 MB weights (`public/denoise/`, Apache-2.0) download only when tracing starts.
+- **Exposure:** before the first traced image fades in, both it and the frozen raster frame are metered (log-average luminance over a coarse grid, like a camera's matrix meter) and the traced image is scaled to match, within one stop darker to two stops brighter. The handover keeps the brightness the viewer was looking at, while the light distribution (sky occlusion in a courtyard, bounce light in a room) is the traced one.
+- **Exports:** photo mode and the PDF brief wait for a denoised image of at least 384 samples (up to 45 seconds), then save it. Without WebGPU they capture the real-time view as before.
+
+The status line shows progress. The **Path-traced stills** switch under Surroundings turns it off; it starts on for Ultra and High and off for Lite. `?trace=1` or `?trace=0` overrides that, and `?denoise=0` shows the raw accumulation for comparison. Tracing runs only while the view rests and stops once converged, but it does keep a GPU busy for that time; how quickly it converges depends on the GPU and has not been benchmarked on physical hardware.
+
 Lighting:
 
 - **Sky and sun:** a Preetham daylight sky with clouds is both the visible background and the image-based lighting (captured into a PMREM cube). Sun color comes from atmospheric extinction along the sun path. A multiple-scattering fill keeps the zenith-to-horizon ratio near measured clear skies. Fog matches the horizon. After dark, exposure adapts, moonlight takes over, and airglow keeps the sky deep blue. The sun follows an artistic summer path (sunrise 06:00, sunset 20:30, 60° at noon), not a location-based study.
@@ -178,7 +193,7 @@ Materials come from 24 CC0 photo-scanned PBR sets from [Poly Haven](https://poly
 
 Models are procedural and batched: each equipment item or architectural assembly is merged per material into a few draw calls and shared by every placed copy. Trees, shrubs, and blossoms use alpha-tested cards with crown-bent normals and daylight-scaled translucency; fan-palm fronds, grass, and foliage are instanced. Footprint tests keep every equipment model inside the planning envelope the floor-plan collision rules use; a racked Olympic bar on the power rack and half rack is the one deliberate exception, overhanging its uprights into the rack's side clearance as on real racks.
 
-These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Glass and water use physically based transmission, not traced caustics. Lights do not simulate certified photometry, and screen-space GI only bounces light that is on screen. Photo and PDF exports capture the current real-time view; they are not offline path-traced renders.
+These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Real-time glass and water use physically based transmission, and screen-space GI only bounces light that is on screen; the path tracer resolves both properly but does not render caustics through thin glass or participating media. Lights do not simulate certified photometry.
 
 The three.js chunk (WebGPU and the classic renderer React Three Fiber references) is about 2.2 MB minified, 630 kB gzipped, and loads only with the scene; the app shell stays about 160 kB. No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
 

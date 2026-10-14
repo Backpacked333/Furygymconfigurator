@@ -56,6 +56,7 @@ import {
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
+import { requestedTrace, useTraceStatus } from './render/traceStatus'
 import { textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
@@ -68,7 +69,8 @@ export default function App() {
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
-    [backend, setBackend] = useState<Backend | null>(null)
+    [backend, setBackend] = useState<Backend | null>(null),
+    [trace, setTrace] = useState(() => requestedTrace() ?? defaultQuality() !== 'lite')
   // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
   const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
   const [dialog, setDialog] = useState<Dialog>(null),
@@ -78,7 +80,7 @@ export default function App() {
     [photoMode, setPhotoMode] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true)
   const [camera, setCamera] = useState<[number, number, number]>(DEFAULT_CAMERA)
-  const captureRef = useRef<(() => string) | null>(null),
+  const captureRef = useRef<(() => Promise<string>) | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
     setToast(s)
@@ -97,13 +99,13 @@ export default function App() {
       `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
     )
   }, [quality, notify])
-  const onCaptureReady = useCallback((capture: () => string) => {
+  const onCaptureReady = useCallback((capture: () => Promise<string>) => {
     captureRef.current = capture
   }, [])
-  const capture = useCallback(() => {
-    if (view === 'plan') return null
+  const capture = useCallback(async () => {
+    if (view === 'plan' || !captureRef.current) return null
     try {
-      return captureRef.current?.() ?? null
+      return await captureRef.current()
     } catch {
       return null
     }
@@ -150,8 +152,10 @@ export default function App() {
     setReset((r) => r + 1)
     notify(`${build.name} applied. Every option stays editable; the build still requires a quote.`)
   }
-  const photo = () => {
-    const image = capture()
+  const photo = async () => {
+    if (trace && backend === 'webgpu')
+      notify('Rendering a path-traced image. Hold the view still for a moment.')
+    const image = await capture()
     if (!image) {
       notify('Your scene is still getting ready. Try again in a moment.')
       return
@@ -238,6 +242,7 @@ export default function App() {
                 camera={camera}
                 autoRotate={autoRotate}
                 quality={quality}
+                trace={trace}
                 onCaptureReady={onCaptureReady}
                 onFallback={() => setView('plan')}
                 onBackend={setBackend}
@@ -364,6 +369,7 @@ export default function App() {
                     {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
                   </span>
                 )}
+                <TraceBadge />
                 <span>Concept visualization · Not manufacturer CAD</span>
               </div>
               <div className="scene-hint">
@@ -405,6 +411,9 @@ export default function App() {
             setUnit={setUnit}
             quality={quality}
             setQuality={chooseQuality}
+            trace={trace}
+            setTrace={setTrace}
+            traceSupported={backend === 'webgpu'}
             notify={notify}
             onPlan={() => {
               setView('plan')
@@ -541,6 +550,32 @@ export default function App() {
     </div>
   )
 }
+/** Path-tracing progress for a resting view, or the export waiting on it. */
+function TraceBadge() {
+  const status = useTraceStatus()
+  if (status.state === 'off') return null
+  const label =
+    status.state === 'preparing'
+      ? 'Preparing path tracer'
+      : status.state === 'converged'
+        ? `Path traced · ${status.samples} samples`
+        : `Path tracing · ${status.samples} / ${status.target}`
+  return (
+    <span
+      className={`trace-badge ${status.state}`}
+      role="status"
+      aria-live="polite"
+      title="The resting view refines with physically based path tracing: true bounce light, soft shadows, and real reflections."
+    >
+      <span
+        className="trace-meter"
+        style={{ '--progress': Math.min(1, status.samples / Math.max(1, status.target)) } as never}
+      />
+      {status.exporting ? `Rendering image · ${status.samples} samples` : label}
+    </span>
+  )
+}
+
 /** Shows progress while the photo-scanned material library streams in. */
 function MaterialProgress() {
   const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)

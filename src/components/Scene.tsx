@@ -1,18 +1,20 @@
-import { Component, useEffect, useRef, type ReactNode } from 'react'
+import { Component, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html, OrbitControls } from '@react-three/drei'
 import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import type { WebGPURenderer } from 'three/webgpu'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
+import { skyLook } from '../lib/visuals'
 import { StudioModel } from './StudioModel'
 import { Landscape } from './Landscape'
-import { RenderEffects } from './RenderEffects'
+import { RenderEffects, type Capture } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
 import { deckFront, roofTop } from '../render/addons'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
+import { cameraFraming } from '../render/framing'
 import { setMaxAnisotropy } from '../render/materials'
 
 class GraphicsBoundary extends Component<
@@ -43,7 +45,7 @@ class GraphicsBoundary extends Component<
 function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
   const z = c.addons.deck ? deckFront(c) + 1 : 6
   return (
-    <group>
+    <group userData={{ pathTrace: false }}>
       <mesh position={[0, 0.06, z]}>
         <boxGeometry args={[c.length, 0.035, 0.035]} />
         <meshBasicMaterial color="#505d43" />
@@ -84,64 +86,47 @@ function CameraRig({
   autoRotate: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
-  const shellHeight = productHeight(c)
-  const hasOutdoor = c.addons.deck || c.addons.gazebo || c.addons.stairs || c.addons.canopy
-  const outdoorDepth = c.addons.stairs ? 17 : c.addons.deck ? deckFront(c) + 4 : 12
-  const roofHeight = c.addons.roof || c.addons.stairs ? roofTop(c) + 3.6 : shellHeight
-  const [dx, dy, dz] = direction
   const controls = useRef<OrbitControlsImpl>(null)
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
     moving = useRef(false)
   const yaw = useRef(-1.25),
     pitch = useRef(0)
+  const [dx, dy, dz] = direction
+  // Framing depends only on what changes the build's silhouette, not on every edit.
+  const framingKey = JSON.stringify([
+    c.length,
+    productHeight(c),
+    c.addons.deck,
+    c.addons.gazebo,
+    c.addons.stairs,
+    c.addons.canopy,
+    c.addons.roof,
+    c.addons.deck ? deckFront(c) : 0,
+    c.addons.roof || c.addons.stairs ? roofTop(c) : 0,
+  ])
+  const framingConfig = useRef(c)
+  framingConfig.current = c
   useEffect(() => {
     const p = camera as PerspectiveCamera
-    p.fov = view === 'interior' ? 68 : 32
+    const framing = cameraFraming(
+      framingConfig.current,
+      view,
+      [dx, dy, dz],
+      size.width / size.height,
+    )
+    p.fov = framing.fov
     p.updateProjectionMatrix()
+    targetPosition.current.set(...framing.position)
+    targetLook.current.set(...framing.target)
     if (view === 'interior') {
-      targetPosition.current.set(c.length / 2 - 2.2, 5.8, 1.4)
-      targetLook.current.set(-c.length / 4, 4.6, -0.7)
       const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
       yaw.current = Math.atan2(-direction.x, -direction.z)
       pitch.current = Math.asin(direction.y)
-    } else {
-      const width = c.length + (c.addons.stairs ? 6 : 2),
-        depth = hasOutdoor ? outdoorDepth : 10
-      const v = (p.fov * Math.PI) / 360,
-        h = Math.atan((Math.tan(v) * size.width) / size.height)
-      const height = roofHeight
-      const radius = Math.sqrt(width * width + depth * depth + height * height) / 2
-      const d = (radius / Math.sin(Math.min(v, h))) * 0.94
-      targetLook.current.set(
-        c.addons.stairs ? 2 : 0,
-        c.addons.roof ? 5 : 3.5,
-        hasOutdoor ? Math.min(2.2, (depth - 8) / 4) : 0,
-      )
-      targetPosition.current
-        .copy(targetLook.current)
-        .addScaledVector(new Vector3(dx, dy, dz).normalize(), d)
     }
     moving.current = true
     invalidate()
-  }, [
-    camera,
-    size.width,
-    size.height,
-    c.length,
-    shellHeight,
-    hasOutdoor,
-    outdoorDepth,
-    roofHeight,
-    c.addons.roof,
-    c.addons.stairs,
-    view,
-    reset,
-    dx,
-    dy,
-    dz,
-    invalidate,
-  ])
+  }, [camera, size.width, size.height, framingKey, view, reset, dx, dy, dz, invalidate])
   useEffect(() => {
     const el = gl.domElement
     let drag = false,
@@ -249,6 +234,7 @@ export default function Scene({
   camera = [0.48, 0.24, 0.84],
   autoRotate,
   quality,
+  trace,
   onCaptureReady,
   onFallback,
   onBackend,
@@ -262,11 +248,17 @@ export default function Scene({
   camera?: [number, number, number]
   autoRotate: boolean
   quality: Quality
-  onCaptureReady: (capture: () => string) => void
+  /** Refine resting views with the path tracer where WebGPU allows. */
+  trace: boolean
+  onCaptureReady: (capture: Capture) => void
   onFallback: () => void
   onBackend?: (backend: Backend) => void
   onSlow?: () => void
 }) {
+  const look = useMemo(
+    () => skyLook(config.environment, config.time),
+    [config.environment, config.time],
+  )
   return (
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
@@ -294,7 +286,16 @@ export default function Scene({
           autoRotate={autoRotate}
         />
         <InteriorProbe config={config} quality={quality} />
-        <RenderEffects quality={quality} onCaptureReady={onCaptureReady} onSlow={onSlow} />
+        <RenderEffects
+          quality={quality}
+          trace={trace}
+          look={look}
+          config={config}
+          view={view}
+          dimensions={dimensions}
+          onCaptureReady={onCaptureReady}
+          onSlow={onSlow}
+        />
         <SceneRefresh
           config={config}
           view={view}

@@ -21,9 +21,12 @@
     "jspdf": "^4.2.0",
     "lucide-react": "^0.468.0",
     "lz-string": "^1.5.0",
+    "oidn-web": "0.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "three": "^0.186.1",
+    "three-gpu-pathtracer": "0.0.27",
+    "three-mesh-bvh": "^0.9.16",
     "zod": "^4.1.12"
   },
   "devDependencies": {

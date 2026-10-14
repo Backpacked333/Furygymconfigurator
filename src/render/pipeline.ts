@@ -1,10 +1,16 @@
 import {
+  FloatType,
+  MeshBasicNodeMaterial,
+  QuadMesh,
   RenderPipeline,
+  RenderTarget,
   UnsignedByteType,
+  Vector2,
   type Camera,
   type Node,
   type PerspectiveCamera,
   type Scene,
+  type Texture,
   type WebGPURenderer,
 } from 'three/webgpu'
 import {
@@ -13,6 +19,10 @@ import {
   emissive,
   float,
   interleavedGradientNoise,
+  ivec2,
+  log,
+  luminance,
+  max,
   mix,
   mrt,
   normalView,
@@ -24,7 +34,11 @@ import {
   screenCoordinate,
   screenUV,
   smoothstep,
+  texture,
+  textureLoad,
+  uniform,
   unpackRGBToNormal,
+  uv,
   vec3,
   vec4,
   velocity,
@@ -40,6 +54,8 @@ export type Pipeline = {
   dispose: () => void
   /** Frames to keep rendering after a change so temporal AA, AO, and GI converge. */
   settleFrames: number
+  /** The latest linear HDR frame, before finishing; it holds still while nothing renders. */
+  hdr: Texture
 }
 
 /** Display-referred finishing: filmic tone mapping, a soft lens vignette, and dither. */
@@ -74,7 +90,12 @@ export function createPipeline(
   if (quality === 'lite') {
     const scenePass = pass(scene, camera, { samples: 4 })
     pipeline.outputNode = finish(scenePass)
-    return { render: () => pipeline.render(), dispose: () => pipeline.dispose(), settleFrames: 1 }
+    return {
+      render: () => pipeline.render(),
+      dispose: () => pipeline.dispose(),
+      settleFrames: 1,
+      hdr: scenePass.getTexture('output'),
+    }
   }
 
   // Opaque geometry only: glazing must not occlude the interior in AO, GI, or reprojection.
@@ -131,5 +152,115 @@ export function createPipeline(
     render: () => pipeline.render(),
     dispose: () => disposables.forEach((d) => d.dispose()),
     settleFrames: quality === 'ultra' ? 40 : 28,
+    hdr: (resolved as unknown as { getTextureNode: () => { value: Texture } }).getTextureNode()
+      .value,
+  }
+}
+
+export type TracePresent = {
+  /** Composites the traced images over the frozen raster frame and finishes them. */
+  render: (view: { from: Texture | null; to: Texture; t: number; gain: number }) => void
+  dispose: () => void
+}
+
+/**
+ * Presents path-traced images with the same finishing as the raster image. `from` (or, when it is
+ * null, the frozen raster frame) blends into `to`, so every change of image reads as the picture
+ * settling rather than a cut. Bright highlights (lamps, sun glints) get a faint lens bloom, as a
+ * camera would record them.
+ */
+export function createTracePresent(
+  renderer: WebGPURenderer,
+  raster: Texture,
+  traced: Texture,
+): TracePresent {
+  const pipeline = new RenderPipeline(renderer)
+  pipeline.outputColorTransform = false
+  const t = uniform(0)
+  const fromRaster = uniform(1)
+  const size = uniform(new Vector2(1, 1))
+  // Traced images are unfilterable float with rows top down, like screen coordinates.
+  const gain = uniform(1)
+  const pixel = ivec2(screenUV.mul(size).floor())
+  const from = textureLoad(traced, pixel)
+  const to = textureLoad(traced, pixel)
+  const before = mix(vec4(from.rgb.mul(gain), 1), texture(raster), fromRaster)
+  const after = vec4(to.rgb.mul(gain), 1)
+  const glow = bloom(after, 0.16, 0.5, 1.4)
+  const image = mix(before, after.add(vec4(glow.rgb, 0)), t)
+  pipeline.outputNode = finish(image)
+  return {
+    render: (view) => {
+      to.value = view.to
+      from.value = view.from ?? view.to
+      fromRaster.value = view.from ? 0 : 1
+      const { width, height } = view.to.image as { width: number; height: number }
+      size.value.set(width, height)
+      t.value = view.t
+      gain.value = view.gain
+      pipeline.render()
+    },
+    dispose: () => {
+      glow.dispose()
+      pipeline.dispose()
+    },
+  }
+}
+
+/**
+ * Matrix metering for HDR images: the log-average luminance over a coarse grid, as a camera
+ * meters a scene. Used to hand over from the raster frame to the traced one without a jump in
+ * brightness: the traced image keeps the exposure the viewer was looking at, while its light
+ * distribution (occlusion, bounce, sky visibility) stays physically resolved.
+ */
+export function createExposureMeter(renderer: WebGPURenderer, sample: Texture) {
+  const width = 48,
+    height = 30
+  const target = new RenderTarget(width, height, { type: FloatType, depthBuffer: false })
+  const size = uniform(new Vector2(1, 1))
+  // Material output is clamped to non-negative values, so store the log luminance offset.
+  const OFFSET = 10
+  const logLuminance = (color: Node<'vec4'>) =>
+    vec4(log(max(luminance(color.rgb), float(1e-4))).add(OFFSET), 0, 0, 1)
+  // Raster frames are filterable; traced images are unfilterable float and read texel by texel.
+  const rasterNode = texture(sample, uv())
+  const tracedNode = textureLoad(sample, ivec2(uv().mul(size).floor()))
+  const rasterMaterial = new MeshBasicNodeMaterial()
+  rasterMaterial.colorNode = logLuminance(rasterNode)
+  const tracedMaterial = new MeshBasicNodeMaterial()
+  tracedMaterial.colorNode = logLuminance(tracedNode)
+  const quad = new QuadMesh(rasterMaterial)
+  return {
+    /** Mean log luminance of `image`; `traced` selects texel reads for unfilterable floats. */
+    async measure(image: Texture, traced: boolean) {
+      const material = traced ? tracedMaterial : rasterMaterial
+      if (traced) {
+        tracedNode.value = image
+        const { width: w, height: h } = image.image as { width: number; height: number }
+        size.value.set(w, h)
+      } else rasterNode.value = image
+      quad.material = material
+      const previous = renderer.getRenderTarget()
+      renderer.setRenderTarget(target)
+      quad.render(renderer)
+      renderer.setRenderTarget(previous)
+      const pixels = (await renderer.readRenderTargetPixelsAsync(
+        target,
+        0,
+        0,
+        width,
+        height,
+      )) as Float32Array
+      const stride = pixels.length / height
+      let sum = 0
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) sum += pixels[y * stride + x * 4]
+      return sum / (width * height) - OFFSET
+    },
+    dispose() {
+      target.dispose()
+      rasterMaterial.dispose()
+      tracedMaterial.dispose()
+    },
   }
 }

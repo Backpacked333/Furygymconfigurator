@@ -123,6 +123,9 @@ export default function ConfigPanel({
   setUnit,
   quality,
   setQuality,
+  trace,
+  setTrace,
+  traceSupported,
   notify,
   onPlan,
   onSignature,
@@ -135,6 +138,10 @@ export default function ConfigPanel({
   setUnit: (u: Unit) => void
   quality: Quality
   setQuality: (q: Quality) => void
+  trace: boolean
+  setTrace: (trace: boolean) => void
+  /** Path tracing needs WebGPU compute. */
+  traceSupported: boolean
   notify: (message: string) => void
   onPlan: () => void
   onSignature: (id: SignatureId) => void
@@ -799,6 +806,16 @@ export default function ConfigPanel({
               </div>
             </div>
             <p className="muted small quality-detail">{QUALITY_DETAILS[quality]}</p>
+            <Toggle
+              label="Path-traced stills"
+              detail={
+                traceSupported
+                  ? 'When the view rests, it refines into a ray-traced image with true bounce light, soft shadows, and real reflections.'
+                  : 'Needs a browser with WebGPU. Real-time rendering stays available.'
+              }
+              checked={trace && traceSupported}
+              onChange={() => traceSupported && setTrace(!trace)}
+            />
             <div className="nature-note">
               <Leaf size={22} />
               <p>

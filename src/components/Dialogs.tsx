@@ -179,7 +179,7 @@ export function BriefDialog({
   notify,
 }: {
   config: Config
-  capture: () => string | null
+  capture: () => Promise<string | null>
   onClose: () => void
   notify: (s: string) => void
 }) {
@@ -235,7 +235,7 @@ export function BriefDialog({
         onClick={async () => {
           setBusy(true)
           try {
-            await exportBrief(config, capture(), { name, notes })
+            await exportBrief(config, await capture(), { name, notes })
             notify('Build brief downloaded. Your next step: share it with your project team.')
           } catch {
             notify('Could not create the PDF. Try again, or download the configuration from Share.')

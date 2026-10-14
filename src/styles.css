@@ -3022,3 +3022,39 @@ h3 {
     font-size: 9px;
   }
 }
+
+/* Path-tracing progress beside the live renderer label. */
+.scene-status .trace-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-left: 1px solid #a6b095;
+  padding-left: 8px;
+  margin-left: 2px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trace-meter {
+  --progress: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: conic-gradient(#536b40 calc(var(--progress) * 1turn), #c9cfbe 0);
+  flex: none;
+}
+.trace-badge.converged .trace-meter {
+  background: #536b40;
+}
+.trace-badge.preparing .trace-meter {
+  animation: trace-pulse 1.2s ease-in-out infinite;
+}
+@keyframes trace-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trace-badge.preparing .trace-meter {
+    animation: none;
+  }
+}

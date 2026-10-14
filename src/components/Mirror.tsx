@@ -1,4 +1,4 @@
-import { MeshBasicNodeMaterial, MeshStandardMaterial, type Object3D } from 'three/webgpu'
+import { Color, MeshBasicNodeMaterial, MeshStandardMaterial, type Object3D } from 'three/webgpu'
 import { color, reflector } from 'three/tsl'
 import type { Quality } from '../render/quality'
 import { useResource } from '../render/useResource'
@@ -31,6 +31,8 @@ export function Mirror({
     const m = new MeshBasicNodeMaterial()
     // Silvered float glass reflects ~90% with a faint green cast from the iron in the glass.
     m.colorNode = reflection.rgb.mul(color('#e3ebe5'))
+    // Path traced, the same silvered glass is simply a near-perfect metallic reflector.
+    m.userData.pathTrace = { color: new Color('#e3ebe5'), metalness: 1, roughness: 0.015 }
     return {
       material: m,
       target: reflection.target,

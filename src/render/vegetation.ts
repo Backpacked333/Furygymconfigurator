@@ -122,6 +122,8 @@ export function leafMaterial(biome: Biome, crownHeight: number, hedge = false) {
   m.normalNode = normalize(mix(normalView, outward, 0.72))
   // Thin leaves transmit sunlight; a small self-lit term stands in for that translucency.
   m.emissiveNode = sample.rgb.mul(foliageDaylight.mul(0.16))
+  // The path tracer reads plain properties: the atlas as an alpha-tested albedo map.
+  m.userData.pathTrace = { map }
   return m
 }
 
@@ -211,6 +213,7 @@ export function grassMaterial(base: string, tip: string) {
   const m = new MeshStandardNodeMaterial({ side: DoubleSide, roughness: 0.85 })
   const height = positionWorld.y.div(2.2).clamp(0, 1)
   m.colorNode = mix(color(base), color(tip), height.pow(0.8))
+  m.userData.pathTrace = { color: new Color(base).lerp(new Color(tip), 0.6) }
   return m
 }
 
@@ -266,6 +269,7 @@ export function palmMaterial() {
   const outward = cameraViewMatrix.mul(vec4(normalize(positionWorld.sub(crown)), 0)).xyz
   m.normalNode = normalize(mix(normalView, outward, 0.55))
   m.emissiveNode = color('#5f7a3c').mul(foliageDaylight.mul(0.12))
+  m.userData.pathTrace = { color: new Color('#5f7a3c') }
   return m
 }
 
@@ -344,7 +348,8 @@ export function flowerAtlas(blossom: string) {
 /** Alpha-tested blossom cards, normals bent to the shrub's dome like the leaves around them. */
 export function blossomMaterial(blossom: string, crownHeight: number) {
   const m = new MeshStandardNodeMaterial({ side: DoubleSide, roughness: 0.75, metalness: 0 })
-  const sample = texture(flowerAtlas(blossom), uv())
+  const map = flowerAtlas(blossom)
+  const sample = texture(map, uv())
   m.colorNode = sample.rgb
   m.opacityNode = sample.a
   m.alphaTest = 0.4
@@ -352,6 +357,7 @@ export function blossomMaterial(blossom: string, crownHeight: number) {
   const outward = cameraViewMatrix.mul(vec4(normalize(positionWorld.sub(crown)), 0)).xyz
   m.normalNode = normalize(mix(normalView, outward, 0.8))
   m.emissiveNode = sample.rgb.mul(foliageDaylight.mul(0.1))
+  m.userData.pathTrace = { map }
   return m
 }
 

@@ -7,6 +7,8 @@ import {
   MeshStandardMaterial,
   MeshStandardNodeMaterial,
   Object3D,
+  PlaneGeometry,
+  Vector2,
 } from 'three/webgpu'
 import {
   color,
@@ -41,6 +43,8 @@ import { Backyard, Campus, Residences } from './Surroundings'
 
 // --- Ground -----------------------------------------------------------------------------
 
+const GROUND_SIZE = 700
+
 /**
  * Scanned ground with anti-tiling: two scales of the same scan are blended by low-frequency noise
  * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
@@ -68,6 +72,15 @@ export function Ground({ set, size, tint }: { set: TextureSet; size: number; tin
         .mul(macro)
       m.roughnessNode = mix(texture(maps.arm, uvA).g, texture(maps.arm, uvB).g, blend)
       m.normalNode = normalMap(texture(maps.normal, uvA), vec2(0.8, 0.8))
+      // The path tracer samples the scan through the plane's UVs, which are laid out in feet.
+      m.userData.pathTrace = {
+        map: maps.albedo,
+        normalMap: maps.normal,
+        roughnessMap: maps.arm,
+        color: new Color(tint).multiplyScalar(1.05),
+        roughness: 1,
+        normalScale: new Vector2(0.8, 0.8),
+      }
       created = m
       setGroundMaterial(m)
     })
@@ -78,15 +91,23 @@ export function Ground({ set, size, tint }: { set: TextureSet; size: number; tin
   }, [set, size, tint])
   const fallback = useMemo(() => new MeshStandardMaterial({ color: tint, roughness: 1 }), [tint])
   useEffect(() => () => fallback.dispose(), [fallback])
+  const plane = useMemo(() => {
+    const g = new PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 1, 1)
+    // UVs in feet, like every library surface (the raster material maps by world position).
+    const uvs = g.getAttribute('uv')
+    for (let i = 0; i < uvs.count; i++)
+      uvs.setXY(i, uvs.getX(i) * GROUND_SIZE, uvs.getY(i) * GROUND_SIZE)
+    return g
+  }, [])
+  useEffect(() => () => plane.dispose(), [plane])
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, -0.14, 0]}
       receiveShadow
       material={groundMaterial ?? fallback}
-    >
-      <planeGeometry args={[700, 700, 1, 1]} />
-    </mesh>
+      geometry={plane}
+    />
   )
 }
 
