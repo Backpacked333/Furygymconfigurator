@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   PMREMGenerator,
@@ -14,7 +14,7 @@ import {
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setInteriorEnvironment } from '../render/materials'
 import type { Quality } from '../render/quality'
-import type { PresentationStore } from '../lib/presentation'
+import type { AssetReadiness, PresentationStore } from '../lib/presentation'
 
 /** Changes arriving faster than this (slider drags) are captured once, after they stop. */
 const DEBOUNCE_MS = 250
@@ -30,11 +30,13 @@ export function InteriorProbe({
   config,
   quality,
   presentation,
+  assets,
   onError,
 }: {
   config: Config
   quality: Quality
   presentation?: PresentationStore
+  assets?: AssetReadiness
   onError?: (error: unknown) => void
 }) {
   const { gl, scene, invalidate } = useThree()
@@ -45,41 +47,60 @@ export function InteriorProbe({
     current: number
     passes: number
     ready: boolean
+    failed: boolean
+    generation: number | undefined
     timer: ReturnType<typeof setTimeout> | null
   } | null>(null)
   const center = useRef(new Vector3())
   center.current.set(0, productHeight(config) * 0.52, 0.3)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const created = {
       generator: new PMREMGenerator(renderer),
       targets: [null, null] as ({ target: RenderTarget; size: number } | null)[],
       current: 0,
       passes: 0,
       ready: false,
+      failed: false,
+      generation: presentation?.get().token.generation,
       timer: null as ReturnType<typeof setTimeout> | null,
     }
     state.current = created
     return () => {
       if (created.timer !== null) clearTimeout(created.timer)
+      created.timer = null
+      if (presentation) presentation.probePending = false
       setInteriorEnvironment(null)
       created.targets.forEach((t) => t?.target.dispose())
       created.generator.dispose()
       if (state.current === created) state.current = null
     }
-  }, [renderer])
+  }, [renderer, presentation])
 
   // Re-capture after any configuration or lighting change, once textures settle.
-  useEffect(() => {
-    const schedule = () => {
-      const probe = state.current
-      if (!probe) return
+  useLayoutEffect(() => {
+    const probe = state.current
+    if (!probe) return
+    let suspended = false
+    const available = () =>
+      !probe.failed &&
+      (!presentation ||
+        (presentation.get().stage !== 'lost' &&
+          presentation.get().token.generation === probe.generation))
+    const cancelWakeUp = () => {
       if (probe.timer !== null) clearTimeout(probe.timer)
-      probe.passes = 2
+      probe.timer = null
       probe.ready = false
-      if (presentation) presentation.probePending = true
+    }
+    const schedule = () => {
+      cancelWakeUp()
+      suspended = !available()
+      probe.passes = 2
+      if (presentation) presentation.probePending = !suspended
+      if (suspended || (assets?.pending ?? 0) > 0) return
       probe.timer = setTimeout(() => {
         probe.timer = null
+        if (state.current !== probe || !available()) return
         probe.ready = true
         invalidate()
       }, DEBOUNCE_MS)
@@ -88,15 +109,43 @@ export function InteriorProbe({
     const stop = onMaterialsChanged((change) => {
       if (change === 'textures') schedule()
     })
+    const stopPresentation = presentation?.subscribe(() => {
+      if (!available()) {
+        suspended = true
+        cancelWakeUp()
+        presentation.probePending = false
+      } else if (suspended) schedule()
+    })
     return () => {
       stop()
-      if (state.current?.timer != null) clearTimeout(state.current.timer)
+      stopPresentation?.()
+      cancelWakeUp()
     }
-  }, [config, quality, invalidate, presentation])
+  }, [
+    config,
+    quality,
+    assets?.pending,
+    assets?.revision,
+    assets?.degraded,
+    invalidate,
+    presentation,
+    renderer,
+  ])
 
   useFrame(() => {
     const probe = state.current
-    if (!probe || probe.passes <= 0 || !probe.ready || presentation?.capturing) return
+    if (
+      !probe ||
+      probe.failed ||
+      probe.passes <= 0 ||
+      !probe.ready ||
+      (assets?.pending ?? 0) > 0 ||
+      presentation?.capturing ||
+      (presentation &&
+        (presentation.get().stage === 'lost' ||
+          presentation.get().token.generation !== probe.generation))
+    )
+      return
     const next = 1 - probe.current
     // Planar reflectors keep a render target per camera and must not render into the six capture
     // cameras. Transmissive surfaces sample a copy of the frame being drawn, which here is the
@@ -117,22 +166,36 @@ export function InteriorProbe({
         light.shadow.needsUpdate = true
       }
     })
-    let target: RenderTarget
+    let target: RenderTarget | undefined
     const size = quality === 'lite' ? 64 : 128
     const previous = probe.targets[next]
-    const rendererState = RendererUtils.saveRendererState(renderer)
     try {
-      target = probe.generator.fromScene(scene, 0, 0.05, 400, {
-        size,
-        position: center.current,
-        renderTarget: previous?.size === size ? previous.target : undefined,
-      })
+      const rendererState = RendererUtils.saveRendererState(renderer)
+      try {
+        target = probe.generator.fromScene(scene, 0, 0.05, 400, {
+          size,
+          position: center.current,
+          renderTarget: previous?.size === size ? previous.target : undefined,
+        })
+      } finally {
+        RendererUtils.restoreRendererState(renderer, rendererState)
+      }
     } catch (error) {
+      if (target && target !== previous?.target) target.dispose()
       probe.passes = 0
+      probe.ready = false
+      probe.failed = true
+      if (presentation) {
+        presentation.probePending = false
+        presentation.set({
+          ...presentation.get(),
+          stage: 'lost',
+          reasons: ['Interior lighting capture failed'],
+        })
+      }
       onError?.(error)
       return
     } finally {
-      RendererUtils.restoreRendererState(renderer, rendererState)
       hidden.forEach((object) => (object.visible = true))
       shadows.forEach(({ shadow, autoUpdate }) => (shadow.autoUpdate = autoUpdate))
     }
