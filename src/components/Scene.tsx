@@ -19,7 +19,13 @@ import { RenderEffects } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
-import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
+import {
+  backendOf,
+  createRenderer,
+  deviceProfile,
+  type Backend,
+  type Quality,
+} from '../render/renderer'
 import { setMaxAnisotropy } from '../render/materials'
 import { canRestoreCamera, transitionFraction, type CameraMemoryRef } from '../lib/camera'
 import {
@@ -29,7 +35,7 @@ import {
   type PresentationStore,
 } from '../lib/presentation'
 import type { CaptureRegistration } from '../lib/capture'
-import type { QualityMode } from '../render/quality'
+import type { DeviceProfile, QualityMode } from '../render/quality'
 
 class GraphicsBoundary extends Component<
   {
@@ -413,6 +419,7 @@ export type SceneProps = {
   onCaptureReady?: (capture: () => string) => void
   onFallback: () => void
   onBackend?: (backend: Backend) => void
+  onDeviceProfile?: (profile: DeviceProfile) => void
   onSlow?: () => void
   revision?: number
   isPreviewing?: boolean
@@ -439,6 +446,7 @@ function SceneCanvas({
   onCaptureReady,
   onFallback,
   onBackend,
+  onDeviceProfile,
   onSlow,
   revision,
   isPreviewing = false,
@@ -557,6 +565,7 @@ function SceneCanvas({
         }}
         onCreated={({ gl }) => {
           onBackend?.(backendOf(gl as unknown as WebGPURenderer))
+          onDeviceProfile?.(deviceProfile(gl as unknown as WebGPURenderer))
           onGraphicsStatus?.('ready')
         }}
       >
