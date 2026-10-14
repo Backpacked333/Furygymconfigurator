@@ -3,7 +3,6 @@ import {
   SKY_PRESETS,
   SOLAR,
   horizonRadiance,
-  lightingAt,
   nightAt,
   noise,
   skyRadiance,
@@ -19,24 +18,6 @@ describe('instancing noise', () => {
       expect(noise(i, 7)).toBe(noise(i, 7))
     }
     expect(noise(0, 7)).not.toBe(noise(1, 7))
-  })
-})
-
-describe('time-of-day lighting', () => {
-  it('transitions continuously through dawn, golden hour, and evening', () => {
-    let previous = lightingAt(6)
-    for (let time = 6; time <= 21; time += 0.01) {
-      const current = lightingAt(time)
-      for (const key of ['daylight', 'warmth', 'elevation'] as const) {
-        expect(current[key]).toBeGreaterThanOrEqual(0)
-        expect(current[key]).toBeLessThanOrEqual(1)
-        expect(Math.abs(current[key] - previous[key])).toBeLessThan(0.02)
-      }
-      previous = current
-    }
-    expect(lightingAt(12).daylight).toBe(1)
-    expect(lightingAt(21).daylight).toBe(0)
-    expect(lightingAt(18).warmth).toBeGreaterThan(lightingAt(12).warmth)
   })
 })
 

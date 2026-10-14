@@ -12,7 +12,7 @@ import {
   Vector3,
 } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
 /**
  * Every geometry in the scene carries UVs measured in feet, so one shared texture per material
@@ -173,7 +173,7 @@ export function custom<T extends BufferGeometry>(key: string, create: () => T) {
   return cached(`custom:${key}`, create)
 }
 
-export { mergeGeometries, mergeVertices }
+export { mergeGeometries }
 
 /**
  * ISO container trapezoidal corrugation (278 mm pitch, 36 mm deep): a panel whose outer face is

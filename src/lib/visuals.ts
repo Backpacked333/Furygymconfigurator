@@ -11,12 +11,6 @@ export function smoothstep(a: number, b: number, x: number) {
   return t * t * (3 - 2 * t)
 }
 
-export function lightingAt(time: number) {
-  const daylight = smoothstep(6, 8, time) * (1 - smoothstep(17, 20.5, time))
-  const warmth = smoothstep(15, 18.5, time) * (1 - smoothstep(19, 21, time))
-  return { daylight, warmth, elevation: Math.max(0.1, Math.sin(((time - 6) / 15) * Math.PI)) }
-}
-
 /** Artistic summer day: sunrise at 06:00, sunset at 20:30, 60° noon elevation. */
 export const SOLAR = { sunrise: 6, sunset: 20.5, maxElevation: (60 * Math.PI) / 180 }
 

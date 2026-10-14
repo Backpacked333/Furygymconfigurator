@@ -213,16 +213,7 @@ export function setInteriorEnvironment(texture: Texture | null) {
   changed('probe')
 }
 
-export function isInteriorMaterial(m: unknown) {
-  return interiorMaterials.has(m as MeshStandardMaterial)
-}
-
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */
 export function textureMaps(set: TextureSet) {
   return load(set)
-}
-
-/** Warm the cache for sets the first view needs, before meshes ask for them. */
-export function preload(list: TextureSet[]) {
-  return Promise.all(list.map(load))
 }

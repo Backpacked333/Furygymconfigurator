@@ -49,10 +49,6 @@ export function place(parts: Part[], position?: V3, rotation?: V3, scale?: V3): 
   return parts.map((p) => ({ ...p, matrix: m.clone().multiply(p.matrix) }))
 }
 
-export function mirrorX(parts: Part[]) {
-  return place(parts, [0, 0, 0], [0, 0, 0], [-1, 1, 1])
-}
-
 export type Batch = { geometry: BufferGeometry; material: Material; shadow: boolean }
 
 /**
