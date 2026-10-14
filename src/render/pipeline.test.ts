@@ -29,6 +29,7 @@ const mock = vi.hoisted(() => {
       kind,
       dispose: vi.fn(() => disposed.push(kind)),
       setSize: vi.fn(),
+      _separableBlurMaterials: [{}],
       render: vi.fn(() => {
         if (settings.renderFail) throw new Error('Render failed')
       }),
@@ -125,6 +126,17 @@ describe('pipeline resource ownership', () => {
     pipeline.resize(3840, 2160)
     expect(history.setSize).toHaveBeenCalledTimes(3)
     pipeline.dispose()
+  })
+  it('shrinks every owned pass/effect/input buffer immediately after large capture', () => {
+    const pipeline = createPipeline(renderer, scene, camera, 'ultra')
+    pipeline.resize(3840, 2160)
+    pipeline.resize(1600, 900)
+    pipeline.resize(1600, 900)
+    for (const resource of mock.resources.filter((r) => !['pipeline', 'traa'].includes(r.kind))) {
+      expect(resource.setSize).toHaveBeenCalledTimes(2)
+      expect(resource.setSize).toHaveBeenLastCalledWith(1600, 900)
+    }
+    expect(mock.resources.find((r) => r.kind === 'traa')!.setSize).toHaveBeenLastCalledWith(1, 1)
   })
   it('restores renderer and camera view state even on render submission error', () => {
     const pipeline = createPipeline(renderer, scene, camera, 'high')

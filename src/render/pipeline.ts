@@ -73,6 +73,12 @@ export function createPipeline(
   quality: Quality,
 ): Pipeline {
   const scope = createDisposalScope()
+  const resizers: ((width: number, height: number) => void)[] = []
+  const ownSized = <T extends { dispose(): void }>(resource: T): T => {
+    scope.own(resource)
+    resizers.push((w, h) => (resource as T & { setSize(w: number, h: number): void }).setSize(w, h))
+    return resource
+  }
   try {
     const pipeline = scope.own(new RenderPipeline(renderer))
     pipeline.outputColorTransform = false
@@ -102,6 +108,7 @@ export function createPipeline(
         if (w !== width || h !== height) {
           width = w
           height = h
+          resizers.forEach((resize) => resize(w, h))
           resetHistory()
         }
       },
@@ -109,13 +116,13 @@ export function createPipeline(
     })
 
     if (quality === 'lite') {
-      const scenePass = scope.own(pass(scene, camera, { samples: 4 }))
+      const scenePass = ownSized(pass(scene, camera, { samples: 4 }))
       pipeline.outputNode = finish(scenePass)
       return result(1)
     }
 
     // Opaque geometry only: glazing must not occlude the interior in AO, GI, or reprojection.
-    const prePass = scope.own(pass(scene, camera))
+    const prePass = ownSized(pass(scene, camera))
     prePass.transparent = false
     prePass.setMRT(mrt({ output: packNormalToRGB(normalView), velocity }))
     prePass.getTexture('output').type = UnsignedByteType
@@ -123,7 +130,7 @@ export function createPipeline(
     const preVelocity = prePass.getTextureNode('velocity')
     const preNormal = sample((uv) => unpackRGBToNormal(prePass.getTextureNode().sample(uv)))
 
-    const occlusion = scope.own(ao(preDepth, preNormal, camera))
+    const occlusion = ownSized(ao(preDepth, preNormal, camera))
     occlusion.useTemporalFiltering = true
     occlusion.resolutionScale = 0.5
     occlusion.radius.value = 0.9
@@ -131,19 +138,27 @@ export function createPipeline(
     occlusion.distanceExponent.value = 1.5
     occlusion.samples.value = 16
 
-    const scenePass = scope.own(pass(scene, camera))
+    const scenePass = ownSized(pass(scene, camera))
     scenePass.contextNode = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r)
     scenePass.setMRT(
       mrt(quality === 'ultra' ? { output, emissive, diffuseColor } : { output, emissive }),
     )
     const color = scenePass.getTextureNode('output')
     const glow = scope.own(bloom(scenePass.getTextureNode('emissive'), 0.55, 0.45, 0.05))
+    resizers.push((w, h) => {
+      // r186 creates blur uniforms in setup, not the constructor (unused in debug views).
+      if (
+        (glow as typeof glow & { _separableBlurMaterials: unknown[] })._separableBlurMaterials
+          .length
+      )
+        glow.setSize(w, h)
+    })
 
     let lit: Node<'vec4'> = color.add(vec4(glow.rgb, 0))
     if (quality === 'ultra') {
       const diffuseTexture = scenePass.getTexture('diffuseColor')
       diffuseTexture.type = UnsignedByteType
-      const gi = scope.own(ssgi(color, preDepth, preNormal, camera as PerspectiveCamera))
+      const gi = ownSized(ssgi(color, preDepth, preNormal, camera as PerspectiveCamera))
       gi.useTemporalFiltering = true
       gi.sliceCount.value = 2
       gi.stepCount.value = 10
@@ -155,7 +170,7 @@ export function createPipeline(
     }
 
     // traa() converts a compound node to RTT internally but does not own/dispose that RTT.
-    const beauty = scope.own(rtt(lit))
+    const beauty = ownSized(rtt(lit))
     const resolved = scope.own(traa(beauty, preDepth, preVelocity, camera))
     // r186 restarts history on a size mismatch; no public reset method exists.
     resetHistory = () =>
