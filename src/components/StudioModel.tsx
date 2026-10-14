@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { ExtrudeGeometry, Path, Shape } from 'three'
 import { RoundedBox } from '@react-three/drei'
-import { FINISHES, FLOORS, type Config } from '../lib/config'
+import { FINISHES, FLOORS, openingGeometry, productHeight, type Config } from '../lib/config'
 import { Equipment } from './Equipment'
 
 function roundedPath<T extends Shape | Path>(
@@ -98,20 +98,100 @@ function Rail({
     </group>
   )
 }
+function ContainerShell({ config: c, color }: { config: Config; color: string }) {
+  const L = c.length,
+    H = productHeight(c),
+    opening = openingGeometry(c)
+  const left = opening.center - opening.width / 2,
+    right = opening.center + opening.width / 2
+  return (
+    <group>
+      <Box p={[0, H + 0.15, 0]} s={[L, 0.3, 8]} color={color} metal={0.35} />
+      {[-1, 1].map((side) => (
+        <group key={side}>
+          <Box
+            p={[side * (L / 2 - 0.16), H / 2 + 0.3, 0]}
+            s={[0.32, H, 8]}
+            color={color}
+            metal={0.3}
+          />
+          {Array.from({ length: 14 }, (_, i) => (
+            <Box
+              key={i}
+              p={[(side * L) / 2, H / 2 + 0.3, -3.6 + i * 0.55]}
+              s={[0.08, H - 0.8, 0.14]}
+              color={color}
+              metal={0.3}
+            />
+          ))}
+        </group>
+      ))}
+      <Box p={[(-L / 2 + left) / 2, H / 2 + 0.3, 3.86]} s={[left + L / 2, H, 0.28]} color={color} />
+      <Box
+        p={[(right + L / 2) / 2, H / 2 + 0.3, 3.86]}
+        s={[L / 2 - right, H, 0.28]}
+        color={color}
+      />
+      {Array.from({ length: L * 2 }, (_, i) => -L / 2 + 0.25 + i * 0.5)
+        .filter((x) => x < left - 0.12 || x > right + 0.12)
+        .map((x) => (
+          <Box
+            key={x}
+            p={[x, H / 2 + 0.3, 4.02]}
+            s={[0.13, H - 0.8, 0.08]}
+            color={color}
+            metal={0.3}
+          />
+        ))}
+      <Box p={[opening.center, H - 0.15, 3.87]} s={[opening.width, 0.9, 0.32]} color={color} />
+      {[left, right].map((x) => (
+        <Box
+          key={x}
+          p={[x, H / 2 + 0.25, 3.87]}
+          s={[0.16, H - 0.7, 0.42]}
+          color={c.integratedFinish ? color : '#838a80'}
+        />
+      ))}
+      {c.containerOpening === 'roll-up' && (
+        <Box
+          p={[opening.center, H - 0.1, 3.6]}
+          s={[10, 0.65, 0.85]}
+          color={c.integratedFinish ? color : '#838a80'}
+          metal={0.5}
+        />
+      )}
+      {Array.from({ length: L }, (_, i) => (
+        <Box
+          key={i}
+          p={[-L / 2 + i + 0.5, H + 0.32, 0]}
+          s={[0.08, 0.045, 7.6]}
+          color={color}
+          metal={0.3}
+        />
+      ))}
+    </group>
+  )
+}
 export function StudioModel({ config: c, cutaway = false }: { config: Config; cutaway?: boolean }) {
   const L = c.length,
+    H = productHeight(c),
     finish = FINISHES.find((f) => f.id === c.finish)!.color,
     floor = FLOORS.find((f) => f.id === c.flooring)!.color
   const n = L === 20 ? 6 : 12
   return (
     <group>
-      {!cutaway && <Portal length={L} depth={8} z={-4} color={finish} />}
+      {!cutaway &&
+        (c.family === 'studio' ? (
+          <Portal length={L} depth={8} z={-4} color={finish} />
+        ) : (
+          <ContainerShell config={c} color={finish} />
+        ))}
       {cutaway &&
         [-1, 1].map((side) => (
           <Box key={side} p={[side * (L / 2 - 0.18), 3, 0]} s={[0.36, 5.4, 8]} color={finish} />
         ))}
-      <Box p={[0, 5.2, -3.86]} s={[L - 1.2, 9.6, 0.25]} color={finish} />
-      <Box p={[0, 5.1, -3.69]} s={[L - 1.3, 8.8, 0.1]} color="#d1c6af" />
+      <Box p={[0, H / 2 + 0.2, -3.86]} s={[L - 1.2, H - 0.4, 0.25]} color={finish} />
+      <Box p={[0, H / 2 + 0.1, -3.69]} s={[L - 1.3, H - 1.2, 0.1]} color="#d1c6af" />
       <Box p={[0, 0.65, 0]} s={[L - 0.6, 0.5, 7.7]} color={finish} />
       <Box p={[0, 0.92, 0]} s={[L - 1.25, 0.08, 7.15]} color={floor} roughness={0.95} />
       {c.flooring === 'oak' &&
@@ -141,7 +221,7 @@ export function StudioModel({ config: c, cutaway = false }: { config: Config; cu
             />
           )),
         )}
-      {!cutaway && (
+      {!cutaway && c.family === 'studio' && (
         <>
           {Array.from({ length: n - 1 }, (_, i) => (
             <Box
@@ -180,7 +260,7 @@ export function StudioModel({ config: c, cutaway = false }: { config: Config; cu
       )}
       {c.lights && (
         <>
-          <mesh position={[0, 9.6, -3.5]}>
+          <mesh position={[0, H - 0.4, -3.5]}>
             <boxGeometry args={[L - 1.5, 0.06, 0.07]} />
             <meshStandardMaterial color="#ffe1a1" emissive="#ffc57a" emissiveIntensity={3} />
           </mesh>

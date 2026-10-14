@@ -36,12 +36,16 @@ import {
   encodeConfig,
   estimate,
   money,
+  productName,
+  productHeight,
+  setFamily,
   packageItems,
   type Config,
   type Unit,
   type View,
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
+import { productFamily } from './lib/products'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
@@ -110,7 +114,7 @@ export default function App() {
   const template = (id: 'athlete' | 'retreat' | 'flow') => {
     if (
       !window.confirm(
-        'Apply this signature build? This replaces your current design. You can undo the change.',
+        'Apply this concept layout in your selected product family? This replaces your current design with a 20-foot example. You can undo the change.',
       )
     )
       return
@@ -135,10 +139,10 @@ export default function App() {
         time: 9,
       },
     }
-    setConfig(templates[id])
+    setConfig(setFamily(templates[id], config.family))
     setView('exterior')
     setReset((r) => r + 1)
-    notify('Signature build applied. Every detail is yours to change.')
+    notify('Concept layout applied. This is not an official Fury package.')
   }
   const photo = () => {
     const image = capture()
@@ -148,11 +152,11 @@ export default function App() {
     }
     const a = document.createElement('a')
     a.href = image
-    a.download = `Fury-S${config.length}-${config.finish}.png`
+    a.download = `Fury-${config.family}-${config.length}-${config.finish}.png`
     a.click()
-    notify('Your studio image is downloaded. Concept rendering, not manufacturer photography.')
+    notify('Your gym image is downloaded. Concept rendering, not manufacturer photography.')
   }
-  const total = estimate(config).total,
+  const startingPrice = estimate(config).startingPrice,
     finish = FINISHES.find((f) => f.id === config.finish)!
   return (
     <div
@@ -169,7 +173,7 @@ export default function App() {
             e.preventDefault()
             setDialog('help')
           }}
-          aria-label="Fury studio information"
+          aria-label="Fury gym information"
         >
           <svg viewBox="0 0 30 30" aria-hidden="true">
             <path d="M3 5h24l-4 6H10v4h11l-4 6h-7v6H3z" />
@@ -177,13 +181,13 @@ export default function App() {
           <span>FURY</span>
           <span className="brand-divider" />
           <small>
-            STUDIO
+            GYM
             <br />
             CONFIGURATOR
           </small>
         </a>
         <div className="header-center">
-          <span className="live-dot" /> YOUR STUDIO. YOUR WAY.
+          <span className="live-dot" /> YOUR SPACE. YOUR WAY.
         </div>
         <nav className="header-actions" aria-label="Build actions">
           <button onClick={() => setDialog('library')}>
@@ -206,7 +210,7 @@ export default function App() {
       <main className="workspace">
         <section
           className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
-          aria-label="Studio visualization"
+          aria-label="Gym visualization"
         >
           {view === 'plan' ? (
             <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
@@ -234,10 +238,11 @@ export default function App() {
           )}
           <div className="stage-heading">
             <span className="eyebrow">
-              <span className="small-line" /> THE S-SERIES COLLECTION
+              <span className="small-line" />{' '}
+              {config.family === 'studio' ? 'THE S-SERIES COLLECTION' : 'CONTAINER GYMS'}
             </span>
             <h1>
-              S-{config.length}
+              {config.family === 'studio' ? 'S' : 'C'}-{config.length}
               <span>
                 Space to
                 <br />
@@ -249,8 +254,13 @@ export default function App() {
               <i />
               {finish.name}
               <i />
-              Your personal studio
+              {distance(productHeight(config), unit)} high
             </div>
+            {config.studioLayout !== 'single' && (
+              <p className="custom-preview-note">
+                Custom project requested · Single reference unit shown
+              </p>
+            )}
           </div>
           <div className="view-switch" role="group" aria-label="Camera views">
             {(['exterior', 'interior', 'plan'] as const).map((v, i) => {
@@ -339,7 +349,7 @@ export default function App() {
               <div className="scene-status">
                 <span className="status-dot" />
                 <strong>LIVE 3D</strong>
-                <span>Concept visualization</span>
+                <span>Concept visualization · Not manufacturer CAD</span>
               </div>
               <div className="scene-hint">
                 {view === 'interior' ? 'Drag to look around' : 'Drag to orbit · Scroll to explore'}
@@ -370,7 +380,7 @@ export default function App() {
             aria-controls="configuration"
           >
             <SlidersHorizontal size={16} />
-            {mobilePanel ? 'Hide options' : 'Customize studio'}
+            {mobilePanel ? 'Hide options' : 'Customize gym'}
             {mobilePanel ? <Minus size={14} /> : <Plus size={14} />}
           </button>
         </section>
@@ -395,9 +405,12 @@ export default function App() {
       </main>
       <footer className="summary-bar">
         <div className="summary-product">
-          <span className="summary-monogram">S{config.length}</span>
+          <span className="summary-monogram">
+            {config.family === 'studio' ? 'S' : 'C'}
+            {config.length}
+          </span>
           <div>
-            <strong>Your S-{config.length} Studio</strong>
+            <strong>Your {productName(config)}</strong>
             <span>
               {distance(config.length, unit)} × {distance(8, unit)} · {finish.name} ·{' '}
               {config.items.length} equipment items
@@ -407,15 +420,15 @@ export default function App() {
         <div className="summary-estimate">
           <button onClick={() => setDialog('estimate')}>
             <span>
-              ILLUSTRATIVE ESTIMATE <InfoIcon />
+              {productFamily(config.family).shortName.toUpperCase()} FAMILY STARTING AT <InfoIcon />
             </span>
             <strong>
-              {money(total)}
+              {money(startingPrice)}
               <small>USD</small>
               <ChevronDown size={15} />
             </strong>
           </button>
-          <small>Concept pricing · excludes site costs & tax</small>
+          <small>Selected build: quote required</small>
         </div>
         <button className="primary brief-cta" onClick={() => setDialog('brief')}>
           <span>
@@ -449,7 +462,7 @@ export default function App() {
       )}
       {dialog === 'help' && (
         <Modal
-          title="A studio without the guesswork."
+          title="A clearer starting point."
           subtitle="Explore. Personalize. Bring your vision into focus."
           onClose={close}
         >
@@ -482,9 +495,10 @@ export default function App() {
           <div className="notice">
             <CircleHelp size={18} />
             <p>
-              This is a concept design tool, not a purchasing or engineering system. Pricing,
-              equipment, materials, and geometry are illustrative. No sales requests, deposits, or
-              personal data are transmitted.
+              This is a concept design tool, not a purchasing or engineering system. Family starting
+              prices are published; configured totals require a quote. Equipment, materials, and
+              geometry are illustrative. No sales requests, deposits, or personal data are
+              transmitted.
             </p>
           </div>
           <p className="muted small">
@@ -497,14 +511,14 @@ export default function App() {
             onClick={() => {
               if (
                 window.confirm(
-                  'Reset the current studio to the original design? Saved builds will not be deleted.',
+                  'Reset to the original Studio concept? Saved builds will not be deleted.',
                 )
               ) {
                 setConfig(structuredClone(DEFAULT_CONFIG))
                 setView('exterior')
                 setReset((r) => r + 1)
                 close()
-                notify('Your studio is reset. Undo is available.')
+                notify('Your design is reset. Undo is available.')
               }
             }}
           >

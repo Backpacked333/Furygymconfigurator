@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { ContactShadows, Environment, Html, Lightformer, OrbitControls } from '@react-three/drei'
 import { Color, Euler, InstancedMesh, Object3D, PerspectiveCamera, Vector3 } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { distance, type Config, type Unit, type View } from '../lib/config'
+import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
 import { StudioModel } from './StudioModel'
 
 class GraphicsBoundary extends Component<
@@ -18,7 +18,7 @@ class GraphicsBoundary extends Component<
     if (this.state.failed)
       return (
         <div className="graphics-fallback">
-          <strong>Your studio is still here.</strong>
+          <strong>Your design is still here.</strong>
           <p>
             3D graphics aren’t available in this browser. All configuration, pricing, and floor-plan
             tools still work.
@@ -174,7 +174,7 @@ function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
         <span className="dimension-label">{distance(8, unit)}</span>
       </Html>
       <Html position={[c.length / 2 + 0.3, 6, -4]} center>
-        <span className="dimension-label">{distance(10, unit)} high</span>
+        <span className="dimension-label">{distance(productHeight(c), unit)} high</span>
       </Html>
     </group>
   )
@@ -191,6 +191,8 @@ function CameraRig({
   autoRotate: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
+  const shellHeight = productHeight(c)
+  const hasOutdoor = c.addons.deck || c.addons.gazebo || c.addons.stairs
   const controls = useRef<OrbitControlsImpl>(null)
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
@@ -209,17 +211,13 @@ function CameraRig({
       pitch.current = Math.asin(direction.y)
     } else {
       const width = c.length + (c.addons.stairs ? 6 : 2),
-        depth = c.addons.deck ? 17 : 10
+        depth = hasOutdoor ? 17 : 10
       const v = (p.fov * Math.PI) / 360,
         h = Math.atan((Math.tan(v) * size.width) / size.height)
-      const height = c.addons.roof ? 14 : 10
+      const height = c.addons.roof || c.addons.stairs ? 14 : shellHeight
       const radius = Math.sqrt(width * width + depth * depth + height * height) / 2
       const d = (radius / Math.sin(Math.min(v, h))) * 0.94
-      targetLook.current.set(
-        c.addons.stairs ? 2 : 0,
-        c.addons.roof ? 5 : 3.5,
-        c.addons.deck ? 2.2 : 0,
-      )
+      targetLook.current.set(c.addons.stairs ? 2 : 0, c.addons.roof ? 5 : 3.5, hasOutdoor ? 2.2 : 0)
       targetPosition.current
         .copy(targetLook.current)
         .addScaledVector(new Vector3(0.52, 0.3, 0.8).normalize(), d)
@@ -231,7 +229,8 @@ function CameraRig({
     size.width,
     size.height,
     c.length,
-    c.addons.deck,
+    shellHeight,
+    hasOutdoor,
     c.addons.roof,
     c.addons.stairs,
     view,
@@ -292,7 +291,7 @@ function CameraRig({
     el.tabIndex = 0
     el.setAttribute(
       'aria-label',
-      'Interactive studio. Arrow keys rotate; plus and minus zoom. Interior view: arrows look around.',
+      'Interactive gym. Arrow keys rotate; plus and minus zoom. Interior view: arrows look around.',
     )
     el.addEventListener('pointerdown', down)
     el.addEventListener('pointermove', move)

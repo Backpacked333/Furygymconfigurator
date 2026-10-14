@@ -1,8 +1,21 @@
-# FURY / S-Series Studio
+# FURY / Container Gyms + S-Series Studios
 
-A laptop-first, architectural-style configurator for a personal fitness and recovery studio, designed around 12–16-inch displays (roughly 1280–1728 CSS pixels wide). Explore a procedural 3D studio, configure its shell and outdoor spaces, arrange equipment in a collision-aware floor plan, and take away a shareable design and PDF brief. Mobile has a basic responsive fallback but is not the primary experience.
+A laptop-first configurator built for [Fury Co Gyms](https://www.furycogyms.com/), designed around 12–16-inch displays (roughly 1280–1728 CSS pixels wide). Explore separate Container Gym and S-Series Studio families, choose published options, arrange generic equipment in a collision-aware floor plan, and take away a shareable concept design and PDF inquiry brief. Mobile has a basic responsive fallback but is not the primary experience.
 
-**This is a working concept configurator, not a live purchasing system.** Prices are illustrative, geometry is not manufacturer CAD, and equipment and working clearances are generic. No quotes, customer details, payments, or sales emails are sent anywhere.
+**This is a working concept configurator, not a live purchasing system.** Published family starting prices are source-backed, but every selected build requires a quote. Geometry is not manufacturer CAD; finish palettes, floor looks, equipment, and working clearances are generic visual studies. No customer details, payments, or sales emails are sent anywhere. The official inquiry link opens Fury's website without transferring this configuration.
+
+## Official product sources
+
+Reviewed **October 14, 2026**. `src/lib/products.ts` contains the source URLs, nominal heights, features, starting prices, and published option names. These are a dated snapshot, not a live pricing feed.
+
+| Family                                                            | Nominal exterior sizes                     | Published family starting price | Published choices                                                                                                 |
+| ----------------------------------------------------------------- | ------------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [Container Gyms](https://www.furycogyms.com/gym-design/container) | 20′ or 40′ L × 8′ W × 9′6″ H; 160 / 320 SF | $20,000 USD                     | 10′ roll-up door; center, partial, full open-side; integrated exterior finish                                     |
+| [S-Series Studios](https://www.furycogyms.com/gym-design/studio)  | 20′ or 40′ L × 8′ W × 10′ H; 160 / 320 SF  | $35,000 USD                     | Front deck, gazebo, rooftop deck, exterior stairs; connected, double-wide, multi-level, stacked, custom inquiries |
+
+Fury does **not** publish separate 20′/40′ prices or a full option price list on these pages. Starting prices therefore never scale by length or become configured totals. `estimate()` returns `total: null` and `amount: null` for unpriced selections—not zero. There is no financing calculator based on an invented principal. The [project inquiry page](https://www.furycogyms.com/start-a-project) separately says smaller entry-level projects typically start at $25,000; this is different project guidance, not an extra fee added to the Container starting price.
+
+Connected and stacked Studio requests are saved in the design and brief, but the scene and floor plan show **one reference unit**, not an engineered assembly. The website does not specify unit counts, connection geometry, loads, or permitted arrangements. Other door widths and colors are also inquiry-only. Performance flooring is published; the app's oak/stone looks, timber accent, named colors, mirror wall, and equipment presets are not an approved Fury catalog.
 
 ## Run locally
 
@@ -32,14 +45,14 @@ npm run preview
 
 | Area          | Implemented                                                                                                                                                             |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Studio        | Independent 20- and 40-foot footprints, four finishes, cedar accents, mirror wall, three floors                                                                         |
-| Outdoor       | Front terrace, pergola, rooftop deck, staircase, automatic structural-option dependencies                                                                               |
+| Products      | Two families, 20-/40-foot footprints, family-specific nominal heights and source-linked features                                                                        |
+| Exterior      | Container opening previews and integrated finish request; independent Studio front deck, gazebo, rooftop deck, stairs; four concept colors                              |
 | Visualization | Exterior orbit, fixed-position interior look-around, three environments, time of day, lights, dimensions, camera reset, optional auto-rotation                          |
 | Interior      | Strength, recovery, movement, cardio, and empty presets; ten generic equipment items                                                                                    |
 | Floor plan    | Pointer dragging, quarter-foot snapping, rotation, removal, entry and boundary protection, collision rejection, visible working-space envelopes                         |
-| Decisions     | Itemized illustrative estimates, financing-assumption calculator, 50-step undo/redo, signature starter builds                                                           |
+| Decisions     | Published family starting prices, unpriced quote checklist, custom Studio inquiry request, 50-step undo/redo, concept starter builds                                    |
 | Persistence   | Automatic local draft, up to 12 named local builds, two-build comparison, versioned compressed share URLs                                                               |
-| Deliverables  | Configuration JSON, current-view PNG, multipage PDF with scene image when available, floor plan, estimate, notes, and share link                                        |
+| Deliverables  | Configuration JSON, current-view PNG, multipage PDF with scene image when available, floor plan, sourced starting price, quote checklist, notes, and share link         |
 | Access        | Responsive controls, touch interaction, keyboard camera and floor-plan controls, labeled options, focus-trapped dialogs, reduced-motion camera transitions, 2D fallback |
 
 ### Controls
@@ -52,7 +65,7 @@ npm run preview
 
 ## Configuration architecture
 
-One validated, versioned `Config` object drives the scene, layout, estimate, share payload, and PDF. `src/lib/config.ts` owns the Zod schema, catalog, presets, validation rules, unit conversions, and illustrative price model. Update prices centrally, never in a component or PDF separately.
+One validated, versioned `Config` object drives the scene, layout, quote checklist, share payload, and PDF. `src/lib/config.ts` owns the Zod schema, planning equipment, presets, validation rules, unit conversions, and quote semantics. `src/lib/products.ts` owns the sourced product facts. Never add prices separately in a component or PDF.
 
 ```text
 src/
@@ -63,30 +76,31 @@ src/
     StudioModel.tsx           Parametric shell and outdoor structures
     Equipment.tsx             Procedural generic equipment
     FloorPlan.tsx             Accessible SVG floor-plan editor
-    Dialogs.tsx               Saved comparisons, estimates, sharing, brief form
+    Dialogs.tsx               Saved comparisons, quote checklist, sharing, brief form
     Modal.tsx                 Native dialog lifecycle
   lib/
     config.ts                 Domain model, rules, estimates, URLs, persistence
+    products.ts               Official product facts, sources, and published choices
     useConfig.ts              Reducer-backed history and automatic draft
     export.ts                 On-demand PDF generation and downloads
     config.test.ts            Domain, storage, history, and PDF regression tests
 ```
 
-Dimensions use **feet internally**, with x along studio length and z along depth; the front is positive z. The outer studio is 20/40 × 8 × 10 feet. The floor plan uses a conservative usable envelope inside the shell and reserves the central entry. Collision checks cover equipment footprints and a small placement buffer, **not manufacturer safety clearances, electrical requirements, accessibility, structural loading, or permitted occupancy**. Dashed envelopes are illustrative guidance and can overlap.
+Dimensions use **feet internally**, with x along unit length and z along depth; the front is positive z. Both families are 20/40 × 8 feet, with heights from the product table above. The floor plan uses a conservative concept usable envelope and reserves a planned entry aligned to the chosen opening. Only the roll-up width is published; other opening widths/positions and all deck/gazebo/stair geometry are illustrative. Collision checks cover equipment footprints and a small placement buffer, **not manufacturer safety clearances, electrical requirements, accessibility, structural loading, or permitted occupancy**. Dashed envelopes are illustrative guidance and can overlap.
 
 Rules:
 
-- A pergola requires a front terrace. Enabling it adds the terrace; removing the terrace removes the pergola.
-- Stairs require a rooftop deck. Enabling stairs adds the rooftop; removing the rooftop removes stairs.
-- Roof decks without stairs are permitted for exploration, with an explicit access warning.
+- Studio add-ons can be selected individually or together, as the Studio page describes. The former automatic gazebo/deck and stairs/roof dependencies were prototype assumptions, not published engineering rules, and have been removed. All combinations still require support/access/engineering review; the model is not certification.
+- Switching to Containers clears Studio-only additions, timber accents, and custom Studio requests while preserving shared finishes, length, and equipment. Switching families resets opening-specific selections. Undo restores the previous state. A change that obstructs the new planned entry is blocked until equipment is rearranged.
+- Concept templates keep the chosen product family but reset the reference footprint to 20 feet after confirmation.
 - Invalid, unsupported, oversized, duplicate-ID, or geometrically invalid shared configurations are rejected.
-- Schema `v: 1` is this application's share contract; it is not compatible with the aspirational `v: 2` example in the source roadmap.
+- Schema `v: 2` adds `family`, `containerOpening`, `integratedFinish`, and `studioLayout`. Legacy `v: 1` links/drafts/saved builds migrate automatically to Studios and are fully revalidated. Existing selections are preserved; old conceptual prices are not. Unsupported versions are rejected. This is the implemented app contract, not a roadmap example.
 
 ### Local data and sharing
 
 The URL fragment `#c=…` contains the entire LZ-string-compressed configuration. It updates with edits and is not sent in HTTP requests to the static host. Anyone with the full link can read the configuration. There is no short-link service, authentication, cross-device account, or automatic social-preview image. A link needs a running deployment of this app; localhost and session-preview links are not permanent public links.
 
-`fury-draft-v1` and `fury-builds-v1` are the only localStorage keys. A valid URL configuration takes precedence over the draft. Storage failure does not prevent configuration or file export; named-save failures show a message. Clearing browser storage removes local drafts and saved builds, so export important designs.
+`fury-draft-v1` and `fury-builds-v1` remain the only localStorage keys to preserve existing drafts and saved builds; their payloads migrate to schema v2. A valid URL configuration takes precedence over the draft. Storage failure does not prevent configuration or file export; named-save failures show a message. Clearing browser storage removes local drafts and saved builds, so export important designs.
 
 PDF generation loads jsPDF only when needed. Scene capture is omitted in floor-plan mode or when graphics are unavailable; the floor-plan drawing and other brief sections still export. Core PDF fonts target Latin-script text. No analytics or session replay is installed.
 
@@ -98,7 +112,7 @@ The Three.js vendor chunk exceeds Vite's 500 kB advisory threshold. It is loaded
 
 ## Verification
 
-Vitest covers every preset at both sizes, add-on transition combinations, wall/entry/collision constraints, equipment placement, estimate scaling, financing edge cases, share validation, storage failure, undo/redo limits, and real PDF generation. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
+Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, and real PDF generation for both families. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
 
 ## Before commercial launch
 

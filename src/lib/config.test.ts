@@ -13,7 +13,9 @@ import {
   footprint,
   initialConfig,
   layoutIssues,
-  monthlyPayment,
+  productHeight,
+  setFamily,
+  openingGeometry,
   packageItems,
   placementIssue,
   readSaved,
@@ -24,6 +26,7 @@ import {
 } from './config'
 import { configReducer } from './useConfig'
 import { createBrief } from './export'
+import { CONTAINER_OPENINGS, PRODUCT_FAMILIES, STUDIO_LAYOUTS } from './products'
 
 const fresh = (): Config => structuredClone(DEFAULT_CONFIG)
 const encoded = (value: unknown) => LZString.compressToEncodedURIComponent(JSON.stringify(value))
@@ -68,18 +71,20 @@ describe('configuration and packages', () => {
     expect(
       decodeConfig(encoded({ ...config, items: [{ ...config.items[0], sku: 'invented' }] })),
     ).toBe(null)
-    expect(decodeConfig(encoded({ ...config, v: 2 }))).toBe(null)
+    expect(decodeConfig(encoded({ ...config, v: 3 }))).toBe(null)
   })
-  it('rejects incompatible dependencies at the sharing boundary', () => {
+  it('rejects cross-family options at the sharing boundary', () => {
     expect(
       decodeConfig(
-        encoded({ ...fresh(), addons: { deck: false, gazebo: true, stairs: false, roof: false } }),
+        encoded({
+          ...fresh(),
+          family: 'container',
+          addons: { deck: true, gazebo: false, stairs: false, roof: false },
+        }),
       ),
     ).toBe(null)
     expect(
-      decodeConfig(
-        encoded({ ...fresh(), addons: { deck: false, gazebo: false, stairs: true, roof: false } }),
-      ),
+      decodeConfig(encoded({ ...fresh(), family: 'container', studioLayout: 'stacked' })),
     ).toBe(null)
   })
   it('detects a layout that cannot be downsized safely', () => {
@@ -87,18 +92,20 @@ describe('configuration and packages', () => {
     expect(layoutIssues(c).length).toBeGreaterThan(0)
   })
 })
-describe('add-on dependency transitions', () => {
-  it('enables support structures and provides a notice', () => {
+describe('independent published add-on transitions', () => {
+  it('allows individual Studio add-ons without invented dependency rules', () => {
     const c = { ...fresh(), addons: { deck: false, gazebo: false, roof: false, stairs: false } }
     const pergola = setAddon(c, 'gazebo'),
       stairs = setAddon(c, 'stairs')
-    expect(pergola.config.addons.deck).toBe(true)
-    expect(pergola.notice).toBeTruthy()
-    expect(stairs.config.addons.roof).toBe(true)
-    expect(stairs.notice).toBeTruthy()
+    expect(pergola.config.addons.deck).toBe(false)
+    expect(pergola.config.addons.gazebo).toBe(true)
+    expect(stairs.config.addons.roof).toBe(false)
+    expect(stairs.config.addons.stairs).toBe(true)
+    expect(decodeConfig(encodeConfig(pergola.config))).toEqual(pergola.config)
+    expect(decodeConfig(encodeConfig(stairs.config))).toEqual(stairs.config)
     expect(c.addons.deck).toBe(false)
   })
-  it('removes dependents without resetting finishes or equipment', () => {
+  it('toggles only the requested add-on without resetting finishes or equipment', () => {
     const c = {
       ...fresh(),
       finish: 'bronze' as const,
@@ -106,8 +113,8 @@ describe('add-on dependency transitions', () => {
     }
     const noDeck = setAddon(c, 'deck').config,
       noRoof = setAddon(c, 'roof').config
-    expect(noDeck.addons.gazebo).toBe(false)
-    expect(noRoof.addons.stairs).toBe(false)
+    expect(noDeck.addons.gazebo).toBe(true)
+    expect(noRoof.addons.stairs).toBe(true)
     expect(noDeck.items).toEqual(c.items)
     expect(noRoof.finish).toBe('bronze')
   })
@@ -159,43 +166,179 @@ describe('placement rules', () => {
     expect(decodeConfig(encoded(c))).toBe(null)
   })
 })
-describe('estimates and financing', () => {
-  it('prices the default build exactly once per selected line', () => {
-    expect(estimate(fresh()).total).toBe(86250)
-    expect(estimate(fresh()).lines.reduce((s, l) => s + l.amount, 0)).toBe(86250)
-    expect(estimate(fresh()).version).toBe('concept-2026-10')
-  })
-  it('scales finishes and decks but not equipment or staircases', () => {
-    const c = {
+describe('published pricing boundaries', () => {
+  for (const family of PRODUCT_FAMILIES)
+    for (const length of [20, 40] as const)
+      it(`${family.id} ${length} uses a family starting price, never a configured total`, () => {
+        const price = estimate({ ...setFamily(fresh(), family.id), length })
+        expect(price.startingPrice).toBe(family.id === 'studio' ? 35000 : 20000)
+        expect(price.source).toBe(family.source)
+        expect(price.total).toBeNull()
+        expect(price.lines.every((line) => line.amount === null)).toBe(true)
+        expect(price.version).toBe('fury-published-2026-10-14')
+      })
+  it('keeps concept options unpriced, never free or added to the starting price', () => {
+    const c: Config = {
       ...fresh(),
-      length: 40 as const,
-      finish: 'bronze' as const,
+      studioLayout: 'connected',
+      finish: 'bronze',
+      accent: true,
+      mirror: true,
       addons: { deck: true, gazebo: true, roof: true, stairs: true },
     }
-    const lines = Object.fromEntries(estimate(c).lines.map((x) => [x.name, x.amount]))
-    expect(lines['S-40 studio shell']).toBe(118000)
-    expect(lines['Bronze finish']).toBe(4800)
-    expect(lines['Exterior staircase']).toBe(7600)
-    expect(lines['Front terrace']).toBe(16400)
-    expect(lines['Power rack']).toBe(2400)
+    expect(estimate(c).startingPrice).toBe(35000)
+    expect(estimate(c).lines.every((line) => line.amount === null)).toBe(true)
+    expect(estimate(c).lines.map((line) => line.name)).toEqual(
+      expect.arrayContaining([
+        'Front deck',
+        'Gazebo',
+        'Custom inquiry: Connected units',
+        'Concept timber accent',
+        'Planning item: Power rack',
+      ]),
+    )
   })
-  it('handles zero APR, full deposits and standard amortization', () => {
-    expect(monthlyPayment(100000, 20, 0, 120)).toBeCloseTo(666.6667, 3)
-    expect(monthlyPayment(100000, 20, 8.5, 120)).toBeCloseTo(991.8855, 2)
-    expect(monthlyPayment(100000, 100, 8.5, 120)).toBe(0)
+})
+
+describe('product families', () => {
+  for (const length of [20, 40] as const)
+    for (const opening of CONTAINER_OPENINGS)
+      for (const pack of PACKAGES)
+        it(`${length} ${opening.id} Container fits the ${pack.id} planning preset`, () => {
+          const config: Config = {
+            ...setFamily(fresh(), 'container'),
+            length,
+            containerOpening: opening.id,
+            package: pack.id,
+            items: packageItems(pack.id, length),
+          }
+          expect(layoutIssues(config)).toEqual([])
+        })
+  it('rejects Container settings on Studios and Studio accents on Containers', () => {
+    expect(decodeConfig(encoded({ ...fresh(), containerOpening: 'full' }))).toBeNull()
+    expect(decodeConfig(encoded({ ...fresh(), integratedFinish: true }))).toBeNull()
+    expect(decodeConfig(encoded({ ...fresh(), family: 'container', accent: true }))).toBeNull()
   })
-  it.each([
-    [1, 0, 0, 0],
-    [1, 101, 5, 120],
-    [1, -1, 5, 120],
-    [-1, 0, 5, 120],
-    [1, 0, -1, 120],
-    [NaN, 0, 5, 120],
-  ])('rejects invalid financial assumptions (%s,%s,%s,%s)', (a, b, c, d) => {
-    expect(() => monthlyPayment(a, b, c, d)).toThrow()
+  it('clears family-only options while preserving the shared interior and finish', () => {
+    const original: Config = {
+      ...fresh(),
+      length: 40,
+      studioLayout: 'stacked',
+      accent: true,
+      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+    }
+    const container = setFamily(original, 'container')
+    expect(productHeight(container)).toBe(9.5)
+    expect(container.length).toBe(40)
+    expect(Object.values(container.addons).some(Boolean)).toBe(false)
+    expect(container.accent).toBe(false)
+    expect(container.studioLayout).toBe('single')
+    expect(container.items).toEqual(original.items)
+    expect(container.finish).toBe(original.finish)
+    expect(original.addons.deck).toBe(true)
+    const studio = setFamily(
+      { ...container, containerOpening: 'partial', integratedFinish: true },
+      'studio',
+    )
+    expect(studio.containerOpening).toBe('roll-up')
+    expect(studio.integratedFinish).toBe(false)
+    expect(productHeight(studio)).toBe(10)
+    expect(setFamily(studio, 'studio')).toBe(studio)
+    expect(setAddon(container, 'deck').config).toBe(container)
+  })
+  for (const length of [20, 40] as const)
+    for (const opening of CONTAINER_OPENINGS)
+      it(`round-trips the ${length} Container with ${opening.id} and integrated finish`, () => {
+        const config: Config = {
+          ...setFamily(fresh(), 'container'),
+          length,
+          containerOpening: opening.id,
+          integratedFinish: true,
+        }
+        expect(decodeConfig(encodeConfig(config))).toEqual(config)
+        expect(estimate(config).lines.map((line) => line.name)).toContain(opening.name)
+        expect(estimate(config).lines.map((line) => line.name)).toContain(
+          'Integrated exterior finish',
+        )
+        const geometry = openingGeometry(config)
+        expect(geometry.width).toBeGreaterThan(0)
+        expect(Math.abs(geometry.center) + geometry.width / 2).toBeLessThan(length / 2)
+        if (opening.id === 'roll-up') expect(geometry.width).toBe(10)
+      })
+  for (const layout of STUDIO_LAYOUTS)
+    it(`preserves the ${layout.id} Studio inquiry without inventing an assembly`, () => {
+      const config = { ...fresh(), studioLayout: layout.id }
+      expect(decodeConfig(encodeConfig(config))).toEqual(config)
+      expect(estimate(config).total).toBeNull()
+    })
+  it('protects the selected partial opening entry rather than a closed wall', () => {
+    const c: Config = { ...setFamily(fresh(), 'container'), containerOpening: 'partial', items: [] }
+    const item = { ...fresh().items[1], x: -5, z: 1.2 }
+    expect(placementIssue(item, c)).toContain('entry')
+    expect(placementIssue({ ...item, x: 0 }, c)).toBe(null)
+  })
+  it('undoes and redoes family changes including cleared options', () => {
+    const c = setAddon(fresh(), 'deck').config
+    const state = configReducer(
+      { past: [], present: c, future: [], notice: '' },
+      { type: 'set', config: setFamily(c, 'container') },
+    )
+    const undone = configReducer(state, { type: 'undo' })
+    expect(undone.present).toEqual(c)
+    expect(configReducer(undone, { type: 'redo' }).present.family).toBe('container')
   })
 })
 describe('sharing and browser persistence', () => {
+  const legacy = () => {
+    const value: Record<string, unknown> = { ...fresh(), v: 1 }
+    for (const key of ['family', 'studioLayout', 'containerOpening', 'integratedFinish'])
+      delete value[key]
+    return value
+  }
+  it('migrates version 1 links, drafts, and saved builds as Studios without losing choices', () => {
+    const old = {
+      ...legacy(),
+      accent: true,
+      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+    }
+    const migrated = { ...fresh(), accent: true, addons: old.addons }
+    expect(decodeConfig(encoded(old))).toEqual(migrated)
+    localStorage.setItem('fury-draft-v1', encoded(old))
+    expect(initialConfig().config).toEqual(migrated)
+    localStorage.setItem(
+      'fury-builds-v1',
+      JSON.stringify([{ id: 'old', name: 'Legacy Studio', date: '2026-10-10', config: old }]),
+    )
+    expect(readSaved()[0].config).toEqual(migrated)
+  })
+  it('still validates legacy payloads instead of trusting the migration', () => {
+    expect(decodeConfig(encoded({ ...legacy(), length: 50 }))).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...legacy(), items: [{ ...fresh().items[0], x: 100 }] })),
+    ).toBeNull()
+  })
+  it('saves and reloads different families with their configuration requests', () => {
+    const builds = [
+      {
+        id: 'container',
+        name: 'Open training',
+        date: '2026-10-14',
+        config: {
+          ...setFamily(fresh(), 'container'),
+          containerOpening: 'full' as const,
+          integratedFinish: true,
+        },
+      },
+      {
+        id: 'studio',
+        name: 'Connected',
+        date: '2026-10-14',
+        config: { ...fresh(), studioLayout: 'connected' as const },
+      },
+    ]
+    writeSaved(builds)
+    expect(readSaved()).toEqual(builds)
+  })
   it('round-trips without including unrelated query parameters', () => {
     const url = new URL(shareUrl(fresh()))
     expect(url.origin).toBe('https://studio.example.com')
@@ -267,6 +410,33 @@ describe('history', () => {
   })
 })
 describe('PDF brief', () => {
+  it('exports Container dimensions, openings, price provenance, and inquiry link', async () => {
+    const c: Config = {
+      ...setFamily(fresh(), 'container'),
+      length: 40,
+      containerOpening: 'full',
+      integratedFinish: true,
+    }
+    const doc = await createBrief(c, null, { name: 'Container project', notes: '' })
+    const pdf = doc.output()
+    expect(pdf).toContain('FURY / CONTAINER')
+    expect(pdf).toContain('9.5 ft H')
+    expect(pdf).toContain('20,000')
+    expect(pdf).toContain('Full open-side')
+    expect(pdf).toContain('Integrated exterior finish')
+    expect(pdf).toContain('https://www.furycogyms.com/gym-design/container')
+    expect(pdf).toContain('https://www.furycogyms.com/start-a-project')
+    expect(pdf).not.toContain('FURY / S-SERIES')
+    expect(pdf).not.toContain('Illustrative total')
+  })
+  it('marks custom Studio requests as a single-unit reference in the PDF', async () => {
+    const doc = await createBrief({ ...fresh(), studioLayout: 'stacked' }, null, {
+      name: 'Stacked inquiry',
+      notes: '',
+    })
+    expect(doc.output()).toContain('Configuration request: Stacked')
+    expect(doc.output()).toContain('one reference unit only')
+  })
   it('creates a multipage PDF with estimate, floor plan, link and honest limitations', async () => {
     const doc = await createBrief(fresh(), null, {
       name: 'Courtyard studio',
@@ -275,7 +445,9 @@ describe('PDF brief', () => {
     const pdf = doc.output()
     expect(pdf).toMatch(/^%PDF/)
     expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(2)
-    expect(pdf).toContain('86,250')
+    expect(pdf).toContain('35,000')
+    expect(pdf).not.toContain('86,250')
+    expect(pdf).toContain('Quote required')
     expect(pdf).toContain('Not a quotation or an offer')
     expect(pdf).toContain('Confirm crane access.')
     expect(pdf).toContain('https://studio.example.com/app#c=')
