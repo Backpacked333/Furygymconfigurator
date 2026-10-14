@@ -27,7 +27,7 @@
     ],
     "source": "https://polyhaven.com/a/beige_wall_001",
     "role": "Painted interior walls",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": true
   },
   {
@@ -89,7 +89,7 @@
     ],
     "source": "https://polyhaven.com/a/concrete_slab_wall",
     "role": "Board-formed garden wall",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -105,7 +105,7 @@
     ],
     "source": "https://polyhaven.com/a/concrete_wall_001",
     "role": "Planters and stepping stones",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -150,7 +150,7 @@
     ],
     "source": "https://polyhaven.com/a/herringbone_pavement",
     "role": "Residential courtyard pavers",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": true
   },
   {
@@ -165,7 +165,7 @@
     ],
     "source": "https://polyhaven.com/a/hinoki_planks",
     "role": "Sauna cladding",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -181,7 +181,7 @@
     ],
     "source": "https://polyhaven.com/a/japanese_cedar_planks",
     "role": "Cedar interior lining and house cladding",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -242,7 +242,7 @@
     ],
     "source": "https://polyhaven.com/a/oak_veneer_01",
     "role": "Ceiling slats, trims, reformer",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -259,7 +259,7 @@
     ],
     "source": "https://polyhaven.com/a/painted_metal_shutter",
     "role": "Container roll-up door",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": true
   },
   {
@@ -274,7 +274,7 @@
     ],
     "source": "https://polyhaven.com/a/plywood",
     "role": "Birch plywood interior lining",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -289,7 +289,7 @@
     ],
     "source": "https://polyhaven.com/a/red_brick_03",
     "role": "Apartment brick facades",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -350,7 +350,7 @@
     ],
     "source": "https://polyhaven.com/a/teak_veneer",
     "role": "Exterior decking and gazebo",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": false
   },
   {
@@ -365,7 +365,7 @@
     ],
     "source": "https://polyhaven.com/a/white_stucco",
     "role": "Stucco and precast facades",
-    "resolution": "1k",
+    "resolution": "2k",
     "tinted": true
   }
 ]
