@@ -1,18 +1,23 @@
 import {
   Color,
+  DataTexture,
   FrontSide,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   NoColorSpace,
   RepeatWrapping,
   SRGBColorSpace,
-  TextureLoader,
+  Texture,
   Vector2,
   type ColorRepresentation,
   type Side,
-  type Texture,
+  type Material,
+  type Object3D,
 } from 'three'
 import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
 import { pmremTexture } from 'three/tsl'
-import { textureProgress } from './progress'
+import { textureProgress, type AssetMapState } from './progress'
+import textureManifest from 'virtual:fury-textures'
 
 /**
  * Physical sizes (feet per tile) of the bundled CC0 Poly Haven scans plus three baked
@@ -76,52 +81,381 @@ export type MaterialSpec = {
 
 let anisotropy = 8
 export function setMaxAnisotropy(value: number) {
-  anisotropy = Math.max(1, Math.min(16, value))
+  anisotropy = Number.isFinite(value) ? Math.max(1, Math.min(16, value)) : 1
+  resources.forEach((resource) =>
+    Object.values(resource.maps).forEach((map) => {
+      map.anisotropy = anisotropy
+      map.needsUpdate = true
+    }),
+  )
 }
 
 // --- Load tracking ------------------------------------------------------------
 
 export { textureProgress }
 
-const loader = new TextureLoader()
-const base = `${import.meta.env.BASE_URL}textures/`
-const sets = new Map<TextureSet, Promise<Maps>>()
-const ready = new Map<TextureSet, Maps>()
+type Role = AssetMapState['role']
+type Source = { image: ImageBitmap; bytes: number; refs: number }
+type Channel = {
+  state: AssetMapState
+  controller?: AbortController
+  timer?: ReturnType<typeof setTimeout>
+  source?: Source
+}
+type Consumer = (maps: Maps, states: readonly AssetMapState[]) => void
+type Resource = {
+  set: TextureSet
+  generation: number
+  maps: Maps
+  channels: Partial<Record<Role, Channel>>
+  consumers: Set<Consumer>
+  active: boolean
+}
+
+const MAX_ATTEMPTS = 3
+const TIMEOUT_MS = 8000
+const SOURCE_LIMIT_BYTES = 64 * 1024 * 1024
+const SOURCE_LIMIT_COUNT = 24
+const sources = new Map<string, Source>()
+// There are only 60 versioned maps in this catalog. Failures hold no promises or images.
+const attempts = new Map<string, number>()
+const failures = new Map<string, string>()
+const resources = new Map<TextureSet, Resource>()
+let generation = 0
+let nextOwner = 0
+
+function roles(set: TextureSet): Role[] {
+  return 'detailOnly' in TEXTURE_SETS[set] ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
+}
+function mapInfo(set: TextureSet, role: Role) {
+  return textureManifest.maps[`${set}/${role}`]
+}
+function pruneSources() {
+  let bytes = [...sources.values()].reduce((sum, source) => sum + source.bytes, 0)
+  for (const [key, source] of sources) {
+    if (sources.size <= SOURCE_LIMIT_COUNT && bytes <= SOURCE_LIMIT_BYTES) break
+    if (source.refs) continue
+    sources.delete(key)
+    bytes -= source.bytes
+    source.image.close()
+  }
+}
+
+/** Deterministic, restrained material-family fallback; it is not a recovered scan. */
+function fallback(set: TextureSet, role: Role) {
+  const size = 32
+  const pixels = new Uint8Array(size * size * 4)
+  const timber = /oak|teak|hinoki|laminate|bark/.test(set)
+  const dark = /rubber|leafy/.test(set)
+  const metallic = 'metallic' in TEXTURE_SETS[set]
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const offset = (y * size + x) * 4
+      const grain = timber ? Math.sin((y * Math.PI) / 4) * 8 : ((x * 17 + y * 13) % 7) - 3
+      const rgb =
+        role === 'normal'
+          ? [128, 128, 255]
+          : role === 'arm'
+            ? [255, metallic ? 95 : 220, metallic ? 255 : 0]
+            : timber
+              ? [162 + grain, 129 + grain, 91 + grain]
+              : dark
+                ? [76 + grain, 80 + grain, 68 + grain]
+                : [220 + grain, 218 + grain, 213 + grain]
+      pixels.set([...rgb, 255], offset)
+    }
+  const texture = new DataTexture(pixels, size, size)
+  texture.name = `fallback:${set}/${role}`
+  texture.generateMipmaps = true
+  return configure(texture, TEXTURE_SETS[set].size, role === 'albedo')
+}
 
 function configure(texture: Texture, size: number, color: boolean) {
   texture.wrapS = texture.wrapT = RepeatWrapping
   texture.repeat.set(1 / size, 1 / size)
   texture.colorSpace = color ? SRGBColorSpace : NoColorSpace
   texture.anisotropy = anisotropy
+  texture.minFilter = LinearMipmapLinearFilter
+  texture.magFilter = LinearFilter
   texture.needsUpdate = true
   return texture
 }
 
-function load(set: TextureSet): Promise<Maps> {
-  let pending = sets.get(set)
-  if (pending) return pending
-  const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
-  const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
-  textureProgress.update(names.length, 0)
-  pending = Promise.all(
-    names.map((name) =>
-      loader.loadAsync(`${base}${set}/${name}.webp`).then((texture) => {
-        textureProgress.update(0, 1)
-        return [name, configure(texture, info.size, name === 'albedo')] as const
-      }),
-    ),
-  ).then((entries) => {
-    const maps = Object.fromEntries(entries) as Maps
-    ready.set(set, maps)
-    return maps
+function states(resource: Resource) {
+  return Object.values(resource.channels).map((channel) => channel.state)
+}
+function notify(resource: Resource) {
+  if (!resource.active || resource.generation !== generation) return
+  resource.consumers.forEach((consumer) => consumer(resource.maps, states(resource)))
+  changed('textures')
+}
+function bindSource(resource: Resource, role: Role, source: Source) {
+  const channel = resource.channels[role]!
+  const previous = resource.maps[role]
+  source.refs++
+  channel.source = source
+  const map = configure(
+    new Texture(source.image),
+    TEXTURE_SETS[resource.set].size,
+    role === 'albedo',
+  )
+  map.name = mapInfo(resource.set, role).sha256
+  resource.maps = { ...resource.maps, [role]: map }
+  channel.state = {
+    ...channel.state,
+    status: 'ready',
+    source: 'ready',
+    render: 'ready',
+    error: undefined,
+  }
+  notify(resource)
+  previous?.dispose()
+}
+function request(resource: Resource, role: Role, manual = false) {
+  const channel = resource.channels[role]!
+  const info = mapInfo(resource.set, role)
+  const key = info.sha256
+  if (!resource.active || channel.controller || channel.source) return
+  const cached = sources.get(key)
+  if (cached) {
+    sources.delete(key)
+    sources.set(key, cached)
+    bindSource(resource, role, cached)
+    return
+  }
+  const tried = attempts.get(key) ?? 0
+  if (tried >= MAX_ATTEMPTS || (!manual && failures.has(key))) {
+    channel.state = {
+      ...channel.state,
+      attempts: tried,
+      status: 'degraded',
+      source: 'failed',
+      error: failures.get(key) ?? 'Retry limit reached; reload to try again.',
+    }
+    notify(resource)
+    return
+  }
+  attempts.set(key, tried + 1)
+  const controller = new AbortController()
+  channel.controller = controller
+  channel.state = {
+    ...channel.state,
+    status: 'pending',
+    source: 'pending',
+    attempts: tried + 1,
+    error: undefined,
+  }
+  notify(resource)
+  let expired = false
+  let timeout: ReturnType<typeof setTimeout>
+  const deadline = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(new Error('Request cancelled.')), {
+      once: true,
+    })
+    timeout = setTimeout(() => {
+      expired = true
+      controller.abort()
+      reject(new Error('Timed out after 8 seconds.'))
+    }, TIMEOUT_MS)
   })
-  sets.set(set, pending)
-  return pending
+  const live = () =>
+    resource.active && resource.generation === generation && !controller.signal.aborted
+  void (async () => {
+    try {
+      const decode = async () => {
+        const response = await fetch(info.url, { signal: controller.signal })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const image = await createImageBitmap(await response.blob(), {
+          colorSpaceConversion: 'none',
+          premultiplyAlpha: 'none',
+          imageOrientation: 'flipY',
+        })
+        if (!live()) {
+          image.close()
+          throw new Error('Stale image decode.')
+        }
+        return image
+      }
+      const image = await Promise.race([decode(), deadline])
+      if (!live()) {
+        image.close()
+        return
+      }
+      const existing = sources.get(key)
+      const source = existing ?? { image, refs: 0, bytes: image.width * image.height * 4 }
+      if (existing) image.close()
+      else sources.set(key, source)
+      failures.delete(key)
+      attempts.delete(key)
+      bindSource(resource, role, source)
+      pruneSources()
+    } catch (error) {
+      if (!resource.active || resource.generation !== generation) return
+      const reason = expired
+        ? 'Timed out after 8 seconds.'
+        : error instanceof Error
+          ? error.message
+          : 'Image download or decode failed.'
+      failures.set(key, reason)
+      // One automatic retry. A third attempt is explicit, not an offline retry loop.
+      const automatic = tried === 0
+      channel.state = {
+        ...channel.state,
+        status: automatic ? 'pending' : 'degraded',
+        source: automatic ? 'pending' : 'failed',
+        error: reason,
+      }
+      if (automatic)
+        channel.timer = setTimeout(() => {
+          channel.timer = undefined
+          request(resource, role, true)
+        }, 300)
+      notify(resource)
+    } finally {
+      clearTimeout(timeout!)
+      channel.controller = undefined
+    }
+  })()
+}
+function createResource(set: TextureSet): Resource {
+  const maps = Object.fromEntries(roles(set).map((role) => [role, fallback(set, role)])) as Maps
+  const resource: Resource = {
+    set,
+    generation,
+    maps,
+    consumers: new Set(),
+    channels: {},
+    active: true,
+  }
+  for (const role of roles(set))
+    resource.channels[role] = {
+      state: {
+        id: `${set}/${role}:${mapInfo(set, role).sha256}`,
+        set,
+        role,
+        status: 'pending',
+        source: 'pending',
+        render: 'fallback',
+        attempts: attempts.get(mapInfo(set, role).sha256) ?? 0,
+        maxAttempts: MAX_ATTEMPTS,
+      },
+    }
+  resources.set(set, resource)
+  return resource
+}
+function disposeResource(resource: Resource) {
+  if (!resource.active) return
+  resource.active = false
+  Object.values(resource.channels).forEach((channel) => {
+    if (channel.controller && !channel.source && channel.state.source === 'pending') {
+      const key = mapInfo(resource.set, channel.state.role).sha256
+      attempts.set(key, Math.max(0, (attempts.get(key) ?? 1) - 1))
+    }
+    channel.controller?.abort()
+    clearTimeout(channel.timer)
+    if (channel.source) channel.source.refs--
+  })
+  Object.values(resource.maps).forEach((map) => map.dispose())
+  if (resources.get(resource.set) === resource) resources.delete(resource.set)
+  pruneSources()
+}
+
+/** Live lease for custom node materials. Unsubscribe before disposing the consumer. */
+export function subscribeTextureMaps(
+  set: TextureSet,
+  consumer: Consumer,
+  ownerId = `maps:${++nextOwner}`,
+) {
+  let resource: Resource
+  let progress: ReturnType<typeof textureProgress.register>
+  let active = true
+  const listener: Consumer = (maps, state) => {
+    if (active) {
+      try {
+        consumer(maps, state)
+      } catch (error) {
+        console.error('Texture consumer failed to bind maps.', error)
+      }
+      progress.update(state)
+    }
+  }
+  const attach = () => {
+    resource = resources.get(set) ?? createResource(set)
+    progress = textureProgress.register(ownerId, generation, () => {
+      roles(set).forEach((role) => {
+        const channel = resource.channels[role]!
+        if (channel.state.source === 'failed') {
+          clearTimeout(channel.timer)
+          channel.timer = undefined
+          request(resource, role, true)
+        }
+      })
+    })
+    resource.consumers.add(listener)
+    listener(resource.maps, states(resource))
+    roles(set).forEach((role) => request(resource, role))
+  }
+  const detach = () => {
+    resource.consumers.delete(listener)
+    progress.dispose()
+    if (resource.consumers.size === 0) disposeResource(resource)
+  }
+  const rebind = () => {
+    detach()
+    attach()
+  }
+  generationListeners.add(rebind)
+  attach()
+  return () => {
+    if (!active) return
+    active = false
+    generationListeners.delete(rebind)
+    detach()
+  }
+}
+
+const generationListeners = new Set<() => void>()
+/** Call on renderer/device recreation. CPU sources survive; all texture wrappers are new. */
+export function setMaterialGeneration(value: number) {
+  if (generation === value) return
+  generation = value
+  // Invalidate every old resource before any new subscriber is attached.
+  resources.forEach(disposeResource)
+  textureProgress.setGeneration(value)
+  generationListeners.forEach((listener) => listener())
+}
+
+/** Logical inventory, not a measurement of driver memory or successful GPU upload. */
+export function materialInventory() {
+  return {
+    generation,
+    activeSets: resources.size,
+    owners: textureProgress.snapshot().owners,
+    activeEncodedBytes: [...resources.values()].reduce(
+      (sum, r) => sum + roles(r.set).reduce((n, role) => n + mapInfo(r.set, role).encodedBytes, 0),
+      0,
+    ),
+    cpuSources: sources.size,
+    cpuDecodedBytes: [...sources.values()].reduce((sum, source) => sum + source.bytes, 0),
+    textureWrappers: [...resources.values()].reduce((sum, r) => sum + roles(r.set).length, 0),
+    estimatedTextureBytesWithMips: [...resources.values()].reduce(
+      (sum, r) =>
+        sum +
+        roles(r.set).reduce(
+          (n, role) => n + ((r.channels[role]?.source?.bytes ?? 32 * 32 * 4) * 4) / 3,
+          0,
+        ),
+      0,
+    ),
+    renderTargetBytes: null,
+  }
 }
 
 // --- Material library ----------------------------------------------------------
 
 const materials = new Map<string, MeshStandardNodeMaterial>()
+type Binding = { spec: MaterialSpec; refs: number; releases: Set<() => void>; disposed: boolean }
+const bindings = new WeakMap<Material, Binding>()
 const interiorMaterials = new Set<MeshStandardNodeMaterial>()
 /**
  * One environment node shared by every interior material. Node materials resolve `envMap` into a
@@ -140,7 +474,13 @@ export function onMaterialsChanged(listener: (change: MaterialChange) => void) {
   }
 }
 function changed(change: MaterialChange) {
-  changeListeners.forEach((listener) => listener(change))
+  changeListeners.forEach((listener) => {
+    try {
+      listener(change)
+    } catch (error) {
+      console.error('Material change subscriber failed.', error)
+    }
+  })
 }
 
 function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps: Maps) {
@@ -191,20 +531,84 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     m.specularIntensity = spec.specularIntensity ?? 1
   }
   if (spec.set) {
-    const maps = ready.get(spec.set)
-    if (maps) applyMaps(m, spec, maps)
-    else
-      load(spec.set).then((loaded) => {
-        applyMaps(m, spec, loaded)
-        changed('textures')
-      })
-  }
-  if (spec.interior) {
-    interiorMaterials.add(m)
-    if (interiorEnvironment) m.envNode = interiorEnvironment
+    // No network or device allocation during render; committed owners acquire maps below.
+    m.userData.textureSet = spec.set
   }
   materials.set(key, m)
+  const binding: Binding = { spec, refs: 0, releases: new Set(), disposed: false }
+  bindings.set(m, binding)
+  m.addEventListener('dispose', () => {
+    binding.disposed = true
+    binding.releases.forEach((release) => release())
+    binding.releases.clear()
+    interiorMaterials.delete(m)
+    if (materials.get(key) === m) materials.delete(key)
+  })
+  if (materials.size > 256) {
+    for (const [oldKey, old] of materials) {
+      if (materials.size <= 256) break
+      if (bindings.get(old)?.refs === 0 && old !== m) {
+        materials.delete(oldKey)
+        old.dispose()
+      }
+    }
+  }
   return m
+}
+
+/** Retains shared library materials for a committed subtree; release before dropping its meshes. */
+export function retainMaterials(list: Iterable<Material>, ownerId = `materials:${++nextOwner}`) {
+  const retained: { material: MeshStandardNodeMaterial; release?: () => void }[] = []
+  for (const candidate of new Set(list)) {
+    const binding = bindings.get(candidate)
+    if (!binding) continue
+    const m = candidate as MeshStandardNodeMaterial
+    // Explicit reacquisition is allowed after StrictMode's effect cleanup, never by late I/O.
+    binding.disposed = false
+    binding.refs++
+    if (binding.spec.interior) {
+      interiorMaterials.add(m)
+      m.envNode = interiorEnvironment
+    }
+    let release: (() => void) | undefined
+    if (binding.spec.set) {
+      release = subscribeTextureMaps(
+        binding.spec.set,
+        (maps) => {
+          if (!binding.disposed && binding.refs > 0) applyMaps(m, binding.spec, maps)
+        },
+        `${ownerId}:${m.uuid}`,
+      )
+      binding.releases.add(release)
+    }
+    retained.push({ material: m, release })
+  }
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    for (const { material: m, release } of retained) {
+      const binding = bindings.get(m)!
+      release?.()
+      if (release) binding.releases.delete(release)
+      if (--binding.refs !== 0) continue
+      m.map = m.normalMap = m.roughnessMap = m.aoMap = m.metalnessMap = null
+      m.envNode = null
+      m.dispose()
+    }
+  }
+}
+
+export function retainObjectMaterials(root: Object3D, ownerId?: string) {
+  const list = new Set<Material>()
+  root.traverse((object) => {
+    const candidate = object as Object3D & { material?: Material | Material[] }
+    if (candidate.material) {
+      for (const m of Array.isArray(candidate.material) ? candidate.material : [candidate.material])
+        list.add(m)
+    }
+  })
+  return retainMaterials(list, ownerId)
 }
 
 /** Point every interior material at the latest captured interior radiance probe. */
@@ -223,6 +627,28 @@ export function setInteriorEnvironment(texture: Texture | null) {
 }
 
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */
-export function textureMaps(set: TextureSet) {
-  return load(set)
+export function textureMaps(set: TextureSet): Promise<Maps> {
+  // Legacy one-shot callers should migrate to subscribeTextureMaps for retry and disposal.
+  // Keep the lease until explicit releaseTextureMaps; unlike live subscriptions this cannot
+  // infer the lifetime of a caller holding the resolved Texture references.
+  const cached = legacyMapLeases.get(set)
+  if (cached?.generation === generation) return cached.promise
+  let resolve!: (maps: Maps) => void
+  const promise = new Promise<Maps>((done) => {
+    resolve = done
+  })
+  const release = subscribeTextureMaps(set, (maps, states) => {
+    if (states.every((state) => state.source !== 'pending')) resolve(maps)
+  })
+  legacyMapLeases.set(set, { promise, release, generation })
+  cached?.release()
+  return promise
+}
+const legacyMapLeases = new Map<
+  TextureSet,
+  { promise: Promise<Maps>; release: () => void; generation: number }
+>()
+export function releaseTextureMaps(set: TextureSet) {
+  legacyMapLeases.get(set)?.release()
+  legacyMapLeases.delete(set)
 }
