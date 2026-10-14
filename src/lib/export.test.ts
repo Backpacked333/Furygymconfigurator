@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG } from './config'
 import { createBrief } from './export'
 import { pdfText, validateProject } from './pdfText'
+import { occupiedEnvelope } from './spatial'
 
 vi.mock('./config', async (importOriginal) => {
   const config = await importOriginal<typeof import('./config')>()
@@ -50,5 +51,47 @@ describe('EXPORT-04 PDF content and pagination', () => {
     expect(output).toContain('Snapshot notes')
     expect(output).not.toContain('Mutated name')
     expect(output).not.toContain('Mutated notes')
+  })
+
+  it('draws physical protrusions and rotated origin offsets, not centered catalog boxes', async () => {
+    const item = { id: 'offset-bench', sku: 'bench', x: -6, z: 0, rotation: 90 } as const
+    const config = { ...structuredClone(DEFAULT_CONFIG), items: [item] }
+    const output = (await createBrief(config, null, { name: 'Spatial parity', notes: '' })).output()
+    const rectangles = [...output.matchAll(/([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) re/g)].map(
+      (match) => match.slice(1).map(Number),
+    )
+    const points = 72 / 25.4
+    const scale = 174 / config.length
+    const frame = rectangles.find(
+      ([, , w, h]) => Math.abs(w - 174 * points) < 1e-6 && Math.abs(h + 8 * scale * points) < 1e-6,
+    )!
+    expect(frame).toBeDefined()
+    const bounds = occupiedEnvelope(item)
+    const expected = [
+      frame[0] + (bounds.min.x + config.length / 2) * scale * points,
+      frame[1] - (bounds.min.z + 4) * scale * points,
+      (bounds.max.x - bounds.min.x) * scale * points,
+      -(bounds.max.z - bounds.min.z) * scale * points,
+    ]
+    expect(
+      rectangles.some((rect) =>
+        rect.every((value, axis) => Math.abs(value - expected[axis]) < 1e-6),
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps roof/access elevations and inquiry-only site context separate from the floor', async () => {
+    const config = structuredClone(DEFAULT_CONFIG)
+    config.addons = { deck: true, gazebo: false, roof: true, stairs: true }
+    config.presentation.context = 'sunken-lounge'
+    const output = (
+      await createBrief(config, null, { name: 'Multilevel concept', notes: '' })
+    ).output()
+    expect(output).toContain('Ground-contact and multilevel structures')
+    expect(output).toContain('Raised structures and opening poses')
+    expect(output).toContain('Roof access landing')
+    expect(output).toContain('Inquiry-only site context')
+    expect(output).toContain('Sunken lounge site context')
+    expect(output).toContain('not a certified clearance')
   })
 })

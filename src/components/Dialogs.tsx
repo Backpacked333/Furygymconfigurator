@@ -34,6 +34,7 @@ import { downloadFile } from '../lib/export'
 import Modal from './Modal'
 import { MiniStudio } from './ConfigPanel'
 import { useLibrary, storageMessage } from './useLibrary'
+import type { RecoveryRecord } from '../lib/recovery'
 
 export function EstimateDialog({ config, onClose }: { config: Config; onClose: () => void }) {
   const { lines, startingPrice, source } = estimate(config)
@@ -174,16 +175,21 @@ export function LibraryDialog({
   config,
   unit,
   onLoad,
+  onRepair,
+  saveBlocked = false,
   onClose,
   notify,
 }: {
   config: Config
   unit: Unit
   onLoad: (c: Config) => boolean
+  onRepair: (c: Config, original?: Pick<RecoveryRecord, 'raw' | 'format'>) => Promise<boolean>
+  saveBlocked?: boolean
   onClose: () => void
   notify: (s: string) => void
 }) {
   const library = useLibrary()
+  const [loading, setLoading] = useState<string | null>(null)
   const saved = library.snapshot?.entries.map((entry) => entry.build) ?? []
   const [name, setName] = useState(
       `${productName(config)} / ${FINISHES.find((f) => f.id === config.finish)!.name}`,
@@ -204,7 +210,14 @@ export function LibraryDialog({
         </label>
         <button
           className="primary"
-          disabled={!name.trim() || !library.snapshot || library.busy || saved.length >= 12}
+          disabled={
+            saveBlocked ||
+            !name.trim() ||
+            !library.snapshot ||
+            library.busy ||
+            !!loading ||
+            saved.length >= 12
+          }
           onClick={async () => {
             const result = await library.save({
               id: crypto.randomUUID(),
@@ -219,6 +232,13 @@ export function LibraryDialog({
           <Plus size={16} /> Save current
         </button>
       </div>
+      {saveBlocked && (
+        <p className="muted small">
+          Finish the current edit or explicitly accept the repaired design before saving it to the
+          library. Recovery originals remain downloadable.
+        </p>
+      )}
+      {loading && <p role="status">Preserving both designs before opening the repair workspace…</p>}
       {library.error && (
         <div className="notice" role="alert">
           <p>{storageMessage(library.error)}</p>
@@ -271,7 +291,7 @@ export function LibraryDialog({
                 <button
                   className="icon-button"
                   aria-label={`Delete ${build.name}`}
-                  disabled={library.busy}
+                  disabled={library.busy || !!loading}
                   onClick={async () => {
                     if (window.confirm(`Delete “${build.name}” from this browser?`)) {
                       const entry = library.snapshot!.entries.find(
@@ -310,14 +330,45 @@ export function LibraryDialog({
                   Compare
                 </label>
                 <button
-                  onClick={() => {
+                  disabled={library.busy || !!loading}
+                  onClick={async () => {
+                    const entry = library.snapshot!.entries.find(
+                      (entry) => entry.build.id === build.id,
+                    )!
+                    if (entry.status === 'repair') {
+                      if (
+                        !window.confirm(
+                          'Open this build for repair? Your current design and this original will be preserved before anything changes. Automatic saving stays suspended until you accept a valid repair.',
+                        )
+                      )
+                        return
+                      setLoading(build.id)
+                      try {
+                        if (
+                          await onRepair(
+                            structuredClone(build.config),
+                            entry.originalRaw
+                              ? { raw: entry.originalRaw, format: 'json' }
+                              : undefined,
+                          )
+                        )
+                          onClose()
+                      } finally {
+                        setLoading(null)
+                      }
+                      return
+                    }
                     if (onLoad(structuredClone(build.config))) {
                       onClose()
                       notify(`Loaded “${build.name}”.`)
                     }
                   }}
                 >
-                  Load <ArrowRight size={14} />
+                  {library.snapshot?.entries.find((entry) => entry.build.id === build.id)
+                    ?.status === 'repair'
+                    ? 'Open for repair'
+                    : 'Load'}{' '}
+                  <ArrowRight size={14} />
                 </button>
               </div>
             </div>

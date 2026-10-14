@@ -115,7 +115,7 @@ export default function RecoveryDialog({
               {inspected?.status === 'accepted'
                 ? 'This original can be restored.'
                 : inspected?.status === 'repair'
-                  ? 'This original requires layout repair; its bytes remain available.'
+                  ? 'Open this original in a suspended repair workspace. Its exact bytes and your current design are preserved before anything changes.'
                   : 'Unsupported or damaged original. Download without alteration for recovery.'}
             </p>
             <button
@@ -138,6 +138,35 @@ export default function RecoveryDialog({
                 }}
               >
                 Restore this design
+              </button>
+            )}
+            {inspected?.status === 'repair' && (
+              <button
+                className="secondary"
+                disabled={busy || document.isPreviewing}
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      'Open this original for repair? Both designs will be preserved first. You must explicitly accept a valid repair before automatic saving resumes.',
+                    )
+                  )
+                    return
+                  setBusy(true)
+                  setError('')
+                  try {
+                    const result = await document.openRepair(inspected.config, record)
+                    if (result.ok) {
+                      notify(
+                        'Repair workspace opened. Originals are preserved; automatic saving is suspended.',
+                      )
+                      onPlan()
+                    } else setError(storageMessage(result.reason))
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                Open original for repair
               </button>
             )}
           </details>

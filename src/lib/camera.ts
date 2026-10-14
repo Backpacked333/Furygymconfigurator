@@ -1,3 +1,28 @@
+import type { Bounds3 } from './spatial'
+
+export function fitCameraToBounds(bounds: Bounds3, aspect: number, fov = 32) {
+  const target: [number, number, number] = [
+    (bounds.min.x + bounds.max.x) / 2,
+    (bounds.min.y + bounds.max.y) / 2,
+    (bounds.min.z + bounds.max.z) / 2,
+  ]
+  const radius =
+    Math.hypot(
+      bounds.max.x - bounds.min.x,
+      bounds.max.y - bounds.min.y,
+      bounds.max.z - bounds.min.z,
+    ) / 2
+  const vertical = (fov * Math.PI) / 360
+  const horizontal = Math.atan(Math.tan(vertical) * Math.max(0.1, aspect))
+  const distance = (radius / Math.sin(Math.min(vertical, horizontal))) * 1.05
+  const direction = [0.48, 0.24, 0.84]
+  const magnitude = Math.hypot(...direction)
+  const position = target.map(
+    (value, axis) => value + (direction[axis] / magnitude) * distance,
+  ) as [number, number, number]
+  return { target, position }
+}
+
 export type CameraSnapshot = {
   position: [number, number, number]
   quaternion: [number, number, number, number]

@@ -4,8 +4,12 @@ import {
   transitionFraction,
   presentationFrame,
   captureFov,
+  fitCameraToBounds,
   type CameraSnapshot,
 } from './camera'
+import { PerspectiveCamera, Vector3 } from 'three'
+import { DEFAULT_CONFIG } from './config'
+import { presentationBounds } from './spatial'
 
 describe('persistent camera contract', () => {
   const snapshot: CameraSnapshot = {
@@ -40,5 +44,37 @@ describe('native centered framing', () => {
     expect(presentationFrame(2400, 1000).width).toBeCloseTo(16 / 9 / 2.4)
     expect(captureFov(60, 2.4, 16 / 9)).toBe(60)
     expect(presentationFrame(0, 0)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+  })
+})
+
+describe('geometry-backed exterior camera fitting', () => {
+  it('contains site context and multilevel access at laptop and narrow aspect ratios', () => {
+    for (const family of ['studio', 'container'] as const)
+      for (const length of [20, 40] as const)
+        for (const context of ['product', 'custom-wellness', 'sunken-lounge'] as const)
+          for (const aspect of [0.5, 1, 16 / 9, 2.4]) {
+            const bounds = presentationBounds({
+              ...DEFAULT_CONFIG,
+              family,
+              length,
+              items: [],
+              addons: { deck: true, roof: true, stairs: true, gazebo: family === 'studio' },
+              presentation: { openingPose: 'open', context },
+            })
+            const fit = fitCameraToBounds(bounds, aspect)
+            const camera = new PerspectiveCamera(32, aspect, 0.1, 1000)
+            camera.position.fromArray(fit.position)
+            camera.lookAt(new Vector3(...fit.target))
+            camera.updateMatrixWorld()
+            for (const x of [bounds.min.x, bounds.max.x])
+              for (const y of [bounds.min.y, bounds.max.y])
+                for (const z of [bounds.min.z, bounds.max.z]) {
+                  const projected = new Vector3(x, y, z).project(camera)
+                  expect(Math.abs(projected.x)).toBeLessThan(1)
+                  expect(Math.abs(projected.y)).toBeLessThan(1)
+                  expect(projected.z).toBeGreaterThan(-1)
+                  expect(projected.z).toBeLessThan(1)
+                }
+          }
   })
 })

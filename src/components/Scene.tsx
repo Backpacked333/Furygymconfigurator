@@ -27,7 +27,13 @@ import {
   type Quality,
 } from '../render/renderer'
 import { setMaterialGeneration, setMaxAnisotropy } from '../render/materials'
-import { canRestoreCamera, transitionFraction, type CameraMemoryRef } from '../lib/camera'
+import {
+  canRestoreCamera,
+  fitCameraToBounds,
+  transitionFraction,
+  type CameraMemoryRef,
+} from '../lib/camera'
+import { presentationBounds, type Bounds3 } from '../lib/spatial'
 import {
   createPresentationStore,
   type AssetReadiness,
@@ -120,7 +126,6 @@ function CameraRig({
 }) {
   const { camera, size, gl, invalidate } = useThree()
   const shellHeight = productHeight(c)
-  const hasOutdoor = c.addons.deck || c.addons.gazebo || c.addons.stairs
   const controls = useRef<OrbitControlsImpl>(null)
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
@@ -137,7 +142,7 @@ function CameraRig({
     quaternion: new Quaternion(),
     elapsed: 0,
   })
-  const bounds = `${c.family}:${c.length}:${shellHeight}:${c.addons.deck}:${c.addons.gazebo}:${c.addons.roof}:${c.addons.stairs}`
+  const bounds = JSON.stringify(presentationBounds({ ...c, items: [] }))
   const viewport = useRef(size)
   viewport.current = size
   const save = useCallback(() => {
@@ -207,21 +212,13 @@ function CameraRig({
         yaw.current = Math.atan2(-direction.x, -direction.z)
         pitch.current = Math.asin(direction.y)
       } else {
-        const width = c.length + (c.addons.stairs ? 6 : 2),
-          depth = hasOutdoor ? 17 : 10
-        const v = (p.fov * Math.PI) / 360,
-          h = Math.atan((Math.tan(v) * viewport.current.width) / viewport.current.height)
-        const height = c.addons.roof || c.addons.stairs || c.addons.gazebo ? 14 : shellHeight
-        const radius = Math.sqrt(width * width + depth * depth + height * height) / 2
-        const d = (radius / Math.sin(Math.min(v, h))) * 0.94
-        targetLook.current.set(
-          c.addons.stairs ? 2 : 0,
-          c.addons.roof ? 5 : 3.5,
-          hasOutdoor ? 2.2 : 0,
+        const fit = fitCameraToBounds(
+          JSON.parse(bounds) as Bounds3,
+          viewport.current.width / Math.max(1, viewport.current.height),
+          p.fov,
         )
-        targetPosition.current
-          .copy(targetLook.current)
-          .addScaledVector(new Vector3(0.48, 0.24, 0.84).normalize(), d)
+        targetLook.current.fromArray(fit.target)
+        targetPosition.current.fromArray(fit.position)
       }
       start.current = {
         position: camera.position.clone(),
@@ -244,21 +241,7 @@ function CameraRig({
       return stop
     }
     restoreView()
-  }, [
-    camera,
-    c.length,
-    shellHeight,
-    hasOutdoor,
-    c.addons.roof,
-    c.addons.gazebo,
-    c.addons.stairs,
-    view,
-    reset,
-    invalidate,
-    bounds,
-    memory,
-    presentation,
-  ])
+  }, [camera, c.length, shellHeight, view, reset, invalidate, bounds, memory, presentation])
   useEffect(() => {
     const el = gl.domElement
     let lastX = 0,

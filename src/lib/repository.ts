@@ -129,6 +129,7 @@ export function openIndexedDB(
 }
 export type LibraryEntry = {
   build: SavedBuild
+  originalRaw?: string
   revision: number
   status: 'accepted' | 'repair'
   issues: string[]
@@ -218,7 +219,7 @@ function librarySnapshot(records: readonly StoredRecord[]): LibrarySnapshot {
     const inspected = inspectBuild(row.raw)
     if ('reason' in inspected || row.key !== `build:${inspected.build.id}`)
       result.rejected.push({ ...row, reason: 'reason' in inspected ? inspected.reason : 'schema' })
-    else result.entries.push({ ...inspected, revision: row.revision })
+    else result.entries.push({ ...inspected, originalRaw: row.raw, revision: row.revision })
   }
   return result
 }

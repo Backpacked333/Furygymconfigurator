@@ -232,10 +232,10 @@ export async function createBrief(
     )
   const zones = [...spatial.external, ...spatial.openings]
   if (spatial.openingTravel) zones.push(spatial.openingTravel)
-  if (zones.length) {
-    heading('Opening and exterior elevation overlays')
+  if (zones.length || spatial.context.length) {
+    heading('Opening, exterior and site-context overlays')
     text(
-      'Separate from the interior usable floor. Solid outlines show modeled physical zones; dashed outlines show illustrative opening projections. Ground-contact and raised zones are shown separately because an overhead deck is not an obstruction on the room floor. Opening travel, load capacity, stairs and guards require engineering review.',
+      'Separate from the interior usable floor. Solid outlines show modeled physical zones; short dashes show illustrative opening projections. Long dashes show inquiry-only site context, excluded from product scope. Ground-contact and raised zones are shown separately because an overhead deck is not an obstruction on the room floor. Opening travel, load capacity, stairs and guards require engineering review.',
       9,
     )
     for (const [title, layer] of [
@@ -247,6 +247,7 @@ export async function createBrief(
         'Raised structures and opening poses',
         zones.filter((zone) => zone.bounds.min.y > spatial.finishedFloor),
       ],
+      ['Inquiry-only site context — not a product option', spatial.context],
     ] as const) {
       if (!layer.length) continue
       if (y + 100 > 269) {
@@ -269,7 +270,10 @@ export async function createBrief(
       for (const zone of layer) {
         const bounds = zone.bounds
         doc.setDrawColor(zone.kind === 'physical' ? 62 : 141, 105, 65)
-        doc.setLineDashPattern(zone.kind === 'physical' ? [] : [1, 1], 0)
+        doc.setLineDashPattern(
+          zone.kind === 'physical' ? [] : zone.kind === 'site-context' ? [3, 1] : [1, 1],
+          0,
+        )
         doc.rect(
           18 + (bounds.min.x - minX) * layerScale,
           y + (bounds.min.z - minZ) * layerScale,

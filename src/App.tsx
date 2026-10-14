@@ -50,6 +50,7 @@ import {
   productHeight,
   changeFamily,
   packageItems,
+  packageDefinition,
   type Config,
   type Unit,
   type View,
@@ -204,8 +205,8 @@ export default function App() {
         flooring: 'oak',
         mirror: false,
         package: 'recovery',
-        items: packageItems('recovery', 20),
-        addons: { deck: true, gazebo: true, roof: false, stairs: false },
+        items: packageItems('recovery', 20, config),
+        addons: { deck: true, gazebo: config.family === 'studio', roof: false, stairs: false },
         time: 18,
       },
       flow: {
@@ -213,10 +214,18 @@ export default function App() {
         finish: 'olive',
         flooring: 'oak',
         package: 'movement',
-        items: packageItems('movement', 20),
+        items: packageItems('movement', 20, config),
         time: 9,
       },
     }
+    const selected = templates[id]
+    const kind = id === 'athlete' ? 'strength' : id === 'retreat' ? 'recovery' : 'movement'
+    const preset = packageDefinition(kind, { ...selected, family: config.family })
+    if (!preset.available) {
+      notify(preset.notice ?? preset.issues.join(' '))
+      return
+    }
+    selected.items = preset.items
     const family = changeFamily(templates[id], config.family)
     if (!family.accepted) {
       notify(family.notice ?? family.issues.join(' '))
@@ -588,6 +597,19 @@ export default function App() {
         <LibraryDialog
           config={committedConfig}
           unit={unit}
+          saveBlocked={isPreviewing || repair.required}
+          onRepair={async (candidate, original) => {
+            const result = await design.openRepair(candidate, original)
+            if (!result.ok) {
+              notify(storageMessage(result.reason))
+              return false
+            }
+            setView('plan')
+            notify(
+              'Repair workspace opened. Both designs are preserved; accept a valid repair to resume saving.',
+            )
+            return true
+          }}
           onLoad={(next) => {
             const result = setConfig(next)
             if (result.status === 'rejected' || result.status === 'conflict') {
