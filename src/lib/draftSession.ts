@@ -184,13 +184,13 @@ export class DraftPersistence {
     candidate: Config,
     original?: Pick<RecoveryRecord, 'raw' | 'format'>,
   ): Promise<Outcome<Preservation[]>> {
-    this.suspend('corrupt-store')
-    await this.queue
     const records = [
       recoveryRecord(JSON.stringify(current), 'displaced-draft', 'json'),
       recoveryRecord(JSON.stringify(candidate), 'transaction', 'json'),
       ...(original ? [recoveryRecord(original.raw, 'transaction', original.format)] : []),
     ]
+    this.suspend('corrupt-store')
+    await this.queue
     const result = await this.repository.preserve(records)
     const preserved: Preservation[] = records.map((record, index) => ({
       status: result.ok ? 'durable' : 'volatile',
@@ -260,6 +260,7 @@ export class DraftPersistence {
   ): Promise<Outcome<RecordWrite>> {
     const inspected = inspectDocument(config)
     if (inspected.status !== 'accepted') return { ok: false, reason: 'corrupt-store' }
+    const raw = encodeConfig(inspected.config)
     this.update({ status: 'saving', writeSafe: false })
     await this.queue
     const draft = await this.repository.readDraft()
@@ -276,7 +277,7 @@ export class DraftPersistence {
     }
     // saveDraft archives originals and replaces the active record in the same transaction.
     const result = await this.repository.saveDraft(
-      encodeConfig(inspected.config),
+      raw,
       draft.value?.revision ?? null,
       originals,
       false,
