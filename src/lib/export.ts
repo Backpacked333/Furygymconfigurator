@@ -186,23 +186,33 @@ export async function createBrief(
     heading('04 / Project notes')
     text(project.notes.slice(0, 2000))
   }
-  heading('Continue this design')
-  doc.setFontSize(10)
-  doc.setTextColor(61, 94, 39)
-  doc.textWithLink('Open the interactive configuration', 18, y, { url: shareUrl(config) })
-  y += 10
-  text(
+  const linkSection = (title: string, label: string, url: string, notice: string) => {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    const sectionHeight = 9 + 10 + doc.splitTextToSize(notice, 174).length * 9 * 0.48 + 3
+    if (y + sectionHeight > 269) {
+      doc.addPage()
+      y = 22
+    }
+    heading(title)
+    doc.setFontSize(10)
+    doc.setTextColor(61, 94, 39)
+    doc.textWithLink(label, 18, y, { url })
+    y += 10
+    text(notice, 9)
+  }
+  linkSection(
+    'Continue this design',
+    'Open the interactive configuration',
+    shareUrl(config),
     'The link works wherever this application is hosted. Local development links require the application to be running at that address. This brief is downloaded to your device; it has not been sent to a sales team.',
-    9,
   )
-  heading('Request an official quote')
-  doc.setFontSize(10)
-  doc.textWithLink('Start a project with Fury Co Gyms', 18, y, { url: PROJECT_URL })
-  y += 10
-  text(
+  linkSection(
+    'Request an official quote',
+    'Start a project with Fury Co Gyms',
+    PROJECT_URL,
     'Opening this link does not send your design. Supply this brief yourself through Fury’s inquiry process. Published product source: ' +
       estimateData.source,
-    9,
   )
   for (let page = 1; page <= doc.getNumberOfPages(); page++) {
     doc.setPage(page)

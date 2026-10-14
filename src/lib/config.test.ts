@@ -462,4 +462,22 @@ describe('PDF brief', () => {
     expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(3)
     expect(doc.output()).toContain('Continue this design')
   })
+  it.each([0, 8, 12, 16, 20, 24, 28, 32, 36])(
+    'keeps each final link and its disclaimer together after %i lines of notes',
+    async (lines) => {
+      const doc = await createBrief(fresh(), null, {
+        name: 'Pagination regression',
+        notes: 'Project detail.\n'.repeat(lines),
+      })
+      const streams = [...doc.output().matchAll(/stream\n([\s\S]*?)\nendstream/g)]
+      const continuation = streams.find((stream) => stream[1].includes('Continue this design'))?.[1]
+      expect(continuation).toContain('Open the interactive configuration')
+      expect(continuation).toContain('The link works wherever')
+      expect(continuation).toContain('sales team.')
+      const inquiry = streams.find((stream) => stream[1].includes('Request an official quote'))?.[1]
+      expect(inquiry).toContain('Start a project with Fury Co Gyms')
+      expect(inquiry).toContain('Opening this link does not send your design.')
+      expect(inquiry).toContain('https://www.furycogyms.com/gym-design/studio')
+    },
+  )
 })
