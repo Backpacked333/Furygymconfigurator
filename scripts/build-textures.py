@@ -12,6 +12,7 @@ arm.webp (R ambient occlusion, G roughness, B metalness), matching three.js
 aoMap/roughnessMap/metalnessMap channel conventions.
 """
 import argparse
+import hashlib
 import io
 import json
 import math
@@ -21,6 +22,7 @@ import urllib.request
 
 import numpy as np
 from PIL import Image, ImageOps, ImageStat
+from PIL import __version__ as pillow_version
 
 ROOT = os.path.join(os.path.dirname(__file__), '..', 'public', 'textures')
 
@@ -79,9 +81,12 @@ def photo_set(asset, resolution, tint, saturation=1.0):
     files = json.loads(fetch(f'{API}/files/{asset}'))
     out = os.path.join(ROOT, asset)
     maps = {'albedo': 'Diffuse', 'normal': 'nor_gl', 'arm': 'arm'}
+    inputs = {}
     for name, key in maps.items():
         url = files[key][resolution]['jpg']['url']
-        image = Image.open(io.BytesIO(fetch(url))).convert('RGB')
+        content = fetch(url)
+        inputs[name] = {'url': url, 'sha256': hashlib.sha256(content).hexdigest()}
+        image = Image.open(io.BytesIO(content)).convert('RGB')
         if name == 'albedo' and tint:
             image = neutralize(image)
         elif name == 'albedo' and saturation < 1:
@@ -94,6 +99,7 @@ def photo_set(asset, resolution, tint, saturation=1.0):
         'authors': list(info['authors'].keys()),
         'sizeFt': [round(width_mm / 304.8, 3), round(height_mm / 304.8, 3)],
         'source': f'https://polyhaven.com/a/{asset}',
+        'inputs': inputs,
     }
 
 
@@ -166,11 +172,61 @@ def knurling(size=256, period=16):
     save(arm_image(0.28 + height * 0.25, 1.0), os.path.join(out, 'arm.webp'), 88)
 
 
+def manifest():
+    """Inventory committed encodings without re-encoding or weakening close-up fidelity."""
+    credits = {e['id']: e for e in json.load(open(os.path.join(ROOT, 'sources.json')))}
+    procedural_sizes = {'powder_coat': 0.25, 'brushed_metal': 1.5, 'knurling': 0.1}
+    maps = {}
+    for asset in sorted([*PHOTO_SETS, *procedural_sizes]):
+        photo = asset in PHOTO_SETS
+        credit = credits.get(asset, {})
+        for role in (['albedo', 'normal', 'arm'] if photo else ['normal', 'arm']):
+            path = os.path.join(ROOT, asset, role + '.webp')
+            content = open(path, 'rb').read()
+            width, height = Image.open(io.BytesIO(content)).size
+            settings = PHOTO_SETS.get(asset)
+            maps[f'{asset}/{role}'] = {
+                'file': f'{asset}/{role}.webp',
+                'sha256': hashlib.sha256(content).hexdigest(),
+                'encodedBytes': len(content),
+                'width': width, 'height': height,
+                'decodedBytesRGBA': width * height * 4,
+                'role': role,
+                'colorSpace': 'srgb' if role == 'albedo' else 'none',
+                'channels': {'albedo': 'RGB color', 'normal': 'OpenGL tangent +Y', 'arm': 'R=AO G=roughness B=metalness'}[role],
+                'repeatFeet': credit.get('sizeFt', [procedural_sizes.get(asset)] * 2),
+                'runtimeFormat': 'WebP decoded to RGBA; uncompressed GPU texture',
+                'mips': 'runtime generated; trilinear minification',
+                'source': credit.get('source', 'scripts/build-textures.py#' + asset),
+                'authors': credit.get('authors', ['FURY configurator procedural generator']),
+                'license': 'CC0-1.0' if photo else 'project-authored procedural',
+                'sourceInput': credit.get('inputs', {}).get(role),
+                'encoding': {'format': 'WebP', 'method': 6, 'quality': (90 if role == 'normal' else 84) if photo else (92 if role == 'normal' else 88)},
+                'transform': {'neutralize': bool(photo and role == 'albedo' and settings[1]), 'saturation': settings[3] if photo and len(settings) > 3 and role == 'albedo' else 1},
+                'fallback': 'deterministic 32px family-color/grain albedo, flat tangent normal, neutral AO and material-family roughness/metalness',
+            }
+    result = {
+        'schema': 1,
+        'generator': 'python3 scripts/build-textures.py --manifest-only',
+        'sourceRebuild': 'python3 scripts/build-textures.py (Pillow + NumPy; source input hashes recorded on regeneration)',
+        'legacySourceNote': 'Existing encodings are retained without recompression. Null sourceInput means original download hash was not recorded; output hashes are verified.',
+        'inspectionTools': {'pillow': pillow_version, 'numpy': np.__version__},
+        'maps': maps,
+    }
+    with open(os.path.join(ROOT, 'manifest.json'), 'w') as file:
+        json.dump(result, file, indent=2)
+        file.write('\n')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--only', nargs='*')
     parser.add_argument('--skip-procedural', action='store_true')
+    parser.add_argument('--manifest-only', action='store_true')
     args = parser.parse_args()
+    if args.manifest_only:
+        manifest()
+        return
     credits = []
     for asset, (resolution, tint, role, *rest) in PHOTO_SETS.items():
         if args.only and asset not in args.only:
@@ -194,6 +250,7 @@ def main():
         with open(path, 'w') as f:
             json.dump(sorted(merged.values(), key=lambda e: e['id']), f, indent=2)
             f.write('\n')
+    manifest()
 
 
 if __name__ == '__main__':

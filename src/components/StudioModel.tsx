@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { CanvasTexture, SRGBColorSpace } from 'three'
+import { useMemo, useRef } from 'react'
+import { CanvasTexture, SRGBColorSpace, type Group } from 'three'
 import type { Config } from '../lib/config'
 import {
   containerInterior,
@@ -14,6 +14,7 @@ import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
+import { useMaterialOwner, useResource } from '../render/useResource'
 import { Equipment } from './Equipment'
 import { InteriorLights } from './InteriorLights'
 import { Mirror } from './Mirror'
@@ -27,7 +28,7 @@ function useParts(build: (c: Config) => Part[], config: Config, key: string) {
 }
 
 function Signature({ length }: { length: number }) {
-  const texture = useMemo(() => {
+  const texture = useResource(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 1024
     canvas.height = 128
@@ -42,7 +43,7 @@ function Signature({ length }: { length: number }) {
     map.anisotropy = 8
     return map
   }, [length])
-  useEffect(() => () => texture.dispose(), [texture])
+  if (!texture) return null
   return (
     <mesh position={[-length / 2 + 3.8, 10.13, 4.04]}>
       <planeGeometry args={[5.6, 0.32]} />
@@ -86,6 +87,8 @@ export function StudioModel({
   config: Config
   quality?: Quality
 }) {
+  const root = useRef<Group>(null)
+  useMaterialOwner(root, [c, quality], 'scene:model')
   const studio = c.family === 'studio'
   const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
   const interiorKey = `${shellKey}|${c.flooring}`
@@ -101,27 +104,38 @@ export function StudioModel({
   )
   const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, shellKey)
   const a = c.addons
-  const deckParts = useParts(deck, c, `${shellKey}|${c.lights}`)
-  const pergolaParts = useParts(pergola, c, shellKey)
-  const roofParts = useParts(roofDeck, c, `${shellKey}|${a.stairs}`)
-  const stairParts = useParts(stairs, c, shellKey)
-  const accentParts = useParts(timberAccent, c, shellKey)
   return (
-    <group>
+    <group ref={root}>
       <Parts parts={shell} />
       <Parts parts={interior} />
       {glazing.length > 0 && <Parts parts={glazing} />}
       <InteriorLights config={c} quality={quality} />
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}
-      {studio && c.accent && <Parts parts={accentParts} />}
-      {studio && a.deck && <Parts parts={deckParts} />}
-      {studio && a.gazebo && <Parts parts={pergolaParts} />}
-      {studio && a.roof && <Parts parts={roofParts} />}
-      {studio && a.stairs && <Parts parts={stairParts} />}
+      {studio && c.accent && <OptionalParts build={timberAccent} config={c} partKey={shellKey} />}
+      {studio && a.deck && (
+        <OptionalParts build={deck} config={c} partKey={`${shellKey}|${c.lights}`} />
+      )}
+      {studio && a.gazebo && <OptionalParts build={pergola} config={c} partKey={shellKey} />}
+      {studio && a.roof && (
+        <OptionalParts build={roofDeck} config={c} partKey={`${shellKey}|${a.stairs}`} />
+      )}
+      {studio && a.stairs && <OptionalParts build={stairs} config={c} partKey={shellKey} />}
       {c.items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}
     </group>
   )
+}
+
+function OptionalParts({
+  build,
+  config,
+  partKey,
+}: {
+  build: (c: Config) => Part[]
+  config: Config
+  partKey: string
+}) {
+  return <Parts parts={useParts(build, config, partKey)} />
 }
