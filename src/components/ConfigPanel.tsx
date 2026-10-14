@@ -36,6 +36,7 @@ import {
   type PackageId,
   type Unit,
 } from '../lib/config'
+import { QUALITY_DETAILS, type Quality } from '../render/quality'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
@@ -137,8 +138,8 @@ export default function ConfigPanel({
   setStep: (step: number) => void
   unit: Unit
   setUnit: (u: Unit) => void
-  quality: 'high' | 'lite'
-  setQuality: (q: 'high' | 'lite') => void
+  quality: Quality
+  setQuality: (q: Quality) => void
   notify: (message: string) => void
   onPlan: () => void
   onTemplate: (id: 'athlete' | 'retreat' | 'flow') => void
@@ -683,18 +684,19 @@ export default function ConfigPanel({
             <div className="setting-row">
               <span>Render quality</span>
               <div className="segmented">
-                {(['high', 'lite'] as const).map((q) => (
+                {(['ultra', 'high', 'lite'] as const).map((q) => (
                   <button
                     key={q}
                     className={quality === q ? 'active' : ''}
                     aria-pressed={quality === q}
                     onClick={() => setQuality(q)}
                   >
-                    {q === 'high' ? 'High' : 'Lite'}
+                    {q === 'ultra' ? 'Ultra' : q === 'high' ? 'High' : 'Lite'}
                   </button>
                 ))}
               </div>
             </div>
+            <p className="muted small quality-detail">{QUALITY_DETAILS[quality]}</p>
             <div className="nature-note">
               <Leaf size={22} />
               <p>

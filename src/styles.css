@@ -2771,3 +2771,82 @@ h3 {
     display: none;
   }
 }
+
+/* Renderer badge and material streaming indicator */
+.scene-status .render-backend {
+  border-left: 1px solid #a6b095;
+  padding-left: 8px;
+  margin-left: 2px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 7px;
+  font-weight: 600;
+  color: #4d5a43;
+}
+.material-progress {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  transform: translateX(-50%);
+  overflow: hidden;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgb(240 238 229 / 0.86);
+  border: 1px solid #c9cdbd;
+  color: #4a5541;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  z-index: 3;
+}
+.material-progress > span {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: #627a4c;
+  transition: width 0.3s ease;
+}
+.quality-detail {
+  margin-top: 6px;
+}
+
+/* Photographic scenes are busier than the old flat backdrop: soft scrims keep overlays legible. */
+.stage:not(.is-plan)::before,
+.stage:not(.is-plan)::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+}
+.stage:not(.is-plan)::before {
+  left: 0;
+  top: 0;
+  width: min(520px, 60%);
+  height: 240px;
+  background: radial-gradient(
+    ellipse at 0 0,
+    rgb(238 236 228 / 0.82) 0%,
+    rgb(238 236 228 / 0.5) 42%,
+    transparent 72%
+  );
+}
+.stage:not(.is-plan)::after {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 90px;
+  background: linear-gradient(to top, rgb(238 236 228 / 0.7), transparent);
+}
+.stage-heading,
+.stage-bottom,
+.view-switch,
+.stage-tools,
+.photo-controls,
+.history-controls,
+.mobile-toggle {
+  z-index: 2;
+}
+.photo-mode .stage::after {
+  display: none;
+}
