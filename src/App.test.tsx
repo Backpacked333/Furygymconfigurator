@@ -3,6 +3,7 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import appStyles from './styles.css?raw'
 import { configSchema, DEFAULT_CONFIG, encodeConfig, type Config } from './lib/config'
 import * as repository from './lib/repository'
 import { TestBackend } from './lib/persistenceTestFixtures'
@@ -25,7 +26,7 @@ vi.mock('./components/Scene', () => ({
 }))
 
 describe('assembled application edit ownership', () => {
-  let root: Root, host: HTMLDivElement, backend: TestBackend
+  let root: Root, host: HTMLDivElement, backend: TestBackend, styles: HTMLStyleElement
   const initial = () =>
     configSchema.parse({
       ...DEFAULT_CONFIG,
@@ -84,6 +85,9 @@ describe('assembled application edit ownership', () => {
     history.replaceState(null, '', `/#c=${encodeConfig(initial())}`)
     scenes.length = 0
     host = document.createElement('div')
+    styles = document.createElement('style')
+    styles.textContent = appStyles
+    document.head.append(styles)
     document.body.append(host)
     root = createRoot(host)
     await act(async () => {
@@ -98,6 +102,7 @@ describe('assembled application edit ownership', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     host.remove()
+    styles.remove()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -194,12 +199,15 @@ describe('assembled application edit ownership', () => {
     async (exit) => {
       await click(button('Floor plan'))
       const opener = button('Enter photo mode')
+      expect(getComputedStyle(opener.parentElement!).display).not.toBe('none')
+      expect(getComputedStyle(opener).display).not.toBe('none')
       await click(opener)
       expect(host.querySelector('.plan-svg')).toBeNull()
       if (exit === 'button') await click(button('Exit photo mode'))
       else await key(button('Exit photo mode'), 'Escape')
       expect(host.querySelector('.plan-svg')).not.toBeNull()
       expect(document.activeElement).toBe(opener)
+      expect(getComputedStyle(opener.parentElement!).display).not.toBe('none')
     },
   )
 })

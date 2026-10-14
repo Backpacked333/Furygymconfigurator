@@ -487,6 +487,7 @@ export default function App() {
             <span className="tool-divider" />
             <button
               ref={photoOpener}
+              className="photo-entry-button"
               aria-label="Enter photo mode"
               onClick={() => {
                 photoReturn.current = { mobilePanel, view }

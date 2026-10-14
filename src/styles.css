@@ -1779,7 +1779,7 @@ h3 {
   padding: 85px 25px 70px;
 }
 .is-plan .stage-heading,
-.is-plan .stage-tools {
+.is-plan .stage-tools > :not(.photo-entry-button) {
   display: none;
 }
 .plan-heading {
