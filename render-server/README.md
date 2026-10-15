@@ -1,98 +1,100 @@
 # Cloud renderer
 
-Renders the configurator's resting views on a cloud GPU with Blender Cycles (hardware ray tracing
-through OptiX, GPU denoising). The browser sends the path-traced form of its scene; this server
-renders it and sends back a linear HDR image. The browser then applies its usual exposure match,
-bloom and tone mapping. See `src/render/cloud.ts` for the browser side and the README's
-"Cloud rendering" section for how the two fit together.
+Optional Blender Cycles renderer for the configurator. An L40S uses OptiX hardware ray tracing;
+CPU OpenImageDenoise finishes the image. OptiX denoising fails on the tested Modal runtime, even
+though OptiX rendering works. The browser applies exposure matching, bloom, and tone mapping.
 
-## Deploy on Modal
+## Access and deployment
 
-The configuration in `modal_app.py`:
+The public endpoint is a **CPU-only PIN gateway**, not the GPU. A correct PIN creates a signed,
+one-hour bearer session, held in browser memory (refreshing requires the PIN again). Authenticated
+render/blob requests invoke a private Modal method. `/health` checks only the gateway and never
+starts a GPU. There is no public GPU URL to bypass the gate. The PIN is not bundled into the site.
 
-- one L40S GPU at most;
-- the GPU switches off after five idle minutes, so you pay only while visitors look at renders;
-- compiled GPU kernels kept on a Modal volume, so later cold starts don't recompile them.
-
-1. Create an account at [modal.com](https://modal.com). Under **Settings → Usage and billing**,
-   set a **workspace budget** (a monthly spending cap). One GPU is about $1.95 an hour while it
-   is on.
-2. Install the CLI and sign in (Python 3.11 or newer):
-
-   ```sh
-   pip install modal
-   modal setup
-   ```
-
-3. Deploy from this directory:
+1. Create a Modal account, add billing, and configure the workspace spending controls. Pricing
+   is approximately $1.95 per L40S GPU-hour **plus CPU/RAM and idle time**. A single GPU and rate
+   limits do not enforce a dollar budget. Do not leave a test deployment running without approval.
+2. Install `modal==1.1.4` with Python 3.11 and authenticate using `modal setup` or the
+   `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` environment variables.
+3. In Modal, create a secret named `fury-render-auth` containing:
+   - `FURY_PIN_HASH`: scrypt hash of the desired PIN, generated below.
+   - `FURY_SESSION_KEY`: at least 32 random characters (e.g. `secrets.token_hex(32)`).
+     Use the Modal dashboard's secret fields; never commit these values or put them in Vite variables.
 
    ```sh
    cd render-server
-   modal deploy modal_app.py
+   python -c 'import getpass, hashlib; print(hashlib.scrypt(getpass.getpass("PIN: ").encode(), salt=b"fury-render-pin-v1", n=16384, r=8, p=1).hex())'
+   python -c 'import secrets; print(secrets.token_hex(32))'
    ```
 
-   The first deploy builds the image, which takes a few minutes. It prints the endpoint's URL,
-   like `https://<workspace>--fury-render-renderer-web.modal.run`.
+4. Deploy with **explicit allowed origins** (none are allowed by default at the gateway):
 
-4. In the Vercel project, add the environment variable `VITE_CLOUD_RENDER_URL` with that URL (for
-   Production and Preview), then redeploy the site. Without the variable the site path traces on
-   the visitor's GPU only, as before.
+   ```sh
+   FURY_ALLOWED_ORIGINS='^https://your-preview\.vercel\.app$' modal deploy modal_app.py
+   ```
 
-By default, browsers may call the server from the project's Vercel deployments
-(`furygymconfigurator*.vercel.app`) and from `localhost`. To allow a custom domain, deploy with
-`FURY_ALLOWED_ORIGINS` set to a regular expression of the allowed origins, for example:
+   Set `VITE_CLOUD_RENDER_URL` to the printed **gateway** URL on the intended Vercel **preview
+   branch only**, then build/deploy that preview. Do not enable production until tested and approved.
+   No cloud URL means the existing local-only experience. `?cloud=0` also disables cloud rendering;
+   it can bypass the front-end screen, but cannot bypass server authorization for paid rendering.
+   This is GPU access control, **not** protection for the public static site or its assets.
 
-```sh
-FURY_ALLOWED_ORIGINS='^https://(www\.)?example\.com$|^https://furygymconfigurator[a-z0-9-]*\.vercel\.app$' modal deploy modal_app.py
-```
+5. Enter the PIN in the front-end screen. All uploads/renders carry only the signed session token.
+   Incorrect/expired tokens receive 401 and cannot wake the GPU. Expiry prompts for the PIN again.
 
-Other settings, read when deploying:
+Settings read during deployment:
 
-| Variable            | Default | Effect                                          |
-| ------------------- | ------- | ----------------------------------------------- |
-| `FURY_GPU`          | `L40S`  | Modal GPU type (`L4` is cheaper and ~3× slower) |
-| `FURY_IDLE_SECONDS` | `300`   | Idle time before the GPU is switched off        |
+| Variable               | Default            | Effect                                            |
+| ---------------------- | ------------------ | ------------------------------------------------- |
+| `FURY_APP_NAME`        | `fury-render`      | Use a separate name for preview/test deployments  |
+| `FURY_AUTH_SECRET`     | `fury-render-auth` | Modal secret holding PIN hash and signing key     |
+| `FURY_ALLOWED_ORIGINS` | No origins         | Fully anchored regex for approved browser origins |
+| `FURY_GPU`             | `L40S`             | GPU type                                          |
+| `FURY_IDLE_SECONDS`    | `300`              | GPU idle tail before scale-to-zero; billed time   |
 
-To keep a GPU on during business hours, add `min_containers=1` to the `@app.cls` decorator in
-`modal_app.py`, or schedule it from Modal's dashboard. That makes every render instant, but you
-pay for the GPU for all of those hours.
+Stop a test with `modal app stop <app-name>` and confirm zero tasks with `modal app list`.
+To revoke all issued sessions, rotate `FURY_SESSION_KEY` and redeploy. Changing only the PIN hash
+does not invalidate existing sessions. Never raise gateway `max_containers` above 1 without
+replacing the in-memory limits with shared durable counters.
 
-## Run locally
+## Limits and caveats
 
-Rendering on the CPU is slow (tens of seconds a view) but needs no account, and it's useful for
-development:
+- One GPU container, one active Blender render, max 15 seconds of Cycles sampling per render.
+  Scene preparation, denoising, cold starts, packing and idle time are additional billable work.
+- Gateway: global 10 PIN attempts/minute (burst 5), 12 render requests/minute (burst 3),
+  1 GiB of uploads/hour (burst 512 MiB). Missing-blob retries count as render requests.
+- These token buckets are in-process and reset when the gateway restarts/scales down. They reduce
+  abuse but are **not durable quotas or a hard budget**. Use a strong access code for public use;
+  a short shared PIN is guessable and is suitable only for a controlled preview.
+- Wire and expanded bodies are bounded: 32 MiB for scenes, 128 MiB for individual blobs.
+  Texture URLs are never fetched by the server, preventing redirects/private-network SSRF.
+- GPU failure falls back to local tracing where supported. WebGL retains the raster image.
+- A tiny 640×480/128-sample scene passed through the deployed PIN gateway to L40S/OptiX:
+  660 ms rendering, 1.85 s HTTP round trip with a warm worker after blob uploads.
+  This is not a full configurator benchmark. Verify actual scenes and cold starts before launch.
+
+## Local development and tests
+
+The local server is intentionally unauthenticated and binds only to loopback. Do not expose it.
 
 ```sh
 cd render-server
 python3.11 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m fury_render.local --device cpu      # http://127.0.0.1:8787
+.venv/bin/pip install -r requirements.txt pytest
+.venv/bin/python -m fury_render.local --device cpu
+# Open the frontend with ?cloud=http://127.0.0.1:8787 (no PIN required for loopback).
+.venv/bin/python -m pytest -q
 ```
 
-Then open the app with `?cloud=http://127.0.0.1:8787`.
+Gateway tests use a fake private dispatcher and verify that locked/malformed/rate-limited requests
+never invoke it. Server tests exercise real CPU Cycles renders, uploads, image packing, camera
+reuse and material edits. They do not replace deployed GPU or browser tests.
 
-Tests render small scenes on the CPU:
+## Code map
 
-```sh
-.venv/bin/pip install pytest
-.venv/bin/python -m pytest
-```
-
-## How it works
-
-- `fury_render/api.py`: the HTTP API (`/health`, `PUT /blobs/{sha256}`, `POST /render`).
-  - Blobs are cached on disk by content hash. A render whose blobs are missing answers 409 with
-    their hashes, and the browser uploads just those. Textures the site itself serves are fetched
-    by the server instead.
-  - Requests from one session that a newer view has replaced are dropped before rendering.
-  - Rate limits apply per client.
-- `fury_render/worker.py`: Blender runs in a child process that owns `bpy`, one render at a time.
-- `fury_render/blender.py`: builds and updates the Cycles scene and renders.
-  - Meshes, images and materials are cached by content, and Cycles keeps its scene between
-    renders (persistent data), so a new camera angle starts rendering at once.
-  - Light units were calibrated against the browser's path tracer: emission and sky radiance
-    carry over as is, a sun's strength is its irradiance, point and spot lights emit 4π W per
-    W/sr, and area lights emit π·area W per unit of radiance.
-  - One-sided materials are transparent from behind except to shadow rays, as in the browser's
-    tracer.
-- `fury_render/protocol.py`: the binary formats and request limits.
+- `fury_render/gateway.py`: PIN verification, signed sessions, CORS and pre-GPU request limits.
+- `modal_app.py`: CPU ASGI endpoint and private GPU RPC, persistent OptiX cache.
+- `fury_render/api.py`: missing-blob protocol, cache, queue and superseded-view handling.
+- `fury_render/worker.py`: isolated Blender process; only one render at a time.
+- `fury_render/blender.py`: geometry/material/light conversion and Cycles/OIDN rendering.
+- `fury_render/protocol.py`: binary formats, validation and bounded decompression.

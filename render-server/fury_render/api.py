@@ -24,8 +24,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
@@ -204,35 +203,9 @@ class Service:
     def start(self) -> dict:
         return self.worker.start()
 
-    def fetchable(self, url: str) -> bool:
-        match = re.match(r"^(https?://[^/]+)/", url)
-        return bool(match and self.origins.match(match.group(1)))
-
-    async def fetch(self, client: httpx.AsyncClient, key: str, url: str) -> bool:
-        """Fetches a texture from the site that serves it, instead of asking for an upload."""
-        try:
-            response = await client.get(url)
-            if response.status_code != 200 or len(response.content) > MAX_BLOB_BYTES:
-                return False
-            data = response.content
-            if digest(data) != key:
-                return False
-            await asyncio.to_thread(self.store.put, key, data)
-            return True
-        except httpx.HTTPError:
-            return False
-
     async def missing(self, scene: dict) -> list[str]:
-        absent = [(key, url) for key, url in required_blobs(scene) if not self.store.has(key)]
-        if not absent:
-            return []
-        remote = [(key, url) for key, url in absent if url and self.fetchable(url)]
-        fetched: set[str] = set()
-        if remote:
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-                results = await asyncio.gather(*(self.fetch(client, k, u) for k, u in remote))
-            fetched = {key for (key, _), ok in zip(remote, results) if ok}
-        return [key for key, _ in absent if key not in fetched]
+        # Always upload from the browser; never fetch caller-supplied URLs on the server.
+        return [key for key, _ in required_blobs(scene) if not self.store.has(key)]
 
     async def render(self, body: dict) -> Response:
         request = validate_request(body)
@@ -333,18 +306,24 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
             "queue": service.waiting,
         }
 
+    async def bounded_body(request: Request, limit: int):
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > limit:
+                raise HTTPException(413, "too large")
+            data.extend(chunk)
+        return bytes(data)
+
     @app.put("/blobs/{key}")
     async def put_blob(key: str, request: Request):
         if not HASH.match(key):
             return JSONResponse({"error": "bad hash"}, status_code=400)
-        body = await request.body()
-        if len(body) > MAX_BLOB_BYTES:
-            return JSONResponse({"error": "too large"}, status_code=413)
+        body = await bounded_body(request, MAX_BLOB_BYTES)
         if not service.uploads.take(client_key(request), len(body)):
             return JSONResponse({"error": "upload rate exceeded"}, status_code=429)
         try:
             data = await asyncio.to_thread(decompress, body)
-        except OSError:
+        except (OSError, EOFError, ProtocolError):
             return JSONResponse({"error": "bad gzip"}, status_code=400)
         if len(data) > MAX_BLOB_BYTES or digest(data) != key:
             return JSONResponse({"error": "hash mismatch"}, status_code=400)
@@ -355,13 +334,11 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
     async def render(request: Request):
         if not service.renders.take(client_key(request)):
             return JSONResponse({"error": "render rate exceeded"}, status_code=429)
-        raw = await request.body()
-        if len(raw) > 32 << 20:
-            return JSONResponse({"error": "too large"}, status_code=413)
+        raw = await bounded_body(request, 32 << 20)
         try:
-            body = json.loads(decompress(raw))
+            body = json.loads(decompress(raw, 32 << 20))
             return await service.render(body)
-        except (ProtocolError, json.JSONDecodeError, OSError) as error:
+        except (ProtocolError, ValueError, TypeError, AttributeError, OSError, EOFError) as error:
             return JSONResponse({"error": str(error)}, status_code=400)
 
     return app

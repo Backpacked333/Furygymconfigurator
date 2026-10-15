@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 import re
 import struct
+import zlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -49,10 +51,16 @@ class ProtocolError(ValueError):
     """The request is malformed; reported to the client as 400."""
 
 
-def decompress(data: bytes) -> bytes:
+def decompress(data: bytes, limit: int = MAX_BLOB_BYTES) -> bytes:
     """Uploads may be gzip-compressed; blobs are stored and hashed uncompressed."""
     if data[:2] == b"\x1f\x8b":
-        return gzip.decompress(data)
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
+                data = stream.read(limit + 1)
+        except (OSError, EOFError, zlib.error) as error:
+            raise ProtocolError("invalid gzip") from error
+    if len(data) > limit:
+        raise ProtocolError("decompressed request too large")
     return data
 
 
