@@ -23,8 +23,12 @@ import { setTraceStatus } from '../render/traceStatus'
 
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
 const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
-/** How long the view must hold still after the raster image settles before tracing starts. */
-const REST_MS = 220
+/**
+ * Tracing starts once the view has held still for this many raster frames and REST_MS more. The
+ * traced image replaces the raster one, so it need not wait for the raster settle run to finish.
+ */
+const TRACE_AFTER_FRAMES = 6
+const REST_MS = 150
 /** `?denoise=0` shows the raw accumulation, for comparing against the denoised image. */
 const denoise = new URLSearchParams(window.location.search).get('denoise') !== '0'
 
@@ -67,6 +71,8 @@ export function RenderEffects({
   const present = useRef<TracePresent | null>(null)
   const mode = useRef<'raster' | 'trace'>('raster')
   const settle = useRef(0)
+  /** Raster frames drawn since the view last changed. */
+  const still = useRef(0)
   const lastView = useRef(new Matrix4())
   const lastProjection = useRef(new Matrix4())
   const changed = useRef(true)
@@ -201,8 +207,10 @@ export function RenderEffects({
       lastProjection.current.copy(camera.projectionMatrix)
       changed.current = false
       if (restTimer.current) clearTimeout(restTimer.current)
+      restTimer.current = null
       rested.current = pending.current !== null
       settle.current = 0
+      still.current = 0
       fresh.current = false
       if (mode.current === 'trace') {
         mode.current = 'raster'
@@ -227,7 +235,7 @@ export function RenderEffects({
       return
     }
 
-    if (rested.current && tracer && settle.current <= 0 && fresh.current) {
+    if (rested.current && tracer && fresh.current) {
       rested.current = false
       mode.current = 'trace'
       tracer.begin(scene, camera, lookRef.current, active.hdr, REST_SAMPLES)
@@ -242,14 +250,15 @@ export function RenderEffects({
     active.render()
     fresh.current = true
     settle.current--
+    still.current++
     if (settle.current > 0) invalidate()
-    else if (tracer) {
-      if (restTimer.current) clearTimeout(restTimer.current)
-      restTimer.current = setTimeout(() => {
-        rested.current = true
-        invalidate()
-      }, REST_MS)
-    } else if (pending.current) {
+    if (tracer) {
+      if (!restTimer.current && (settle.current <= 0 || still.current >= TRACE_AFTER_FRAMES))
+        restTimer.current = setTimeout(() => {
+          rested.current = true
+          invalidate()
+        }, REST_MS)
+    } else if (settle.current <= 0 && pending.current) {
       const capture = pending.current
       pending.current = null
       capture.resolve(renderer.domElement.toDataURL('image/png'))

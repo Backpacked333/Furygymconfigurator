@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html, OrbitControls } from '@react-three/drei'
-import { Euler, PerspectiveCamera, Vector3 } from 'three'
+import { Euler, PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import type { WebGPURenderer } from 'three/webgpu'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
@@ -15,6 +15,7 @@ import { InteriorProbe } from './InteriorProbe'
 import { deckFront, roofTop } from '../render/addons'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { cameraFraming } from '../render/framing'
+import { DAMPING, motionPixels, settleGlide } from '../render/motion'
 import { setMaxAnisotropy } from '../render/materials'
 
 class GraphicsBoundary extends Component<
@@ -194,6 +195,27 @@ function CameraRig({
       el.removeEventListener('keydown', key)
     }
   }, [camera, gl, view, invalidate])
+  // Ends an orbit's damped glide once it is no longer visible, so the view comes to rest (and the
+  // path tracer starts) promptly. Runs after OrbitControls' own update.
+  const glide = useRef({ dragging: false, position: new Vector3(), quaternion: new Quaternion() })
+  useFrame(() => {
+    const orbit = controls.current
+    const last = glide.current
+    const pixels = motionPixels(
+      last.position,
+      last.quaternion,
+      camera.position,
+      camera.quaternion,
+      orbit ? camera.position.distanceTo(orbit.target) : 1,
+      (camera as PerspectiveCamera).fov,
+      size.height,
+    )
+    last.position.copy(camera.position)
+    last.quaternion.copy(camera.quaternion)
+    if (!orbit?.enabled || pixels === 0 || last.dragging || moving.current || orbit.autoRotate)
+      return
+    if (settleGlide(orbit, pixels)) invalidate()
+  })
   useFrame((_, delta) => {
     if (!moving.current) return
     const t = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -219,8 +241,14 @@ function CameraRig({
       maxPolarAngle={Math.PI / 2 - 0.015}
       autoRotate={autoRotate && view === 'exterior'}
       autoRotateSpeed={0.45}
+      dampingFactor={DAMPING}
       onStart={() => {
         moving.current = false
+        glide.current.dragging = true
+        if (controls.current) controls.current.dampingFactor = DAMPING
+      }}
+      onEnd={() => {
+        glide.current.dragging = false
       }}
     />
   )
