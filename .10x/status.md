@@ -14,5 +14,8 @@
 - [ ] Stage 2 (next): screen-space contact shadows (`SSSNode`), SSR on Ultra for facade glass,
       denser lawns/planting, facade detail, the client's GLB assets per the interior asset brief
 - [ ] Real-GPU check of the live canvas crossfade and time to first denoised image (Vercel preview)
+- [x] Tracing starts promptly after an orbit (glide tail ended; 6 still frames + 150 ms)
+- [x] Camera moves keep samples: new views are seeded from the last traced view (reprojection)
+- [ ] Real-GPU timing of seeded vs. fresh views; decide on off-device rendering (user's call)
 
 Draft PR: Backpacked333/Furygymconfigurator#9 (branch `claude/configurator-design-impl-2a8tt0`).

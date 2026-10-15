@@ -5,6 +5,11 @@
 `src/lib/visuals.ts` (shared sky calibration, cloud port, equirect builder). Decisions are in
 `.10x/decisions/sde/photoreal-rendering.md`.
 
+**Speed work (stacked branch `claude/gifted-mccarthy-3c2zyf`).** `src/render/motion.ts` ends an
+orbit's sub-pixel glide so the view comes to rest; `src/render/history.ts` keeps each traced view
+and seeds the next one from it. Decisions in `.10x/decisions/sde/trace-speed.md`. The GPU check is
+`dev-history.html` + `dev/history-harness.ts` (git-excluded), run like the trace harness below.
+
 **How to verify locally.** Headless Chromium in the cloud container cannot present WebGPU to a
 canvas (device lost) but can run WebGPU offscreen. `dev-trace.html` + `src/dev/trace.tsx`
 (git-excluded) render a signature build through the real raster and trace pipelines into render
