@@ -165,7 +165,7 @@ The scene renders with three.js r186's `WebGPURenderer`. It runs natively on Web
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Ultra | High plus screen-space global illumination (one diffuse bounce of on-screen light)                                                              |
 | High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, emissive bloom, temporal reprojection anti-aliasing, 4096-pixel sun shadows |
-| Lite  | One 4× MSAA pass, 1024-pixel sun shadows, probe-lit mirror                                                                                      |
+| Lite  | One 4× MSAA pass, 2048-pixel sun shadows, probe-lit mirror                                                                                      |
 
 Laptop-width screens start on Ultra, tablets on High, and phones on Lite. If back-to-back frames stay slow, the app steps down one tier and says so, unless a tier was chosen explicitly. Rendering is on demand: after any change it keeps drawing for a short settle window (about 28–40 frames) so temporal anti-aliasing, AO, and GI converge into a clean still, then stops.
 
@@ -183,6 +183,7 @@ The status line shows progress. The **Path-traced stills** switch under Surround
 
 Lighting:
 
+- **Sun shadows:** the sun's shadow map covers at least 128 × 128 ft around the unit and gathers casters up to about 400 ft toward the sun, so surrounding buildings, trees, and palms shade the site at low sun, as they do in the path-traced image.
 - **Sky and sun:** a Preetham daylight sky with clouds is both the visible background and the image-based lighting (captured into a PMREM cube). Sun color comes from atmospheric extinction along the sun path. A multiple-scattering fill keeps the zenith-to-horizon ratio near measured clear skies. Fog matches the horizon. After dark, exposure adapts, moonlight takes over, and airglow keeps the sky deep blue. The sun follows an artistic summer path (sunrise 06:00, sunset 20:30, 60° at noon), not a location-based study.
 - **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. It is captured twice per change to approximate a second bounce. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
 - **Mirror:** High and Ultra render a true planar reflection; Lite uses a probe-lit polished surface.

@@ -44,6 +44,9 @@ import type { Quality } from '../render/quality'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
 
+/** Half-width of the sun's shadow map in feet, and how far toward the sun it gathers casters. */
+const SHADOW_EXTENT = 64
+const SHADOW_REACH = 420
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
 const INTERIOR_EXPOSURE = 1.6
 
@@ -189,8 +192,11 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
   const preset = SKY_PRESETS[config.environment]
   const sunlight = sunlightAt(config.time, preset)
   const night = nightAt(config.time)
-  const extent = config.length / 2 + 14
-  const distance = 80
+  // The map covers the site and the ground around it in view, and reaches far enough toward the
+  // sun that surrounding buildings and trees shade the site at low sun, as they do when traced.
+  const extent = Math.max(config.length / 2 + 14, SHADOW_EXTENT)
+  const distance = SHADOW_REACH
+  const depth = SHADOW_REACH * 2
   const [x, y, z] = sunlight.direction
   return (
     <>
@@ -201,15 +207,16 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
         color={new Color(...sunlight.color)}
         intensity={SUN_INTENSITY * sunlight.intensity}
         castShadow
-        shadow-mapSize={quality === 'lite' ? [1024, 1024] : [4096, 4096]}
+        shadow-mapSize={quality === 'lite' ? [2048, 2048] : [4096, 4096]}
         shadow-camera-left={-extent}
         shadow-camera-right={extent}
         shadow-camera-top={extent}
         shadow-camera-bottom={-extent}
         shadow-camera-near={10}
-        shadow-camera-far={180}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.03}
+        shadow-camera-far={depth}
+        // About 0.07 ft of depth bias whatever the depth range.
+        shadow-bias={-0.07 / depth}
+        shadow-normalBias={quality === 'lite' ? 0.05 : 0.03}
         shadow-radius={quality === 'lite' ? 2 : 4}
       />
       {night > 0.01 && (
