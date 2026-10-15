@@ -4,23 +4,21 @@ import {
   FloatType,
   LinearFilter,
   MeshStandardMaterial,
-  NearestFilter,
-  NoToneMapping,
   RGBAFormat,
   RectAreaLight,
   RenderTarget,
   StorageTexture,
-  UnsignedByteType,
+  Vector2,
   Vector3,
   type Camera,
   type Material,
+  type PerspectiveCamera,
   type Mesh,
   type Object3D,
   type Scene,
   type Texture,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { diffuseColor, mrt, normalView, vec4 } from 'three/tsl'
 import type { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu'
 import {
   SUN_ANGULAR_RADIUS,
@@ -30,6 +28,7 @@ import {
   studioRadiance,
   type SkyLook,
 } from '../lib/visuals'
+import { GBuffer, ViewHistory } from './history'
 import { createExposureMeter } from './pipeline'
 import type { TraceState } from './traceStatus'
 
@@ -276,6 +275,11 @@ function zeroFill(renderer: WebGPURenderer, texture: Texture) {
 
 /** Accumulation milestones at which the image is denoised and crossfaded in. */
 const MILESTONES = [8, 32, 128, EXPORT_SAMPLES, REST_SAMPLES]
+/**
+ * A view seeded from the previous one is mostly converged from the start; only what that view did
+ * not show is new, so its first image is denoised almost at once.
+ */
+const SEEDED_MILESTONES = [2, ...MILESTONES]
 /** Crossfade between successive images, in milliseconds. */
 const FADE_MS = 520
 
@@ -302,7 +306,12 @@ export class PathTraceSession {
   private readonly sink = new RenderTarget(1, 1)
   private readonly denoisers: Denoiser[]
   private snapshot: StorageTexture | null = null
-  private aux: RenderTarget | null = null
+  /** The current view's rasterized albedo, normals, and positions (denoiser guides, reuse). */
+  private readonly gbuffer = new GBuffer()
+  /** The last traced view, reprojected into the next one so it never starts from nothing. */
+  private readonly history = new ViewHistory()
+  /** Whether the current view started from the previous view's samples. */
+  seeded = false
   private scene: Scene | null = null
   private camera: Camera | null = null
   private running: { index: number; samples: number } | null = null
@@ -385,6 +394,8 @@ export class PathTraceSession {
         restore()
       }
       this.signature = signature
+      // Samples of a different design, time of day, or texture set describe a different image.
+      this.history.clear()
     } else {
       this.tracer.updateCamera()
     }
@@ -393,7 +404,17 @@ export class PathTraceSession {
     this.camera = camera
     this.target = target
     this.tracer.maxSamples = target
+    // Size the accumulation now rather than on the first sample, which would clear the seed.
+    const { width, height } = this.syncSize()
     this.tracer.reset()
+    this.gbuffer.render(this.renderer, scene, camera as PerspectiveCamera, width, height)
+    this.seeded = this.history.seed(
+      this.renderer,
+      this.backend,
+      this.gbuffer,
+      this.signature,
+      target,
+    )
     for (const denoiser of this.denoisers) denoiser.reset()
     this.running = null
     this.shownIndex = -1
@@ -409,6 +430,29 @@ export class PathTraceSession {
     // Meter the frozen raster frame now, before anything else draws over the GPU's time.
     this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
     this.state = 'tracing'
+  }
+
+  /** The tracer's accumulation targets. */
+  private get backend() {
+    return (
+      this.tracer as unknown as {
+        _pathTracer: {
+          outputTarget: StorageTexture
+          sampleCountTarget: StorageTexture
+          setSize: (w: number, h: number) => boolean
+        }
+      }
+    )._pathTracer
+  }
+
+  /** Allocates the accumulation at the size the tracer is about to render at. */
+  private syncSize() {
+    const size = this.renderer.getDrawingBufferSize(new Vector2())
+    const width = Math.max(1, Math.floor(this.tracer.renderScale * size.x))
+    const height = Math.max(1, Math.floor(this.tracer.renderScale * size.y))
+    this.tracer.setSize(width, height)
+    this.backend.setSize(width, height)
+    return { width, height }
   }
 
   private get denoising() {
@@ -498,7 +542,9 @@ export class PathTraceSession {
     // Wait for the previous image to finish fading in before replacing what it fades from.
     if (this.transition.to && this.view(now).t < 1) return
     const goal = this.accumulating
-      ? MILESTONES.find((m) => m > this.shownSamples && m <= this.target)
+      ? (this.seeded ? SEEDED_MILESTONES : MILESTONES).find(
+          (m) => m > this.shownSamples && m <= this.target,
+        )
       : this.samples > this.shownSamples
         ? this.samples
         : undefined
@@ -514,13 +560,12 @@ export class PathTraceSession {
     const size = this.snapshot.image as { width: number; height: number }
     if (size.width !== width || size.height !== height) this.snapshot.setSize(width, height, 1)
     this.renderer.copyTextureToTexture(color, this.snapshot)
-    const aux = this.renderAux(width, height)
     const index = this.shownIndex === 0 ? 1 : 0
     const denoiser = this.denoisers[index]
     denoiser.reset()
     this.running = { index, samples: this.samples }
     const epoch = this.epoch
-    denoiser.denoise(this.snapshot, aux.textures[0], aux.textures[1]).catch((error) => {
+    denoiser.denoise(this.snapshot, this.gbuffer.albedo, this.gbuffer.normal).catch((error) => {
       if (epoch !== this.epoch) return
       console.warn('Denoising is unavailable; showing the raw path-traced image.', error)
       this.denoiseFailed = true
@@ -549,36 +594,6 @@ export class PathTraceSession {
       })
   }
 
-  /** Albedo and view-space normals that guide the denoiser, rasterized once per view. */
-  private renderAux(width: number, height: number) {
-    if (!this.aux) {
-      this.aux = new RenderTarget(width, height, {
-        count: 2,
-        type: UnsignedByteType,
-        minFilter: NearestFilter,
-        magFilter: NearestFilter,
-        samples: 4,
-      })
-      this.aux.textures[0].name = 'output'
-      this.aux.textures[1].name = 'normal'
-    }
-    const aux = this.aux
-    if (aux.width !== width || aux.height !== height) aux.setSize(width, height)
-    if (this.shownIndex >= 0 || this.running) return aux
-    const renderer = this.renderer
-    const target = renderer.getRenderTarget()
-    const toneMapping = renderer.toneMapping
-    const previousMRT = renderer.getMRT()
-    renderer.toneMapping = NoToneMapping
-    renderer.setRenderTarget(aux)
-    renderer.setMRT(mrt({ output: diffuseColor, normal: vec4(normalView.mul(0.5).add(0.5), 1) }))
-    renderer.render(this.scene!, this.camera!)
-    renderer.setMRT(previousMRT)
-    renderer.setRenderTarget(target)
-    renderer.toneMapping = toneMapping
-    return aux
-  }
-
   /** The images to composite this frame. */
   view(now = performance.now()): TraceView {
     const raw = this.tracer.target!
@@ -601,6 +616,9 @@ export class PathTraceSession {
   }
 
   halt() {
+    // Keep what this view accumulated for the next one. Queued after any batch still in flight.
+    if (this.frames > 0 && (this.state === 'tracing' || this.state === 'converged'))
+      this.history.store(this.renderer, this.backend, this.gbuffer, this.signature)
     this.state = 'off'
     this.samples = 0
     this.running = null
@@ -617,7 +635,8 @@ export class PathTraceSession {
     this.meter.dispose()
     this.sink.dispose()
     this.snapshot?.dispose()
-    this.aux?.dispose()
+    this.gbuffer.dispose()
+    this.history.dispose()
     for (const denoiser of this.denoisers) denoiser.dispose()
   }
 }
