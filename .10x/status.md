@@ -8,7 +8,11 @@
 - [x] Denoised milestones (OIDN, albedo/normal guided) with crossfades; raw fallback
 - [x] Photo and PDF exports wait for a denoised ≥384 spp image (45 s cap)
 - [x] Status badge, Surroundings toggle, `?trace` / `?denoise` parameters
-- [ ] Offscreen-harness verification of traced images across the five signature builds
-- [ ] Stage 2: real-time realism uplift (higher-resolution scans, DOF, vegetation, facades)
+- [x] Offscreen-harness verification: Courtyard pod exterior (noon and dusk) and interior traced,
+      denoised, exposure-matched, converged
+- [x] Stage 2 (part): 2K scans for close/large surfaces; sun shadows from surroundings
+- [ ] Stage 2 (next): screen-space contact shadows (`SSSNode`), SSR on Ultra for facade glass,
+      denser lawns/planting, facade detail, the client's GLB assets per the interior asset brief
+- [ ] Real-GPU check of the live canvas crossfade and time to first denoised image (Vercel preview)
 
 Draft PR: Backpacked333/Furygymconfigurator#9 (branch `claude/configurator-design-impl-2a8tt0`).

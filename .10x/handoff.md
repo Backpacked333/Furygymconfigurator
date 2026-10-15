@@ -9,9 +9,10 @@
 canvas (device lost) but can run WebGPU offscreen. `dev-trace.html` + `src/dev/trace.tsx`
 (git-excluded) render a signature build through the real raster and trace pipelines into render
 targets and draw them to 2D canvases. Launch Chromium with
-`--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader --enable-unsafe-swiftshader
---disable-dawn-features=lazy_clear_resource_on_first_use` (SwiftShader's lazy clear of 3D textures
-is broken). It is CPU-emulated, so keep images small (≈240×150) and expect minutes per sample.
+`--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader --enable-unsafe-swiftshader`. Do not
+disable Dawn's lazy clear: uninitialized atlas pages then poison texture sampling (black images).
+The session zero-fills the 3D energy table itself. Read back with the 256-byte row stride. It is
+CPU-emulated: 320×200 reaches 16 spp in ~25–35 min.
 
 **Gotchas.**
 
@@ -23,4 +24,5 @@ is broken). It is CPU-emulated, so keep images small (≈240×150) and expect mi
 - Any new TSL-only material needs `material.userData.pathTrace = { ...plain PBR fields }` or it
   will be traced with its default (white) properties.
 
-**Next.** Finish harness verification of all five builds (exterior and interior), then stage 2.
+**Next.** Stage 2 items in `.10x/status.md`; check the live crossfade on a real GPU via the Vercel
+preview.
