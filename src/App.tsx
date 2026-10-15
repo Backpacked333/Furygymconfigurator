@@ -56,7 +56,7 @@ import {
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
-import { requestedTrace, useTraceStatus } from './render/traceStatus'
+import { cloudUrl, requestedTrace, useTraceStatus } from './render/traceStatus'
 import { textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
@@ -70,7 +70,10 @@ export default function App() {
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
     [backend, setBackend] = useState<Backend | null>(null),
-    [trace, setTrace] = useState(() => requestedTrace() ?? defaultQuality() !== 'lite')
+    // A cloud renderer path traces on any device, so light devices get it too.
+    [trace, setTrace] = useState(
+      () => requestedTrace() ?? (cloudUrl() !== null || defaultQuality() !== 'lite'),
+    )
   // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
   const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
   const [dialog, setDialog] = useState<Dialog>(null),
@@ -555,12 +558,14 @@ function TraceBadge() {
   const status = useTraceStatus()
   if (status.state === 'off') return null
   const label =
-    status.state === 'preparing'
-      ? 'Preparing path tracer'
-      : status.state === 'converged'
-        ? 'Path traced'
-        : // Settled regions stop early, so the cap is not where most views finish.
-          `Path tracing · ${status.samples} samples`
+    status.state === 'converged'
+      ? 'Path traced'
+      : status.source === 'cloud'
+        ? 'Path tracing in the cloud'
+        : status.state === 'preparing'
+          ? 'Preparing path tracer'
+          : // Settled regions stop early, so the cap is not where most views finish.
+            `Path tracing · ${status.samples} samples`
   return (
     <span
       className={`trace-badge ${status.state}`}

@@ -122,6 +122,19 @@ export function thinGlass(material: Material & Record<string, unknown>) {
   return { thickness: 0, attenuationDistance: Infinity, color }
 }
 
+/** The sun as path tracers see it, or null when it is down or the setting is the studio. */
+export function sunLight(look: SkyLook) {
+  const { sunlight } = look
+  if (sunlight.intensity <= 1e-4 || look.environment === 'studio') return null
+  return {
+    /** Unit vector toward the sun. */
+    direction: [...sunlight.direction] as [number, number, number],
+    color: [...sunlight.color] as [number, number, number],
+    irradiance: SUN_INTENSITY * sunlight.intensity,
+    angularRadius: SUN_ANGULAR_RADIUS,
+  }
+}
+
 /**
  * Swaps the scene into its path-traced form and returns a function that restores it. Everything
  * happens synchronously around the tracer's capture, so the rasterizer never sees the swap.
@@ -155,17 +168,18 @@ export function preparePathTraceScene(scene: Scene, look: SkyLook, environment: 
   })
 
   // The sun as a disc light at its true angular size, replacing the raster directional light.
-  const { sunlight } = look
-  if (sunlight.intensity > 1e-4 && look.environment !== 'studio') {
-    const radius = SUN_DISTANCE * Math.tan(SUN_ANGULAR_RADIUS)
-    const irradiance = SUN_INTENSITY * sunlight.intensity
+  const sunlight = sunLight(look)
+  if (sunlight) {
+    const radius = SUN_DISTANCE * Math.tan(sunlight.angularRadius)
     const sun = new RectAreaLight(0xffffff, 1, radius * 2, radius * 2) as RectAreaLight & {
       isCircular: boolean
     }
     sun.isCircular = true
+    sun.userData.sun = true
     sun.color.setRGB(...sunlight.color)
     // A disc of radius r at distance d subtends π r²/d², so radiance = irradiance / solid angle.
-    sun.intensity = irradiance / ((Math.PI * radius * radius) / (SUN_DISTANCE * SUN_DISTANCE))
+    sun.intensity =
+      sunlight.irradiance / ((Math.PI * radius * radius) / (SUN_DISTANCE * SUN_DISTANCE))
     sun.position.copy(new Vector3(...sunlight.direction).multiplyScalar(SUN_DISTANCE))
     sun.lookAt(0, 0, 0)
     sun.updateMatrixWorld()

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Matrix4, type WebGPURenderer } from 'three/webgpu'
 import type { Config, View } from '../lib/config'
@@ -9,6 +9,7 @@ import {
   type Pipeline,
   type TracePresent,
 } from '../render/pipeline'
+import { CloudSession, cloudUrl } from '../render/cloud'
 import { onMaterialsChanged } from '../render/materials'
 import {
   EXPORT_SAMPLES,
@@ -19,6 +20,7 @@ import {
 } from '../render/pathtrace'
 import type { Quality } from '../render/quality'
 import { backendOf } from '../render/renderer'
+import { TraceSession } from '../render/session'
 import { setTraceStatus } from '../render/traceStatus'
 
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
@@ -38,8 +40,9 @@ type PendingCapture = { deadline: number; resolve: (image: string) => void }
 /**
  * Drives the frame. While the camera moves, the TSL raster pipeline renders on demand and keeps
  * drawing for a short settle window so temporal anti-aliasing, AO, and GI accumulate. Once the
- * view rests (and WebGPU is available), a progressive path tracer takes over and crossfades in,
- * refining toward a converged image; any camera or scene change hands back to the rasterizer.
+ * view rests, path tracing takes over and crossfades in: on a cloud GPU when a render server is
+ * configured, and progressively on this device where WebGPU is available (see TraceSession);
+ * any camera or scene change hands back to the rasterizer.
  */
 export function RenderEffects({
   quality,
@@ -52,7 +55,7 @@ export function RenderEffects({
   onSlow,
 }: {
   quality: Quality
-  /** Path-trace resting views (WebGPU only). */
+  /** Path-trace resting views (on a cloud GPU, or locally with WebGPU). */
   trace: boolean
   look: SkyLook
   config: Config
@@ -67,7 +70,7 @@ export function RenderEffects({
   const webgpu = backendOf(renderer) === 'webgpu'
   const pipeline = useRef<Pipeline | null>(null)
   const [raster, setRaster] = useState<Pipeline | null>(null)
-  const [session, setSession] = useState<PathTraceSession | null>(null)
+  const [session, setSession] = useState<TraceSession | null>(null)
   const present = useRef<TracePresent | null>(null)
   const mode = useRef<'raster' | 'trace'>('raster')
   const settle = useRef(0)
@@ -103,19 +106,33 @@ export function RenderEffects({
     }
   }, [renderer, scene, camera, quality, invalidate])
 
-  // The tracer loads on demand, and only where WebGPU compute is available.
-  const traceAvailable = webgpu && trace
+  // The local tracer loads on demand, and only where WebGPU compute is available. With a cloud
+  // renderer, light devices leave all tracing to it.
+  const remote = useMemo(() => cloudUrl(), [])
+  const cloudAvailable = trace && remote !== null
+  const localAvailable = webgpu && trace && (quality !== 'lite' || !cloudAvailable)
   useEffect(() => {
-    if (!traceAvailable) return
+    if (!localAvailable && !cloudAvailable) return
     let active = true
-    let created: PathTraceSession | null = null
-    loadTracerModule()
-      .then((module) => {
-        if (!active) return
-        created = new PathTraceSession(renderer, module, denoise)
-        setSession(created)
-      })
-      .catch((error) => console.warn('Path tracing is unavailable on this device.', error))
+    let created: TraceSession | null = null
+    const local = localAvailable
+      ? loadTracerModule()
+          .then((module) => new PathTraceSession(renderer, module, denoise))
+          .catch((error) => {
+            console.warn('Path tracing is unavailable on this device.', error)
+            return null
+          })
+      : Promise.resolve(null)
+    local.then((tracer) => {
+      if (!active) {
+        tracer?.dispose()
+        return
+      }
+      const cloud = cloudAvailable ? new CloudSession(renderer, remote!) : null
+      if (!tracer && !cloud) return
+      created = new TraceSession(tracer, cloud)
+      setSession(created)
+    })
     return () => {
       active = false
       created?.dispose()
@@ -124,13 +141,13 @@ export function RenderEffects({
       mode.current = 'raster'
       changed.current = true
       invalidate()
-      setTraceStatus({ state: 'off', samples: 0, target: 0, exporting: false })
+      setTraceStatus({ state: 'off', source: 'local', samples: 0, target: 0, exporting: false })
     }
-  }, [renderer, traceAvailable, invalidate])
+  }, [renderer, localAvailable, cloudAvailable, remote, invalidate])
 
   useEffect(() => {
     if (!session || !raster) return
-    const created = createTracePresent(renderer, raster.hdr, session.tracer.target!)
+    const created = createTracePresent(renderer, raster.hdr, session.texture)
     present.current = created
     // A view that settled before the tracer finished loading starts refining now.
     rested.current = true
@@ -191,6 +208,7 @@ export function RenderEffects({
       reported.current = now
       setTraceStatus({
         state: tracer && mode.current === 'trace' ? tracer.state : 'off',
+        source: tracer?.source ?? 'local',
         samples: tracer?.samples ?? 0,
         target: tracer?.target ?? 0,
         exporting: pending.current !== null,
