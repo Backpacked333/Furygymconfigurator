@@ -11,7 +11,7 @@ import { Landscape } from './Landscape'
 import { RenderEffects, type Capture } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
-import { InteriorProbe } from './InteriorProbe'
+import { InteriorProbe, SiteProbe } from './InteriorProbe'
 import { deckFront, roofTop } from '../render/addons'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { cameraFraming } from '../render/framing'
@@ -286,6 +286,7 @@ export default function Scene({
           autoRotate={autoRotate}
         />
         <InteriorProbe config={config} quality={quality} />
+        <SiteProbe config={config} quality={quality} />
         <RenderEffects
           quality={quality}
           trace={trace}

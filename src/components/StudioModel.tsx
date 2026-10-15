@@ -109,7 +109,8 @@ export function StudioModel({
   const canopyParts = useParts(canopy, c, `${shellKey}|${a.roof}|${c.lights}`)
   const accentParts = useParts(timberAccent, c, shellKey)
   return (
-    <group>
+    // Tagged so the site reflection probe can leave the unit out of its capture.
+    <group userData={{ unit: true }}>
       <Parts parts={shell} />
       <Parts parts={interior} />
       {glazing.length > 0 && <Parts parts={glazing} />}

@@ -22,6 +22,7 @@ export const palette = {
       normalScale: 0.3,
       clearcoat: 0.75,
       clearcoatRoughness: 0.16,
+      site: true,
     }),
   brushed: (interior = true, color = '#d7d9da') =>
     m({ set: 'brushed_metal', color, metalness: 1, roughness: 1, interior }),
@@ -113,6 +114,7 @@ export const palette = {
       attenuationDistance: 1.2,
       specularIntensity: 1,
       side: DoubleSide,
+      site: true,
     }),
   tintedGlass: () =>
     m({

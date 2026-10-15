@@ -1,6 +1,7 @@
 import {
   FloatType,
   MeshBasicNodeMaterial,
+  type DirectionalLight,
   QuadMesh,
   RenderPipeline,
   RenderTarget,
@@ -15,6 +16,9 @@ import {
 } from 'three/webgpu'
 import {
   builtinAOContext,
+  cameraFar,
+  cameraNear,
+  context,
   diffuseColor,
   emissive,
   float,
@@ -23,13 +27,18 @@ import {
   log,
   luminance,
   max,
+  metalness,
   mix,
   mrt,
   normalView,
+  orthographicDepthToViewZ,
   output,
   packNormalToRGB,
   pass,
+  perspectiveDepthToViewZ,
+  positionView,
   renderOutput,
+  roughness,
   sample,
   screenCoordinate,
   screenUV,
@@ -39,6 +48,7 @@ import {
   uniform,
   unpackRGBToNormal,
   uv,
+  vec2,
   vec3,
   vec4,
   velocity,
@@ -46,6 +56,8 @@ import {
 import { ao } from 'three/addons/tsl/display/GTAONode.js'
 import { bloom } from 'three/addons/tsl/display/BloomNode.js'
 import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
+import { ssr } from 'three/addons/tsl/display/SSRNode.js'
+import { sss } from 'three/addons/tsl/display/SSSNode.js'
 import { traa } from 'three/addons/tsl/display/TRAANode.js'
 import type { Quality } from './renderer'
 
@@ -69,13 +81,28 @@ function finish(hdr: Node<'vec4'>) {
   return vec4(display.rgb.mul(vignette).add(dither), 1)
 }
 
+/** View distances (ft) over which contact shadows fade from full strength to none. */
+const CONTACT_NEAR = 20
+const CONTACT_FAR = 45
+
+/** The raster sun, tagged by the atmosphere. */
+function findSun(scene: Scene) {
+  let sun: DirectionalLight | null = null
+  scene.traverse((object) => {
+    if (object.userData.sun && (object as DirectionalLight).isDirectionalLight)
+      sun = object as DirectionalLight
+  })
+  return sun as DirectionalLight | null
+}
+
 /**
  * Builds the TSL render pipeline for a quality tier. Every tier uses the same scene graph.
  *
  * - Lite: one 4x MSAA scene pass.
- * - High: depth/normal/velocity pre-pass, GTAO injected only into ambient light, emissive bloom,
- *   temporal reprojection anti-aliasing.
- * - Ultra: High plus screen-space global illumination (one diffuse bounce of on-screen light).
+ * - High: depth/normal/velocity pre-pass, GTAO injected only into ambient light, sun contact
+ *   shadows, emissive bloom, temporal reprojection anti-aliasing.
+ * - Ultra: High plus screen-space global illumination (one diffuse bounce of on-screen light) and
+ *   screen-space reflections on metals.
  */
 export function createPipeline(
   renderer: WebGPURenderer,
@@ -101,8 +128,20 @@ export function createPipeline(
   // Opaque geometry only: glazing must not occlude the interior in AO, GI, or reprojection.
   const prePass = pass(scene, camera)
   prePass.transparent = false
-  prePass.setMRT(mrt({ output: packNormalToRGB(normalView), velocity }))
+  const reflective = quality === 'ultra'
+  prePass.setMRT(
+    mrt(
+      reflective
+        ? {
+            output: packNormalToRGB(normalView),
+            velocity,
+            metalrough: vec2(metalness, roughness),
+          }
+        : { output: packNormalToRGB(normalView), velocity },
+    ),
+  )
   prePass.getTexture('output').type = UnsignedByteType
+  if (reflective) prePass.getTexture('metalrough').type = UnsignedByteType
   const preDepth = prePass.getTextureNode('depth')
   const preVelocity = prePass.getTextureNode('velocity')
   const preNormal = sample((uv) => unpackRGBToNormal(prePass.getTextureNode().sample(uv)))
@@ -115,8 +154,45 @@ export function createPipeline(
   occlusion.samples.value = 16
   disposables.push(occlusion)
 
+  // Contact shadows: a short screen-space march toward the sun resolves the fine shadows a shadow
+  // map spread over the whole site cannot (feet on the floor, a bench leg on paving, a plate on
+  // its horn). They multiply the sun's shadow only, so lamps and sky light are untouched.
+  let lighting = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r)
+  let contactDebug: Node<'float'> | null = null
+  const sun = findSun(scene)
+  if (sun) {
+    const contact = sss(preDepth, camera, sun)
+    contact.maxDistance.value = 0.45
+    contact.thickness.value = 0.08
+    contact.quality.value = quality === 'ultra' ? 0.6 : 0.4
+    contact.resolutionScale = quality === 'ultra' ? 1 : 0.5
+    contact.useTemporalFiltering = true
+    disposables.push(contact)
+    // Full strength up close, gone by mid-distance: far away the depth buffer is too coarse to
+    // tell contact from noise, and the site-wide shadow map already covers those scales.
+    const contactAt = (viewZ: Node<'float'>) =>
+      mix(
+        float(1),
+        contact.getTextureNode().sample(screenUV).r,
+        smoothstep(CONTACT_FAR, CONTACT_NEAR, viewZ.negate()).mul(0.85),
+      )
+    const contactNode = contactAt(positionView.z)
+    const toViewZ = (camera as PerspectiveCamera).isPerspectiveCamera
+      ? perspectiveDepthToViewZ
+      : orthographicDepthToViewZ
+    contactDebug = contactAt(toViewZ(preDepth.sample(screenUV).r, cameraNear, cameraFar))
+    // Glazing is not in the depth pre-pass, so what the march found belongs to the surface behind
+    // it; its sun glints keep the shadow map alone.
+    lighting = context(lighting, {
+      getShadow: (
+        { light, shadowColorNode }: { light: unknown; shadowColorNode: Node<'vec3'> },
+        { material }: { material: { transparent: boolean } },
+      ) =>
+        light === sun && !material.transparent ? shadowColorNode.mul(contactNode) : shadowColorNode,
+    })
+  }
   const scenePass = pass(scene, camera)
-  scenePass.contextNode = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r)
+  scenePass.contextNode = lighting
   scenePass.setMRT(
     mrt(quality === 'ultra' ? { output, emissive, diffuseColor } : { output, emissive }),
   )
@@ -139,15 +215,37 @@ export function createPipeline(
     lit = lit.add(vec4(bounce, 0))
   }
 
+  let reflectionNode: Node<'vec4'> | null = null
+  if (reflective) {
+    // Screen-space reflections for metals and metallic-coated glass: chrome, brushed steel, and
+    // facade windows reflect what is actually on screen, on top of their probe reflections.
+    const metalRough = prePass.getTextureNode('metalrough')
+    const reflections = ssr(color, preDepth, preNormal, {
+      metalnessNode: metalRough.r,
+      roughnessNode: metalRough.g,
+      camera,
+    })
+    reflections.resolutionScale = 0.5
+    reflections.maxDistance.value = 60
+    reflections.thickness.value = 0.6
+    reflections.intensity.value = 0.7
+    disposables.push(reflections)
+    reflectionNode = vec4(reflections.rgb, 1)
+    lit = lit.add(vec4(reflections.rgb, 0))
+  }
+
   const resolved = traa(lit, preDepth, preVelocity, camera)
   disposables.push(resolved)
   pipeline.outputNode = finish(resolved)
-  // `?debug=ao` shows the occlusion buffer for tuning.
+  // `?debug=ao|normal|contact|reflections` shows the occlusion, normal, contact-shadow, or
+  // screen-space reflection buffer for tuning.
   const debug = new URLSearchParams(window.location.search).get('debug')
   if (debug === 'ao')
     pipeline.outputNode = vec4(vec3(occlusion.getTextureNode().sample(screenUV).r), 1)
   if (debug === 'normal')
     pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
+  if (debug === 'contact' && contactDebug) pipeline.outputNode = vec4(vec3(contactDebug), 1)
+  if (debug === 'reflections' && reflectionNode) pipeline.outputNode = finish(reflectionNode)
   return {
     render: () => pipeline.render(),
     dispose: () => disposables.forEach((d) => d.dispose()),
