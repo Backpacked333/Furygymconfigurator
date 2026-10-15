@@ -14,7 +14,7 @@ import {
 } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import { skyLook } from '../lib/visuals'
-import { preparePathTraceScene, sceneSignature, thinGlass } from './pathtrace'
+import { preparePathTraceScene, sceneParts, sceneSignature, thinGlass } from './pathtrace'
 
 const environment = { isTexture: true } as unknown as Texture
 
@@ -120,5 +120,27 @@ describe('path-traced scene capture', () => {
     f.foliage.visible = false
     expect(sceneSignature(f.scene, 'a')).not.toBe(updated)
     expect(base).toBeTypeOf('number')
+  })
+
+  it('tells apart edits that need a new capture from those updated in place', () => {
+    const f = fixture()
+    f.scene.updateMatrixWorld(true)
+    const changed = (edit: () => void) => {
+      const before = sceneParts(f.scene)
+      edit()
+      f.scene.updateMatrixWorld(true)
+      const after = sceneParts(f.scene)
+      return (Object.keys(before) as (keyof typeof before)[]).filter((k) => before[k] !== after[k])
+    }
+    // Moving a mesh refits the BVH; a new finish or light level updates buffers in place.
+    expect(changed(() => (f.stone.position.y = 3))).toEqual(['transforms'])
+    expect(changed(() => (f.leaf.needsUpdate = true))).toEqual(['materials'])
+    expect(changed(() => (f.stone.material = new MeshStandardNodeMaterial()))).toEqual([
+      'materials',
+    ])
+    expect(changed(() => (f.sun.intensity = 0.5))).toEqual(['lights'])
+    // Meshes appearing or disappearing need the BVH built again.
+    expect(changed(() => (f.foliage.visible = false))).toContain('structure')
+    expect(changed(() => f.scene.add(new Mesh(new BoxGeometry(), f.leaf)))).toContain('structure')
   })
 })

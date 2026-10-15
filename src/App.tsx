@@ -558,8 +558,9 @@ function TraceBadge() {
     status.state === 'preparing'
       ? 'Preparing path tracer'
       : status.state === 'converged'
-        ? `Path traced · ${status.samples} samples`
-        : `Path tracing · ${status.samples} / ${status.target}`
+        ? 'Path traced'
+        : // Settled regions stop early, so the cap is not where most views finish.
+          `Path tracing · ${status.samples} samples`
   return (
     <span
       className={`trace-badge ${status.state}`}
