@@ -27,6 +27,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -250,6 +251,26 @@ def finish_frame(path: str, finish: dict) -> tuple[bytes, float]:
     return finishing.encode_webp(rgb), finishing.traced_key(hdr)
 
 
+async def uninterrupted(work: Awaitable):
+    """Awaits work that cannot be stopped once begun, such as a frame Blender is rendering.
+
+    A cancelled caller (its gateway stopped waiting) still waits for the work to end before the
+    cancellation is raised. Until then it keeps the worker's turn and output file: released any
+    sooner, the next render would share the worker's pipe while Blender is still answering.
+    """
+    task = asyncio.ensure_future(work)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.wait([task])
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 class RenderQueue:
     """Renders on a number of workers, one each, by priority (lower first), then in order of arrival.
 
@@ -398,12 +419,14 @@ class Service:
                     waited = time.perf_counter() - queued
                     worker = self.workers[index]
                     try:
-                        result = await asyncio.to_thread(
-                            worker.call, {"op": "render", "request": request, "out": out}
+                        result = await uninterrupted(
+                            asyncio.to_thread(
+                                worker.call, {"op": "render", "request": request, "out": out}
+                            )
                         )
                     except WorkerDied:
                         worker.crashed()
-                        await asyncio.to_thread(worker.start)
+                        await uninterrupted(asyncio.to_thread(worker.start))
                         return JSONResponse({"error": "renderer restarted"}, status_code=503)
                     if not result.get("ok"):
                         return JSONResponse(
@@ -424,10 +447,16 @@ class Service:
                 if frame:
                     # The GPU is free again: finish this frame while it renders the next.
                     started = time.perf_counter()
-                    data, key_light = await asyncio.get_running_loop().run_in_executor(
-                        self.finisher, finish_frame, out, request["finish"]
-                    )
-                    self.frames.put(key, FRAME_KEY.pack(key_light) + data)
+
+                    async def finish():
+                        data, key_light = await asyncio.get_running_loop().run_in_executor(
+                            self.finisher, finish_frame, out, request["finish"]
+                        )
+                        self.frames.put(key, FRAME_KEY.pack(key_light) + data)
+                        return data, key_light
+
+                    # Kept even if the caller has gone: the next request for this frame gets it.
+                    data, key_light = await uninterrupted(finish())
                     return self.frame_response(
                         data,
                         request,
