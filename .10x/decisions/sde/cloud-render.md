@@ -180,6 +180,8 @@ Verification:
   test orientations). A camera at rest then read as a sliver of motion every frame, so the snap
   never started and `settleGlide` kept requesting frames. An unmoved camera now reads as exactly
   still.
-- **Not measured:** time from rest to a cached view on a real GPU. On the software GPU, frames
-  take about a second, so resting and the GPU readbacks of the exposure match take seconds.
-  `?traceStats=1` logs the decode and exposure-match times of each pre-rendered view.
+- **Not measured:** time from rest to a cached view on a real GPU. On the software GPU it was
+  10.3 s: decoding took 31 ms and the exposure match 10.2 s. The match reads back a 48×30 frame
+  behind a fence that waits for every queued GPU command, and each queued raster frame takes
+  about a second there. On a real GPU that is a frame or two. `?traceStats=1` logs both times
+  for each pre-rendered view.
