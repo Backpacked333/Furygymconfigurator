@@ -67,7 +67,8 @@ const REST_MS = 150
 const denoise = new URLSearchParams(window.location.search).get('denoise') !== '0'
 
 export type Capture = () => Promise<string>
-type PendingCapture = { deadline: number; resolve: (image: string) => void }
+/** Requests made while an image is rendering share it. An empty image means none was made. */
+type PendingCapture = { deadline: number; resolvers: ((image: string) => void)[] }
 
 /**
  * Drives the frame. While the camera moves, the TSL raster pipeline renders on demand and keeps
@@ -136,6 +137,11 @@ export function RenderEffects({
   useEffect(() => {
     lookRef.current = look
   }, [look])
+  const deliver = (image: string) => {
+    const capture = pending.current
+    pending.current = null
+    capture?.resolvers.forEach((resolve) => resolve(image))
+  }
 
   useEffect(() => {
     const created = createPipeline(renderer, scene, camera, quality)
@@ -277,7 +283,12 @@ export function RenderEffects({
       // The spin's full-quality frame, once it is on screen.
       if (spinner.current)
         return new Promise<string>((resolve) => {
-          pending.current = { deadline: performance.now() + EXPORT_TIMEOUT_MS, resolve }
+          if (pending.current) pending.current.resolvers.push(resolve)
+          else
+            pending.current = {
+              deadline: performance.now() + EXPORT_TIMEOUT_MS,
+              resolvers: [resolve],
+            }
           invalidate()
         })
       if (!session || !present.current) {
@@ -285,7 +296,12 @@ export function RenderEffects({
         return Promise.resolve(renderer.domElement.toDataURL('image/png'))
       }
       return new Promise<string>((resolve) => {
-        pending.current = { deadline: performance.now() + EXPORT_TIMEOUT_MS, resolve }
+        if (pending.current) pending.current.resolvers.push(resolve)
+        else
+          pending.current = {
+            deadline: performance.now() + EXPORT_TIMEOUT_MS,
+            resolvers: [resolve],
+          }
         if (mode.current !== 'trace') rested.current = true
         invalidate()
       })
@@ -295,6 +311,10 @@ export function RenderEffects({
   useEffect(
     () => () => {
       if (restTimer.current) clearTimeout(restTimer.current)
+      // An export never waits on a scene that is gone.
+      const capture = pending.current
+      pending.current = null
+      capture?.resolvers.forEach((resolve) => resolve(''))
     },
     [],
   )
@@ -449,10 +469,9 @@ export function RenderEffects({
         )
         if (t < 1) invalidate()
         const capture = pending.current
-        if (capture && (current.frame.final || now > capture.deadline)) {
-          pending.current = null
-          capture.resolve(renderer.domElement.toDataURL('image/png'))
-        } else if (capture) invalidate()
+        if (capture && (current.frame.final || now > capture.deadline))
+          deliver(renderer.domElement.toDataURL('image/png'))
+        else if (capture) invalidate()
         setSpinStatus({
           active: true,
           ...spinning.session.progress,
@@ -496,10 +515,8 @@ export function RenderEffects({
       // Until the first traced image is ready the canvas keeps the last raster frame.
       if (traced.from || traced.t > 0) present.current!.render(traced)
       const capture = pending.current
-      if (capture && (tracer.ready(EXPORT_SAMPLES) || now > capture.deadline)) {
-        pending.current = null
-        capture.resolve(renderer.domElement.toDataURL('image/png'))
-      }
+      if (capture && (tracer.ready(EXPORT_SAMPLES) || now > capture.deadline))
+        deliver(renderer.domElement.toDataURL('image/png'))
       report(!refining)
       if (refining || pending.current) invalidate()
       return
@@ -534,11 +551,8 @@ export function RenderEffects({
           rested.current = true
           invalidate()
         }, REST_MS)
-    } else if (settle.current <= 0 && pending.current) {
-      const capture = pending.current
-      pending.current = null
-      capture.resolve(renderer.domElement.toDataURL('image/png'))
-    }
+    } else if (settle.current <= 0 && pending.current)
+      deliver(renderer.domElement.toDataURL('image/png'))
     // Back-to-back settle frames measure what this GPU can sustain at this tier. The first frames
     // after a pipeline is built include shader compilation and are ignored.
     const t = timing.current

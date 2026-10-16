@@ -114,7 +114,7 @@ export default function App() {
   const capture = useCallback(async () => {
     if (view === 'plan' || !captureRef.current) return null
     try {
-      return await captureRef.current()
+      return (await captureRef.current()) || null
     } catch {
       return null
     }
