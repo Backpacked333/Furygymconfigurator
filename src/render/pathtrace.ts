@@ -10,6 +10,7 @@ import {
   StorageTexture,
   Vector2,
   Vector3,
+  type BufferGeometry,
   type Camera,
   type Material,
   type PerspectiveCamera,
@@ -55,9 +56,17 @@ import type { TraceState } from './traceStatus'
 /** `?traceStats=1` logs, per view, when the first traced image appeared and when it settled. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
 
-/** Samples per pixel at which a resting view stops refining. */
-export const REST_SAMPLES = 1024
-/** Samples per pixel an exported still waits for (or until EXPORT_TIMEOUT_MS). */
+/**
+ * Samples per pixel at which a resting view stops refining: denoised, 256 is clean on every
+ * surface the gym shows, and a resting view is looked at, not kept. The same count as the spin's
+ * good tier, so the two engines give one image for one view.
+ */
+export const REST_SAMPLES = 256
+/**
+ * Samples per pixel an exported still waits for (or until EXPORT_TIMEOUT_MS): a view that is
+ * resting at REST_SAMPLES carries on to this when a capture asks (`retarget`), so an export keeps
+ * its quality.
+ */
 export const EXPORT_SAMPLES = 384
 export const EXPORT_TIMEOUT_MS = 45000
 
@@ -98,13 +107,23 @@ function isLit(material: Material) {
   return Boolean(m.isMeshStandardMaterial || m.isMeshStandardNodeMaterial)
 }
 
-/** Temporarily assigns properties, returning a function that puts the old values back. */
+/**
+ * Temporarily assigns properties, returning a function that puts the old values back. A
+ * material's version is put back too: its physical properties count a change of shader when they
+ * cross zero (a pane's transmission turned on for the tracer, off again after), and the raster
+ * renderer never sees the swap, so nothing changed for it; the scene fingerprints read the
+ * version, and would otherwise find a new design after every capture.
+ */
 function assign(target: object, values: Record<string, unknown>, restores: Restore[]) {
   const record = target as Record<string, unknown>
   const previous: Record<string, unknown> = {}
   for (const key of Object.keys(values)) previous[key] = record[key]
+  const version = (target as Material).isMaterial ? (target as Material).version : null
   Object.assign(record, values)
-  restores.push(() => Object.assign(record, previous))
+  restores.push(() => {
+    Object.assign(record, previous)
+    if (version !== null) record.version = version
+  })
 }
 
 /** Thin-walled equivalent of a volumetric glass: its absorption across the pane becomes a tint. */
@@ -224,28 +243,54 @@ export type SceneParts = {
  * ring shows. An edit inside then costs the one panorama, not the ring's 72 frames; what the room
  * shows through the glazing from outside is accepted as a little behind. The shell and its
  * glazing are seen from both sides (the panorama looks straight at the door and the windows), so
- * they are marked `userData.shared = true` and count for both parts: a door opened costs both.
+ * they are marked `userData.shared = true`: the exterior reads all of them, the interior their
+ * shape alone (what is there, where, and whether it shows: a door opened costs both views), never
+ * their finishes or lights, so a finish swapped outside keeps the panorama.
  */
 export type ScenePart = 'exterior' | 'interior'
+
+/** A string folded into one number, for the fingerprints. */
+function fold(text: string) {
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619)
+  return hash >>> 0
+}
+
+/**
+ * What tells a geometry apart: the key of its content when its maker gave it one (geometry.ts,
+ * parts.ts batch), so a part list rebuilt to the same shape reads the same; else its id.
+ */
+function geometryKey(geometry: BufferGeometry) {
+  const key = (geometry.userData as { key?: unknown }).key
+  return typeof key === 'string' ? fold(key) : geometry.id
+}
 
 /**
  * The fingerprints of the whole scene, or of one `part` of it. A part leaves out subtrees with
  * `userData.pathTrace === false` (the dimensions helpers, the raster sun), which no tracer sees,
- * so toggling them changes no frame. The whole scene keeps them: the local tracer's own
- * fingerprint tells apart edits by what they touch, and the sun's level is one of them.
+ * so toggling them changes no frame; its objects are read by what they show, not by identity,
+ * and in no particular order: a model rebuilt from the same parts (React remounts it for an edit
+ * elsewhere in its props) reads the same. The whole scene is the local tracer's: it keeps them
+ * all, and reads objects by identity, since it keeps references to the meshes it captured and
+ * updates them in place while the structure holds.
  */
 export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
-  const hash = {
-    structure: 2166136261,
-    transforms: 2166136261,
-    materials: 2166136261,
-    lights: 2166136261,
-  }
-  const mix = (part: keyof SceneParts, value: number) => {
-    hash[part] = Math.imul(hash[part] ^ Math.round(value * 1000), 16777619)
-  }
-  const read = (object: Object3D) => {
-    mix('structure', object.id)
+  const identity = part === undefined
+  const sum = { structure: 0, transforms: 0, materials: 0, lights: 0 }
+  /** `shape` alone: what is there and where, without its finishes or lights. */
+  const read = (object: Object3D, shape: boolean) => {
+    const hash = {
+      structure: 2166136261,
+      transforms: 2166136261,
+      materials: 2166136261,
+      lights: 2166136261,
+    }
+    const touched = new Set<keyof SceneParts>()
+    const mix = (part: keyof SceneParts, value: number) => {
+      hash[part] = Math.imul(hash[part] ^ Math.round(value * 1000), 16777619)
+      touched.add(part)
+    }
+    if (identity) mix('structure', object.id)
     mix('structure', object.visible ? 1 : 0)
     // Every element separately: a weighted sum cancels for some moves, such as a floor-plan
     // drag of (4.25, -2.75) ft.
@@ -255,15 +300,17 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
       count?: number
     }
     if (mesh.isMesh) {
-      mix('structure', mesh.geometry.id)
+      mix('structure', identity ? mesh.geometry.id : geometryKey(mesh.geometry))
       mix('structure', mesh.instanceMatrix?.version ?? 0)
       mix('structure', mesh.count ?? 0)
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-      for (const material of materials) {
-        const m = material as Material & { id: number; emissiveIntensity?: number }
-        mix('materials', m.id)
-        mix('materials', material.version)
-        mix('materials', m.emissiveIntensity ?? 0)
+      if (!shape) {
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        for (const material of materials) {
+          const m = material as Material & { id: number; emissiveIntensity?: number }
+          mix('materials', m.id)
+          mix('materials', material.version)
+          mix('materials', m.emissiveIntensity ?? 0)
+        }
       }
     }
     const light = object as Object3D & {
@@ -271,28 +318,26 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
       intensity?: number
       color?: { r: number; g: number; b: number }
     }
-    if (light.isLight) {
+    if (!shape && light.isLight) {
       mix('lights', light.intensity ?? 0)
       mix('lights', (light.color?.r ?? 0) + (light.color?.g ?? 0) * 3 + (light.color?.b ?? 0) * 7)
     }
+    // Each object's own hashes are summed, so the order they are met in does not count.
+    for (const part of touched) sum[part] = (sum[part] + (hash[part] >>> 0)) >>> 0
   }
   const walk = (object: Object3D, inside: boolean, both: boolean) => {
     if (part !== undefined && object.userData.pathTrace === false) return
     const interior = inside || object.userData.interior === true
     const shared = both || object.userData.shared === true
-    // The exterior part never looks into an interior subtree; the interior part reads only there
-    // and in what is seen from both sides.
+    // The exterior part never looks into an interior subtree; the interior part reads only there,
+    // and the shape of what is seen from both sides.
     if (part === 'exterior' && interior) return
-    if (part !== 'interior' || interior || shared) read(object)
+    if (part !== 'interior' || interior) read(object, false)
+    else if (shared) read(object, true)
     for (const child of object.children) walk(child, interior, shared)
   }
   walk(scene, false, false)
-  return {
-    structure: hash.structure >>> 0,
-    transforms: hash.transforms >>> 0,
-    materials: hash.materials >>> 0,
-    lights: hash.lights >>> 0,
-  }
+  return sum
 }
 
 /**
@@ -300,7 +345,11 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
  * the scene when `part` is given (the spin's frames outside and inside change on their own).
  */
 export function sceneSignature(scene: Scene, lookKey: string, part?: ScenePart) {
-  const parts = sceneParts(scene, part)
+  return partsSignature(sceneParts(scene, part), lookKey)
+}
+
+/** The fingerprints of a scene (or of a part of it) and the look, as one hash. */
+export function partsSignature(parts: SceneParts, lookKey: string) {
   let hash = 2166136261
   const mix = (value: number) => {
     hash = Math.imul(hash ^ value, 16777619)
@@ -370,10 +419,12 @@ function zeroFill(renderer: WebGPURenderer, texture: Texture) {
 }
 
 /**
- * Accumulation milestones at which the image is denoised and crossfaded in. They double, so
- * each denoised image can be compared with the last to find the regions that have settled.
+ * Accumulation milestones at which the image is denoised and crossfaded in. They double up to
+ * the resting target, so each denoised image can be compared with the last to find the regions
+ * that have settled; a target raised beyond it for an export (EXPORT_SAMPLES) is denoised once
+ * accumulation stops there.
  */
-const MILESTONES = [8, 16, 32, 64, 128, 256, 512, REST_SAMPLES]
+export const MILESTONES = [8, 16, 32, 64, 128, REST_SAMPLES]
 /**
  * A view seeded from the previous one is mostly converged from the start; only what that view did
  * not show is new, so its first image is denoised almost at once.
@@ -433,8 +484,11 @@ export class PathTraceSession {
   private captured: { parts: SceneParts; look: string } | null = null
   /** Bumped per view, so readbacks that land after the camera moved are ignored. */
   private epoch = 0
-  /** When this view started tracing, and when its first traced image appeared. */
-  private timing = { start: 0, first: 0 }
+  /**
+   * When this view started tracing, when its first traced image appeared, and when it settled
+   * (once: an export carrying it on past the resting target does not settle it again).
+   */
+  private timing = { start: 0, first: 0, settled: 0 }
   private frames = 0
   private passes = 1
   private inFlight = false
@@ -453,7 +507,11 @@ export class PathTraceSession {
     const module = modules.tracer
     const tracer = new module.WebGPUPathTracer(renderer)
     tracer.frameBudget = FRAME_BUDGET
-    tracer.maxBounces = 10
+    // Six bounces: what a room lit through its glazing needs for its bounce light, and a third
+    // less work per sample than ten, which added nothing a denoised image shows. The cloud
+    // traces the same depth (render-server protocol.py BOUNCES), so its frame of a view and a
+    // local trace of it carry the same light.
+    tracer.maxBounces = 6
     tracer.maxTransparentBounces = 12
     tracer.filterGlossyFactor = 0.5
     tracer.transmissiveBackground = module.TRANSMISSIVE_BACKGROUND_ENVIRONMENT
@@ -554,7 +612,7 @@ export class PathTraceSession {
     // Meter the frozen raster frame now, before anything else draws over the GPU's time.
     this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
     this.state = 'tracing'
-    this.timing = { start: performance.now(), first: 0 }
+    this.timing = { start: performance.now(), first: 0, settled: 0 }
   }
 
   /** The tracer's accumulation targets. */
@@ -634,6 +692,8 @@ export class PathTraceSession {
     if (settled && this.view(now).t >= 1) {
       this.state = 'converged'
       const { start, first } = this.timing
+      if (this.timing.settled) return false
+      this.timing.settled = now
       bench.local({ firstMs: first - start, settledMs: now - start })
       if (TRACE_STATS) {
         const { width, height } = this.tracer.target!.image as { width: number; height: number }
@@ -757,6 +817,22 @@ export class PathTraceSession {
     const t = Math.min(1, (now - start) / FADE_MS)
     // Once faded in, the outgoing image may be recycled, so stop referencing it.
     return { from: t < 1 ? from : null, to, t, gain }
+  }
+
+  /**
+   * Raises the view's target without starting it over: an export asked for while the view rests
+   * at REST_SAMPLES carries it on to EXPORT_SAMPLES. Every region samples on to the new target,
+   * the ones retired as settled at the resting one too (no milestone lies between the two
+   * targets, so nothing compares images to retire them again), and the image is denoised once
+   * accumulation stops there. A view not tracing is left alone: `begin` takes the target it is
+   * given.
+   */
+  retarget(target: number) {
+    if (target <= this.target || (this.state !== 'tracing' && this.state !== 'converged')) return
+    this.target = target
+    this.tracer.maxSamples = target
+    this.accumulating = true
+    this.state = 'tracing'
   }
 
   /** True once the image on screen holds at least `samples` and has fully faded in. */

@@ -16,6 +16,9 @@ describe('the bench', () => {
     bench.mark('firstPreview', 2400)
     expect(bench.get().marks).toEqual({
       firstRaster: 120,
+      texturesSettled: null,
+      sceneCaptured: null,
+      firstRequest: null,
       firstPreview: 2400,
       firstGood: null,
       firstLocalTrace: null,

@@ -44,6 +44,7 @@ from fastapi.responses import JSONResponse, Response
 from . import finishing
 from . import worker as worker_module
 from .protocol import (
+    BOUNCES,
     HASH,
     IMAGE_FORMAT,
     MAX_BLOB_BYTES,
@@ -237,13 +238,15 @@ PRIORITY = {"preview": 0, "view": 1, "orbit": 5}
 def frame_version(info: dict) -> dict:
     """What a stored frame depends on besides its request: the renderer and finishing that made it.
 
-    `info` is the worker's (worker.py). Without this, a frame finished by an older bloom, or
-    denoised on the other device, would come back from the cache as if it were current.
+    `info` is the worker's (worker.py). Without this, a frame finished by an older bloom,
+    denoised on the other device, or traced to another depth, would come back from the cache as
+    if it were current.
     """
     return {
         "format": FRAME_FORMAT,
         "blender": str(info.get("blender", "")),
         "denoise": str(info.get("denoise", "")),
+        "bounces": BOUNCES,
         "finishing": finishing.FINISHING_VERSION,
     }
 
@@ -658,6 +661,15 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
             "workers": len(service.workers),
             "queue": service.waiting,
         }
+
+    @app.get("/warm")
+    async def warm():
+        """Answers the page's warm-up call as the gateway does (gateway.py), doing nothing.
+
+        The gateway starts a session's GPU on it; this server is its own, already running, so the
+        page sees the same flow against a local server as against the cloud.
+        """
+        return JSONResponse({"warming": True, "renderer": "own"}, status_code=202)
 
     async def bounded_body(request: Request, limit: int):
         data = bytearray()

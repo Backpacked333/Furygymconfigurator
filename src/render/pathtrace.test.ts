@@ -14,7 +14,15 @@ import {
 } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import { skyLook } from '../lib/visuals'
-import { preparePathTraceScene, sceneParts, sceneSignature, thinGlass } from './pathtrace'
+import {
+  EXPORT_SAMPLES,
+  MILESTONES,
+  REST_SAMPLES,
+  preparePathTraceScene,
+  sceneParts,
+  sceneSignature,
+  thinGlass,
+} from './pathtrace'
 import { palette } from './palette'
 
 const environment = { isTexture: true } as unknown as Texture
@@ -41,6 +49,19 @@ function fixture() {
   scene.add(sky, helpers, line, sun, foliage, pane, stone)
   return { scene, sky, helpers, line, sun, leaf, foliage, glass, pane, stone }
 }
+
+describe("the local tracer's targets", () => {
+  it("rests at 256 denoised samples, the spin's good tier, and carries an export on to 384", () => {
+    expect(REST_SAMPLES).toBe(256)
+    expect(EXPORT_SAMPLES).toBe(384)
+    expect(EXPORT_SAMPLES).toBeGreaterThan(REST_SAMPLES)
+    // The milestones double up to the resting target and stop there: an export's image is
+    // denoised once accumulation stops at its target, not at a milestone past the rest.
+    expect(MILESTONES).toEqual([8, 16, 32, 64, 128, 256])
+    expect(MILESTONES[MILESTONES.length - 1]).toBe(REST_SAMPLES)
+    for (let i = 1; i < MILESTONES.length; i++) expect(MILESTONES[i]).toBe(2 * MILESTONES[i - 1])
+  })
+})
 
 describe('path-traced scene capture', () => {
   it('swaps in tracer-readable stand-ins and restores the raster scene exactly', () => {
@@ -240,6 +261,105 @@ describe('path-traced scene capture', () => {
     f.scene.updateMatrixWorld(true)
     expect(outside()).not.toBe(out2)
     expect(inside()).toBe(in2)
+  })
+
+  it('reads the shape of the shell from inside, never its finish or lights', () => {
+    const f = fixture()
+    const room = new Group()
+    room.userData.interior = true
+    room.add(new Mesh(new BoxGeometry(), new MeshStandardNodeMaterial()))
+    const shell = new Group()
+    shell.userData.shared = true
+    const leaf = () => {
+      const geometry = new BoxGeometry()
+      geometry.userData.key = 'door-leaf'
+      return geometry
+    }
+    let door = new Mesh(leaf(), new MeshStandardNodeMaterial())
+    const lamp = new RectAreaLight(0xffffff, 10, 1, 1)
+    shell.add(door, lamp)
+    f.scene.add(room, shell)
+    f.scene.updateMatrixWorld(true)
+    const outside = () => sceneSignature(f.scene, 'a', 'exterior')
+    const inside = () => sceneSignature(f.scene, 'a', 'interior')
+    const [out0, in0] = [outside(), inside()]
+    // A new finish: the shell is rebuilt (new meshes, a new material) to the same shape, as
+    // StudioModel rebuilds it. The ring renders again; the panorama keeps.
+    shell.remove(door)
+    door = new Mesh(leaf(), new MeshStandardNodeMaterial())
+    shell.add(door)
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).not.toBe(out0)
+    expect(inside()).toBe(in0)
+    const out1 = outside()
+    door.material.needsUpdate = true
+    expect(outside()).not.toBe(out1)
+    expect(inside()).toBe(in0)
+    // A light on the shell is the ring's.
+    const out2 = outside()
+    lamp.intensity = 4
+    expect(outside()).not.toBe(out2)
+    expect(inside()).toBe(in0)
+    // The door hidden, moved, or of another shape: both.
+    const out3 = outside()
+    door.visible = false
+    expect(outside()).not.toBe(out3)
+    expect(inside()).not.toBe(in0)
+    door.visible = true
+    const [out4, in4] = [outside(), inside()]
+    door.position.x = 1
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).not.toBe(out4)
+    expect(inside()).not.toBe(in4)
+    const [out5, in5] = [outside(), inside()]
+    door.geometry.userData.key = 'door-leaf-wide'
+    expect(outside()).not.toBe(out5)
+    expect(inside()).not.toBe(in5)
+  })
+
+  it('reads a rebuilt mesh of a keyed geometry as the same shape, in whatever order', () => {
+    const f = fixture()
+    const room = new Group()
+    room.userData.interior = true
+    const shelf = () => {
+      const geometry = new BoxGeometry()
+      geometry.userData.key = 'shelf'
+      return geometry
+    }
+    const material = new MeshStandardNodeMaterial()
+    const first = new Mesh(shelf(), material)
+    const bench = new Mesh(new BoxGeometry(), material)
+    room.add(first, bench)
+    f.scene.add(room)
+    f.scene.updateMatrixWorld(true)
+    const before = sceneParts(f.scene, 'interior')
+    const whole = sceneParts(f.scene)
+    // Rebuilt, and mounted after the bench this time.
+    room.remove(first)
+    room.add(new Mesh(shelf(), material))
+    f.scene.updateMatrixWorld(true)
+    expect(sceneParts(f.scene, 'interior')).toEqual(before)
+    // The whole scene is the local tracer's, which holds the meshes it captured: new ones are a
+    // new structure to it.
+    expect(sceneParts(f.scene).structure).not.toBe(whole.structure)
+    // Without a key, a geometry is told apart by its id, as a mesh of another shape must be.
+    room.add(new Mesh(new BoxGeometry(), material))
+    expect(sceneParts(f.scene, 'interior').structure).not.toBe(before.structure)
+  })
+
+  it('leaves the materials as the raster renderer knows them after a capture', () => {
+    // A pane's transmission is turned on for the tracer and off again after; the physical
+    // material counts each as a change of shader. Nothing changed for the rasterizer, and the
+    // fingerprints must not find a new design after every capture.
+    const f = fixture()
+    const glass = palette.glass()
+    f.scene.add(new Mesh(new BoxGeometry(), glass))
+    f.scene.updateMatrixWorld(true)
+    const versions = [glass.version, f.glass.version, f.leaf.version]
+    const before = sceneSignature(f.scene, 'a')
+    preparePathTraceScene(f.scene, skyLook('backyard', 13), environment)()
+    expect([glass.version, f.glass.version, f.leaf.version]).toEqual(versions)
+    expect(sceneSignature(f.scene, 'a')).toBe(before)
   })
 
   it('notices a move along any axis, alone or combined', () => {

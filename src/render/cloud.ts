@@ -40,11 +40,13 @@ import {
   type GridPose,
 } from './orbit'
 import { bench } from './bench'
+import { fingerprint } from './hash'
 import { createExposureMeter } from './pipeline'
 import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
 import { cloudUrl, type TraceState } from './traceStatus'
 
 export { cloudUrl, renderSession, warmCloud, warmth }
+export { fingerprint }
 
 /**
  * Off-device rendering: the resting view is rendered by Blender Cycles on a cloud GPU with
@@ -205,7 +207,7 @@ const MAP_SLOTS: MapSlot[] = [
 
 /** Raw bytes of a blob, produced on demand (uploads are rare, so nothing is kept around). */
 type BlobSource = () => Promise<Uint8Array>
-type HashedBlob = { hash: string; source: BlobSource }
+type HashedBlob = { hash: string; source: BlobSource; bytes: number }
 
 /** A captured scene: its description and where each referenced blob's bytes come from. */
 export type CapturedScene = { scene: CloudScene; blobs: Map<string, BlobSource> }
@@ -219,24 +221,8 @@ async function sha256(bytes: Uint8Array) {
 
 /** Hashes a blob once; the bytes are dropped and re-made from `source` if an upload needs them. */
 async function hashed(source: BlobSource): Promise<HashedBlob> {
-  return { hash: await sha256(await source()), source }
-}
-
-/**
- * A short hash of a string (cyrb53's two words as hex), naming a record by its content: the same
- * material or texture gets the same name on every page load, where a uuid would be new each time.
- */
-export function fingerprint(text: string) {
-  let h1 = 0xdeadbeef
-  let h2 = 0x41c6ce57
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i)
-    h1 = Math.imul(h1 ^ ch, 2654435761)
-    h2 = Math.imul(h2 ^ ch, 1597334677)
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
+  const bytes = await source()
+  return { hash: await sha256(bytes), source, bytes: bytes.byteLength }
 }
 
 /** JSON with every object's keys in order, so the same content is always the same text. */
@@ -413,6 +399,8 @@ function skyBlob(look: SkyLook) {
 // Textures -------------------------------------------------------------------------------------
 
 const imageBlobs = new WeakMap<object, { version: number; blob: Promise<HashedBlob | null> }>()
+/** Canvases encoded as PNG so far: `?traceStats=1` counts the ones a capture paid for. */
+let encoded = 0
 
 async function pngOf(image: CanvasImageSource & { width: number; height: number }) {
   const canvas = new OffscreenCanvas(image.width, image.height)
@@ -420,7 +408,12 @@ async function pngOf(image: CanvasImageSource & { width: number; height: number 
   return new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer())
 }
 
-/** A texture's image as a file: fetched from its URL when it has one, else encoded as PNG. */
+/**
+ * A texture's image as a file: the scan it was decoded from (materials.ts keeps it), fetched
+ * from its URL when it has one, else encoded as PNG. A scan's file is a few MB of WebP and
+ * already in memory; the PNG of its decoded bitmap would be tens of MB, encoded on the main
+ * thread and hashed, for every scan, on the page's first capture.
+ */
 function textureBlob(texture: Texture): { blob: Promise<HashedBlob | null>; url?: string } {
   const image = texture.source.data as unknown
   const key = texture.source as object
@@ -432,8 +425,11 @@ function textureBlob(texture: Texture): { blob: Promise<HashedBlob | null>; url?
       ? new URL(image.currentSrc || image.src, window.location.href).href
       : undefined
   if (cached && cached.version === texture.source.version) return { blob: cached.blob, url }
+  const scan = texture.userData.scan as unknown
   let source: BlobSource | null = null
-  if (url) {
+  if (typeof Blob !== 'undefined' && scan instanceof Blob) {
+    source = async () => new Uint8Array(await scan.arrayBuffer())
+  } else if (url) {
     source = async () => new Uint8Array(await (await fetch(url)).arrayBuffer())
   } else if (
     (typeof HTMLCanvasElement !== 'undefined' && image instanceof HTMLCanvasElement) ||
@@ -444,6 +440,7 @@ function textureBlob(texture: Texture): { blob: Promise<HashedBlob | null>; url?
     const drawable = image as CanvasImageSource & { width: number; height: number }
     // Canvases may be redrawn later; encode their pixels as they are now.
     const now = pngOf(drawable)
+    encoded++
     source = () => now
   }
   const blob = source ? hashed(source).catch(() => null) : Promise.resolve(null)
@@ -560,7 +557,18 @@ function lightRecord(light: Light): CloudLight | null {
  * same from any page load (uuids would differ every time) and the server's frame cache hits.
  */
 export async function captureScene(scene: Scene, look: SkyLook): Promise<CapturedScene> {
+  // Timed by phase for `?traceStats=1`: which of them the first capture's seconds go to decides
+  // what to move off the main thread.
+  const started = performance.now()
+  const phases: string[] = []
+  let phased = started
+  const phase = (name: string) => {
+    const now = performance.now()
+    phases.push(`${name} ${Math.round(now - phased)}`)
+    phased = now
+  }
   const environment = environmentTexture(look)
+  phase('sky map')
   const meshes: {
     materials: Material[]
     matrix: number[]
@@ -579,6 +587,7 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
     }
     return name
   }
+  const encodedBefore = encoded
   const restore = preparePathTraceScene(scene, look, environment)
   try {
     scene.updateMatrixWorld()
@@ -607,6 +616,7 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
   } finally {
     restore()
   }
+  phase('scene')
   const sun = sunLight(look)
   if (sun)
     lights.push({
@@ -618,7 +628,9 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
     })
 
   const blobs = new Map<string, BlobSource>()
+  let bytes = 0
   const keep = (blob: HashedBlob) => {
+    if (!blobs.has(blob.hash)) bytes += blob.bytes
     blobs.set(blob.hash, blob.source)
     return blob.hash
   }
@@ -650,6 +662,9 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
       textureKeys.set(name, key)
       textures[key] = record
     }),
+  )
+  phase(
+    `textures${encoded > encodedBefore ? ` (${encoded - encodedBefore} canvases encoded)` : ''}`,
   )
   // Materials, named by their values with the textures' names in; one whose texture could not be
   // read falls back to its plain values.
@@ -686,11 +701,17 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
     }),
   ))
     objects.set(object.id, object)
+  phase('geometry')
   const sky = keep(await skyBlob(look))
+  phase('sky blob')
   const byText = (a: unknown, b: unknown) => {
     const [x, y] = [stableJson(a), stableJson(b)]
     return x < y ? -1 : x > y ? 1 : 0
   }
+  if (TRACE_STATS)
+    console.info(
+      `[spin] scene captured in ${Math.round(performance.now() - started)} ms (${phases.join(', ')} ms): ${objects.size} objects, ${blobs.size} blobs, ${(bytes / 1e6).toFixed(1)} MB`,
+    )
   return {
     scene: {
       objects: [...objects.keys()].sort().map((id) => objects.get(id)!),

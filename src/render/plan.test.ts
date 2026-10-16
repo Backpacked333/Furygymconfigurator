@@ -18,6 +18,7 @@ const input = (over: Partial<PlanInput> = {}): PlanInput => ({
   levels: 2,
   has: () => false,
   stored: () => false,
+  standIn: () => false,
   idle: true,
   settled: true,
   exportWanted: false,
@@ -104,6 +105,12 @@ describe('the plan', () => {
   it('asks only for what the visitor looks at while they edit, or before the textures', () => {
     expect(names(planJobs(input({ idle: false })))).toEqual(['1/5 preview', 'panorama preview'])
     expect(names(planJobs(input({ settled: false })))).toEqual(['1/5 preview', 'panorama preview'])
+    // A panorama that is there as a stand-in (rendered before the meter or the textures) waits
+    // for the ring's turn like the ring; the visitor's own frame does not.
+    const standIn = (ref: FrameRef) => ref.kind === 'interior'
+    expect(names(planJobs(input({ idle: false, standIn })))).toEqual(['1/5 preview'])
+    expect(names(planJobs(input({ standIn })))).toContain('panorama preview')
+    expect(names(planJobs(input({ idle: false, standIn: () => true })))).toEqual(['1/5 preview'])
     expect(IDLE_MS).toBe(3000)
   })
 

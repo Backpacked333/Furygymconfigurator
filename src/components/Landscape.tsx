@@ -1,30 +1,18 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   BufferGeometry,
   Color,
   InstancedMesh,
   Matrix4,
   MeshStandardMaterial,
-  MeshStandardNodeMaterial,
   Object3D,
   PlaneGeometry,
-  Vector2,
 } from 'three/webgpu'
-import {
-  mix,
-  mx_fractal_noise_float,
-  mx_noise_float,
-  normalMap,
-  positionWorld,
-  texture,
-  uniform,
-  vec2,
-  vec3,
-} from 'three/tsl'
 import type { Config } from '../lib/config'
 import { noise } from '../lib/visuals'
 import { box, cylinder, mergeGeometries, roundedBox } from '../render/geometry'
-import { material, prefetchTextures, textureMaps, type TextureSet } from '../render/materials'
+import { groundMaterial } from '../render/ground'
+import { material, prefetchTextures, type TextureSet } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
@@ -48,71 +36,14 @@ const LAWN_COLORS: [string, string] = ['#3d5126', '#93a258']
 
 const GROUND_SIZE = 700
 
-/** Built once per scan and tint and kept, like the material library, so switching back is free. */
-const groundMaterials = new Map<string, Promise<MeshStandardNodeMaterial>>()
-function loadGround(set: TextureSet, size: number, tint: string) {
-  const key = `${set}|${size}|${tint}`
-  let pending = groundMaterials.get(key)
-  if (!pending) {
-    pending = textureMaps(set).then((maps) => {
-      if (!maps.albedo) throw new Error(`${set} has no albedo map`)
-      // Scan scale and tint are uniforms so both biomes share one compiled ground shader.
-      const p = positionWorld.xz
-      const uvA = p.div(uniform(size))
-      const uvB = p.div(uniform(size * 3.3)).add(vec2(0.37, 0.71))
-      const blend = mx_noise_float(vec3(p.mul(0.04), 0))
-        .mul(0.5)
-        .add(0.5)
-        .smoothstep(0.32, 0.68)
-      const macro = mx_fractal_noise_float(vec3(p.mul(0.011), 0.5), 3, 2, 0.5)
-        .mul(0.22)
-        .add(1)
-      const m = new MeshStandardNodeMaterial()
-      m.colorNode = mix(texture(maps.albedo, uvA).rgb, texture(maps.albedo, uvB).rgb, blend)
-        .mul(uniform(new Color(tint)))
-        .mul(macro)
-      m.roughnessNode = mix(texture(maps.arm, uvA).g, texture(maps.arm, uvB).g, blend)
-      m.normalNode = normalMap(texture(maps.normal, uvA), vec2(0.8, 0.8))
-      // The path tracer samples the scan through the plane's UVs, which are laid out in feet.
-      m.userData.pathTrace = {
-        map: maps.albedo,
-        normalMap: maps.normal,
-        roughnessMap: maps.arm,
-        color: new Color(tint).multiplyScalar(1.05),
-        roughness: 1,
-        normalScale: new Vector2(0.8, 0.8),
-      }
-      return m
-    })
-    // A failed scan keeps the untextured ground; a later request tries again.
-    pending.catch(() => groundMaterials.delete(key))
-    groundMaterials.set(key, pending)
-  }
-  return pending
-}
-
 /**
- * Scanned ground with anti-tiling: two scales of the same scan are blended by low-frequency noise
- * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
+ * Scanned ground with anti-tiling (render/ground.ts): two scales of the same scan are blended by
+ * low-frequency noise and modulated by a macro brightness field, so a 600-foot plane never shows
+ * a repeat.
  */
 export function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
-  // The previous ground stays until the next one is ready, as before, but is never disposed while
-  // still drawn (which made three rebuild it).
-  const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
-  useEffect(() => {
-    let active = true
-    loadGround(set, size, tint).then(
-      (m) => {
-        if (active) setGroundMaterial(m)
-      },
-      () => {},
-    )
-    return () => {
-      active = false
-    }
-  }, [set, size, tint])
-  const fallback = useMemo(() => new MeshStandardMaterial({ color: tint, roughness: 1 }), [tint])
-  useEffect(() => () => fallback.dispose(), [fallback])
+  // Kept for the session, never disposed while drawn (which made three rebuild it).
+  const ground = useMemo(() => groundMaterial(set, size, tint), [set, size, tint])
   const plane = useMemo(() => {
     const g = new PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 1, 1)
     // UVs in feet, like every library surface (the raster material maps by world position).
@@ -127,7 +58,7 @@ export function Ground({ set, size, tint }: { set: TextureSet; size: number; tin
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, -0.14, 0]}
       receiveShadow
-      material={groundMaterial ?? fallback}
+      material={ground}
       geometry={plane}
     />
   )

@@ -9,8 +9,19 @@ import { useSyncExternalStore } from 'react'
  * whether or not the panel is open.
  */
 
-/** Firsts on the way to a path-traced view, each recorded once. */
-export type Mark = 'firstRaster' | 'firstPreview' | 'firstGood' | 'firstLocalTrace'
+/**
+ * Firsts on the way to a path-traced view, each recorded once: when the live view drew, when the
+ * scanned textures had settled, when the scene was captured for the cloud, when the first request
+ * went to it, and when its first preview and first good frame were on screen.
+ */
+export type Mark =
+  | 'firstRaster'
+  | 'texturesSettled'
+  | 'sceneCaptured'
+  | 'firstRequest'
+  | 'firstPreview'
+  | 'firstGood'
+  | 'firstLocalTrace'
 /**
  * How the cloud is answering: `off` until it has (or none is configured), `cold` when its first
  * answer came from the shared renderer or took a container start, `warm` when it answered at once,
@@ -45,7 +56,15 @@ const WINDOW = 24
 type Answered = { renderMs: number; finishMs: number | null; totalMs: number }
 
 const fresh = (): BenchStats => ({
-  marks: { firstRaster: null, firstPreview: null, firstGood: null, firstLocalTrace: null },
+  marks: {
+    firstRaster: null,
+    texturesSettled: null,
+    sceneCaptured: null,
+    firstRequest: null,
+    firstPreview: null,
+    firstGood: null,
+    firstLocalTrace: null,
+  },
   cloud: 'off',
   frames: 0,
   cached: 0,

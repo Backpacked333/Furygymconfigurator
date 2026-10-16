@@ -9,6 +9,7 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { cylinder } from './geometry'
+import { fingerprint } from './hash'
 
 const cylinderGeometry = (radius: number, length: number, radial: number) =>
   cylinder(radius, radius, length, radial)
@@ -58,17 +59,26 @@ export type Batch = { geometry: BufferGeometry; material: Material; shadow: bool
 /**
  * Static batching: parts sharing a material (and shadow flag) are baked into one geometry, so a
  * detailed model costs a handful of draw calls. Mirrored transforms flip winding, which is
- * corrected per part so faces stay front-facing.
+ * corrected per part so faces stay front-facing. Each merged geometry is named by its content
+ * (`userData.key`: the parts' geometry keys and placements), so a model rebuilt from the same
+ * parts reads as the same shape to the scene fingerprints (pathtrace.ts sceneParts).
  */
 export function batch(parts: Part[]): Batch[] {
-  const groups = new Map<string, { material: Material; shadow: boolean; items: BufferGeometry[] }>()
+  const groups = new Map<
+    string,
+    { material: Material; shadow: boolean; items: BufferGeometry[]; keys: string[] }
+  >()
   for (const p of parts) {
     const key = `${p.material.uuid}:${p.shadow}`
     let group = groups.get(key)
     if (!group) {
-      group = { material: p.material, shadow: p.shadow, items: [] }
+      group = { material: p.material, shadow: p.shadow, items: [], keys: [] }
       groups.set(key, group)
     }
+    const source = (p.geometry.userData as { key?: unknown }).key
+    group.keys.push(
+      `${typeof source === 'string' ? source : p.geometry.uuid}@${p.matrix.elements.map((e) => e.toFixed(4)).join(',')}`,
+    )
     const g = p.geometry.index ? p.geometry.toNonIndexed() : p.geometry.clone()
     for (const name of Object.keys(g.attributes))
       if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name)
@@ -82,11 +92,12 @@ export function batch(parts: Part[]): Batch[] {
     g.clearGroups()
     group.items.push(g)
   }
-  return [...groups.values()].map(({ material, shadow, items }) => {
+  return [...groups.values()].map(({ material, shadow, items, keys }) => {
     const geometry = mergeGeometries(items, false)
     items.forEach((g) => g.dispose())
     geometry.computeBoundingSphere()
     geometry.computeBoundingBox()
+    geometry.userData.key = `batch:${fingerprint(keys.join(';'))}`
     return { geometry, material, shadow }
   })
 }

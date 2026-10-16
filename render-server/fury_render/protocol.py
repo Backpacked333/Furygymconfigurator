@@ -47,6 +47,10 @@ MAX_TIME_LIMIT = 60.0
 MAX_BLOB_BYTES = 128 * 1024 * 1024
 MAX_OBJECTS = 20000
 MAX_INSTANCES = 200000
+# Light bounces a frame is traced with, the browser's tracer and Cycles alike (pathtrace.ts
+# maxBounces, blender.py): what a room lit through its glazing needs, and no more. Part of a
+# stored frame's name (api.py frame_version), so frames traced deeper are not served as these.
+BOUNCES = 6
 
 
 class ProtocolError(ValueError):

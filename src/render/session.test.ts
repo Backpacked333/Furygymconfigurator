@@ -12,6 +12,7 @@ function fakeLocal() {
     shown,
     tracer: { target: new Texture() },
     begin: vi.fn(),
+    retarget: vi.fn(),
     halt: vi.fn(),
     invalidate: vi.fn(),
     step: vi.fn(() => true),
@@ -19,7 +20,7 @@ function fakeLocal() {
     view: vi.fn((): TraceView => ({ from: null, to: shown, t: 1, gain: 1 })),
     state: 'tracing' as TraceState,
     samples: 12,
-    target: 1024,
+    target: 256,
   }
 }
 
@@ -99,6 +100,37 @@ describe('TraceSession', () => {
     expect(session.view().to).not.toBe(local.shown)
     expect(session.state).toBe('converged')
     expect(session.ready(384)).toBe(true)
+  })
+
+  it('carries a view on to the export target when a capture asks, from the start if it waits already', () => {
+    const local = fakeLocal()
+    const cloud = fakeCloud(true)
+    const session = new TraceSession(
+      local as unknown as PathTraceSession,
+      cloud as unknown as CloudSession,
+    )
+    // The cloud has its head start: the local tracer is not running yet. The export's target is
+    // kept for when it starts.
+    session.begin(...args(), 256)
+    session.retarget(384)
+    expect(local.retarget).not.toHaveBeenCalled()
+    now += LOCAL_AFTER_MS + 1
+    session.step()
+    expect(local.begin).toHaveBeenLastCalledWith(...args().map(() => expect.anything()), 384)
+    // Already at it: nothing to raise, and never back down.
+    session.retarget(384)
+    session.retarget(256)
+    expect(local.retarget).not.toHaveBeenCalled()
+    // Running at the resting target when the capture asks: carried on in place, once.
+    const cold = fakeLocal()
+    const direct = new TraceSession(cold as unknown as PathTraceSession, null)
+    direct.begin(...args(), 256)
+    expect(cold.begin).toHaveBeenCalledWith(...args().map(() => expect.anything()), 256)
+    direct.retarget(384)
+    direct.retarget(384)
+    expect(cold.retarget).toHaveBeenCalledTimes(1)
+    expect(cold.retarget).toHaveBeenCalledWith(384)
+    expect(direct.target).toBe(cold.target)
   })
 
   it('shows a pre-rendered view without tracing locally, even once the GPU is off', () => {

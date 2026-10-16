@@ -7,6 +7,7 @@ import {
   Matrix4,
   Quaternion,
   RGBAFormat,
+  RenderTarget,
   Vector2,
   Vector3,
   type PerspectiveCamera,
@@ -53,7 +54,10 @@ import {
   REST_SAMPLES,
   loadTracerModule,
   lookKey,
-  sceneSignature,
+  partsSignature,
+  sceneParts,
+  type ScenePart,
+  type SceneParts,
 } from '../render/pathtrace'
 import type { Quality } from '../render/quality'
 import { FRAME_BEGIN, backendOf, beginFrame } from '../render/renderer'
@@ -79,8 +83,21 @@ const TRACE_AFTER_FRAMES = 6
 const REST_MS = 150
 /** Samples at which a local trace on screen counts as the bench's good frame (the spin's good tier). */
 const GOOD_SAMPLES = 256
+/**
+ * Raster frames drawn at each camera the exposure meter reads, fewest and most, by tier: enough
+ * for the tier's temporal effects to settle, and no more than a settle run on a device that is
+ * already slow (Lite has no temporal effects: its first frame is the frame).
+ */
+const METER_FRAMES: Record<Quality, [least: number, most: number]> = {
+  lite: [1, 8],
+  high: [4, 16],
+  ultra: [4, 16],
+}
 /** `?denoise=0` shows the raw accumulation, for comparing against the denoised image. */
 const denoise = new URLSearchParams(window.location.search).get('denoise') !== '0'
+/** `?traceStats=1` logs which fingerprint of which part of the scene an edit changed. */
+const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
+const SCENE_PARTS: ScenePart[] = ['exterior', 'interior']
 
 export type Capture = () => Promise<string>
 /** Requests made while an image is rendering share it. An empty image means none was made. */
@@ -274,6 +291,8 @@ export function RenderEffects({
     session: SpinSession
     present: ReturnType<typeof createSpinPresent>
     meter: ReturnType<typeof createExposureMeter>
+    /** Where the meter's frames are drawn: a target nothing presents (see the frame loop). */
+    offscreen: RenderTarget
   } | null>(null)
   /** What the spin shows: a frame, and the one it fades from. */
   const spinShown = useRef<{
@@ -284,7 +303,11 @@ export function RenderEffects({
   }>({ frame: null, mode: 'exterior', from: null, start: 0 })
   /** The scene outside and inside, fingerprinted apart so an edit in the room keeps the ring. */
   const sceneKeys = useRef<SceneKeys>({ exterior: '', interior: '' })
-  const sceneDirty = useRef(true)
+  /** Each part's fingerprints as last signed, to name what an edit changed (`?traceStats=1`). */
+  const sceneHashes = useRef<Record<ScenePart, SceneParts | null>>({
+    exterior: null,
+    interior: null,
+  })
   /** Waiting for the raster frame's brightness at a camera, which the next frame measures. */
   const meterWanted = useRef<
     { camera: CloudCamera | null; resolve: (meter: Promise<RasterMeter>) => void }[]
@@ -296,9 +319,9 @@ export function RenderEffects({
       session: new SpinSession(new CloudClient(remote), invalidate),
       present: createSpinPresent(renderer),
       meter: createExposureMeter(renderer, placeholder),
+      offscreen: new RenderTarget(4, 4, { depthBuffer: false }),
     }
     spinner.current = created
-    sceneDirty.current = true
     invalidate()
     return () => {
       spinner.current = null
@@ -306,6 +329,7 @@ export function RenderEffects({
       created.session.dispose()
       created.present.dispose()
       created.meter.dispose()
+      created.offscreen.dispose()
       placeholder.dispose()
       setSpinStatus(null)
       changed.current = true
@@ -316,7 +340,6 @@ export function RenderEffects({
   // Any edit to the design hands the frame back to the rasterizer and re-captures before tracing.
   useEffect(() => {
     changed.current = true
-    sceneDirty.current = true
     invalidate()
   }, [config, view, dimensions, invalidate])
   // The design alone: a view switch or the dimensions are no edit, so they keep the spin's pace.
@@ -335,7 +358,6 @@ export function RenderEffects({
       onMaterialsChanged((change) => {
         invalidateShadows(scene)
         settle.current = 0
-        sceneDirty.current = true
         if (change === 'textures') {
           changed.current = true
           session?.invalidate()
@@ -413,6 +435,8 @@ export function RenderEffects({
     // Shadow maps are redrawn on demand (shadows.ts), by the first scene render after a change,
     // which marks that frame as eventful for the timing below.
     let eventful = false
+    /** The exposure meter drew the view at another camera this frame (the spin). */
+    let metered = false
 
     // The path-traced spin and panorama.
     const spinning = spinner.current
@@ -425,17 +449,26 @@ export function RenderEffects({
       const across = 2 * Math.atan(Math.tan((inside.fov * Math.PI) / 360) * aspect)
       const panoramaWidth = Math.round((size.x * 2 * Math.PI) / across / 16) * 16
       const outside = renderer.toneMappingExposure / (view === 'interior' ? INTERIOR_EXPOSURE : 1)
-      if (sceneDirty.current) {
-        // The fingerprints read world matrices, which nothing refreshes before this frame's
-        // render: a dragged bench would otherwise be signed where it was, and the panorama kept.
-        scene.updateMatrixWorld()
-        const key = lookKey(lookRef.current)
-        sceneKeys.current = {
-          exterior: String(sceneSignature(scene, key, 'exterior')),
-          interior: String(sceneSignature(scene, key, 'interior')),
-        }
-        sceneDirty.current = false
+      // Fingerprinted on every frame drawn (a few hundred objects: cheap), not only after an edit
+      // is told of: a part mounted on its own a moment later (the mirror's glass, once its
+      // reflector exists) would otherwise be signed only with the next edit. The fingerprints
+      // read world matrices, which nothing refreshes before this frame's render: a dragged bench
+      // would otherwise be signed where it was, and the panorama kept.
+      scene.updateMatrixWorld()
+      const key = lookKey(lookRef.current)
+      const keys: SceneKeys = { exterior: '', interior: '' }
+      for (const part of SCENE_PARTS) {
+        const parts = sceneParts(scene, part)
+        keys[part] = String(partsSignature(parts, key))
+        if (!TRACE_STATS) continue
+        const before = sceneHashes.current[part]
+        const differing = (Object.keys(parts) as (keyof SceneParts)[]).filter(
+          (hash) => before !== null && parts[hash] !== before[hash],
+        )
+        if (differing.length) console.info(`[spin] design ${part} changed: ${differing.join('/')}`)
+        sceneHashes.current[part] = parts
       }
+      sceneKeys.current = keys
       const looking = view === 'interior' ? 'interior' : 'exterior'
       const textures = textureProgress.get()
       // Both pass with time alone, so a redraw is booked for when they do.
@@ -505,36 +538,59 @@ export function RenderEffects({
         const position = cam.position.clone()
         const quaternion = cam.quaternion.clone()
         const fov = cam.fov
-        const frames = Math.min(16, Math.max(4, pipe.settleFrames))
-        let metered = false
-        for (const { camera: at, resolve } of meterWanted.current.splice(0)) {
-          if (at) {
-            metered = true
-            meterMatrix.fromArray(at.matrix).decompose(cam.position, cam.quaternion, meterEye)
-            cam.fov = at.fov
+        const [least, most] = METER_FRAMES[quality]
+        const frames = Math.min(most, Math.max(least, pipe.settleFrames))
+        // Each render is a frame of its own (the pipeline's passes draw once per frame), and
+        // none reaches the canvas: the meter reads the pipeline's `hdr` texture, not the output,
+        // and the output of these frames, another camera's view, would otherwise be presented,
+        // now that no opaque gate hides the canvas while the spin loads.
+        const draw = () => {
+          beginFrame(renderer)
+          pipe.render()
+        }
+        renderer.setRenderTarget(spinning.offscreen)
+        try {
+          for (const { camera: at, resolve } of meterWanted.current.splice(0)) {
+            if (at) {
+              metered = true
+              meterMatrix.fromArray(at.matrix).decompose(cam.position, cam.quaternion, meterEye)
+              cam.fov = at.fov
+              cam.updateProjectionMatrix()
+              cam.updateMatrixWorld()
+            }
+            for (let i = 0; i < frames; i++) draw()
+            const record = at ?? cameraRecord(cam)
+            resolve(
+              spinning.meter
+                .measure(pipe.hdr, false)
+                .then((key) => ({ key, camera: record, width: size.x, height: size.y })),
+            )
+            cam.position.copy(position)
+            cam.quaternion.copy(quaternion)
+            cam.fov = fov
             cam.updateProjectionMatrix()
             cam.updateMatrixWorld()
           }
-          for (let i = 0; i < frames; i++) pipe.render()
-          const record = at ?? cameraRecord(cam)
-          resolve(
-            spinning.meter
-              .measure(pipe.hdr, false)
-              .then((key) => ({ key, camera: record, width: size.x, height: size.y })),
-          )
-          cam.position.copy(position)
-          cam.quaternion.copy(quaternion)
-          cam.fov = fov
-          cam.updateProjectionMatrix()
-          cam.updateMatrixWorld()
+          if (metered && mode.current === 'trace') {
+            // The meter left another camera's frame in `hdr`. Tracing, nothing else redraws the
+            // view, and the first traced image fades in from `hdr`, so draw it again here, for
+            // as many frames as the meter had (a full settle run would be the tier's whole
+            // settle window in one frame; the traced image replaces it soon anyway).
+            for (let i = 0; i < frames; i++) draw()
+          }
+        } finally {
+          renderer.setRenderTarget(null)
         }
+        // The pipeline's passes draw once per frame, and the meter's draws advanced it: a new
+        // frame here, or the view's render below would present the last meter camera's frame
+        // from `hdr` without drawing the scene again (the canvas still shows the frame before;
+        // with the camera moved, the raster path below draws the view, from the start of a
+        // settle run, since the temporal effects' history is now the meter camera's).
+        beginFrame(renderer)
         if (metered) {
-          // The meter left another camera's frame in `hdr` and on the canvas. Tracing, nothing
-          // else redraws the view, and the first traced image fades in from `hdr`, so draw it
-          // again here, settled as the meter's frames were; otherwise the raster path redraws it
-          // (and the tracer meters `hdr`) only once it knows the frame is not the view.
-          if (mode.current === 'trace') for (let i = 0; i < frames; i++) pipe.render()
-          else fresh.current = false
+          settle.current = 0
+          still.current = 0
+          if (mode.current !== 'trace') fresh.current = false
         }
       }
       const frame = spinning.session.texture()
@@ -641,6 +697,8 @@ export function RenderEffects({
 
     // Path-traced refinement of a resting view.
     if (mode.current === 'trace' && tracer) {
+      // A capture asked for while the view traces: it carries on past the resting target.
+      if (pending.current) tracer.retarget(EXPORT_SAMPLES)
       const refining = tracer.step()
       const traced = tracer.view(now)
       // Until the first traced image is ready the canvas keeps the last raster frame.
@@ -667,7 +725,9 @@ export function RenderEffects({
         view === 'exterior' && controls && !controls.autoRotate
           ? { target: controls.target.clone() }
           : null
-      tracer.begin(scene, camera, lookRef.current, pipe.hdr, REST_SAMPLES, orbit)
+      // A capture already waiting takes the export's target from the start.
+      const target = pending.current ? EXPORT_SAMPLES : REST_SAMPLES
+      tracer.begin(scene, camera, lookRef.current, pipe.hdr, target, orbit)
       report(true)
       invalidate()
       return
@@ -680,6 +740,14 @@ export function RenderEffects({
     // uploads textures, and redraws shadows: one-off work, not the cost of the tier.
     if (refreshShadows(scene)) eventful = true
     pipe.render()
+    // The view drawn again in the meter's own frame: the scene itself, not only the output pass
+    // over the meter camera's frame, which would show on the canvas until the next frame.
+    if (metered && TRACE_STATS) {
+      const draws = renderer.info.render.drawCalls
+      console[draws > 1 ? 'info' : 'warn'](
+        `[spin] view drawn again after the meter: ${draws} draw call${draws === 1 ? '' : 's'}`,
+      )
+    }
     sceneProgress.drawn()
     bench.mark('firstRaster', now)
     fresh.current = true

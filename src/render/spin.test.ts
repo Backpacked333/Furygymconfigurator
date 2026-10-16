@@ -2,13 +2,23 @@
 import { Matrix4, Scene, Vector3 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SkyLook } from '../lib/visuals'
-import { Busy, Full, Outdated, Superseded, type CloudCamera, type CloudClient } from './cloud'
+import {
+  Busy,
+  Full,
+  Outdated,
+  Superseded,
+  captureScene,
+  type CloudCamera,
+  type CloudClient,
+} from './cloud'
 import { ORBIT_LIMITS } from './orbit'
 import { planJobs } from './plan'
 import {
   DEFAULT_LEVEL,
   GATE_MAX_MS,
+  HOLD_FRAMES,
   METER_DEBOUNCE_MS,
+  SETTLE_MS,
   SPIN_LEVELS,
   SPIN_STEPS,
   SpinSession,
@@ -150,24 +160,43 @@ const answerFrame = () => ({
   tracedKey: 0,
 })
 
+type Open = {
+  request: FrameRequest
+  signal: AbortSignal
+  resolve: () => void
+  reject: (error: unknown) => void
+}
+
 /**
- * A client that records frame requests (with the signal each may be dropped by) and answers them
- * when told to. The exposure meter's frames (channel "m") answer at once, with a traced key of 0.
- * `fake.warm` is the cloud's warmth as the session reads it.
+ * A client that records the frame requests open (with the signal each may be dropped by) and
+ * answers them when told to; one the session drops leaves the list, answered as fetch answers an
+ * abort. The exposure meter's frames (channel "m") answer at once, with a traced key of 0, unless
+ * `fake.holdMeters`, when they wait to be answered too. `fake.warm` is the cloud's warmth as the
+ * session reads it.
  */
 function fakeClient() {
-  const requests: { request: FrameRequest; signal: AbortSignal; resolve: () => void }[] = []
-  const meters: { request: FrameRequest; signal: AbortSignal }[] = []
-  const frame = vi.fn((_captured: unknown, request: FrameRequest, signal: AbortSignal) => {
-    if (request.channel === 'm') {
-      meters.push({ request, signal })
-      return Promise.resolve(answerFrame())
-    }
-    return new Promise((resolve) =>
-      requests.push({ request, signal, resolve: () => resolve(answerFrame()) }),
-    )
-  })
-  const fake = { frame, warm: false }
+  const requests: Open[] = []
+  const meters: Open[] = []
+  const frame = vi.fn(
+    (_captured: unknown, request: FrameRequest, signal: AbortSignal) =>
+      new Promise((resolve, reject) => {
+        const open: Open = { request, signal, resolve: () => resolve(answerFrame()), reject }
+        if (request.channel === 'm') {
+          meters.push(open)
+          if (!fake.holdMeters) open.resolve()
+        } else requests.push(open)
+        signal.addEventListener(
+          'abort',
+          () => {
+            const at = requests.indexOf(open)
+            if (at >= 0) requests.splice(at, 1)
+            reject(new DOMException('The request was aborted.', 'AbortError'))
+          },
+          { once: true },
+        )
+      }),
+  )
+  const fake = { frame, warm: false, holdMeters: false }
   return { client: fake as unknown as CloudClient, fake, requests, meters }
 }
 
@@ -208,6 +237,10 @@ const tick = (ms = 0) => vi.advanceTimersByTimeAsync(ms)
 const metered = async () => {
   await tick(METER_DEBOUNCE_MS)
   await tick()
+}
+/** Lets the textures' latch pass (every set in for SETTLE_MS), seen by a frame drawn after. */
+const latched = async () => {
+  await tick(SETTLE_MS)
 }
 /** What a frame request is for: a pose (level/azimuth) or the panorama, at which tier. */
 const label = (r: FrameRequest) => {
@@ -254,25 +287,57 @@ describe('spin session', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
+  /**
+   * Syncs a design with its textures in and sees the spin through to its settled state: the
+   * textures' latch (every set in for SETTLE_MS, seen by a frame drawn after), then the meter
+   * run again with them in. What went out before (the visitor's preview with a gain of 1 before
+   * the meter answered, then with the gain metered before the textures) was dropped at each
+   * step, so the requests open after are the settled scene's.
+   */
+  const settled = async (
+    session: SpinSession,
+    keys: SceneKeys,
+    state: SpinState,
+    rasterKey: MeterRaster = meter,
+  ) => {
+    session.sync(scene, look as SkyLook, keys, state, rasterKey)
+    await latched()
+    session.sync(scene, look as SkyLook, keys, state, rasterKey)
+    await metered()
+  }
+  /** Syncs a changed design on two frames running: the session takes it up once it has held one. */
+  const edit = (session: SpinSession, keys: SceneKeys, state: SpinState) => {
+    session.sync(scene, look as SkyLook, keys, state, meter)
+    session.sync(scene, look as SkyLook, keys, state, meter)
+  }
 
   it('meters the first design at once, then renders the visible frame and the angles nearest it', async () => {
     const { client, requests, meters } = fakeClient()
     const session = new SpinSession(client, () => {})
     session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
     // The page's first design is metered without waiting for it to hold still (a later design
-    // waits, as a slider drag is a run of them), so its first preview is not held back.
+    // waits, as a slider drag is a run of them).
     await tick()
     await tick()
-    // A frame for each view meters its exposure, at the raster frame's size, before any other is
-    // requested: outside at the visitor's frame, inside at the interior's view.
+    // A frame for each view meters its exposure, at the raster frame's size: outside at the
+    // visitor's frame, inside at the interior's view.
     expect(meters).toHaveLength(2)
     expect([meters[0].request.width, meters[0].request.height]).toEqual([900, 600])
     const outside = spinCamera(spec, { level: DEFAULT_LEVEL, azimuth: 5 }, lens)
     expect(meters[0].request.camera.matrix).toEqual(outside.matrix)
     expect(meters[1].request.camera.matrix).toEqual(spinState('exterior').interior.view.matrix)
+    // The textures are not in yet (a frame has to find every set in for SETTLE_MS): only the
+    // visitor's preview and the panorama's, on the visitor's channel.
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
+    expect(requests[0].request.channel).toBe('f')
+    // Once they are, the look is metered again with them in, and the ring goes out: the visible
+    // frame at once on the visitor's channel; three more keep one GPU busy, so the next one asked
+    // for is the one most wanted.
+    await latched()
+    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    await metered()
+    expect(meters).toHaveLength(4)
     const sent = requests.map((r) => r.request)
-    // The visible frame goes out at once on the visitor's channel; three more keep one GPU busy,
-    // so the next one asked for is the one most wanted.
     expect(sent).toHaveLength(4)
     expect(sent.map(label)).toEqual(['5 preview', '6 preview', '4 preview', '7 preview'])
     expect(sent.map((r) => r.priority)).toEqual([0, 1, 1, 2])
@@ -280,9 +345,9 @@ describe('spin session', () => {
     // Previews are rendered at the screen's CSS size.
     expect([sent[0].width, sent[0].height]).toEqual([1200, 800])
     // Another design in the same light keeps the gains.
-    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), meter)
+    edit(session, design('b'), spinState('exterior'))
     await metered()
-    expect(meters).toHaveLength(2)
+    expect(meters).toHaveLength(4)
     session.dispose()
   })
 
@@ -315,15 +380,14 @@ describe('spin session', () => {
     // Design A's meter starts, and waits on the raster frame.
     await metered()
     expect(meters).toHaveLength(0)
-    // A run of changes, as a slider drag makes: no meter until they stop for a moment.
-    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), async (at) =>
-      raster(Math.log(2), at),
-    )
+    // A run of changes, as a slider drag makes: none is taken up until it holds for a frame, and
+    // no meter runs until they stop for a moment.
+    const dragged: MeterRaster = async (at) => raster(Math.log(2), at)
+    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), dragged)
     await tick(METER_DEBOUNCE_MS / 2)
-    session.sync(scene, look as SkyLook, design('c'), spinState('exterior'), async (at) =>
-      raster(Math.log(2), at),
-    )
+    session.sync(scene, look as SkyLook, design('c'), spinState('exterior'), dragged)
     await tick(METER_DEBOUNCE_MS / 2 + 1)
+    session.sync(scene, look as SkyLook, design('c'), spinState('exterior'), dragged)
     expect(meters).toHaveLength(0)
     await metered()
     expect(meters).toHaveLength(2)
@@ -341,8 +405,7 @@ describe('spin session', () => {
   it('renders the panorama first, on a channel of its own, when the visitor is inside', async () => {
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('interior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('interior'))
     const first = requests[0].request
     expect(first.camera.panorama).toBe(true)
     expect(first.width).toBe(2 * first.height)
@@ -363,22 +426,25 @@ describe('spin session', () => {
     const { client, requests } = fakeClient()
     let changes = 0
     const session = new SpinSession(client, () => changes++)
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    await settled(session, design('a'), spinState('exterior'))
+    const old = [...requests]
+    const generation = Math.min(...old.map((r) => r.request.generation))
+    edit(session, design('b'), spinState('exterior'))
     await metered()
-    const before = requests.length
-    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), meter)
-    await metered()
-    // The new design's frames are requested under a newer generation.
-    const generations = requests.map((r) => r.request.generation)
-    expect(Math.max(...generations.slice(before))).toBeGreaterThan(generations[0])
+    // The design before's requests are dropped, and the new design's frames are requested under
+    // a newer generation.
+    expect(old.every((r) => r.signal.aborted)).toBe(true)
+    expect(requests.every((r) => !r.signal.aborted)).toBe(true)
+    // On each channel (the visitor's frame has one of its own), a newer number than before.
+    for (const r of requests) {
+      const was = old.find((o) => o.request.channel === r.request.channel)!
+      expect(r.request.generation).toBeGreaterThan(was.request.generation)
+    }
+    expect(Math.min(...requests.map((r) => r.request.generation))).toBeGreaterThan(generation)
     // Counted from here: the exposure meter's answer redrew once already (it tells the gate the
-    // cloud is warm).
+    // cloud is warm). A frame of the current design counts.
     const redrawn = changes
     requests[0].resolve()
-    await tick()
-    expect(changes).toBe(redrawn)
-    // A frame of the current design counts.
-    requests[before].resolve()
     await tick()
     expect(changes).toBe(redrawn + 1)
     session.dispose()
@@ -387,8 +453,11 @@ describe('spin session', () => {
   it('waits out a busy server, twice as long each time, and asks at once again after an answer', async () => {
     let asked = 0
     let answers = 0
+    let counting = false
     const frame = vi.fn(async (_captured: unknown, request: FrameRequest) => {
       if (request.channel === 'm') return answerFrame()
+      // The stand-ins asked for before the textures settle never answer; they are dropped then.
+      if (!counting) return new Promise<never>(() => {})
       asked++
       if (answers > 0) {
         answers--
@@ -398,9 +467,11 @@ describe('spin session', () => {
     })
     const session = new SpinSession({ frame } as unknown as CloudClient, () => {})
     session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    // The first design is metered at once, so the clock on the wait starts here.
-    await tick()
-    await tick()
+    await latched()
+    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    counting = true
+    // The clock on the wait starts with the first answer.
+    await metered()
     // Each open request was turned away once; none is asked again at once, and it is no failure.
     expect(asked).toBe(4)
     expect(session.progress.failed).toBe(false)
@@ -427,26 +498,25 @@ describe('spin session', () => {
 
   it('meters again after a busy answer', async () => {
     const { client, fake, requests, meters } = fakeClient()
+    const answer = fake.frame.getMockImplementation()!
     let busy = 1
-    fake.frame.mockImplementation((_captured: unknown, request: FrameRequest, signal) => {
+    fake.frame.mockImplementation((captured: unknown, request: FrameRequest, signal) => {
       if (request.channel === 'm' && busy-- > 0) return Promise.reject(new Busy('busy'))
-      if (request.channel === 'm') {
-        meters.push({ request, signal })
-        return Promise.resolve(answerFrame())
-      }
-      return new Promise((resolve) =>
-        requests.push({ request, signal, resolve: () => resolve(answerFrame()) }),
-      )
+      return answer(captured, request, signal)
     })
     const session = new SpinSession(client, () => {})
     session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
     await metered()
     expect(meters).toHaveLength(0)
-    expect(requests).toHaveLength(0)
+    // The visitor's preview does not wait for the meter: it went out with a gain of 1.
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
+    const early = [...requests]
     await tick(2000)
     await tick()
     expect(meters).toHaveLength(2)
-    expect(requests.length).toBeGreaterThan(0)
+    // Metered: asked for again with the gain, in place of the early ones.
+    expect(early.every((r) => r.signal.aborted)).toBe(true)
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
     session.dispose()
   })
 
@@ -484,10 +554,11 @@ describe('spin session', () => {
     await metered()
     expect(session.progress.failed).toBe(true)
     expect(changes).toBeGreaterThan(0)
-    // The requests already open were all it sent; nothing more is asked of it, not after an edit
-    // or a new framing either: it gave up for the page.
-    expect(asked).toBe(4)
-    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), meter)
+    // The requests already open (the visitor's preview and the panorama's, sent before the
+    // meter answered) were all it sent; nothing more is asked of it, not after an edit or a new
+    // framing either: it gave up for the page.
+    expect(asked).toBe(2)
+    edit(session, design('b'), spinState('exterior'))
     await metered()
     session.sync(
       scene,
@@ -497,7 +568,7 @@ describe('spin session', () => {
       meter,
     )
     await metered()
-    expect(asked).toBe(4)
+    expect(asked).toBe(2)
     expect(session.progress).toMatchObject({ failed: true, loading: false })
     warn.mockRestore()
     session.dispose()
@@ -512,7 +583,9 @@ describe('spin session', () => {
     session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
     await metered()
     expect(session.progress.failed).toBe(true)
-    expect(frame).toHaveBeenCalledTimes(1)
+    // The visitor's preview and the panorama's went out alongside the meter's first frame; no
+    // second frame of the meter's, and nothing more.
+    expect(frame).toHaveBeenCalledTimes(3)
     warn.mockRestore()
     session.dispose()
   })
@@ -541,8 +614,7 @@ describe('spin session', () => {
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
     const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     expect(requests).toHaveLength(0)
     hidden.mockReturnValue(false)
     document.dispatchEvent(new Event('visibilitychange'))
@@ -555,8 +627,7 @@ describe('spin session', () => {
   it("covers the visitor's ring outward from their frame before anything renders longer", async () => {
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     expect(await answer(requests, 41)).toEqual([
       '5 preview',
       // The whole ring as previews, outward from the visitor's frame, so turning anywhere soon
@@ -579,8 +650,7 @@ describe('spin session', () => {
   it('renders next wherever the visitor turns to', async () => {
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     const before = requests[0].request
     await answer(requests, 3)
     // Three requests from the old plan are open; the angle turned to is asked for at once, on the
@@ -607,8 +677,7 @@ describe('spin session', () => {
   it('leads with the side the visitor is turning to', async () => {
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior', 5, { drift: 1 }), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior', 5, { drift: 1 }))
     expect(requests.map((r) => label(r.request))).toEqual([
       '5 preview',
       '6 preview',
@@ -622,14 +691,7 @@ describe('spin session', () => {
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
     // Still editing: only the frame they look at, and the panorama for a step inside.
-    session.sync(
-      scene,
-      look as SkyLook,
-      design('a'),
-      spinState('exterior', 5, { idle: false }),
-      meter,
-    )
-    await metered()
+    await settled(session, design('a'), spinState('exterior', 5, { idle: false }))
     expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
     // Resting: the ring around them.
     session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
@@ -702,8 +764,7 @@ describe('spin session', () => {
     const plans = vi.mocked(planJobs)
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     await answer(requests, 1)
     session.texture()
     await tick()
@@ -787,8 +848,7 @@ describe('spin session', () => {
     )
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     // An export asks for the full render alongside.
     session.wantFinal(session.focusKey())
     await tick()
@@ -807,7 +867,7 @@ describe('spin session', () => {
     expect(session.texture()).toBeNull()
     bitmaps[1]()
     await tick()
-    expect(session.texture()).toMatchObject({ tier: 'final', provisional: false })
+    expect(session.texture()).toMatchObject({ tier: 'final', stage: 2 })
     vi.unstubAllGlobals()
     session.dispose()
   })
@@ -816,8 +876,7 @@ describe('spin session', () => {
     stubBitmaps()
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     // The visitor's frame as a preview.
     await answer(requests, 1)
     session.texture()
@@ -830,7 +889,7 @@ describe('spin session', () => {
     expect(session.isFocus(shown)).toBe(true)
     // The design changes at the same pose: nothing of it is decoded yet, but the frame on screen
     // is for the pose, so RenderEffects keeps it until its replacement lands.
-    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), meter)
+    edit(session, design('b'), spinState('exterior'))
     expect(session.texture()).toBeNull()
     expect(session.focusKey()).toBe(shown.key)
     // Kept on screen, but never an export: a final at the focus pose satisfies one only when it
@@ -851,8 +910,7 @@ describe('spin session', () => {
     stubBitmaps()
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('interior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('interior'))
     expect(requests.map((r) => label(r.request))).toEqual([
       'panorama preview',
       'panorama good',
@@ -873,13 +931,7 @@ describe('spin session', () => {
     // The flooring changes: the panorama on screen is of the room before, so it goes, and so does
     // its good frame still rendering; both are asked for again under a newer generation on its
     // channel, while the ring's requests stay open and its stored frame stays.
-    session.sync(
-      scene,
-      look as SkyLook,
-      design('a', { interior: 'b' }),
-      spinState('interior'),
-      meter,
-    )
+    edit(session, design('a', { interior: 'b' }), spinState('interior'))
     await tick()
     expect(session.texture()).toBeNull()
     expect(good.signal.aborted).toBe(true)
@@ -918,13 +970,7 @@ describe('spin session', () => {
     expect(session.texture()?.key.startsWith('i|')).toBe(true)
     // The facade changes: the ring's requests are dropped and made again under a newer generation;
     // the panorama stays on screen, still current, its requests untouched.
-    session.sync(
-      scene,
-      look as SkyLook,
-      design('c', { interior: 'b' }),
-      spinState('interior'),
-      meter,
-    )
+    edit(session, design('c', { interior: 'b' }), spinState('interior'))
     await tick()
     const panorama = session.texture()!
     expect(panorama.key.startsWith('i|')).toBe(true)
@@ -1025,13 +1071,19 @@ describe('spin session', () => {
   // the local tracer) carry on meanwhile anyway, so the spin need not give up for the page.
   it('waits a minute when every cloud GPU is in use, then asks again', async () => {
     let asked = 0
+    let counting = false
     const frame = vi.fn(async (_captured: unknown, request: FrameRequest) => {
       if (request.channel === 'm') return answerFrame()
+      // The stand-ins asked for before the textures settle never answer; they are dropped then.
+      if (!counting) return new Promise<never>(() => {})
       asked++
       throw new Full('every cloud GPU is in use')
     })
     const session = new SpinSession({ frame } as unknown as CloudClient, () => {})
     session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    await latched()
+    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    counting = true
     await metered()
     expect(asked).toBe(4)
     expect(session.progress.failed).toBe(false)
@@ -1062,10 +1114,9 @@ describe('spin session', () => {
     await answer(requests, 3)
     session.texture()
     await tick()
-    expect(session.texture()).toMatchObject({ tier: 'final', provisional: true })
+    expect(session.texture()).toMatchObject({ tier: 'final', stage: 1 })
     // The textures come in: the full render and the preview are both asked for again.
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     expect(requests.slice(0, 2).map((r) => label(r.request))).toEqual(['5 final', '5 preview'])
     // The preview with the real materials lands first and takes over from the grey full render,
     // which is not kept: an export waits for the full render made with them.
@@ -1073,12 +1124,12 @@ describe('spin session', () => {
     await tick()
     session.texture()
     await tick()
-    expect(session.texture()).toMatchObject({ tier: 'preview', provisional: false })
+    expect(session.texture()).toMatchObject({ tier: 'preview', stage: 2 })
     requests.splice(0, 1)[0].resolve()
     await tick()
     session.texture()
     await tick()
-    expect(session.texture()).toMatchObject({ tier: 'final', provisional: false })
+    expect(session.texture()).toMatchObject({ tier: 'final', stage: 2 })
     vi.unstubAllGlobals()
     session.dispose()
   })
@@ -1087,19 +1138,19 @@ describe('spin session', () => {
     stubBitmaps()
     const { client, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), spinState('interior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('interior'))
     const [panorama, , five] = requests
+    const before = [...requests]
     await answer(requests, 1)
     session.texture()
     await tick()
     expect(session.texture()?.key.startsWith('i|')).toBe(true)
     // The door opens: the shell is in both fingerprints (StudioModel marks it shared), so the
     // panorama on screen goes and both views' requests are made again under newer generations.
-    session.sync(scene, look as SkyLook, design('b'), spinState('interior'), meter)
+    edit(session, design('b'), spinState('interior'))
     await tick()
     expect(session.texture()).toBeNull()
-    expect(requests.every((r) => r.signal.aborted || r.request.generation > 0)).toBe(true)
+    expect(before.slice(1).every((r) => r.signal.aborted)).toBe(true)
     const renewed = requests.filter((r) => !r.signal.aborted)
     expect(renewed.map((r) => label(r.request))).toEqual([
       'panorama preview',
@@ -1129,8 +1180,7 @@ describe('spin session', () => {
     expect(requests).toHaveLength(0)
     // The textures are in: metered again (they change the brightness), then everything is asked
     // for, the early preview included, which stands in meanwhile.
-    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
-    await metered()
+    await settled(session, design('a'), spinState('exterior'))
     expect(meters).toHaveLength(4)
     expect(requests.map((r) => label(r.request))).toEqual([
       '5 preview',
@@ -1147,5 +1197,485 @@ describe('spin session', () => {
     await metered()
     expect(second.requests.map((r) => label(r.request))).toEqual(['panorama preview', '5 preview'])
     inside.dispose()
+  })
+
+  it('meters a look once before the textures and once after, however often they flip', async () => {
+    const { client, meters } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    const textures = (settled: boolean) =>
+      session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter, settled)
+    textures(false)
+    await metered()
+    expect(meters).toHaveLength(2)
+    // Sets stream in: what is loaded catches up with what was asked for and falls behind again
+    // as more is asked for. None of it is settled, and none of it meters.
+    for (let i = 0; i < 4; i++) {
+      textures(true)
+      await tick(SETTLE_MS / 2)
+      textures(false)
+      await tick(SETTLE_MS / 2)
+    }
+    expect(meters).toHaveLength(2)
+    // Every set is in and stays in: once that has held SETTLE_MS, the look is metered again,
+    // with the textures' brightness, once the design has held still too.
+    textures(true)
+    await tick(SETTLE_MS - 1)
+    textures(true)
+    await metered()
+    expect(meters).toHaveLength(2)
+    await tick(1)
+    textures(true)
+    await metered()
+    expect(meters).toHaveLength(4)
+    // A set asked for later (a new finish) and in again: the look is metered already.
+    textures(false)
+    await tick()
+    textures(true)
+    await latched()
+    textures(true)
+    await metered()
+    expect(meters).toHaveLength(4)
+    session.dispose()
+  })
+
+  it("drops a meter's frames in flight when a new chain starts, so one chain runs at most", async () => {
+    const { client, fake, meters, requests } = fakeClient()
+    fake.holdMeters = true
+    const session = new SpinSession(client, () => {})
+    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    await tick()
+    await tick()
+    // The chain's first frame is rendering.
+    expect(meters).toHaveLength(1)
+    expect(meters[0].signal.aborted).toBe(false)
+    // The time of day changes: a new look, so a new chain, and the old one's frame is dropped.
+    const dusk = { ...(look as SkyLook), night: 0.6 }
+    const edited = () => session.sync(scene, dusk, design('a'), spinState('exterior'), meter)
+    edited()
+    edited()
+    expect(meters[0].signal.aborted).toBe(true)
+    await metered()
+    expect(meters).toHaveLength(2)
+    expect(meters.filter((m) => !m.signal.aborted)).toHaveLength(1)
+    // Its answer comes, and the chain goes on to the interior: still one frame open.
+    meters[1].resolve()
+    await tick()
+    await tick()
+    expect(meters).toHaveLength(3)
+    expect(meters.filter((m) => !m.signal.aborted)).toHaveLength(2)
+    meters[2].resolve()
+    await tick()
+    await tick()
+    expect(requests.length).toBeGreaterThan(0)
+    session.dispose()
+  })
+
+  it("sends the visitor's preview with a gain of 1 before the meter answers, and again once metered", async () => {
+    const { client, fake, meters, requests } = fakeClient()
+    fake.holdMeters = true
+    const session = new SpinSession(client, () => {})
+    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), async (at) =>
+      raster(Math.log(2), at),
+    )
+    await tick()
+    await tick()
+    // Before any meter answer: the visitor's preview, on its channel, and the panorama's inside,
+    // with a gain of 1; nothing else waits on the meter so.
+    expect(meters).toHaveLength(1)
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
+    expect(requests.map((r) => r.request.finish.gain)).toEqual([1, 1])
+    expect(requests[0].request.channel).toBe('f')
+    const early = [...requests]
+    // The meter answers for both views: the raster is twice as bright as the traced frame, so
+    // the gain is 2, and the preview is asked for again with it, in place of the early one.
+    meters[0].resolve()
+    await tick()
+    await tick()
+    meters[1].resolve()
+    await tick()
+    await tick()
+    expect(early.every((r) => r.signal.aborted)).toBe(true)
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
+    expect(requests.map((r) => r.request.finish.gain.toFixed(3))).toEqual(['2.000', '2.000'])
+    expect(requests[0].request.generation).toBeGreaterThan(early[0].request.generation)
+    session.dispose()
+  })
+
+  it('renders a stand-in panorama again only once the visitor rests, like the ring', async () => {
+    const { client, fake, meters, requests } = fakeClient()
+    fake.holdMeters = true
+    const session = new SpinSession(client, () => {})
+    // Still editing outside: the visitor's preview and the panorama's go out before the meter.
+    session.sync(
+      scene,
+      look as SkyLook,
+      design('a'),
+      spinState('exterior', 5, { idle: false }),
+      meter,
+    )
+    await tick()
+    await tick()
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
+    const panorama = requests.findIndex((r) => label(r.request) === 'panorama preview')
+    requests.splice(panorama, 1)[0].resolve()
+    await tick()
+    // The meter answers: the visitor's preview is rendered again with the gain at once; the
+    // panorama, a stand-in for a step inside, waits for the ring's turn.
+    meters[0].resolve()
+    await tick()
+    await tick()
+    meters[1].resolve()
+    await tick()
+    await tick()
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview'])
+    // Resting, with the textures in: fetched ahead in its turn, after the ring.
+    fake.holdMeters = false
+    await settled(session, design('a'), spinState('exterior'))
+    expect(requests.map((r) => label(r.request))).toEqual([
+      '5 preview',
+      '6 preview',
+      '4 preview',
+      '7 preview',
+    ])
+    const answered = await answer(requests, SPIN_STEPS + 1)
+    expect(answered).not.toContain('panorama preview')
+    expect(requests.map((r) => label(r.request))).toContain('panorama preview')
+    session.dispose()
+  })
+
+  it('takes a changed design up once it has held for a frame: one edit, one generation', async () => {
+    const { client, requests } = fakeClient()
+    let changes = 0
+    const session = new SpinSession(client, () => changes++)
+    await settled(session, design('a'), spinState('exterior'))
+    const open = [...requests]
+    // An edit lands as a run of keys over a few frames (new meshes, their world matrices, the
+    // textures they ask for): none is taken up while they keep changing, and a redraw is asked
+    // for to see each again.
+    const redrawn = changes
+    session.sync(scene, look as SkyLook, design('b'), spinState('exterior'), meter)
+    expect(changes).toBe(redrawn + 1)
+    session.sync(scene, look as SkyLook, design('c'), spinState('exterior'), meter)
+    await tick()
+    expect(open.every((r) => !r.signal.aborted)).toBe(true)
+    expect(requests).toEqual(open)
+    expect(session.currentDesign()).toContain('a')
+    // The key holds for a frame: taken up, once, under one new generation on each channel (the
+    // visitor's frame has one of its own, the rest of the ring another).
+    session.sync(scene, look as SkyLook, design('c'), spinState('exterior'), meter)
+    await metered()
+    expect(open.every((r) => r.signal.aborted)).toBe(true)
+    expect(session.currentDesign()).toContain('c')
+    for (const channel of ['f', 's']) {
+      const was = open.find((r) => r.request.channel === channel)!.request.generation
+      const generations = new Set(
+        requests.filter((r) => r.request.channel === channel).map((r) => r.request.generation),
+      )
+      expect(generations.size).toBe(1)
+      expect([...generations][0]).toBe(was + 1)
+    }
+    expect(requests.filter((r) => r.request.channel === 'f')).toHaveLength(1)
+    session.dispose()
+  })
+
+  it('stops a meter for a design on its way, and takes the textures up with the key: one meter per view', async () => {
+    const { client, fake, meters, requests } = fakeClient()
+    fake.holdMeters = true
+    const captures = vi.mocked(captureScene)
+    const session = new SpinSession(client, () => {})
+    const textures = (keys: SceneKeys, settled: boolean) =>
+      session.sync(scene, look as SkyLook, keys, spinState('exterior'), meter, settled)
+    textures(design('a'), false)
+    await tick()
+    await tick()
+    captures.mockClear()
+    // The first design's chain has its exterior frame rendering when the textures come in and
+    // change the key (their maps are new versions of the materials): the chain stops, its frame
+    // with it, rather than metering a scene about to change.
+    expect(meters).toHaveLength(1)
+    textures(design('a2'), true)
+    expect(meters[0].signal.aborted).toBe(true)
+    await metered()
+    expect(meters).toHaveLength(1)
+    // The latch passes while the key is held back: nothing is captured or metered for the design
+    // before, and the visitor's early preview stays open.
+    await latched()
+    expect(captures).not.toHaveBeenCalled()
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', 'panorama preview'])
+    // The key holds: taken up with the textures in the same frame, so one capture and one chain,
+    // whose frames are never dropped: one meter for each view.
+    textures(design('a2'), true)
+    await metered()
+    expect(captures).toHaveBeenCalledTimes(1)
+    expect(meters).toHaveLength(2)
+    meters[1].resolve()
+    await tick()
+    await tick()
+    expect(meters).toHaveLength(3)
+    meters[2].resolve()
+    await tick()
+    await tick()
+    expect(meters.filter((m) => !m.signal.aborted)).toHaveLength(2)
+    expect(requests.map((r) => label(r.request))).toEqual([
+      '5 preview',
+      '6 preview',
+      '4 preview',
+      '7 preview',
+    ])
+    // A new look meters again; its key changes for a frame and goes back (a version bumped and
+    // put back): the chain stopped for the change starts again for the design in hand.
+    const dusk = { ...(look as SkyLook), night: 0.6 }
+    const at = (keys: SceneKeys) => session.sync(scene, dusk, keys, spinState('exterior'), meter)
+    at(design('a2'))
+    at(design('a2'))
+    await metered()
+    expect(meters).toHaveLength(4)
+    at(design('a3'))
+    expect(meters[3].signal.aborted).toBe(true)
+    at(design('a2'))
+    await metered()
+    expect(meters).toHaveLength(5)
+    expect(meters[4].signal.aborted).toBe(false)
+    expect(session.currentDesign()).toContain('a2')
+    session.dispose()
+  })
+
+  it('takes a request the browser cut short as no failure, nor one it dropped itself', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { client, requests } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    await settled(session, design('a'), spinState('exterior'))
+    // A fetch the browser aborted for its own reasons answers as an abort: nothing to count.
+    requests[0].reject(new DOMException('The user aborted a request.', 'AbortError'))
+    await tick()
+    expect(session.progress.failed).toBe(false)
+    // The page unloads: its open fetches fail as fetches do then, which is no failure of the
+    // cloud's, so nothing is warned of or given up on while the page goes.
+    window.dispatchEvent(new Event('pagehide'))
+    for (const r of [...requests]) r.reject(new TypeError('Failed to fetch'))
+    await tick()
+    expect(session.progress.failed).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+    session.dispose()
+  })
+
+  it('keeps the ring in flight through a set asked for inside, and asks the panorama again once it is in', async () => {
+    stubBitmaps()
+    const { client, requests } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    const state = spinState('interior')
+    await settled(session, design('a'), state)
+    const ring = requests.filter((r) => r.request.channel === 's')
+    expect(ring.map((r) => label(r.request))).toEqual(['5 preview', '6 preview'])
+    // A finish picked inside asks for a set not loaded yet: the panorama is asked for again
+    // without it, while the ring, rendered with the textures in, carries on.
+    const keys = design('a', { interior: 'b' })
+    const textures = (settled: boolean) =>
+      session.sync(scene, look as SkyLook, keys, state, meter, settled)
+    textures(false)
+    textures(false)
+    await tick()
+    expect(ring.every((r) => !r.signal.aborted)).toBe(true)
+    const early = requests.filter((r) => r.request.channel === 'p')
+    expect(early.map((r) => label(r.request))).toEqual(['panorama preview'])
+    // The set comes in and holds: the panorama's early request makes way for one with the
+    // textures in, under a newer generation on its channel; the ring's requests are left alone.
+    textures(true)
+    await latched()
+    textures(true)
+    await tick()
+    expect(ring.every((r) => !r.signal.aborted)).toBe(true)
+    expect(early[0].signal.aborted).toBe(true)
+    const again = requests.filter((r) => r.request.channel === 'p')
+    expect(again.map((r) => label(r.request))).toEqual(['panorama preview', 'panorama good'])
+    for (const r of again) expect(r.request.generation).toBeGreaterThan(early[0].request.generation)
+    expect(requests.filter((r) => r.request.channel === 's')).toEqual(ring)
+    // A ring frame landing now is kept, as the real thing: a step outside shows it.
+    requests.splice(requests.indexOf(ring[0]), 1)[0].resolve()
+    await tick()
+    session.sync(scene, look as SkyLook, keys, spinState('exterior'), meter, true)
+    session.texture()
+    expect(session.progress.ready).toBe(1)
+    await tick()
+    expect(session.texture()).toMatchObject({ tier: 'preview', stage: 2 })
+    expect(session.texture()!.key.endsWith('|5')).toBe(true)
+    vi.unstubAllGlobals()
+    session.dispose()
+  })
+
+  it('asks for the full render of a frame made with the textures in only once they are in again', async () => {
+    stubBitmaps()
+    const { client, requests } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    const state = spinState('exterior')
+    await settled(session, design('a'), state)
+    // The visitor's preview lands, with the textures in.
+    const five = requests.findIndex((r) => label(r.request) === '5 preview')
+    requests.splice(five, 1)[0].resolve()
+    await tick()
+    session.texture()
+    await tick()
+    expect(session.texture()).toMatchObject({ tier: 'preview', stage: 2 })
+    // A finish picked inside asks for a set not loaded yet, and an export is asked for while it
+    // loads: a full render made now would be thrown away as it lands, for the preview here of
+    // a later stage, so none is asked for (over and over) until the set is in.
+    const keys = design('a', { interior: 'b' })
+    const textures = (settled: boolean) =>
+      session.sync(scene, look as SkyLook, keys, state, meter, settled)
+    textures(false)
+    textures(false)
+    await tick()
+    session.wantFinal(session.focusKey())
+    for (let i = 0; i < 20; i++) {
+      textures(false)
+      await tick(16)
+    }
+    expect(requests.filter((r) => label(r.request) === '5 final')).toHaveLength(0)
+    textures(true)
+    await latched()
+    textures(true)
+    await tick()
+    const finals = requests.filter((r) => label(r.request) === '5 final')
+    expect(finals).toHaveLength(1)
+    expect(finals[0].request.channel).toBe('f')
+    requests.splice(requests.indexOf(finals[0]), 1)[0].resolve()
+    await tick()
+    session.texture()
+    await tick()
+    expect(session.texture()).toMatchObject({ tier: 'final', stage: 2 })
+    expect(requests.filter((r) => label(r.request) === '5 final')).toHaveLength(0)
+    vi.unstubAllGlobals()
+    session.dispose()
+  })
+
+  it('asks the page for no raster frame for a chain stopped while the scene was captured', async () => {
+    const { client, fake, meters } = fakeClient()
+    fake.holdMeters = true
+    const captures = vi.mocked(captureScene)
+    const pending: ((captured: unknown) => void)[] = []
+    captures.mockImplementation(
+      () => new Promise((resolve) => pending.push(resolve as never)) as never,
+    )
+    const rasterKey = vi.fn(meter)
+    const session = new SpinSession(client, () => {})
+    try {
+      session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), rasterKey)
+      await tick()
+      // The first chain waits for the page's first capture (seconds on a real page); the time
+      // of day changes meanwhile: a new look, so the chain is stopped and another starts,
+      // waiting for the new capture.
+      expect(pending).toHaveLength(1)
+      const dusk = { ...(look as SkyLook), night: 0.6 }
+      session.sync(scene, dusk, design('a'), spinState('exterior'), rasterKey)
+      session.sync(scene, dusk, design('a'), spinState('exterior'), rasterKey)
+      await metered()
+      expect(pending).toHaveLength(2)
+      // The first capture lands: the stopped chain asks for no raster frame (RenderEffects
+      // would draw the view at its cameras for one), and sends nothing.
+      pending[0]({})
+      await tick()
+      await tick()
+      expect(rasterKey).not.toHaveBeenCalled()
+      expect(meters).toHaveLength(0)
+      // The new look's capture lands: its chain meters.
+      pending[1]({})
+      await tick()
+      await tick()
+      expect(rasterKey).toHaveBeenCalledTimes(1)
+      expect(meters).toHaveLength(1)
+      expect(meters[0].signal.aborted).toBe(false)
+    } finally {
+      captures.mockImplementation(async () => ({}) as never)
+      session.dispose()
+    }
+  })
+
+  it('captures and meters nothing once it gave up for the page', async () => {
+    const frame = vi.fn(async () => {
+      throw new Outdated('old server')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const captures = vi.mocked(captureScene)
+    const session = new SpinSession({ frame } as unknown as CloudClient, () => {})
+    session.sync(scene, look as SkyLook, design('a'), spinState('exterior'), meter)
+    await metered()
+    expect(session.progress.failed).toBe(true)
+    const sent = frame.mock.calls.length
+    captures.mockClear()
+    // A new look and a new design: nothing to capture (seconds of the main thread) or meter
+    // for frames that are never asked for. The design is still kept up, so a frame left on
+    // screen is told from the one before.
+    const dusk = { ...(look as SkyLook), night: 0.6 }
+    session.sync(scene, dusk, design('b'), spinState('exterior'), meter)
+    session.sync(scene, dusk, design('b'), spinState('exterior'), meter)
+    session.sync(scene, dusk, design('b'), spinState('exterior'), meter)
+    await metered()
+    await tick(SETTLE_MS)
+    session.sync(scene, dusk, design('b'), spinState('exterior'), meter)
+    await metered()
+    expect(captures).not.toHaveBeenCalled()
+    expect(frame.mock.calls.length).toBe(sent)
+    expect(session.currentDesign()).toContain('b|')
+    expect(session.currentDesign()).toContain('|0.600')
+    warn.mockRestore()
+    session.dispose()
+  })
+
+  it('takes a key that changes from frame to frame up once, and leaves one that takes turns with it alone', async () => {
+    const { client, fake, meters } = fakeClient()
+    fake.holdMeters = true
+    let changes = 0
+    const session = new SpinSession(client, () => changes++)
+    await settled(session, design('a'), spinState('exterior'))
+    const before = meters.length
+    // A new look while something signs the interior anew every other frame (a key alternating
+    // between two values): neither holds for a frame, so neither would ever be taken up, and
+    // the redraw asked for while it is held would keep the page drawing.
+    const dusk = { ...(look as SkyLook), night: 0.6 }
+    let frames = 0
+    const frame = () => {
+      session.sync(
+        scene,
+        dusk,
+        design('a', { interior: frames++ % 2 ? 'a' : 'b' }),
+        spinState('exterior'),
+        meter,
+      )
+    }
+    for (let i = 0; i < 3; i++) {
+      frame()
+      await tick(16)
+    }
+    // Taken up: the key back from two frames ago, under the new look.
+    expect(session.currentDesign('exterior')).toContain('|0.600')
+    expect(session.currentDesign('interior')).toContain('|0.600')
+    const taken = session.currentDesign('interior')
+    // From here the other key takes turns with the one in hand: left alone, no redraw asked for,
+    // and the look metered once.
+    const redrawn = changes
+    for (let i = 0; i < 40; i++) {
+      frame()
+      await tick(16)
+    }
+    expect(session.currentDesign('interior')).toBe(taken)
+    expect(changes).toBe(redrawn)
+    expect(meters).toHaveLength(before + 1)
+    expect(meters[before].signal.aborted).toBe(false)
+    // A key new every frame (something never signed the same twice) is taken after a while
+    // rather than never, so the design is still metered and rendered.
+    let fresh = 0
+    for (let i = 0; i < HOLD_FRAMES + 2; i++) {
+      session.sync(
+        scene,
+        dusk,
+        design('a', { interior: `n${fresh++}` }),
+        spinState('exterior'),
+        meter,
+      )
+      await tick(16)
+    }
+    expect(session.currentDesign('interior')).toContain(`n${HOLD_FRAMES}|`)
+    session.dispose()
   })
 })

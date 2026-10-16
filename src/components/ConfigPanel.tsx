@@ -126,6 +126,7 @@ export default function ConfigPanel({
   trace,
   setTrace,
   traceSupported,
+  cloud,
   notify,
   onPlan,
   onSignature,
@@ -140,8 +141,10 @@ export default function ConfigPanel({
   setQuality: (q: Quality) => void
   trace: boolean
   setTrace: (trace: boolean) => void
-  /** Path tracing needs WebGPU compute. */
+  /** Path tracing on this device needs WebGPU compute. */
   traceSupported: boolean
+  /** A cloud renderer is configured: it path traces resting views for any device. */
+  cloud: boolean
   notify: (message: string) => void
   onPlan: () => void
   onSignature: (id: SignatureId) => void
@@ -809,12 +812,12 @@ export default function ConfigPanel({
             <Toggle
               label="Path-traced stills"
               detail={
-                traceSupported
-                  ? 'When the view rests, it refines into a ray-traced image with true bounce light, soft shadows, and real reflections.'
-                  : 'Needs a browser with WebGPU. Real-time rendering stays available.'
+                traceSupported || cloud
+                  ? `When the view rests, it refines into a ray-traced image with true bounce light, soft shadows, and real reflections, traced ${cloud ? 'in the cloud' : 'on this device'}.`
+                  : 'Needs a browser with WebGPU or a cloud renderer. Real-time rendering stays available.'
               }
-              checked={trace && traceSupported}
-              onChange={() => traceSupported && setTrace(!trace)}
+              checked={trace && (traceSupported || cloud)}
+              onChange={() => (traceSupported || cloud) && setTrace(!trace)}
             />
             <div className="nature-note">
               <Leaf size={22} />

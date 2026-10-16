@@ -322,6 +322,30 @@ describe('scene capture', () => {
     expect(scene.lights.some((l) => l.type === 'sun')).toBe(true)
   })
 
+  it('describe a scanned texture by the file it was decoded from, not a PNG of its pixels', async () => {
+    if (!globalThis.crypto?.subtle)
+      vi.stubGlobal('crypto', {
+        subtle: {
+          digest: async (_algorithm: string, bytes: Uint8Array) =>
+            createHash('sha256').update(bytes).digest().buffer,
+        },
+      })
+    // A scan as materials.ts keeps it: decoded to a bitmap, with its WebP file in userData.
+    const file = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4])
+    const map = new Texture({ width: 2, height: 2, close() {} } as unknown as ImageBitmap)
+    map.flipY = false
+    // jsdom's Blob has no arrayBuffer(); every browser's has.
+    map.userData.scan = Object.assign(new Blob([file]), { arrayBuffer: async () => file.buffer })
+    const scene = new Scene()
+    scene.add(new Mesh(new BoxGeometry(), new MeshStandardMaterial({ map })))
+    const { scene: captured, blobs } = await captureScene(scene, skyLook('backyard', 13))
+    const [texture] = Object.values(captured.textures)
+    expect(texture).toBeDefined()
+    expect(texture.url).toBeUndefined()
+    expect(texture.blob).toBe(createHash('sha256').update(file).digest('hex'))
+    expect(Array.from(await blobs.get(texture.blob)!())).toEqual(Array.from(file))
+  })
+
   it('name content the same way every time, whatever the key order', () => {
     expect(fingerprint('gym')).toBe(fingerprint('gym'))
     expect(fingerprint('gym')).not.toBe(fingerprint('gyn'))

@@ -26,6 +26,12 @@ export type PlanInput = {
   has: (ref: FrameRef, tier: Tier) => boolean
   /** Stored, so finished: what the admission rule counts (a frame in flight is still unfinished). */
   stored: (ref: FrameRef, tier: Tier) => boolean
+  /**
+   * Stored, but as a stand-in: rendered before the exposure was metered or the textures were in.
+   * One for a view the visitor is not in waits to be rendered again until frames are fetched
+   * ahead, like the ring; one with no frame at all goes out as soon as it is wanted.
+   */
+  standIn: (ref: FrameRef, tier: Tier) => boolean
   /** The design unchanged for IDLE_MS and the floor plan closed: frames may be fetched ahead. */
   idle: boolean
   /** The textures are in: good and final frames may be rendered. */
@@ -126,7 +132,7 @@ export function planJobs(input: PlanInput): PlannedJob[] {
     if (ahead)
       for (const { azimuth, d } of around) add(exterior(focus.level, azimuth), 'preview', shift + d)
     if (admitted) add(own, 'good', shift + 4)
-    add(panorama, 'preview', shift + 5)
+    if (ahead || !input.standIn(panorama, 'preview')) add(panorama, 'preview', shift + 5)
     if (ahead) {
       for (let level = 0; level < input.levels; level++) {
         if (level === focus.level) continue

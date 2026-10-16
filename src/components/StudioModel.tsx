@@ -13,6 +13,7 @@ import { canopy, deck, pergola, roofDeck, stairs, timberAccent } from '../render
 import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
+import { useMirror } from '../render/mirror'
 import type { Quality } from '../render/quality'
 import { Equipment, SaunaLights } from './Equipment'
 import { InteriorLights } from './InteriorLights'
@@ -57,7 +58,8 @@ function Signature({ length }: { length: number }) {
   )
 }
 
-function MirrorWall({ config: c, quality }: { config: Config; quality: Quality }) {
+/** The mirror wall: a framed pane of silvered glass on the back wall. */
+export function MirrorWall({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   const b = interiorBounds(c)
   const width = L * 0.48,
@@ -71,11 +73,17 @@ function MirrorWall({ config: c, quality }: { config: Config; quality: Quality }
       part(box(0.05, height + 0.1, 0.06), m, [width / 2 + 0.025, 0, -0.02]),
     ]
   }, [width])
+  const surface = useMirror(quality)
+  // Nothing until the glass exists (a frame after mount), so the frame mounts with it: the spin
+  // then renders its panorama once for the mirror, not once for the frame and again for the glass
+  // a frame later (spin.ts takes a changed design up once it has held a frame: one edit, one
+  // design).
+  if (!surface) return null
   return (
     // Inside the room: the spin's panorama changes with it, its exterior ring does not.
     <group position={[-L * 0.16, 4.9, b.back + 0.04]} userData={{ interior: true }}>
       <Parts parts={frame} />
-      <Mirror width={width} height={height} quality={quality} />
+      <Mirror width={width} height={height} surface={surface} />
     </group>
   )
 }

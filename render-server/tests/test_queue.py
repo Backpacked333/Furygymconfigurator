@@ -4,8 +4,9 @@ import asyncio
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 
-from fury_render.api import PRIORITY, BlobStore, RenderQueue, uninterrupted
+from fury_render.api import PRIORITY, BlobStore, RenderQueue, Settings, create_app, uninterrupted
 
 
 def test_waiting_views_go_ahead_of_pre_renders():
@@ -251,3 +252,29 @@ def test_frame_names_change_with_the_renderer_and_finishing(monkeypatch):
     assert frame_digest(body, frame_version({"blender": "4.5.0", "denoise": "cpu"})) != current
     monkeypatch.setattr(finishing, "FINISHING_VERSION", finishing.FINISHING_VERSION + 1)
     assert frame_digest(body, frame_version({"blender": "4.5.0", "denoise": "gpu"})) != current
+
+
+def test_frame_names_change_with_the_bounces_traced(monkeypatch):
+    """A frame traced to another depth carries other light: never served as the current one."""
+    from fury_render import api, protocol
+    from fury_render.api import frame_digest, frame_version
+    from fury_render.protocol import validate_request
+    from scene_kit import Kit, request
+
+    body = validate_request({**request(Kit().scene()), "output": "frame"})
+    info = {"blender": "4.5.0", "denoise": "gpu"}
+    current = frame_digest(body, frame_version(info))
+    assert frame_version(info)["bounces"] == protocol.BOUNCES == 6
+    monkeypatch.setattr(api, "BOUNCES", protocol.BOUNCES + 4)
+    assert frame_digest(body, frame_version(info)) != current
+
+
+def test_warm_answers_as_the_gateway_does_without_starting_anything(tmp_path):
+    """The page warms its session on load; the local server has nothing to start, but answers
+    alike, so a local run sees the same flow as the cloud (gateway.py /warm)."""
+    settings = Settings(blob_dir=str(tmp_path / "blobs"), frame_dir=str(tmp_path / "frames"))
+    with TestClient(create_app(settings, start=False)) as client:
+        response = client.get("/warm", params={"session": "visitor-one"})
+        assert response.status_code == 202
+        assert response.json() == {"warming": True, "renderer": "own"}
+        assert client.get("/warm").status_code == 202

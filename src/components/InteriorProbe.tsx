@@ -15,7 +15,7 @@ import { onMaterialsChanged, setProbeEnvironment, type ProbeKind } from '../rend
 import type { Quality } from '../render/quality'
 
 /** Changes arriving faster than this (slider drags) are captured once, after they stop. */
-const DEBOUNCE_MS = 250
+export const DEBOUNCE_MS = 250
 
 type ProbeOptions = {
   kind: ProbeKind
@@ -46,6 +46,8 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     current: number
     passes: number
     due: number
+    /** Whether a capture was taken: the first is taken at once, the rest after a pause. */
+    captured: boolean
   } | null>(null)
   const position = useRef(new Vector3())
   const options = useRef({ size, exclude })
@@ -70,6 +72,7 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
       current: 0,
       passes: 0,
       due: 0,
+      captured: false,
     }
     return () => {
       clearTimeout(wake.current)
@@ -83,7 +86,12 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
   useEffect(() => {
     if (!state.current) return
     state.current.passes = passes
-    state.current.due = performance.now() + DEBOUNCE_MS
+    // The first capture in the first frame, before that frame draws: a probe that first exists
+    // gives the materials it lights a new shader (materials.ts setProbeEnvironment), which the
+    // spin would take for an edit (pathtrace.ts sceneParts reads a material's version) and
+    // render its first frames again for; signed with the probe in from its first frame, the
+    // design holds. A change after it is captured once the changes stop: a slider drag is many.
+    state.current.due = state.current.captured ? performance.now() + DEBOUNCE_MS : 0
     wakeAt(state.current.due)
   }, [config, quality, passes, wakeAt])
   useEffect(
@@ -155,6 +163,7 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     probe.targets[next] = target
     probe.current = next
     probe.passes--
+    probe.captured = true
     setProbeEnvironment(kind, target.texture)
     invalidate()
   }, 0)

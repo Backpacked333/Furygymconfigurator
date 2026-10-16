@@ -449,6 +449,7 @@ export default function App() {
             trace={trace}
             setTrace={setTrace}
             traceSupported={backend === 'webgpu'}
+            cloud={cloudUrl() !== null}
             notify={notify}
             onPlan={() => {
               setView('plan')
@@ -699,6 +700,9 @@ function BenchPanel() {
   const frames = stats.frames ? ` (${stats.frames} frames, ${stats.cached} cached)` : ''
   const rows: [string, string][] = [
     ['first raster frame', seconds(stats.marks.firstRaster)],
+    ['textures settled', seconds(stats.marks.texturesSettled)],
+    ['scene captured', seconds(stats.marks.sceneCaptured)],
+    ['first request', seconds(stats.marks.firstRequest)],
     ['first preview', seconds(stats.marks.firstPreview)],
     ['first good frame', seconds(stats.marks.firstGood)],
     ['first local trace', seconds(stats.marks.firstLocalTrace)],

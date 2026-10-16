@@ -333,6 +333,14 @@ function standIns() {
   return stand
 }
 
+/**
+ * The neutral stand-ins, for a custom node material that binds a set's maps itself (Landscape's
+ * ground): bound until the scans arrive, it too keeps its shader, and its identity, through them.
+ */
+export function standInMaps(): Required<Maps> {
+  return standIns()
+}
+
 function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps: Maps) {
   const info = TEXTURE_SETS[spec.set!] as { metallic?: boolean }
   if (maps.albedo) material.map = maps.albedo
@@ -456,6 +464,19 @@ export function setInteriorEnvironment(texture: Texture | null) {
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */
 export function textureMaps(set: TextureSet) {
   return whenLoaded(set)
+}
+
+/** A set's maps when they are in already, else undefined (`textureMaps` brings them). */
+export function loadedMaps(set: TextureSet): Maps | undefined {
+  return ready.get(set)
+}
+
+/**
+ * Told by a custom material that bound a set's scans itself (Landscape's ground), as the library
+ * tells of its own: the scene redraws with them, and the spin renders its frames again.
+ */
+export function texturesArrived() {
+  changed('textures')
 }
 
 /** Starts (or joins) a set's download without waiting on it. */

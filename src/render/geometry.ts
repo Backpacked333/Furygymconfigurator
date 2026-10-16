@@ -84,11 +84,16 @@ export function cylinderProjectUV(
 }
 
 const cache = new Map<string, BufferGeometry>()
+/**
+ * Geometries are shared by their key, which also names their content (`userData.key`): a scene
+ * fingerprint reads a rebuilt model as the same shape (pathtrace.ts sceneParts).
+ */
 function cached<T extends BufferGeometry>(key: string, create: () => T): T {
   let geometry = cache.get(key)
   if (!geometry) {
     geometry = create()
     geometry.computeBoundingSphere()
+    geometry.userData.key = key
     cache.set(key, geometry)
   }
   return geometry as T

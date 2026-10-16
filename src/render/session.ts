@@ -98,6 +98,16 @@ export class TraceSession {
     return { from: null, to: this.texture, t: 0, gain: 1 }
   }
 
+  /**
+   * An export asked for while the view is traced: the local tracer carries on to `target`, and
+   * one not started yet starts with it. The cloud renders a view at its full quality regardless.
+   */
+  retarget(target: number) {
+    if (!this.args || target <= this.args[4]) return
+    this.args[4] = target
+    if (this.localStarted) this.local!.retarget(target)
+  }
+
   /** True once the image on screen is final enough for an export of `samples`. */
   ready(samples: number) {
     // Not a cloud preview: its full image is on the way.
