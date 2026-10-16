@@ -294,3 +294,42 @@ that more than two per container usually means longer waits.
   a volume reload, and a reload fails while files are open and shows an empty volume while it
   runs. Eight GPUs across four 2-GPU containers would need the gateway to shard: fan blob uploads
   out to every shard and spread one visitor's frames across them.
+
+## Follow-up: one GPU per render session
+
+The owner chose to go back to one external GPU, one per render session: each visitor gets their
+own, instead of sharing one container's GPUs. They kept the path-traced spin and its loading
+screen, and chose a wait of about 30 s for the starting view and the angles nearest it over
+waiting for the whole ring (about 2 min on one GPU) or fewer angles.
+
+Decisions:
+
+1. **A Modal function per session.** `Renderer` takes a `session` parameter; Modal binds each value
+   to a function of its own (`FunctionBindParams`), which inherits `max_containers=1`, the idle
+   shut-off and the GPU, so each session has one container with one L40S. The page sends one id
+   per page load as `x-render-session` on renders and uploads, so its blobs and frames stay on its
+   own container.
+2. **A cap on sessions.** The gateway admits at most `FURY_MAX_SESSIONS` (3) sessions, each holding
+   its place until two minutes after its last request. Beyond that it answers `503 {"full": true}`
+   without starting a GPU, and the page traces on the visitor's device (spin.ts `Full`). Session
+   ids could be forged, so the cap is what bounds the GPUs a script can start.
+3. **Loading screen:** the visitor's view at full quality and the four angles on each side as
+   previews (about 30 s warm: 1.5 s + 14 s + 8 × 1.5 s), with the timeout raised to 90 s for a
+   session's cold start.
+4. **Order of work, following the visitor.** Their frame, the near angles as previews, the
+   panorama's preview, the near angles at full quality, the rest of the ring the same way, then
+   the other distances, all nearest first around wherever the visitor looks now. The frames of
+   the angle looked at go out at once on a channel of their own (`f`), with a sequence number that
+   rises with every turn, so the server drops frames still queued for angles turned past (409
+   superseded, never rendered). Three other requests stay open: enough to keep one GPU busy across
+   round trips, few enough that the queue never runs far ahead of the visitor.
+5. **An angle not rendered yet shows the nearest one that is,** until its own arrives. Exports wait
+   for the angle's own full-quality frame, not a stand-in.
+
+Verified locally (CPU Cycles at 400×240, software WebGL, local render server): the requests came in
+the planned order (6 preview and final, then 7, 5, 8, 4, 9, 3 as previews); the loading screen
+counted "1 of 9 angles ready" upward; after three arrow presses from angle 6, the two frames
+queued for the angles passed came back superseded without rendering, 3's full frame rendered
+next, then the previews around 3, the panorama's preview and 4's full frame. Every request named
+the same session. Not verified: per-session containers and the session cap on Modal itself, and
+cold-start times; both need a deploy.

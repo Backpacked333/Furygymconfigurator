@@ -469,7 +469,9 @@ export function RenderEffects({
         )
         if (t < 1) invalidate()
         const capture = pending.current
-        if (capture && (current.frame.final || now > capture.deadline))
+        // The full-quality frame of the view itself, not the nearest one standing in for it.
+        const exact = current.frame.final && spinning.session.isFocus(current.frame)
+        if (capture && (exact || now > capture.deadline))
           deliver(renderer.domElement.toDataURL('image/png'))
         else if (capture) invalidate()
         setSpinStatus({

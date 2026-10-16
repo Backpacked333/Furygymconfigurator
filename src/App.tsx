@@ -562,8 +562,9 @@ export default function App() {
 }
 /**
  * Covers the scene while the cloud path traces the spin, so the first view seen is the finished
- * one: on opening until the view and its ring of angles are ready, and later whenever a view has
- * no path-traced frame yet (the interior's first visit, say). It gives up after a minute.
+ * one: on opening until the view is ready at full quality and the angles either side of it as
+ * previews, and later whenever a view has no path-traced frame yet (the interior's first visit,
+ * say). It gives up after a minute and a half.
  */
 function SpinLoading() {
   const spin = useSpinStatus()
@@ -574,7 +575,7 @@ function SpinLoading() {
   }, [done])
   const waiting = spin.active && !spin.failed && spin.loading && (!opened || !spin.showing)
   if (!waiting) return null
-  const progress = spin.panorama ? null : spin.ready / Math.max(1, spin.total)
+  const progress = spin.panorama ? null : spin.waitReady / Math.max(1, spin.waitTotal)
   return (
     <div className={`spin-loading ${opened ? 'later' : ''}`} role="status" aria-live="polite">
       <span className="loading-mark">F</span>
@@ -582,8 +583,8 @@ function SpinLoading() {
       <p>
         {spin.panorama
           ? 'A 360° view, so looking around stays photoreal'
-          : spin.ready
-            ? `${spin.ready} of ${spin.total} angles ready`
+          : spin.waitReady
+            ? `${spin.waitReady} of ${spin.waitTotal} angles ready`
             : 'Lighting every angle with true bounce light'}
       </p>
       <span className={`spin-progress ${progress === null ? 'indeterminate' : ''}`}>
