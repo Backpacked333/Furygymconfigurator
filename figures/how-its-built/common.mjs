@@ -380,3 +380,150 @@ export function equipment(h, put, stage, P, shift = [0, 0, 0], { rack = true } =
     }),
   )
 }
+
+// --- Site dressing: trees, planters, bollards, stepping stones ----------------------------------
+const byNear = (P) => (a, b) => k.depthOf(a, P) - k.depthOf(b, P)
+
+/** A tree: mulch ring, trunk, and a crown of overlapping balls drawn back to front. */
+export function treeSvg(h, P, x, y, size = 1, seed = 0) {
+  const { S } = h
+  const g = -8
+  const trunkH = 46 * size
+  const out = [
+    S(k.cylinder(x, y, 9 * size, g, 0.8, P, 28), { tone: 'lo' }),
+    S(k.cylinder(x, y, 2.1 * size, g + 0.8, trunkH, P, 14), { tone: 'lo' }),
+  ]
+  const balls = []
+  const n = 7
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + seed
+    const ring = i % 2 ? 9 : 6
+    balls.push([
+      x + Math.cos(a) * ring * size,
+      y + Math.sin(a) * ring * size,
+      g + trunkH + (6 + ((i * 7 + seed * 10) % 9)) * size,
+      (10 + ((i * 5) % 4)) * size,
+    ])
+  }
+  balls.push([x, y, g + trunkH + 16 * size, 12 * size])
+  balls.sort((a, b) => byNear(P)(a, b))
+  for (const [bx, by, bz, r] of balls)
+    out.push(S(G.sphereOf([bx, by, bz], r, P, { steps: 40 }), { tone: 'mid' }))
+  return out.join('')
+}
+
+/** A concrete planter with three clipped shrubs. */
+export function planterSvg(h, P, x, y, w = 30, d = 14) {
+  const { S, box } = h
+  const g = -8
+  const out = [S(box(x - w / 2, x + w / 2, y - d / 2, y + d / 2, g, g + 14, 0.5), { tone: 'lo' })]
+  out.push(
+    S(box(x - w / 2 + 1.4, x + w / 2 - 1.4, y - d / 2 + 1.4, y + d / 2 - 1.4, g + 13.2, g + 13.6), {
+      tone: 'lo',
+      crease: 'none',
+    }),
+  )
+  const shrubs = [-w / 3, 0, w / 3].map((dx, i) => [
+    x + dx,
+    y + (i === 1 ? -1 : 1),
+    g + 14 + 4.6,
+    5.6 + (i === 1 ? 1.2 : 0),
+  ])
+  shrubs.sort(byNear(P))
+  for (const [sx, sy, sz, r] of shrubs)
+    out.push(S(G.sphereOf([sx, sy, sz], r, P, { steps: 32 }), { tone: 'mid' }))
+  return out.join('')
+}
+
+/** A low path bollard; its lamp band is drawn separately so the lights can come on. */
+export function bollardSvg(h, P, x, y) {
+  const { S } = h
+  const g = -8
+  return (
+    S(k.cylinder(x, y, 2.6, g, 1, P, 18), { tone: 'lo' }) +
+    S(k.cylinder(x, y, 2, g + 1, 22, P, 18)) +
+    S(k.cylinder(x, y, 2.1, g + 23, 3, P, 18), { tone: 'hi', crease: 'lo' }) +
+    S(k.cylinder(x, y, 2.8, g + 26, 1.4, P, 18))
+  )
+}
+export const bollardLampSvg = (h, P, x, y) =>
+  `<g class="cg-lamp">${h.S(k.cylinder(x, y, 2.1, -8 + 23, 3, P, 18), { tone: 'hi', lit: true })}</g>`
+
+/** Stepping stones from a door out to the pad edge. */
+export function stonesSvg(h, P, x, y0, y1, step = 15) {
+  const { S, plan } = h
+  const out = []
+  let i = 0
+  for (let y = y0; y + 9 <= y1; y += step, i++) {
+    const dx = i % 2 ? 3 : -3
+    out.push(
+      S(k.slabOf(plan(x - 10 + dx, x + 10 + dx, y, y + 9, 2), -8, 0.9, P, 3, 0.3), { tone: 'lo' }),
+    )
+  }
+  return out.join('')
+}
+
+/** An outdoor condenser for the mini-split: louvred case, fan grille on top, line set to the wall. */
+export function condenserSvg(h, P, x0, y0, wallX = null) {
+  const { S, Ln, box, D, at } = h
+  const g = -8
+  const x1 = x0 + 26
+  const y1 = y0 + 13
+  const top = g + 4 + 25
+  const out = [S(box(x0 + 1, x1 - 1, y0 + 1, y1 - 1, g, g + 4, 0.3), { tone: 'lo' })]
+  const louvres = []
+  for (let z = g + 8; z < top - 3; z += 2.6)
+    louvres.push(k.segment([x0, y1, z], [x1, y1, z], P), k.segment([x1, y0, z], [x1, y1, z], P))
+  out.push(
+    S(box(x0, x1, y0, y1, g + 4, top, 0.5), {
+      tone: 'mid',
+      inner: Ln(louvres.join(''), { tone: 'faint' }),
+    }),
+  )
+  const cx = (x0 + x1) / 2
+  const cy = (y0 + y1) / 2
+  out.push(Ln(k.ring(cx, cy, 5.6, top, P, 40) + k.ring(cx, cy, 3.6, top, P, 32), { tone: 'lo' }))
+  const spokes = []
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2
+    spokes.push(
+      k.lineOnTop(
+        [cx + Math.cos(a) * 1.2, cy + Math.sin(a) * 1.2],
+        [cx + Math.cos(a) * 5.6, cy + Math.sin(a) * 5.6],
+        top,
+        P,
+      ),
+    )
+  }
+  out.push(Ln(k.ring(cx, cy, 1.2, top, P, 16) + spokes.join(''), { tone: 'lo' }))
+  out.push(
+    D(
+      [
+        at([x0 + 2, y0 + 2, top]),
+        at([x1 - 2, y0 + 2, top]),
+        at([x0 + 2, y1 - 2, top]),
+        at([x1 - 2, y1 - 2, top]),
+      ],
+      { size: 0.4 },
+    ),
+  )
+  if (wallX !== null) {
+    // Insulated line set and a power whip running to the wall.
+    const [a, b] = wallX < x0 ? [wallX, x0] : [x1, wallX]
+    out.push(S(box(a, b, y0 + 3, y0 + 5.4, g + 14, g + 16.4, 0.3), { tone: 'lo' }))
+    out.push(S(box(a, b, y0 + 7, y0 + 8.6, g + 10, g + 11.6, 0.2), { tone: 'lo' }))
+  }
+  return out.join('')
+}
+
+/** A warm wash of light on a plane (a window, a floor), faded with a gradient from `from` to `to`. */
+export function glowSvg(P, points, from = null, to = null, strength = 1) {
+  const ring = points.map((p) => k.iso(p, P))
+  const d = k.pathOf(ring, true)
+  if (!from)
+    return `<path class="cg-glow" style="opacity:${(0.2 * strength).toFixed(2)}" d="${d}"/>`
+  const [x1, y1] = k.iso(from, P)
+  const [x2, y2] = k.iso(to, P)
+  const id = `cg-g${Math.abs(Math.round(x1 * 31 + y1 * 17 + x2 * 13 + y2 * 7))}`
+  return `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"><stop offset="0" style="stop-color:var(--cg-glow);stop-opacity:${(0.26 * strength).toFixed(2)}"/><stop offset="1" style="stop-color:var(--cg-glow);stop-opacity:0"/></linearGradient></defs><path fill="url(#${id})" d="${d}"/>`
+}

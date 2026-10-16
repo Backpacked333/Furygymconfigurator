@@ -1,7 +1,19 @@
 // Fig 1: a 20-foot Container Gym in twelve steps. Part sizes follow the configurator's container
 // model (src/render/architecture.ts); geometry is illustrative, not manufacturer CAD.
 import * as k from '../kit/iso-kit.mjs'
-import { equipment, FT, helpers, sitePad } from './common.mjs'
+import {
+  bollardLampSvg,
+  bollardSvg,
+  condenserSvg,
+  equipment,
+  FT,
+  glowSvg,
+  helpers,
+  planterSvg,
+  sitePad,
+  stonesSvg,
+  treeSvg,
+} from './common.mjs'
 import { leafSvg, shutterSvg } from './moving.mjs'
 
 export function containerFigure() {
@@ -31,16 +43,21 @@ export function containerFigure() {
     { name: 'front wall + door opening', drop: 56 },
     { name: 'roof panel', drop: 50 },
     { name: 'cargo doors close', drop: 30 },
+    { name: 'landscaping + path', drop: -16 },
+    { name: 'lights on', drop: 0 },
   ]
-  const SPACING = 0.5
-  const FIRST = 0.2
-  const DUR = 0.5
-  const SWING = 0.75 // cargo doors: after landing open, they swing shut
-  const SHUTTER = { from: 0.45, to: 1.55 } // roll-up stage time window for the shutter, from its start
+  const LAND = 12
+  const LIGHTS = 13
+  const SPACING = 0.68
+  const FIRST = 0.3
+  const DUR = 0.68
+  const SWING = 1.0 // cargo doors: after landing open, they swing shut
+  const SHUTTER = { from: 0.6, to: 2.0 } // roll-up stage time window for the shutter, from its start
 
   const P = k.fitProjection(
     [
-      ...k.boxCorners({ x: -138, y: -62, w: 290, d: 140, r: 0 }, -16, -8),
+      ...k.boxCorners({ x: -166, y: -100, w: 318, d: 212, r: 0 }, -16, -8),
+      [128, -70, 92],
       [-X1, -Y1, H + 30],
       [X1, Y1, H],
       [X1 + 30, 0, 60],
@@ -55,7 +72,31 @@ export function containerFigure() {
   const items = []
   const put = (stage, svg) => items.push({ stage, svg })
   const byDepth = (list) => [...list].sort((a, b) => a.depth - b.depth)
-  sitePad(h, put, P, { x0: -138, x1: 152, y0: -62, y1: 80, ruler: [-X1, X1, 58] })
+  sitePad(h, put, P, { x0: -166, x1: 152, y0: -100, y1: 112, ruler: [-X1, X1, 90] })
+  // Trees behind the box, the condenser and power pedestal at the blind end, light on the ground.
+  put(LAND, treeSvg(h, P, 146, -86, 0.8, 0.9) + treeSvg(h, P, 128, -70, 1.1, 1.7))
+  put(5, condenserSvg(h, P, -160, -6, -X1))
+  put(
+    5,
+    S(box(-144, -136, 30, 38, -8, 34, 0.4)) +
+      Ln(onY(38, -142.6, -137.4, 18, 30), { tone: 'faint' }) +
+      D([at([-140, 38, 26])], { size: 0.45, tone: 'hi' }),
+  )
+  put(
+    LIGHTS,
+    glowSvg(
+      P,
+      [
+        [-60, 48.5, -7.9],
+        [60, 48.5, -7.9],
+        [84, 104, -7.9],
+        [-84, 104, -7.9],
+      ],
+      [0, 48.5, -7.9],
+      [0, 104, -7.9],
+      0.9,
+    ),
+  )
   // --- 0: Concrete piers under the corner castings and at mid-span -------------------------------
   const PIERS = [
     [-116, -44],
@@ -222,6 +263,22 @@ export function containerFigure() {
     }),
   )
 
+  put(
+    LIGHTS,
+    glowSvg(
+      P,
+      [
+        [-59, 44.2, 7.2],
+        [59, 44.2, 7.2],
+        [59, 44.2, 84],
+        [-59, 44.2, 84],
+      ],
+      [0, 44.2, 84],
+      [0, 44.2, 7.2],
+      1,
+    ),
+  )
+
   // --- 10: Roof panel with transverse pressings --------------------------------------------------
   {
     const out = [S(box(-113, 113, -45.1, 45.1, 111.2, 112.6, 0.3))]
@@ -253,7 +310,20 @@ export function containerFigure() {
         anchor: 'middle',
       }),
   )
-  put(9, S(box(-X1 + CAST.x, X1 - CAST.x, Y1 - 2.9, Y1, TOP0, H, 0.4)))
+  put(
+    9,
+    S(box(-X1 + CAST.x, X1 - CAST.x, Y1 - 2.9, Y1, TOP0, H, 0.4)) +
+      [-100, -84, 84, 100].map((x) => hole(onY(Y1, x - 4, x + 4, TOP0 + 1.8, TOP0 + 3.4))).join(''),
+  )
+  // Wall packs over the wall either side of the opening; their lenses light up at the end.
+  for (const x of [-90, 90]) {
+    put(
+      9,
+      S(box(x - 4, x + 4, 47.6, 51, 88, 94, 0.4)) +
+        S(box(x - 3.2, x + 3.2, 49.6, 51.6, 86.6, 88, 0.2), { tone: 'hi' }),
+    )
+    put(LIGHTS, S(box(x - 3.2, x + 3.2, 49.6, 51.6, 86.6, 88, 0.2), { tone: 'hi', lit: true }))
+  }
 
   // --- 2: Front corner posts and the door-end header ---------------------------------------------
   put(2, S(box(-X1, -X1 + POST, Y1 - POST, Y1, RAIL, TOP0, 0.4)))
@@ -279,6 +349,12 @@ export function containerFigure() {
   put(1, casting(X1 - CAST.x, Y1 - CAST.y, 0, 'xy'))
   put(2, S(box(X1 - POST, X1, Y1 - POST, Y1, RAIL, TOP0, 0.4)))
   put(2, casting(X1 - CAST.x, Y1 - CAST.y, TOP0, 'xy'))
+
+  // Finale: stepping stones out from the opening, two bollards, planters at the front corners.
+  put(LAND, stonesSvg(h, P, 0, 58, 86))
+  for (const x of [-22, 22]) put(LAND, bollardSvg(h, P, x, 62))
+  for (const x of [-22, 22]) put(LIGHTS, bollardLampSvg(h, P, x, 62))
+  put(LAND, planterSvg(h, P, -128, 84) + planterSvg(h, P, 112, 72))
 
   return {
     id: 'container',

@@ -30,6 +30,9 @@ const FIGURES = [
 const css = `
 .cg-hole{fill:var(--anatomy-shade-0);stroke:var(--anatomy-lo);stroke-width:var(--anatomy-weight);vector-effect:non-scaling-stroke}
 .cg-glass{fill:var(--anatomy-hi);fill-opacity:.07;stroke:none}
+.iso{--cg-glow:#ffc978}
+.iso[data-theme="light"]{--cg-glow:#f2a541}
+.cg-glow{fill:var(--cg-glow);stroke:none}
 .cg-svg [data-s] .iso-edge{transition:stroke .35s ease}
 .cg-svg [data-s][data-on] .iso-edge{stroke:var(--anatomy-lit)}
 .cg-stage{outline:none;touch-action:pan-y;cursor:ew-resize}
@@ -73,7 +76,8 @@ function card(f) {
 function runtimeOf(f) {
   const timeline = f.stages.map((s, i) => ({ ...s, start: f.first + i * f.spacing, dur: f.dur }))
   const last = timeline[timeline.length - 1]
-  const built = last.start + last.dur + (f.doors ? f.doors.swing : 0)
+  const doors = f.doors ? timeline[f.doors.stage] : null
+  const built = Math.max(last.start + last.dur, doors ? doors.start + doors.dur + f.doors.swing : 0)
   return {
     id: f.id,
     P: f.P,
@@ -94,7 +98,7 @@ const still = matchMedia("(prefers-reduced-motion: reduce)");
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const smooth = (t) => t * t * (3 - 2 * t);
-const HOLD = 2.6, GAP = 0.5;
+const HOLD = 3.4, GAP = 0.6;
 
 function mount(cfg) {
   const root = document.querySelector('[data-fig="' + cfg.id + '"]');
