@@ -3023,6 +3023,78 @@ h3 {
   }
 }
 
+/* Covers the scene while the cloud path traces the spin (App.tsx SpinLoading). */
+.spin-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 16px;
+  text-align: center;
+  background: #c7ccc2;
+  color: #323c2c;
+}
+/* Later waits (a view's first visit) appear only if the frame takes a moment to arrive. */
+.spin-loading.later {
+  animation: spin-loading-in 0.25s ease 0.2s both;
+}
+@keyframes spin-loading-in {
+  from {
+    opacity: 0;
+  }
+}
+.spin-loading .loading-mark {
+  margin-bottom: 8px;
+}
+.spin-loading strong {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+}
+.spin-loading p {
+  font-size: 12px;
+  color: #4c5e3d;
+  font-variant-numeric: tabular-nums;
+}
+.spin-progress {
+  position: relative;
+  overflow: hidden;
+  width: min(240px, 70%);
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: #aeb6a3;
+}
+.spin-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: #536b40;
+  transition: width 0.3s ease;
+}
+.spin-progress.indeterminate > span {
+  width: 35%;
+  animation: spin-progress-sweep 1.4s ease-in-out infinite;
+}
+@keyframes spin-progress-sweep {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin-loading .loading-mark,
+  .spin-progress.indeterminate > span {
+    animation: none;
+  }
+}
+
 /* Path-tracing progress beside the live renderer label. */
 .scene-status .trace-badge {
   display: inline-flex;

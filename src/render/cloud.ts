@@ -595,6 +595,8 @@ export function unpackImage(bytes: Uint8Array, width: number, height: number) {
 }
 
 export class Superseded extends Error {}
+/** The server or gateway is busy (rate limit, full queue): worth trying again shortly. */
+export class Busy extends Error {}
 
 export type CloudCamera = { matrix: number[]; fov: number; near: number; far: number }
 
@@ -716,20 +718,89 @@ export class CloudClient {
   ): Promise<CloudFrame> {
     const start = performance.now()
     const scale = Math.min(1, MAX_EDGE / Math.max(width, height))
-    const body = JSON.stringify({
-      // A session of its own for each kind, so none supersedes another.
-      session: `${this.session}${kind === 'orbit' ? 'o' : kind === 'preview' ? 'p' : ''}`,
-      kind,
-      seq: ++this.seq,
-      scene: captured.scene,
-      camera,
-      width: Math.max(1, Math.round(width * scale)),
-      height: Math.max(1, Math.round(height * scale)),
-      quality: kind === 'preview' ? PREVIEW_QUALITY : CLOUD_QUALITY,
-      // The image as a gzip file rather than gzip transfer encoding, so it can be kept compressed.
-      transfer: 'file',
-    })
-    const encoded = new TextEncoder().encode(body)
+    const response = await this.post(
+      {
+        // A session of its own for each kind, so none supersedes another.
+        session: `${this.session}${kind === 'orbit' ? 'o' : kind === 'preview' ? 'p' : ''}`,
+        kind,
+        seq: ++this.seq,
+        camera,
+        width: Math.max(1, Math.round(width * scale)),
+        height: Math.max(1, Math.round(height * scale)),
+        quality: kind === 'preview' ? PREVIEW_QUALITY : CLOUD_QUALITY,
+        // The image as a gzip file rather than gzip transfer encoding, so it can be kept compressed.
+        transfer: 'file',
+      },
+      captured,
+      signal,
+    )
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    const header = (name: string) => Number(response.headers.get(name) ?? 0)
+    return {
+      bytes,
+      width: header('x-image-width'),
+      height: header('x-image-height'),
+      stats: {
+        queueMs: header('x-queue-ms'),
+        prepareMs: header('x-prepare-ms'),
+        renderMs: header('x-render-ms'),
+        totalMs: performance.now() - start,
+        device: response.headers.get('x-device') ?? '',
+        denoise: response.headers.get('x-denoise') ?? '',
+      },
+    }
+  }
+
+  /**
+   * A finished frame of the path-traced spin (spin.ts): tone mapped, with bloom, as WebP. All
+   * frames of one `generation` share a sequence number, so a newer generation (the design
+   * changed) drops the ones still queued.
+   */
+  async frame(
+    captured: CapturedScene,
+    request: {
+      camera: CloudCamera & { panorama?: boolean }
+      width: number
+      height: number
+      quality: { samples: number; threshold: number; timeLimit: number }
+      finish: { exposure: number; gain: number }
+      priority: number
+      generation: number
+      /** Frames on another channel never supersede these (the exposure meter's own frame). */
+      channel?: string
+    },
+    signal: AbortSignal,
+  ): Promise<SpinFrame> {
+    const start = performance.now()
+    const response = await this.post(
+      {
+        session: `${this.session}${request.channel ?? 's'}`,
+        seq: request.generation,
+        kind: 'spin',
+        priority: request.priority,
+        output: 'frame',
+        camera: request.camera,
+        width: request.width,
+        height: request.height,
+        quality: request.quality,
+        finish: request.finish,
+      },
+      captured,
+      signal,
+    )
+    const header = (name: string) => Number(response.headers.get(name) ?? 0)
+    return {
+      image: await response.blob(),
+      cached: response.headers.get('x-cache') === 'hit',
+      renderMs: header('x-render-ms'),
+      totalMs: performance.now() - start,
+      tracedKey: Number(response.headers.get('x-traced-key') ?? NaN),
+    }
+  }
+
+  /** Posts a render request, uploading whatever blobs the server asks for. */
+  private async post(fields: object, captured: CapturedScene, signal: AbortSignal) {
+    const encoded = new TextEncoder().encode(JSON.stringify({ ...fields, scene: captured.scene }))
     const payload = encoded.byteLength > 32 * 1024 ? await gzip(encoded) : encoded
     for (let attempt = 0; attempt < 3; attempt++) {
       const response = await fetch(`${this.url}/render`, {
@@ -746,26 +817,26 @@ export class CloudClient {
           continue
         }
       }
+      if (response.status === 429 || response.status === 503)
+        throw new Busy(`cloud renderer busy (${response.status})`)
       if (!response.ok) throw new Error(`cloud render failed (${response.status})`)
-      const bytes = new Uint8Array(await response.arrayBuffer())
       this.lastSuccess = performance.now()
-      const header = (name: string) => Number(response.headers.get(name) ?? 0)
-      return {
-        bytes,
-        width: header('x-image-width'),
-        height: header('x-image-height'),
-        stats: {
-          queueMs: header('x-queue-ms'),
-          prepareMs: header('x-prepare-ms'),
-          renderMs: header('x-render-ms'),
-          totalMs: performance.now() - start,
-          device: response.headers.get('x-device') ?? '',
-          denoise: response.headers.get('x-denoise') ?? '',
-        },
-      }
+      return response
     }
     throw new Error('cloud render kept asking for uploads')
   }
+}
+
+/**
+ * A finished spin frame as the server sent it (WebP), with the traced image's key: its mean log
+ * luminance before finishing, metered as the browser meters (pipeline.ts createExposureMeter).
+ */
+export type SpinFrame = {
+  image: Blob
+  cached: boolean
+  renderMs: number
+  totalMs: number
+  tracedKey: number
 }
 
 // Session --------------------------------------------------------------------------------------

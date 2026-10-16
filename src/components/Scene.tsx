@@ -24,7 +24,16 @@ import {
   snapPose,
   type GridPose,
 } from '../render/orbit'
-import { cloudUrl } from '../render/traceStatus'
+import { cloudUrl, spinEnabled, useSpinFailed } from '../render/traceStatus'
+import {
+  SPIN_LEVELS,
+  SPIN_STEPS,
+  nearestSpinPose,
+  specFrom,
+  spinPosition,
+  spinView,
+  type SpinPose,
+} from '../render/spin'
 import { setMaxAnisotropy } from '../render/materials'
 
 class GraphicsBoundary extends Component<
@@ -92,6 +101,7 @@ function CameraRig({
   direction,
   autoRotate,
   snap,
+  spin,
 }: {
   config: Config
   view: View
@@ -100,9 +110,18 @@ function CameraRig({
   autoRotate: boolean
   /** Rest the exterior camera on the orbit grid, whose views the cloud pre-renders (orbit.ts). */
   snap: boolean
+  /**
+   * Step the exterior camera through the path-traced spin's frames (spin.ts). The orbit controls
+   * move a stand-in camera smoothly; the real one jumps to the nearest frame's pose.
+   */
+  spin: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
   const controls = useRef<OrbitControlsImpl>(null)
+  const spinning = spin && view === 'exterior'
+  const spinRef = useRef(spinning)
+  spinRef.current = spinning
+  const proxy = useMemo(() => new PerspectiveCamera(), [])
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
     moving = useRef(false)
@@ -142,6 +161,17 @@ function CameraRig({
     targetLook.current.set(...framing.target)
     snapping.current = null
     lastPose.current = null
+    if (spinRef.current) {
+      // The spin's ring is set by the framing; the camera goes straight to its nearest frame.
+      spinView.spec = specFrom(targetPosition.current, targetLook.current)
+      spinView.pose = null
+      proxy.position.copy(targetPosition.current)
+      controls.current?.target.copy(targetLook.current)
+      controls.current?.update()
+      moving.current = false
+      invalidate()
+      return
+    }
     if (snapRef.current)
       posePosition(
         targetLook.current,
@@ -155,7 +185,20 @@ function CameraRig({
     }
     moving.current = true
     invalidate()
-  }, [camera, size.width, size.height, framingKey, view, reset, dx, dy, dz, invalidate])
+  }, [
+    camera,
+    size.width,
+    size.height,
+    framingKey,
+    view,
+    reset,
+    dx,
+    dy,
+    dz,
+    invalidate,
+    spinning,
+    proxy,
+  ])
   useEffect(() => {
     const el = gl.domElement
     let drag = false,
@@ -195,6 +238,25 @@ function CameraRig({
           ),
         )
         camera.quaternion.setFromEuler(new Euler(pitch.current, yaw.current, 0, 'YXZ'))
+      } else if (spinRef.current && controls.current && spinView.spec && spinView.pose) {
+        // One frame of the spin per press: 5° around, or the next distance in or out.
+        const { level, azimuth } = spinView.pose
+        const next: SpinPose =
+          e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+            ? { level, azimuth: azimuth + (e.key === 'ArrowLeft' ? 1 : -1) }
+            : {
+                level: Math.max(
+                  0,
+                  Math.min(
+                    SPIN_LEVELS.length - 1,
+                    level + (e.key === 'ArrowUp' || e.key === '-' ? 1 : -1),
+                  ),
+                ),
+                azimuth,
+              }
+        next.azimuth = ((next.azimuth % SPIN_STEPS) + SPIN_STEPS) % SPIN_STEPS
+        spinPosition(spinView.spec, next, proxy.position)
+        controls.current.update()
       } else if (controls.current) {
         const offset = camera.position.clone().sub(controls.current.target)
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
@@ -223,11 +285,26 @@ function CameraRig({
       window.removeEventListener('pointerup', up)
       el.removeEventListener('keydown', key)
     }
-  }, [camera, gl, view, invalidate])
+  }, [camera, gl, view, invalidate, proxy])
   // Ends an orbit's damped glide once it is no longer visible, so the view comes to rest (and the
   // path tracer starts) promptly. Runs after OrbitControls' own update.
   const glide = useRef({ dragging: false, position: new Vector3(), quaternion: new Quaternion() })
+  // The spin: the real camera takes the pose of the frame nearest the stand-in. Runs after
+  // OrbitControls has moved the stand-in.
   useFrame(() => {
+    const spec = spinView.spec
+    if (!spinRef.current || !spec) return
+    const pose = nearestSpinPose(spec, proxy.position)
+    const shown = spinView.pose
+    if (shown && shown.level === pose.level && shown.azimuth === pose.azimuth) return
+    spinView.pose = pose
+    spinPosition(spec, pose, camera.position)
+    camera.lookAt(spec.target)
+    camera.updateMatrixWorld()
+    invalidate()
+  })
+  useFrame(() => {
+    if (spinRef.current) return
     const orbit = controls.current
     const last = glide.current
     const pixels = motionPixels(
@@ -280,7 +357,7 @@ function CameraRig({
     invalidate()
   })
   useFrame((_, delta) => {
-    if (!moving.current) return
+    if (!moving.current || spinRef.current) return
     const t = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       ? 1
       : 1 - Math.exp(-delta * 5)
@@ -303,6 +380,8 @@ function CameraRig({
   return (
     <OrbitControls
       ref={controls}
+      // In the spin the controls move a stand-in; the camera follows it frame by frame.
+      camera={spinning ? proxy : undefined}
       makeDefault
       enabled={view !== 'interior'}
       enablePan={false}
@@ -356,8 +435,12 @@ export default function Scene({
     () => skyLook(config.environment, config.time),
     [config.environment, config.time],
   )
-  // Cloud renders can be pre-rendered around the orbit, if resting views sit on its grid.
-  const snap = useMemo(() => trace && cloudUrl() !== null, [trace])
+  // With a cloud renderer the views are path traced as a spin (spin.ts), unless it fails;
+  // `?spin=0` keeps the earlier way, with resting views pre-rendered around the orbit grid.
+  const cloud = useMemo(() => trace && cloudUrl() !== null, [trace])
+  const spinFailed = useSpinFailed()
+  const spin = cloud && spinEnabled() && !spinFailed
+  const snap = cloud && !spinEnabled()
   return (
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
@@ -384,6 +467,7 @@ export default function Scene({
           direction={camera}
           autoRotate={autoRotate}
           snap={snap}
+          spin={spin}
         />
         <InteriorProbe config={config} quality={quality} />
         <RenderEffects
@@ -393,6 +477,7 @@ export default function Scene({
           config={config}
           view={view}
           dimensions={dimensions}
+          spin={spin}
           onCaptureReady={onCaptureReady}
           onSlow={onSlow}
         />

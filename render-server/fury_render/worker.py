@@ -27,7 +27,13 @@ def warm_with_fallback(studio, warm: Callable[[], None]):
         warm()
 
 
-def run(conn: Connection, blob_dir: str, device: str, denoise: str = "auto"):
+def run(
+    conn: Connection, blob_dir: str, device: str, denoise: str = "auto", gpu: int | None = None
+):
+    if gpu is not None:
+        # Before Blender loads: this process sees, and renders on, only its own GPU.
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+        os.environ["HIP_VISIBLE_DEVICES"] = str(gpu)
     from .blender import Studio, warm_up
     from .protocol import ProtocolError
 

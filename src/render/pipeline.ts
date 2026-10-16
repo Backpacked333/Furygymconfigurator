@@ -1,5 +1,7 @@
 import {
+  DataTexture,
   FloatType,
+  Matrix3,
   MeshBasicNodeMaterial,
   QuadMesh,
   RenderPipeline,
@@ -14,6 +16,8 @@ import {
   type WebGPURenderer,
 } from 'three/webgpu'
 import {
+  acos,
+  atan,
   builtinAOContext,
   diffuseColor,
   emissive,
@@ -39,6 +43,7 @@ import {
   uniform,
   unpackRGBToNormal,
   uv,
+  vec2,
   vec3,
   vec4,
   velocity,
@@ -202,6 +207,71 @@ export function createTracePresent(
     },
     dispose: () => {
       glow.dispose()
+      pipeline.dispose()
+    },
+  }
+}
+
+/** What the spin shows (spin.ts): a frame, or a 360° panorama, fading in over the previous one. */
+export type SpinView = {
+  from: Texture | null
+  to: Texture
+  t: number
+  /** For a panorama: the camera's rotation and lens, to look up each pixel's direction. */
+  panorama: { rotation: Matrix3; tanHalfFov: number; aspect: number } | null
+}
+
+/**
+ * Shows the path-traced spin. Its frames come finished from the server (exposure, bloom, tone
+ * mapping, sRGB), so only the screen's vignette and dither are added, as finish() does. A
+ * panorama is looked up per pixel by viewing direction, which is exact for any rotation.
+ */
+export function createSpinPresent(renderer: WebGPURenderer) {
+  const pipeline = new RenderPipeline(renderer)
+  pipeline.outputColorTransform = false
+  const blank = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1)
+  blank.needsUpdate = true
+  const t = uniform(1)
+  const isPanorama = uniform(0)
+  const rotation = uniform(new Matrix3())
+  const tanHalf = uniform(1)
+  const aspect = uniform(1)
+  // Screen rows run top down, as frames do (screenUV's origin is the top left).
+  const ndc = screenUV.mul(2).sub(1)
+  const ray = vec3(ndc.x.mul(tanHalf).mul(aspect), ndc.y.mul(tanHalf).negate(), float(-1))
+  const direction = rotation.mul(ray).normalize()
+  // Cycles' equirectangular camera, measured: u = 0.5 + atan2(x, -z) / 2π, v = acos(y) / π.
+  const panoramaUV = vec2(
+    atan(direction.x, direction.z.negate())
+      .div(Math.PI * 2)
+      .add(0.5),
+    acos(direction.y.clamp(-1, 1)).div(Math.PI),
+  )
+  const lookup = mix(screenUV, panoramaUV, isPanorama)
+  const to = texture(blank, lookup)
+  const from = texture(blank, lookup)
+  const color = mix(from.rgb, to.rgb, t)
+  const edge = screenUV.sub(0.5).length().mul(1.18)
+  const vignette = mix(float(0.8), float(1), smoothstep(0.98, 0.32, edge))
+  const dither = interleavedGradientNoise(screenCoordinate.xy)
+    .sub(0.5)
+    .mul(1 / 255)
+  pipeline.outputNode = vec4(color.mul(vignette).add(dither), 1)
+  return {
+    render: (view: SpinView) => {
+      to.value = view.to
+      from.value = view.from ?? view.to
+      t.value = view.from ? view.t : 1
+      isPanorama.value = view.panorama ? 1 : 0
+      if (view.panorama) {
+        rotation.value.copy(view.panorama.rotation)
+        tanHalf.value = view.panorama.tanHalfFov
+        aspect.value = view.panorama.aspect
+      }
+      pipeline.render()
+    },
+    dispose: () => {
+      blank.dispose()
       pipeline.dispose()
     },
   }

@@ -74,6 +74,65 @@ export function usePrerenderProgress() {
   return useSyncExternalStore(subscribePrerender, prerenderProgress, prerenderProgress)
 }
 
+/** `?spin=0` keeps the earlier behaviour with a cloud renderer: real time while moving. */
+export function spinEnabled(search = window.location.search) {
+  return new URLSearchParams(search).get('spin') !== '0'
+}
+
+/** The path-traced spin's progress (spin.ts), for the loading screen and the status badge. */
+export type SpinStatus = {
+  active: boolean
+  loading: boolean
+  ready: number
+  total: number
+  final: number
+  failed: boolean
+  /** The interior's 360° panorama, rather than the exterior spin. */
+  panorama: boolean
+  /** A path-traced frame of the current view is on screen (otherwise the raster frame is). */
+  showing: boolean
+}
+const SPIN_OFF: SpinStatus = {
+  active: false,
+  loading: false,
+  ready: 0,
+  total: 0,
+  final: 0,
+  failed: false,
+  panorama: false,
+  showing: false,
+}
+let spin = SPIN_OFF
+const spinListeners = new Set<() => void>()
+
+/** null when the spin stops. A failure stays: the spin is not tried again on this page. */
+export function setSpinStatus(next: SpinStatus | null) {
+  const value = next ?? { ...SPIN_OFF, failed: spin.failed }
+  if ((Object.keys(value) as (keyof SpinStatus)[]).every((k) => value[k] === spin[k])) return
+  spin = value
+  spinListeners.forEach((listener) => listener())
+}
+
+function subscribeSpin(listener: () => void) {
+  spinListeners.add(listener)
+  return () => {
+    spinListeners.delete(listener)
+  }
+}
+
+const spinStatus = () => spin
+
+export function useSpinStatus() {
+  return useSyncExternalStore(subscribeSpin, spinStatus, spinStatus)
+}
+
+const spinFailed = () => spin.failed
+
+/** Whether the spin failed; unlike useSpinStatus, progress does not re-render the caller. */
+export function useSpinFailed() {
+  return useSyncExternalStore(subscribeSpin, spinFailed, spinFailed)
+}
+
 /** `?trace=0` or `?trace=1` overrides the default, which follows the device's quality tier. */
 export function requestedTrace(search = window.location.search): boolean | null {
   const value = new URLSearchParams(search).get('trace')

@@ -60,6 +60,7 @@ import {
   cloudUrl,
   requestedTrace,
   usePrerenderProgress,
+  useSpinStatus,
   useTraceStatus,
 } from './render/traceStatus'
 import { textureProgress } from './render/progress'
@@ -258,6 +259,7 @@ export default function App() {
               />
             </Suspense>
           )}
+          {view !== 'plan' && <SpinLoading />}
           <div className="stage-heading">
             <span className="eyebrow">
               <span className="small-line" />{' '}
@@ -558,10 +560,71 @@ export default function App() {
     </div>
   )
 }
+/**
+ * Covers the scene while the cloud path traces the spin, so the first view seen is the finished
+ * one: on opening until the view and its ring of angles are ready, and later whenever a view has
+ * no path-traced frame yet (the interior's first visit, say). It gives up after a minute.
+ */
+function SpinLoading() {
+  const spin = useSpinStatus()
+  const [opened, setOpened] = useState(false)
+  const done = spin.active && !spin.loading
+  useEffect(() => {
+    if (done) setOpened(true)
+  }, [done])
+  const waiting = spin.active && !spin.failed && spin.loading && (!opened || !spin.showing)
+  if (!waiting) return null
+  const progress = spin.panorama ? null : spin.ready / Math.max(1, spin.total)
+  return (
+    <div className={`spin-loading ${opened ? 'later' : ''}`} role="status" aria-live="polite">
+      <span className="loading-mark">F</span>
+      <strong>{spin.panorama ? 'Path tracing the interior' : 'Path tracing your gym'}</strong>
+      <p>
+        {spin.panorama
+          ? 'A 360° view, so looking around stays photoreal'
+          : spin.ready
+            ? `${spin.ready} of ${spin.total} angles ready`
+            : 'Lighting every angle with true bounce light'}
+      </p>
+      <span className={`spin-progress ${progress === null ? 'indeterminate' : ''}`}>
+        <span style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }} />
+      </span>
+    </div>
+  )
+}
+
 /** Path-tracing progress for a resting view, or the export waiting on it. */
 function TraceBadge() {
   const status = useTraceStatus()
   const orbit = usePrerenderProgress()
+  const spin = useSpinStatus()
+  if (spin.active) {
+    const label = spin.panorama
+      ? spin.final
+        ? 'Path traced · 360°'
+        : 'Path tracing 360° view'
+      : spin.final >= spin.total
+        ? 'Path traced · every angle'
+        : spin.ready === 0
+          ? // The previous design stays on screen until its first new frame arrives.
+            'Path tracing your changes'
+          : `Path traced · ${spin.final}/${spin.total} angles in full`
+    const state = spin.final >= spin.total ? 'converged' : 'tracing'
+    return (
+      <span
+        className={`trace-badge ${state}`}
+        role="status"
+        aria-live="polite"
+        title="Every view is path traced in the cloud: true bounce light, soft shadows, and real reflections."
+      >
+        <span
+          className="trace-meter"
+          style={{ '--progress': spin.final / Math.max(1, spin.total) } as never}
+        />
+        {label}
+      </span>
+    )
+  }
   if (status.state === 'off') return null
   const label =
     status.state === 'converged'

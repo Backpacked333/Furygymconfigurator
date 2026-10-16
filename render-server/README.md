@@ -8,7 +8,9 @@ If GPU denoising fails, the renderer falls back to CPU denoising by itself. That
 at warm-up, failing to start, or crashing mid-render. The CPU path uses OIDN's fast prefilter:
 about 3.5 s at 1920×1200 on 4 vCPUs, against 12.5 s with the accurate one. `/health`, the
 `X-Denoise` header, and the browser's `?traceStats=1` log say which is in use. The browser
-applies exposure matching, bloom, and tone mapping.
+applies exposure matching, bloom, and tone mapping to views; the path-traced spin's frames are
+finished here instead (`fury_render/finishing.py`: the browser's exposure gain, bloom, AgX tone
+mapping and dither) and sent as WebP.
 
 ## Access and deployment
 
@@ -18,8 +20,9 @@ starts a GPU. There is no PIN: browsers on the allowed origins render directly. 
 reach the gateway URL can request renders, so the Modal spending limit is the real cost cap.
 
 1. Create a Modal account, add billing, and configure the workspace spending controls. Pricing
-   is approximately $1.95 per L40S GPU-hour **plus CPU/RAM and idle time**. A single GPU and rate
-   limits do not enforce a dollar budget. Do not leave a test deployment running without approval.
+   is approximately $1.95 per L40S GPU-hour, so about $15.60 an hour for the eight-GPU container
+   while it runs, **plus CPU/RAM and idle time**. Scale-to-zero and rate limits do not enforce a
+   dollar budget. Do not leave a test deployment running without approval.
 2. Install `modal==1.1.4` with Python 3.11 and authenticate using `modal setup` or the
    `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` environment variables.
 3. Deploy with **explicit allowed origins** (none are allowed by default at the gateway). Every
@@ -42,8 +45,8 @@ Settings read during deployment:
 | ---------------------- | ------------- | ------------------------------------------------- |
 | `FURY_APP_NAME`        | `fury-render` | Use a separate name for preview/test deployments  |
 | `FURY_ALLOWED_ORIGINS` | No origins    | Fully anchored regex for approved browser origins |
-| `FURY_GPU`             | `L40S`        | GPU type                                          |
-| `FURY_IDLE_SECONDS`    | `300`         | GPU idle tail before scale-to-zero; billed time   |
+| `FURY_GPU`             | `L40S:8`      | GPU type and count; one renderer per GPU          |
+| `FURY_IDLE_SECONDS`    | `60`          | GPU idle tail before scale-to-zero; billed time   |
 | `FURY_DENOISE`         | `auto`        | `cpu` skips GPU denoising (it falls back anyway)  |
 
 Stop a test with `modal app stop <app-name>` and confirm zero tasks with `modal app list`.
@@ -54,18 +57,26 @@ durable counters.
 
 - Scene data (geometry, textures, sky) is stored on the `fury-render-cache` volume, shared by every
   visitor and kept across cold starts, so the browser uploads a design's data only once.
-- One GPU container, one active Blender render, max 15 seconds of Cycles sampling per render.
-  Waiting renders go in order of kind: previews, then views, then orbit pre-renders.
-  Scene preparation, denoising, cold starts, packing and idle time are additional billable work.
-- Gateway: global 40 render requests/minute (burst 8), 1 GiB of uploads/hour (burst 512 MiB). Missing-blob retries count as render requests. The
-  render limit leaves room for the orbit views the browser pre-renders around a resting view
-  (one at a time, on a session of its own, so the visitor's newer views never drop them).
+- One GPU container with eight GPUs. Each GPU has its own Blender process (`FURY_WORKERS`) and
+  renders whole frames, so eight frames render side by side: a spin's frames are independent,
+  and splitting each 1-megapixel frame across eight GPUs would leave most of them idle. Max 15
+  seconds of Cycles sampling per view, 60 for a 360° panorama. Waiting renders go by priority:
+  the visitor's frame, then previews, then full frames; with `?spin=0`, previews, then views, then
+  orbit pre-renders. Scene preparation (on each GPU's process), denoising, cold starts, finishing
+  and idle time are additional billable work.
+- Finished spin frames are kept on the volume (`/fury-cache/frames`, 4 GB, oldest pruned first)
+  with their exposure reading, named by the SHA-256 of the scene, camera, size, quality and
+  finish. A design anyone has seen from that angle comes back without a render.
+- Gateway: global 600 render requests/minute (burst 240), 1 GiB of uploads/hour (burst 512 MiB).
+  Missing-blob retries count as render requests. The render limit leaves room for a visitor's
+  spin: twelve frame requests open at a time, a few hundred per design. A busy answer (429 or 503) makes the browser wait two seconds and ask again.
 - These token buckets are in-process and reset when the gateway restarts/scales down. They reduce
   abuse but are **not durable quotas or a hard budget**. With no PIN, a script that ignores CORS
   could keep the GPU busy up to these limits; the Modal workspace spending limit caps the cost.
 - Wire and expanded bodies are bounded: 32 MiB for scenes, 128 MiB for individual blobs.
   Texture URLs are never fetched by the server, preventing redirects/private-network SSRF.
-- GPU failure falls back to local tracing where supported. WebGL retains the raster image.
+- GPU failure falls back to local tracing where supported. WebGL retains the raster image. The
+  spin gives up after three failed frames in a row and does not try again on that page.
 - Rendered images stay gzip-compressed from the GPU method through the gateway to the browser
   (`fury_render/rpc.py`). At 1920×1200 that is about 4.9 MB instead of 18.4 MB raw. The browser
   asks for `"transfer": "file"`, which sends the image as a gzip file rather than with
@@ -96,7 +107,9 @@ reuse and material edits. They do not replace deployed GPU or browser tests.
 
 - `fury_render/gateway.py`: CORS, request validation and pre-GPU request limits.
 - `modal_app.py`: CPU ASGI endpoint and private GPU RPC, persistent OptiX cache.
-- `fury_render/api.py`: missing-blob protocol, cache, queue and superseded-view handling.
-- `fury_render/worker.py`: isolated Blender process; only one render at a time.
+- `fury_render/api.py`: missing-blob protocol, frame cache, priority queue over the workers and
+  superseded-view handling.
+- `fury_render/worker.py`: isolated Blender process, one per GPU; one render at a time each.
+- `fury_render/finishing.py`: spin frames' exposure, bloom, AgX tone mapping, dither and WebP.
 - `fury_render/blender.py`: geometry/material/light conversion and Cycles/OIDN rendering.
 - `fury_render/protocol.py`: binary formats, validation and bounded decompression.

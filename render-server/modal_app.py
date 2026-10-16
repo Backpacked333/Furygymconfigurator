@@ -1,25 +1,32 @@
 """Deploys the renderer on Modal. From this directory: ``modal deploy modal_app.py``.
 
-One L40S GPU at most, switched off after five idle minutes. The first request after that waits
-for a container to start (the browser keeps tracing locally meanwhile). Compiled GPU kernels are
-kept on a volume so later cold starts skip compiling them.
+One container with eight L40S GPUs, switched off after a minute without requests. It renders the
+path-traced spin a visitor orbits through: a few hundred frames per design, most of them while the
+loading screen is up. Each GPU has a Blender process of its own and renders whole frames, eight at
+a time. Compiled GPU kernels, uploaded scene data and finished frames are kept on a volume, so a
+container starting cold reuses them.
 """
 
 import os
 
 import modal
 
-GPU = os.environ.get("FURY_GPU", "L40S")
-IDLE_SECONDS = int(os.environ.get("FURY_IDLE_SECONDS", "300"))
+GPU = os.environ.get("FURY_GPU", "L40S:8")
+GPU_COUNT = int(GPU.split(":")[1]) if ":" in GPU else 1
+IDLE_SECONDS = int(os.environ.get("FURY_IDLE_SECONDS", "60"))
 
 cache = modal.Volume.from_name("fury-render-cache", create_if_missing=True)
 
 environment = {
     "FURY_DEVICE": "auto",
+    # One renderer per GPU, each rendering its own frames.
+    "FURY_WORKERS": str(GPU_COUNT),
     # Scene data (geometry, textures, sky) is content-addressed and shared by every visitor. Kept on
     # the volume, a container starting cold already has it, instead of the browser re-uploading
     # some 25 MB before the first view.
     "FURY_BLOB_DIR": "/fury-cache/blobs",
+    # Finished spin frames, shared by every visitor who sees the same design from the same angle.
+    "FURY_FRAME_DIR": "/fury-cache/frames",
     # OptiX compiles its kernels on first use; keep them between containers.
     "OPTIX_CACHE_PATH": "/fury-cache/optix",
     "XDG_CACHE_HOME": "/fury-cache/xdg",
@@ -40,7 +47,7 @@ image = (
         "libgomp1",
     )
     # Keep in step with requirements.txt.
-    .uv_pip_install("bpy==4.5.0", "fastapi[standard]==0.143.2", "numpy==1.26.4")
+    .uv_pip_install("bpy==4.5.0", "fastapi[standard]==0.143.2", "numpy==1.26.4", "pillow==11.3.0")
     .add_local_python_source("fury_render")
 )
 
@@ -50,8 +57,10 @@ app = modal.App(os.environ.get("FURY_APP_NAME", "fury-render"))
 @app.cls(
     image=image,
     gpu=GPU,
-    cpu=4,
-    memory=16384,
+    # A Blender process per GPU, and frames finished and encoded on the CPU while the GPUs render
+    # the next ones.
+    cpu=max(4, 2 * GPU_COUNT),
+    memory=max(16384, 6144 * GPU_COUNT),
     volumes={"/fury-cache": cache},
     scaledown_window=IDLE_SECONDS,
     max_containers=1,
@@ -59,7 +68,8 @@ app = modal.App(os.environ.get("FURY_APP_NAME", "fury-render"))
     # FURY_DENOISE=cpu at deploy time skips GPU denoising (it falls back by itself if it fails).
     secrets=[modal.Secret.from_dict({"FURY_DENOISE": os.environ.get("FURY_DENOISE", "auto")})],
 )
-@modal.concurrent(max_inputs=16)
+# Frame requests wait in the renderer's own priority queue.
+@modal.concurrent(max_inputs=64)
 class Renderer:
     @modal.enter()
     def start(self):
@@ -100,7 +110,8 @@ gateway_image = (
         ),
     ],
 )
-@modal.concurrent(max_inputs=8)
+# Visitors keep several frame requests open while their spin renders.
+@modal.concurrent(max_inputs=64)
 @modal.asgi_app()
 def gateway():
     from fury_render.gateway import create_gateway

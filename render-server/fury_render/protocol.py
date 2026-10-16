@@ -40,6 +40,8 @@ HASH = re.compile(r"^[0-9a-f]{64}$")
 
 # Request limits: generous for the configurator, small enough to bound a render's cost.
 MAX_PIXELS = 3840 * 2400
+# A 360° panorama for the interior: an equirectangular image, twice as wide as it is high.
+MAX_PANORAMA_PIXELS = 8192 * 4096
 MAX_SAMPLES = 4096
 MAX_TIME_LIMIT = 60.0
 MAX_BLOB_BYTES = 128 * 1024 * 1024
@@ -194,10 +196,23 @@ def validate_request(body: dict) -> dict:
         threshold = float(quality.get("threshold", 0.01))
         time_limit = float(quality.get("timeLimit", 20))
         scene = body["scene"]
-    except (KeyError, TypeError, ValueError) as error:
+        panorama = bool(camera.get("panorama", False))
+        output = str(body.get("output", "image"))
+        finish = body.get("finish") or {}
+        exposure = float(finish.get("exposure", 1))
+        gain = float(finish.get("gain", 1))
+        glow = bool(finish.get("glow", True))
+        priority = body.get("priority")
+        priority = None if priority is None else int(priority)
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
         raise ProtocolError(f"malformed request: {error}") from error
-    if width < 1 or height < 1 or width * height > MAX_PIXELS:
+    limit = MAX_PANORAMA_PIXELS if panorama else MAX_PIXELS
+    if width < 1 or height < 1 or width * height > limit:
         raise ProtocolError("image size out of range")
+    if output not in ("image", "frame"):
+        raise ProtocolError("unknown output")
+    if not (0.01 <= exposure <= 100 and 0.01 <= gain <= 100):
+        raise ProtocolError("bad finish")
     if len(matrix) != 16 or not 1 <= fov <= 170:
         raise ProtocolError("bad camera")
     if not isinstance(scene, dict):
@@ -210,9 +225,14 @@ def validate_request(body: dict) -> dict:
             "fov": fov,
             "near": float(camera.get("near", 0.1)),
             "far": float(camera.get("far", 10000)),
+            "panorama": panorama,
         },
         "samples": max(1, min(MAX_SAMPLES, samples)),
         "threshold": max(0.0, min(0.5, threshold)),
         "time_limit": max(0.5, min(MAX_TIME_LIMIT, time_limit)),
         "scene": scene,
+        # "image": linear half floats for the browser to finish; "frame": a finished WebP.
+        "output": output,
+        "finish": {"exposure": exposure, "gain": gain, "glow": glow},
+        "priority": None if priority is None else max(0, min(9, priority)),
     }

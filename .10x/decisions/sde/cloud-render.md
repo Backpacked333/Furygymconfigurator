@@ -233,3 +233,50 @@ Changes:
 4. Concurrent renders share uploads, so a preview and its view never upload the same blob twice.
 
 More GPUs per container (`FURY_GPU=L40S:4`) would cut the 14 s roughly in proportion; not measured.
+
+## Follow-up: the path-traced spin
+
+The owner asked for the first view to look better and for that quality to hold at every moment,
+also while switching views or moving around, and accepted a loading screen of about 30 s for it.
+They chose a path-traced spin over keeping real-time motion, on eight L40S GPUs with a one-minute
+idle shut-off.
+
+Decisions:
+
+1. **Views are frames, not live renders.** The exterior is a ring of 72 frames (every 5°) at three
+   distances, the interior one 360° equirectangular panorama. Dragging lands on the nearest frame
+   (OrbitControls move a stand-in camera; the real one takes the frame's pose). A frame is either
+   on screen or not: nothing is shown half rendered, and nothing real-time once a view is ready.
+2. **A loading screen up front:** until the visitor's own frame is final and its ring is ready
+   as previews, or a minute has passed. The frames wait for the scanned textures, so a design is
+   rendered once, complete.
+3. **Finished on the server, cached by content.** Frames are tone mapped like the browser does it
+   and sent as WebP (0.2 MB instead of 4 MB). Each is stored under the SHA-256 of everything that
+   determines it, with its exposure reading, so any design seen before costs no GPU time.
+4. **One Blender process per GPU.** The spin is hundreds of independent frames of about one
+   megapixel; splitting each across eight GPUs would sync the scene eight times per frame and
+   idle most of them, so each GPU renders whole frames from the shared priority queue.
+5. **Exposure is metered once per look and view, then held.** The ratio of the real-time frame's
+   mean log luminance to a 16-sample traced frame's, at the same camera and size. Three earlier
+   attempts read wrong: a 128-pixel frame reads brighter (fine detail averages away); a frame
+   captured before textures arrived read bright white walls; and a camera taken from the first
+   frame was the canvas's default, not the framed view. The interior has its own gain, measured
+   while the visitor is outside by rendering the real-time frame at the interior camera (only
+   camera and exposure differ between views).
+6. **Thin glass reflects alike from both sides.** Testing the interior panorama showed windows as
+   dark mirrors from inside: Cycles' Fresnel node treats a back face as light leaving glass, which
+   reflects totally beyond 41°. A pane modelled with thickness passed 8% of the light seen through
+   it (test at 60°). The converter now uses Schlick's Fresnel on |cos θ|; it brightens the view into
+   the gym from outside too, for the `?spin=0` path as well.
+
+Measured locally (CPU Cycles, software WebGL, test qualities): the spin frames match the
+real-time framing exactly and its brightness within about 5% in a clear patch; stepping by key
+and drag, the panorama's orientation, the loading screen and its timeout work end to end.
+
+Estimates, not measured on the eight-GPU container: the loading screen needs about 72 previews
+and one full frame, so about 15–30 s warm (1.5 s and 14 s each on one L40S, eight at a time);
+a design's whole spin is 433 renders, about an hour of single-GPU time, roughly $2.
+
+Rejected: rendering the spin at preview quality only (visibly noisier at full size); keeping the
+real-time view while dragging (the owner wants the traced look at every moment); a panorama per
+spin frame (72 × 8K panoramas per design, far beyond the GPU budget).

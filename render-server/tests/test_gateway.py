@@ -50,15 +50,20 @@ def test_caps_render_time(gateway):
     assert forwarded["quality"]["timeLimit"] == 15
 
 
-def test_bad_inputs_and_render_throttle(gateway):
+def test_bad_inputs_and_render_throttle(gateway, monkeypatch):
+    import fury_render.api as api
+
+    # A frozen clock: the bucket does not refill while the test sends its requests.
+    monkeypatch.setattr(api.time, "monotonic", lambda: 1000.0)
     client, calls = gateway
     assert client.post("/render", content=b"[]").status_code == 400
     assert client.put("/blobs/" + "a" * 64, content=b"wrong").status_code == 400
-    # The malformed request above took one of the burst of 8.
-    for _ in range(7):
-        assert client.post("/render", json=request(Kit().scene())).status_code == 200
-    assert client.post("/render", json=request(Kit().scene())).status_code == 429
-    assert len(calls) == 7
+    # The malformed request above took one of the burst of 240.
+    body = request(Kit().scene())
+    for _ in range(239):
+        assert client.post("/render", json=body).status_code == 200
+    assert client.post("/render", json=body).status_code == 429
+    assert len(calls) == 239
 
 
 def test_bounded_gzip_and_concatenated_members():

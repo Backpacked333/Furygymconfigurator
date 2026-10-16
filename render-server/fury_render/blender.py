@@ -421,6 +421,12 @@ class Studio:
         camera = request["camera"]
         self.camera.matrix_world = column_major(camera["matrix"])
         data = self.camera.data
+        if camera.get("panorama"):
+            # The whole sphere around the camera, for looking around the interior.
+            data.type = "PANO"
+            data.panorama_type = "EQUIRECTANGULAR"
+        else:
+            data.type = "PERSP"
         data.angle_y = math.radians(camera["fov"])
         data.clip_start = max(1e-4, camera["near"])
         data.clip_end = max(data.clip_start * 2, camera["far"])
@@ -475,9 +481,14 @@ class Studio:
             if os.path.exists(exr):
                 os.remove(exr)
         pixels = pixels.reshape(height, width, 4)[::-1]
-        pixels[..., 3] = 1
-        with open(out_path, "wb") as f:
-            f.write(pack_image(pixels))
+        if request.get("output") == "frame":
+            # Finished and encoded by the API process, while the GPU renders the next frame.
+            with open(out_path, "wb") as f:
+                np.save(f, np.ascontiguousarray(pixels[..., :3], dtype=np.float16))
+        else:
+            pixels[..., 3] = 1
+            with open(out_path, "wb") as f:
+                f.write(pack_image(pixels))
         packed = time.perf_counter()
         if self.renders % 10 == 0:
             self.evict()
@@ -711,12 +722,24 @@ def build_material(name: str, p: dict, image_for):
     transmission = float(p.get("transmission", 0))
     if transmission > 0:
         # Thin-walled glass, as the browser tracer renders panes: light passes straight through,
-        # tinted by the base color, and the surface reflects by Fresnel.
-        fresnel = g.node("ShaderNodeFresnel", IOR=float(p.get("ior", 1.5)))
+        # tinted by the base color, and the surface reflects by Fresnel (Schlick's). A pane
+        # reflects alike from either side: Cycles' Fresnel node treats a back face as light
+        # leaving glass, which totally reflects beyond 41° and turned windows seen from inside
+        # into dark mirrors.
+        ior = float(p.get("ior", 1.5))
+        f0 = ((ior - 1) / (ior + 1)) ** 2
+        geometry = g.node("ShaderNodeNewGeometry")
+        facing = g.node("ShaderNodeVectorMath")
+        facing.operation = "DOT_PRODUCT"
+        g.set(facing.inputs[0], geometry.outputs["Incoming"])
+        g.set(facing.inputs[1], geometry.outputs["Normal"])
+        cosine = g.math("ABSOLUTE", facing.outputs["Value"])
+        grazing = g.math("POWER", g.math("SUBTRACT", 1.0, cosine), 5.0)
+        fresnel = g.math("MULTIPLY_ADD", grazing, 1 - f0, f0)
         clear = g.node("ShaderNodeBsdfTransparent", Color=color)
         gloss = g.node("ShaderNodeBsdfGlossy", Roughness=float(p.get("roughness", 0)))
         gloss.distribution = "GGX"
-        glass = g.node("ShaderNodeMixShader", Fac=fresnel.outputs[0])
+        glass = g.node("ShaderNodeMixShader", Fac=fresnel)
         g.set(glass.inputs[1], clear.outputs[0])
         g.set(glass.inputs[2], gloss.outputs[0])
         mixed = g.node("ShaderNodeMixShader", Fac=min(1.0, transmission))

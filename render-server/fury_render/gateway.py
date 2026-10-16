@@ -47,15 +47,19 @@ def create_gateway(
             "x-image-height",
             "x-device",
             "x-denoise",
+            "x-cache",
+            "x-finish-ms",
+            "x-traced-key",
             "x-queue-ms",
             "x-prepare-ms",
             "x-render-ms",
             "x-pack-ms",
         ],
     )
-    # Global, not per caller: one gateway container is required.
-    # Enough for a visitor plus the orbit views pre-rendered around them (one GPU renders them).
-    render_limit = Bucket(40 / 60, 8)
+    # Global, not per caller: one gateway container is required. A visitor's spin is a few hundred
+    # frame requests in the first minutes, many answered from the frame cache; the one GPU
+    # container renders a frame per GPU at a time, so it bounds the cost of the rest.
+    render_limit = Bucket(600 / 60, 240)
     upload_limit = Bucket((1024 << 20) / 3600, MAX_BLOB_BYTES * 4)
 
     @app.middleware("http")
@@ -83,7 +87,9 @@ def create_gateway(
                 # Supersession stays within one caller's own views.
                 data["session"] = client + ":" + str(data.get("session", ""))[:24]
                 quality = data.get("quality") or {}
-                quality["timeLimit"] = min(15, float(quality.get("timeLimit", 15)))
+                # A 360° panorama has several times a view's pixels.
+                cap = 60 if (data.get("camera") or {}).get("panorama") else 15
+                quality["timeLimit"] = min(cap, float(quality.get("timeLimit", 15)))
                 data["quality"] = quality
                 body = json.dumps(data).encode()
             else:

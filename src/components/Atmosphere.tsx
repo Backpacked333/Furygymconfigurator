@@ -48,7 +48,7 @@ import { foliageDaylight } from '../render/vegetation'
 const SHADOW_EXTENT = 64
 const SHADOW_REACH = 420
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
-const INTERIOR_EXPOSURE = 1.6
+export const INTERIOR_EXPOSURE = 1.6
 
 function configureSky(sky: Sky, look: SkyLook) {
   const { preset } = look
