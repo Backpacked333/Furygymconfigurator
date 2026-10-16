@@ -50,7 +50,7 @@ const FINAL = { samples: 1024, threshold: 0.01, timeLimit: 15 }
 const PANORAMA_FINAL = { samples: 1024, threshold: 0.01, timeLimit: 60 }
 /** Longest edge of a spin frame; larger canvases scale it up. */
 const MAX_EDGE = 3200
-/** Requests kept open at once: one for each of the server's eight GPUs, and the next ones queued. */
+/** Requests kept open at once: enough for every GPU of the server, and the next ones queued. */
 const IN_FLIGHT = 12
 /** A busy server is asked again after this long, without counting as a failure. */
 const BUSY_MS = 2000

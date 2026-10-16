@@ -1,17 +1,21 @@
 """Deploys the renderer on Modal. From this directory: ``modal deploy modal_app.py``.
 
-One container with eight L40S GPUs, switched off after a minute without requests. It renders the
+One container with two L40S GPUs, switched off after a minute without requests. It renders the
 path-traced spin a visitor orbits through: a few hundred frames per design, most of them while the
-loading screen is up. Each GPU has a Blender process of its own and renders whole frames, eight at
-a time. Compiled GPU kernels, uploaded scene data and finished frames are kept on a volume, so a
+loading screen is up. Each GPU has a Blender process of its own and renders whole frames, side by
+side. Compiled GPU kernels, uploaded scene data and finished frames are kept on a volume, so a
 container starting cold reuses them.
+
+Two GPUs, because Modal places a container on one machine and says more than two GPUs per container
+usually means longer waits: an eight-L40S container sat "scheduling" for over ten minutes. More
+GPUs can be asked for with FURY_GPU (say L40S:4), at that risk.
 """
 
 import os
 
 import modal
 
-GPU = os.environ.get("FURY_GPU", "L40S:8")
+GPU = os.environ.get("FURY_GPU", "L40S:2")
 GPU_COUNT = int(GPU.split(":")[1]) if ":" in GPU else 1
 IDLE_SECONDS = int(os.environ.get("FURY_IDLE_SECONDS", "60"))
 

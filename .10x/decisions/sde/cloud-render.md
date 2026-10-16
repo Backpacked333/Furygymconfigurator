@@ -280,3 +280,17 @@ a design's whole spin is 433 renders, about an hour of single-GPU time, roughly 
 Rejected: rendering the spin at preview quality only (visibly noisier at full size); keeping the
 real-time view while dragging (the owner wants the traced look at every moment); a panorama per
 spin frame (72 × 8K panoramas per design, far beyond the GPU budget).
+
+## Follow-up: eight GPUs did not schedule
+
+Deployed with `L40S:8`, the renderer stayed "scheduling" on Modal for over ten minutes with frame
+requests pending, so nothing rendered. Modal places a container's GPUs on one machine and warns
+that more than two per container usually means longer waits.
+
+- **Now:** one container with two L40S GPUs (`FURY_GPU`, default `L40S:2`), a Blender process on
+  each. About $3.90 an hour while on; the ring's 72 previews take an estimated minute, so the
+  loading screen will often reach its one-minute limit until this is measured and tuned.
+- **Not done: several containers.** Each would see the others' blob uploads and frames only after
+  a volume reload, and a reload fails while files are open and shows an empty volume while it
+  runs. Eight GPUs across four 2-GPU containers would need the gateway to shard: fan blob uploads
+  out to every shard and spread one visitor's frames across them.

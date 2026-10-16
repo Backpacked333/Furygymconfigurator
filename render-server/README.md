@@ -20,7 +20,7 @@ starts a GPU. There is no PIN: browsers on the allowed origins render directly. 
 reach the gateway URL can request renders, so the Modal spending limit is the real cost cap.
 
 1. Create a Modal account, add billing, and configure the workspace spending controls. Pricing
-   is approximately $1.95 per L40S GPU-hour, so about $15.60 an hour for the eight-GPU container
+   is approximately $1.95 per L40S GPU-hour, so about $3.90 an hour for the two-GPU container
    while it runs, **plus CPU/RAM and idle time**. Scale-to-zero and rate limits do not enforce a
    dollar budget. Do not leave a test deployment running without approval.
 2. Install `modal==1.1.4` with Python 3.11 and authenticate using `modal setup` or the
@@ -45,7 +45,7 @@ Settings read during deployment:
 | ---------------------- | ------------- | ------------------------------------------------- |
 | `FURY_APP_NAME`        | `fury-render` | Use a separate name for preview/test deployments  |
 | `FURY_ALLOWED_ORIGINS` | No origins    | Fully anchored regex for approved browser origins |
-| `FURY_GPU`             | `L40S:8`      | GPU type and count; one renderer per GPU          |
+| `FURY_GPU`             | `L40S:2`      | GPU type and count; one renderer per GPU          |
 | `FURY_IDLE_SECONDS`    | `60`          | GPU idle tail before scale-to-zero; billed time   |
 | `FURY_DENOISE`         | `auto`        | `cpu` skips GPU denoising (it falls back anyway)  |
 
@@ -57,9 +57,13 @@ durable counters.
 
 - Scene data (geometry, textures, sky) is stored on the `fury-render-cache` volume, shared by every
   visitor and kept across cold starts, so the browser uploads a design's data only once.
-- One GPU container with eight GPUs. Each GPU has its own Blender process (`FURY_WORKERS`) and
-  renders whole frames, so eight frames render side by side: a spin's frames are independent,
-  and splitting each 1-megapixel frame across eight GPUs would leave most of them idle. Max 15
+- One GPU container with two GPUs. Each GPU has its own Blender process (`FURY_WORKERS`) and
+  renders whole frames side by side: a spin's frames are independent, and splitting each
+  1-megapixel frame across GPUs would leave most of them idle. A container's GPUs are on one
+  machine, and Modal warns that more than two per container usually means longer waits: an
+  eight-L40S container stayed "scheduling" for over ten minutes. Several containers cannot simply
+  share the work, as each sees others' uploads on the volume only after a reload, which fails
+  while files are open. Max 15
   seconds of Cycles sampling per view, 60 for a 360° panorama. Waiting renders go by priority:
   the visitor's frame, then previews, then full frames; with `?spin=0`, previews, then views, then
   orbit pre-renders. Scene preparation (on each GPU's process), denoising, cold starts, finishing
