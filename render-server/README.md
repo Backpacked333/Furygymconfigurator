@@ -64,6 +64,34 @@ To revoke all issued sessions, rotate `FURY_SESSION_KEY` and redeploy. Changing 
 does not invalidate existing sessions. Never raise gateway `max_containers` above 1 without
 replacing the in-memory limits with shared durable counters.
 
+### When the PIN doesn't work
+
+The PIN screen says which of these it is:
+
+- **"Can't reach the cloud renderer"**: the PIN was never checked. Check the gateway first:
+
+  ```sh
+  curl https://<gateway-url>/health   # {"ok":true,"service":"pin-gateway"}
+  ```
+
+  - `modal-http: invalid function call` (404) means nothing is deployed at that URL: the app was
+    stopped or deleted. Deploy it again. If the app name changed, the URL did too, so update
+    `VITE_CLOUD_RENDER_URL` and rebuild the site.
+  - A 500, or no answer, usually means the gateway refused to start. It needs `FURY_PIN_HASH`
+    (exactly 128 hex characters, with no spaces or newline) and a `FURY_SESSION_KEY` of at least
+    32 characters. `modal app logs <app-name>` shows the error.
+  - If `/health` is fine, `FURY_ALLOWED_ORIGINS` doesn't match the address in the browser. Browsers
+    report a refused origin the same way as a server that is down. Every Vercel deployment has
+    its own URL besides the branch URL. A pattern that covers all of a project's preview URLs is
+    `^https://<project>(-[a-z0-9-]+)?-<team-slug>\.vercel\.app$`.
+
+- **"Incorrect PIN"**: the gateway was reached, but the PIN's hash differs from `FURY_PIN_HASH`.
+  Regenerate the hash with the command above and update the secret.
+- **"Too many attempts"**: 10 attempts a minute across everyone. Wait a minute.
+
+When the renderer can't be reached, the screen also offers to continue without cloud rendering
+(`?cloud=0`); resting views are then path traced on the visitor's device where it can.
+
 ## Limits and caveats
 
 - One GPU container, one active Blender render, max 15 seconds of Cycles sampling per render.

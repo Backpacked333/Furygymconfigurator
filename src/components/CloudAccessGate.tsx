@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, LockKeyhole } from 'lucide-react'
 import { cloudUrl } from '../render/traceStatus'
-import { unlockCloud, useCloudAccess } from '../render/cloudAccess'
+import { CloudUnreachable, unlockCloud, useCloudAccess } from '../render/cloudAccess'
+
+/** Reloads with `?cloud=0`: the configurator without cloud rendering, which needs no PIN. */
+function continueWithoutCloud() {
+  const params = new URLSearchParams(window.location.search)
+  params.set('cloud', '0')
+  window.location.search = params.toString()
+}
 
 export default function CloudAccessGate({ children }: { children: ReactNode }) {
   const url = cloudUrl()
@@ -9,6 +16,7 @@ export default function CloudAccessGate({ children }: { children: ReactNode }) {
   const [pin, setPin] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const [unreachable, setUnreachable] = useState(false)
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
   if (!url || /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url) || access?.url === url)
@@ -35,10 +43,12 @@ export default function CloudAccessGate({ children }: { children: ReactNode }) {
               await unlockCloud(url, pin, controller.signal)
               setPin('')
             } catch (reason) {
-              if (!controller.signal.aborted)
+              if (!controller.signal.aborted) {
+                setUnreachable(reason instanceof CloudUnreachable)
                 setError(
                   reason instanceof Error ? reason.message : 'Unable to connect. Please try again.',
                 )
+              }
             } finally {
               if (!controller.signal.aborted) setPending(false)
             }
@@ -66,6 +76,11 @@ export default function CloudAccessGate({ children }: { children: ReactNode }) {
             {pending ? 'Unlocking…' : 'Enter the studio'}{' '}
             <ArrowRight size={17} aria-hidden="true" />
           </button>
+          {unreachable && (
+            <button type="button" className="secondary" onClick={continueWithoutCloud}>
+              Continue without cloud rendering
+            </button>
+          )}
         </form>
         <small>Private preview · Access lasts one hour in this tab.</small>
       </section>

@@ -32,13 +32,31 @@ export function useCloudAccess() {
   )
 }
 
+/**
+ * The gateway did not answer at all, so the PIN was never checked. Browsers report a gateway that
+ * is switched off or not deployed, and one that refuses this site's address (CORS), as the same
+ * network error.
+ */
+export class CloudUnreachable extends Error {
+  constructor() {
+    super("Can't reach the cloud renderer, so the PIN couldn't be checked. It may be switched off.")
+    this.name = 'CloudUnreachable'
+  }
+}
+
 export async function unlockCloud(url: string, pin: string, signal?: AbortSignal) {
-  const response = await fetch(`${url}/auth`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pin }),
-    signal,
-  })
+  let response: Response
+  try {
+    response = await fetch(`${url}/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pin }),
+      signal,
+    })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new CloudUnreachable()
+  }
   if (!response.ok) {
     throw new Error(
       response.status === 401
