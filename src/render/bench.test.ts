@@ -13,14 +13,14 @@ describe('the bench', () => {
   it('keeps each first as it was first told', () => {
     bench.mark('firstRaster', 120)
     bench.mark('firstRaster', 900)
-    bench.mark('firstPreview', 2400)
+    bench.mark('firstThumb', 2400)
     expect(bench.get().marks).toEqual({
       firstRaster: 120,
       texturesSettled: null,
       sceneCaptured: null,
       firstRequest: null,
-      firstPreview: 2400,
-      firstGood: null,
+      firstThumb: 2400,
+      firstStill: null,
       firstLocalTrace: null,
     })
   })

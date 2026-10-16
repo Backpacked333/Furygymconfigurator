@@ -1,56 +1,33 @@
 import {
-  DataTexture,
   DataUtils,
-  HalfFloatType,
-  NearestFilter,
-  RGBAFormat,
   SRGBColorSpace,
   Vector2,
   Vector3,
   type BufferAttribute,
   type BufferGeometry,
-  type Camera,
   type InstancedMesh,
   type InterleavedBufferAttribute,
   type Light,
   type Material,
   type Mesh,
-  type PerspectiveCamera,
   type RectAreaLight,
   type Scene,
   type SpotLight,
   type Texture,
-  type WebGPURenderer,
 } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
-import {
-  environmentTexture,
-  lookKey,
-  preparePathTraceScene,
-  sceneSignature,
-  sunLight,
-} from './pathtrace'
-import {
-  AZIMUTH_STEPS,
-  ViewCache,
-  poseAt,
-  poseMatrix,
-  ringKey,
-  ringOrder,
-  type GridPose,
-} from './orbit'
+import { environmentTexture, lookKey, preparePathTraceScene, sunLight } from './pathtrace'
 import { bench } from './bench'
 import { fingerprint } from './hash'
-import { createExposureMeter } from './pipeline'
 import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
-import { cloudUrl, type TraceState } from './traceStatus'
+import { cloudUrl } from './traceStatus'
 
 export { cloudUrl, renderSession, warmCloud, warmth }
 export { fingerprint }
 
 /**
- * Off-device rendering: the resting view is rendered by Blender Cycles on a cloud GPU with
- * hardware ray tracing (render-server/), and the result crossfades in like a local trace.
+ * Off-device rendering: the gallery's stills are rendered by Blender Cycles on a cloud GPU with
+ * hardware ray tracing (render-server/), and come back finished (stills.ts).
  *
  * The browser describes the same path-traced form of the scene the local tracer captures
  * (preparePathTraceScene): meshes, physically based materials, textures, lights, and the sky.
@@ -58,8 +35,8 @@ export { fingerprint }
  * matrices, the sky map, and texture files. The server keeps them, so a new camera angle or a
  * material edit sends only the small JSON description, and a blob is uploaded only when the
  * server answers that it is missing (409). Texture bytes are uploaded by the browser too.
- * The image comes back as linear half floats, so it gets exactly the same
- * finishing (exposure match, bloom, tone mapping) as a local trace.
+ * The still comes back finished (exposure, bloom, tone mapping) as WebP, with the traced image's
+ * brightness, which the exposure meter matches to the live view's.
  *
  * The description names nothing by the page's own ids: objects, materials and textures are keyed
  * by their content and listed in key order, so the same design serializes to the same bytes on
@@ -70,25 +47,12 @@ export { fingerprint }
 /** `?traceStats=1` logs each cloud render's timings. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
 
-/** Render settings sent with each view: adaptive sampling stops well before the cap. */
-export const CLOUD_QUALITY = { samples: 1024, threshold: 0.01, timeLimit: 15 }
-/**
- * A quick first image, shown while the full one renders: 64 samples, denoised. On an L40S it takes
- * about 1.5 s at 1200x827 instead of 14 s, and at that size it is hard to tell from the final.
- */
-export const PREVIEW_QUALITY = { samples: 64, threshold: 0, timeLimit: 4 }
-/** Longest edge of a cloud render, in device pixels. */
-const MAX_EDGE = 3200
-/** Crossfade into the cloud image, in milliseconds. */
-const FADE_MS = 520
-/** The traced image may brighten by two stops or darken by one to match the raster frame. */
-const GAIN_RANGE = [0.5, 4] as const
 /** Uploads in flight at once. */
 const UPLOADS = 4
 /**
- * A spin frame that has not come after this long, beyond twice its own time limit and the longest
- * of the session's other open frames (its GPU renders one at a time, and an export's panorama
- * ahead of it takes up to a minute), is taken as a busy server: the session asks again after a
+ * A still that has not come after this long, beyond twice its own time limit and the longest of
+ * the session's other open frames (its GPU renders one at a time, and an export ahead of it takes
+ * up to a minute), is taken as a busy server: the session asks again after a
  * backoff rather than holding a place open for a connection that may be dead.
  */
 export const FRAME_TIMEOUT_MS = 20_000
@@ -710,7 +674,7 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
   }
   if (TRACE_STATS)
     console.info(
-      `[spin] scene captured in ${Math.round(performance.now() - started)} ms (${phases.join(', ')} ms): ${objects.size} objects, ${blobs.size} blobs, ${(bytes / 1e6).toFixed(1)} MB`,
+      `[cloud] scene captured in ${Math.round(performance.now() - started)} ms (${phases.join(', ')} ms): ${objects.size} objects, ${blobs.size} blobs, ${(bytes / 1e6).toFixed(1)} MB`,
     )
   return {
     scene: {
@@ -731,98 +695,27 @@ async function gzip(bytes: Uint8Array) {
   return new Uint8Array(await new Response(stream).arrayBuffer())
 }
 
-/** Undoes the wire packing of a rendered image (render-server protocol.py) into half floats. */
-export function unpackImage(bytes: Uint8Array, width: number, height: number) {
-  const n = width * height * 4
-  if (bytes.byteLength < 2 * n) throw new Error('truncated cloud image')
-  const hi = bytes.subarray(0, n)
-  const lo = bytes.subarray(n, 2 * n)
-  const out = new Uint16Array(n)
-  const stride = width * 4
-  for (let row = 0; row < height; row++) {
-    const start = row * stride
-    for (let i = start; i < start + 4; i++) out[i] = (hi[i] << 8) | lo[i]
-    for (let i = start + 4; i < start + stride; i++)
-      out[i] = (out[i - 4] + ((hi[i] << 8) | lo[i])) & 0xffff
-  }
-  return out
-}
-
 export class Superseded extends Error {}
 /** The server or gateway is busy (rate limit, full queue): worth trying again shortly. */
 export class Busy extends Error {}
-/** The server answered a frame request with a view's raw image: it predates the spin. */
+/** The server answered a frame request with a view's raw image: it predates finished frames. */
 export class Outdated extends Error {}
 /** Every cloud GPU is in use by other visitors: this page renders on its own device. */
 export class Full extends Error {}
 
 export type CloudCamera = { matrix: number[]; fov: number; near: number; far: number }
 
-export function cameraRecord(camera: Camera): CloudCamera {
-  const c = camera as PerspectiveCamera
-  // Zoom narrows the field of view.
-  const fov = (2 * Math.atan(Math.tan((c.fov * Math.PI) / 360) / (c.zoom || 1)) * 180) / Math.PI
-  return { matrix: Array.from(camera.matrixWorld.elements), fov, near: c.near, far: c.far }
-}
-
-/** A rendered view as the server sent it: gzip-compressed packed half floats (protocol.py). */
-export type CloudFrame = {
-  bytes: Uint8Array
-  width: number
-  height: number
-  stats: {
-    queueMs: number
-    prepareMs: number
-    renderMs: number
-    totalMs: number
-    device: string
-    /** Where the server denoised: "gpu" or "cpu". */
-    denoise: string
-  }
-}
-
-async function inflate(bytes: Uint8Array) {
-  // A server that sent the image with Content-Encoding arrives already inflated.
-  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes
-  const stream = new Response(bytes as BodyInit).body!.pipeThrough(new DecompressionStream('gzip'))
-  return new Uint8Array(await new Response(stream).arrayBuffer())
-}
-
-/** The texture of a rendered view: linear half floats, rows top down. */
-export async function decodeFrame(frame: CloudFrame) {
-  const data = unpackImage(await inflate(frame.bytes), frame.width, frame.height)
-  const texture = new DataTexture(data, frame.width, frame.height, RGBAFormat, HalfFloatType)
-  texture.minFilter = texture.magFilter = NearestFilter
-  texture.generateMipmaps = false
-  texture.needsUpdate = true
-  return texture
-}
-
-/**
- * "view" renders what the visitor looks at, "preview" a quick first version of it, and "orbit"
- * pre-renders views around it. The server renders queued previews first and pre-renders last.
- */
-export type RenderKind = 'view' | 'preview' | 'orbit'
-
 /** Client of one render server. */
 export class CloudClient {
   readonly url: string
   private readonly session = Math.random().toString(36).slice(2)
-  private seq = 0
-  /** Uploads in flight, shared by renders that need the same blob (a preview and its view). */
+  /** Uploads in flight, shared by frames that need the same blob (a still and its thumbnail). */
   private readonly uploading = new Map<string, Promise<void>>()
-  /** When the server last answered with an image: a warm GPU answers within seconds. */
-  lastSuccess: number | null = null
-  /** The spin frames open, by time limit: the session's GPU may render any of them ahead of another. */
+  /** The frames open, by time limit: the session's GPU may render any of them ahead of another. */
   private readonly open = new Set<{ timeLimit: number }>()
 
   constructor(url: string) {
     this.url = url
-  }
-
-  /** True while the server has rendered recently enough that its GPU is likely still on. */
-  get warm() {
-    return this.lastSuccess !== null && performance.now() - this.lastSuccess < 4 * 60 * 1000
   }
 
   private async put(key: string, blobs: Map<string, BlobSource>, signal: AbortSignal) {
@@ -868,63 +761,7 @@ export class CloudClient {
   }
 
   /**
-   * Renders a view, uploading whatever the server is missing. Previews and pre-renders use
-   * sessions of their own, so a newer view the visitor asked for never drops them, nor they it.
-   */
-  async render(
-    captured: CapturedScene,
-    camera: CloudCamera,
-    width: number,
-    height: number,
-    signal: AbortSignal,
-    kind: RenderKind = 'view',
-  ): Promise<CloudFrame> {
-    const start = performance.now()
-    const scale = Math.min(1, MAX_EDGE / Math.max(width, height))
-    const response = await this.post(
-      {
-        // A session of its own for each kind, so none supersedes another.
-        session: `${this.session}${kind === 'orbit' ? 'o' : kind === 'preview' ? 'p' : ''}`,
-        kind,
-        seq: ++this.seq,
-        camera,
-        width: Math.max(1, Math.round(width * scale)),
-        height: Math.max(1, Math.round(height * scale)),
-        quality: kind === 'preview' ? PREVIEW_QUALITY : CLOUD_QUALITY,
-        // The image as a gzip file rather than gzip transfer encoding, so it can be kept compressed.
-        transfer: 'file',
-      },
-      captured,
-      signal,
-    )
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    const header = (name: string) => Number(response.headers.get(name) ?? 0)
-    const totalMs = performance.now() - start
-    // A view is finished in the browser: the server's finishing time is none.
-    bench.frame({
-      renderMs: header('x-render-ms'),
-      finishMs: null,
-      totalMs,
-      cached: false,
-      renderer: response.headers.get('x-fury-renderer') ?? '',
-    })
-    return {
-      bytes,
-      width: header('x-image-width'),
-      height: header('x-image-height'),
-      stats: {
-        queueMs: header('x-queue-ms'),
-        prepareMs: header('x-prepare-ms'),
-        renderMs: header('x-render-ms'),
-        totalMs,
-        device: response.headers.get('x-device') ?? '',
-        denoise: response.headers.get('x-denoise') ?? '',
-      },
-    }
-  }
-
-  /**
-   * A finished frame of the path-traced spin (spin.ts): tone mapped, with bloom, as WebP. All
+   * A finished frame (a still of stills.ts, or the exposure meter's): tone mapped, with bloom, as WebP. All
    * frames of one `generation` share a sequence number, so a newer generation (the design
    * changed) drops the ones still queued. A frame that takes too long to come (FRAME_TIMEOUT_MS
    * beyond twice its time limit and the longest other frame open) is given up as a busy server.
@@ -932,7 +769,7 @@ export class CloudClient {
   async frame(
     captured: CapturedScene,
     request: {
-      camera: CloudCamera & { panorama?: boolean }
+      camera: CloudCamera
       width: number
       height: number
       quality: { samples: number; threshold: number; timeLimit: number }
@@ -943,7 +780,7 @@ export class CloudClient {
       channel?: string
     },
     signal: AbortSignal,
-  ): Promise<SpinFrame> {
+  ): Promise<StillFrame> {
     const start = performance.now()
     const opened = { timeLimit: request.quality.timeLimit }
     this.open.add(opened)
@@ -983,10 +820,10 @@ export class CloudClient {
       )
       // An older server ignores the frame fields and renders a view: a half-float image, not WebP.
       if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
-        throw new Outdated('the render server does not finish spin frames; redeploy it')
+        throw new Outdated('the render server does not finish frames; redeploy it')
       const header = (name: string) => Number(response.headers.get(name) ?? 0)
       const renderer = response.headers.get('x-fury-renderer')
-      const frame: SpinFrame = {
+      const frame: StillFrame = {
         image: await response.blob(),
         cached: response.headers.get('x-cache') === 'hit',
         renderMs: header('x-render-ms'),
@@ -1042,7 +879,6 @@ export class CloudClient {
         renderer: response.headers.get('x-fury-renderer') ?? '',
         totalMs: performance.now() - started,
       })
-      this.lastSuccess = performance.now()
       return response
     }
     throw new Error('cloud render kept asking for uploads')
@@ -1050,10 +886,10 @@ export class CloudClient {
 }
 
 /**
- * A finished spin frame as the server sent it (WebP), with the traced image's key: its mean log
+ * A finished frame as the server sent it (WebP), with the traced image's key: its mean log
  * luminance before finishing, metered as the browser meters (pipeline.ts createExposureMeter).
  */
-export type SpinFrame = {
+export type StillFrame = {
   image: Blob
   cached: boolean
   /** The server's render and finishing (exposure, bloom, tone mapping, WebP) time. */
@@ -1064,384 +900,4 @@ export type SpinFrame = {
   tracedKey: number
   /** Which renderer answered (X-Fury-Renderer): the session's own GPU or the shared warm one. */
   renderer: 'shared' | 'own' | ''
-}
-
-// Session --------------------------------------------------------------------------------------
-
-/** What to put on screen: `from` (null for the frozen raster frame) blending into `to`. */
-export type CloudView = { from: Texture | null; to: Texture; t: number; gain: number }
-
-/** Where the camera orbits, for pre-rendered views; null outside the exterior orbit. */
-export type OrbitContext = { target: Vector3 } | null
-
-/** Rendered views kept in memory, compressed (a few MB each). */
-const VIEW_CACHE_BYTES = 320 << 20
-/** Pre-rendering pauses once the visitor has not touched the page for this long. */
-const IDLE_MS = 3 * 60 * 1000
-
-/** Where a resting camera sits in the orbit grid, and the key of its view. */
-type Spot = {
-  key: string
-  ring: string
-  pose: GridPose
-  sceneKey: string
-  size: Vector2
-  camera: CloudCamera
-}
-
-/** One ring of pre-rendered views around the orbit target. */
-type Ring = {
-  key: string
-  sceneKey: string
-  target: Vector3
-  /** Pre-rendering starts next to this pose and works outward. */
-  pose: GridPose
-  camera: CloudCamera
-  size: Vector2
-  abort: AbortController
-}
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-/**
- * One cloud render per resting view, crossfaded in over whatever is on screen. Mirrors the parts
- * of PathTraceSession the frame loop uses.
- *
- * In the exterior orbit the camera rests on a grid of poses (orbit.ts). Each view rendered there
- * is kept, compressed, and the rest of its ring is pre-rendered in the background, nearest first,
- * so orbiting lands on finished views. Pre-rendering yields to the visitor's own views, stops when
- * the design changes, and pauses while the page is hidden or the visitor is idle.
- */
-export class CloudSession {
-  readonly client: CloudClient
-  private readonly renderer: WebGPURenderer
-  private readonly meter: ReturnType<typeof createExposureMeter>
-  private readonly placeholder = new DataTexture(
-    new Uint16Array(4),
-    1,
-    1,
-    RGBAFormat,
-    HalfFloatType,
-  )
-  private abort: AbortController | null = null
-  private epoch = 0
-  private image: DataTexture | null = null
-  /** False while the image on screen is a preview. */
-  private final = false
-  private retired: DataTexture | null = null
-  private from: Texture | null = null
-  private start = 0
-  private gain = 1
-  private rasterKey: Promise<number> | null = null
-  private readonly views = new ViewCache<CloudFrame>(VIEW_CACHE_BYTES)
-  private ring: Ring | null = null
-  /** The pre-render in flight, which the visitor's own view joins if it is the same. */
-  private prerendering: { key: string; frame: Promise<CloudFrame> } | null = null
-  /** The visitor's own render in flight; pre-rendering waits for it. */
-  private interactive: Promise<unknown> | null = null
-  /** The last captured scene, reused while the design is unchanged. */
-  private capture: { key: string; scene: Promise<CapturedScene> } | null = null
-  private live: { scene: Scene; look: SkyLook } | null = null
-  private lastInput = performance.now()
-  private readonly onInput = () => {
-    this.lastInput = performance.now()
-  }
-  /** Called when an image arrives, to learn what it should fade from. */
-  onArrive: (() => Texture | null) | null = null
-  /** Called as orbit views are pre-rendered, and when pre-rendering starts or stops. */
-  onProgress: ((progress: { ready: number; total: number } | null) => void) | null = null
-  state: TraceState = 'off'
-  /** True when the last request failed; the local tracer takes over. */
-  failed = false
-  stats: CloudFrame['stats'] | null = null
-
-  constructor(renderer: WebGPURenderer, url: string) {
-    this.renderer = renderer
-    this.client = new CloudClient(url)
-    this.meter = createExposureMeter(renderer, this.placeholder)
-    this.placeholder.needsUpdate = true
-    for (const event of ['pointerdown', 'keydown', 'wheel'])
-      window.addEventListener(event, this.onInput, { passive: true })
-  }
-
-  /** The grid spot the camera rests on, or null when it is between poses or not orbiting. */
-  private spot(scene: Scene, camera: Camera, look: SkyLook, orbit: OrbitContext): Spot | null {
-    if (!orbit) return null
-    const position = camera.getWorldPosition(new Vector3())
-    const pose = poseAt(position, orbit.target)
-    if (!pose) return null
-    const sceneKey = String(sceneSignature(scene, lookKey(look)))
-    const size = this.renderer.getDrawingBufferSize(new Vector2())
-    const record = cameraRecord(camera)
-    const ring = ringKey(sceneKey, orbit.target, pose, record.fov, `${size.x}x${size.y}`)
-    return { key: `${ring}|a${pose.azimuth}`, ring, pose, sceneKey, size, camera: record }
-  }
-
-  /** True when the view from this camera is already rendered: no need to trace it locally. */
-  hasCached(scene: Scene, camera: Camera, look: SkyLook, orbit: OrbitContext) {
-    const spot = this.spot(scene, camera, look, orbit)
-    return spot !== null && this.views.has(spot.key)
-  }
-
-  /** The captured scene for this design, captured now if it has not been yet. */
-  private captured(scene: Scene, look: SkyLook, key: string) {
-    if (this.capture?.key !== key) this.capture = { key, scene: captureScene(scene, look) }
-    return this.capture.scene
-  }
-
-  begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture, orbit: OrbitContext = null) {
-    this.halt()
-    const epoch = ++this.epoch
-    const rested = performance.now()
-    const abort = new AbortController()
-    this.abort = abort
-    this.state = 'preparing'
-    this.failed = false
-    this.image = null
-    this.final = false
-    this.from = null
-    this.live = { scene, look }
-    this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
-    const spot = this.spot(scene, camera, look, orbit)
-    // Looking at something else: stop pre-rendering the orbit.
-    if (!spot) this.stopRing()
-    const cached = spot ? this.views.get(spot.key) : undefined
-    if (TRACE_STATS)
-      console.info(
-        spot
-          ? `[cloud view] orbit pose ${spot.pose.azimuth}/${spot.pose.polar}/${spot.pose.radius}, scene ${spot.sceneKey}${cached ? ', pre-rendered' : ''}`
-          : '[cloud view] off the orbit grid',
-      )
-    const sceneKey = spot?.sceneKey ?? String(sceneSignature(scene, lookKey(look)))
-    const size = spot?.size ?? this.renderer.getDrawingBufferSize(new Vector2())
-    const view = cameraRecord(camera)
-    /** Puts a rendered image on screen, fading from whatever is there now. */
-    let finalShown = false
-    const show = async (frame: CloudFrame, kind: 'preview' | 'view' | 'cached') => {
-      if (epoch !== this.epoch || finalShown) return
-      if (kind !== 'preview') finalShown = true
-      // A preview that comes after its final image is dropped.
-      const stale = () => epoch !== this.epoch || (kind === 'preview' && finalShown)
-      const decoding = performance.now()
-      const texture = await decodeFrame(frame)
-      const decoded = performance.now()
-      if (stale()) {
-        texture.dispose()
-        return
-      }
-      const [raster, traced] = await Promise.all([
-        this.rasterKey,
-        this.meter.measure(texture, true).catch(() => NaN),
-      ])
-      if (stale()) {
-        texture.dispose()
-        return
-      }
-      const ratio = Math.exp((raster ?? NaN) - traced)
-      this.gain = Number.isFinite(ratio)
-        ? Math.min(GAIN_RANGE[1], Math.max(GAIN_RANGE[0], ratio))
-        : 1
-      this.stats = frame.stats
-      if (this.image) {
-        // The final image fades in over the preview.
-        this.retired?.dispose()
-        this.retired = this.image
-        this.from = this.image
-      } else this.from = this.onArrive?.() ?? null
-      this.image = texture
-      this.final = kind !== 'preview'
-      this.start = performance.now()
-      if (TRACE_STATS) {
-        const s = frame.stats
-        const { width, height } = frame
-        console.info(
-          kind === 'cached'
-            ? `[cloud render] ${width}x${height} pre-rendered view: on screen ${Math.round(this.start - rested)} ms after rest (decode ${Math.round(decoded - decoding)} ms, exposure match ${Math.round(this.start - decoded)} ms)`
-            : `[cloud render] ${width}x${height} ${kind} on ${s.device}, ${s.denoise} denoising: on screen ${((this.start - rested) / 1000).toFixed(1)} s after rest (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
-        )
-      }
-    }
-    const render = () =>
-      this.captured(scene, look, sceneKey).then((captured) => {
-        if (epoch !== this.epoch) return null
-        this.state = 'tracing'
-        // A quick preview first; the server renders it ahead of the full view.
-        this.client
-          .render(captured, view, size.x, size.y, abort.signal, 'preview')
-          .then((frame) => show(frame, 'preview'))
-          .catch(() => {})
-        return this.client
-          .render(captured, view, size.x, size.y, abort.signal)
-          .then((frame) => ({ frame, cached: false }))
-      })
-    // Landing on the view being pre-rendered: wait for it rather than render it twice.
-    const joined = spot && this.prerendering?.key === spot.key ? this.prerendering.frame : null
-    const work: Promise<{ frame: CloudFrame; cached: boolean } | null> = cached
-      ? Promise.resolve({ frame: cached, cached: true })
-      : joined
-        ? joined.then(
-            (frame) => ({ frame, cached: true }),
-            () => (epoch === this.epoch ? render() : null),
-          )
-        : render()
-    if (joined) this.state = 'tracing'
-    const shown: Promise<void> = work
-      .then(async (result) => {
-        if (!result) return
-        if (spot && !result.cached) {
-          this.views.set(spot.key, result.frame)
-          this.progress()
-        }
-        await show(result.frame, result.cached ? 'cached' : 'view')
-        if (epoch === this.epoch && spot && orbit) this.prerender(spot, orbit.target)
-      })
-      .catch((error) => {
-        if (epoch !== this.epoch || error instanceof Superseded || abort.signal.aborted) return
-        if (this.image) {
-          // The preview is on screen: keep it as this view's image.
-          console.warn('Cloud rendering failed; keeping the preview.', error)
-          this.final = true
-          return
-        }
-        console.warn('Cloud rendering failed; tracing on this device instead.', error)
-        this.failed = true
-        this.state = 'off'
-      })
-      .finally(() => {
-        if (this.interactive === shown) this.interactive = null
-      })
-    // Pre-rendering waits until this view is on screen.
-    this.interactive = shown
-  }
-
-  /** Pre-renders the ring around a resting view, or re-centers the ring already running. */
-  private prerender(spot: Spot, target: Vector3) {
-    if (this.ring?.key === spot.ring && !this.ring.abort.signal.aborted) {
-      this.ring.pose = spot.pose
-      return
-    }
-    this.stopRing()
-    const ring: Ring = {
-      key: spot.ring,
-      sceneKey: spot.sceneKey,
-      target: target.clone(),
-      pose: spot.pose,
-      camera: spot.camera,
-      size: spot.size.clone(),
-      abort: new AbortController(),
-    }
-    this.ring = ring
-    this.progress()
-    this.fill(ring)
-      .catch(() => {})
-      .finally(() => {
-        if (this.ring !== ring) return
-        this.ring = null
-        this.progress()
-      })
-  }
-
-  private stopRing() {
-    if (!this.ring) return
-    this.ring.abort.abort()
-    this.ring = null
-    this.progress()
-  }
-
-  private progress() {
-    this.onProgress?.(this.prerendered)
-  }
-
-  private async fill(ring: Ring) {
-    let failures = 0
-    while (!ring.abort.signal.aborted) {
-      const live = this.live
-      // The design changed: these views would show the old one.
-      if (!live || String(sceneSignature(live.scene, lookKey(live.look))) !== ring.sceneKey) return
-      if (document.hidden || performance.now() - this.lastInput > IDLE_MS) {
-        await sleep(1500)
-        continue
-      }
-      if (this.interactive) {
-        await this.interactive.catch(() => {})
-        continue
-      }
-      const azimuth = ringOrder(ring.pose.azimuth).find((a) => !this.views.has(`${ring.key}|a${a}`))
-      // The whole ring is rendered; it stays cached while the visitor orbits it.
-      if (azimuth === undefined) return
-      const key = `${ring.key}|a${azimuth}`
-      const pose = { ...ring.pose, azimuth }
-      const camera = { ...ring.camera, matrix: Array.from(poseMatrix(ring.target, pose).elements) }
-      const frame = this.captured(live.scene, live.look, ring.sceneKey).then((captured) =>
-        this.client.render(captured, camera, ring.size.x, ring.size.y, ring.abort.signal, 'orbit'),
-      )
-      this.prerendering = { key, frame }
-      try {
-        this.views.set(key, await frame)
-        failures = 0
-        this.progress()
-      } catch (error) {
-        if (ring.abort.signal.aborted) return
-        if (error instanceof Superseded) continue
-        if (++failures >= 3) return
-        await sleep(4000 * failures)
-      } finally {
-        if (this.prerendering?.frame === frame) this.prerendering = null
-      }
-    }
-  }
-
-  /** Views of the current ring rendered so far, while one is being pre-rendered. */
-  get prerendered(): { ready: number; total: number } | null {
-    const ring = this.ring
-    if (!ring) return null
-    let ready = 0
-    for (let a = 0; a < AZIMUTH_STEPS; a++) if (this.views.has(`${ring.key}|a${a}`)) ready++
-    return { ready, total: AZIMUTH_STEPS }
-  }
-
-  /** True once an image has arrived for the current view. */
-  get arrived() {
-    return this.image !== null
-  }
-
-  step() {
-    if (this.image && this.view().t >= 1) {
-      this.retired?.dispose()
-      this.retired = null
-      if (this.final) this.state = 'converged'
-    }
-    return this.state === 'preparing' || this.state === 'tracing'
-  }
-
-  view(now = performance.now()): CloudView {
-    if (!this.image) return { from: null, to: this.placeholder, t: 0, gain: 1 }
-    const t = Math.min(1, (now - this.start) / FADE_MS)
-    return { from: t < 1 ? this.from : null, to: this.image, t, gain: this.gain }
-  }
-
-  /** Stops the visitor's view; pre-rendering carries on while the design is unchanged. */
-  halt() {
-    this.epoch++
-    this.abort?.abort()
-    this.abort = null
-    // The image may still be on screen while the next one fades from it.
-    if (this.image) {
-      this.retired?.dispose()
-      this.retired = this.image
-    }
-    this.image = null
-    this.state = 'off'
-  }
-
-  dispose() {
-    this.halt()
-    this.onProgress = null
-    this.stopRing()
-    for (const event of ['pointerdown', 'keydown', 'wheel'])
-      window.removeEventListener(event, this.onInput)
-    this.retired?.dispose()
-    this.placeholder.dispose()
-    this.meter.dispose()
-  }
 }

@@ -8,7 +8,6 @@ import {
   InterleavedBufferAttribute,
   Mesh,
   MeshStandardMaterial,
-  PerspectiveCamera,
   RectAreaLight,
   Scene,
   SpotLight,
@@ -16,16 +15,12 @@ import {
   Texture,
 } from 'three/webgpu'
 import { createHash } from 'node:crypto'
-import { gzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import {
-  cameraRecord,
   captureScene,
-  CLOUD_QUALITY,
   CloudClient,
   cloudUrl,
-  decodeFrame,
   encodeGeometry,
   encodeInstances,
   encodeSky,
@@ -34,10 +29,8 @@ import {
   Full,
   Busy,
   Outdated,
-  PREVIEW_QUALITY,
   renderSession,
   stableJson,
-  unpackImage,
   warmCloud,
   warmth,
 } from './cloud'
@@ -50,34 +43,52 @@ vi.mock('./pathtrace', async (original) => {
   return { ...actual, environmentTexture: () => sky }
 })
 
+/** A thumbnail's and an export's settings (stills.ts QUALITY). */
+const THUMB = { samples: 64, threshold: 0, timeLimit: 6 }
+const EXPORT = { samples: 1024, threshold: 0.01, timeLimit: 60 }
+const camera = { matrix: Array(16).fill(0), fov: 34, near: 0.1, far: 2000 }
+/** A frame request of a still, on the channel given. */
+const still = (channel?: string) => ({
+  camera,
+  width: 100,
+  height: 80,
+  quality: THUMB,
+  finish: { exposure: 1, gain: 1 },
+  priority: 0,
+  generation: 1,
+  channel,
+})
+/** A finished frame as the server sends it. */
+const finished = () =>
+  new Response(new Uint8Array(8), { headers: { 'content-type': 'image/webp' } })
+
 describe('cloud requests', () => {
-  const camera = { matrix: Array(16).fill(0), fov: 34, near: 0.1, far: 2000 }
-  const image = (status = 200) =>
-    new Response(new Uint8Array(16), {
-      status,
-      headers: { 'x-image-width': '1', 'x-image-height': '1' },
-    })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('ask for a quick preview on a session of its own, ahead of the full view', async () => {
-    const fetch = vi.fn().mockImplementation(() => Promise.resolve(image()))
+  it('ask for each channel on a session of its own, so none supersedes another', async () => {
+    const fetch = vi.fn().mockImplementation(() => Promise.resolve(finished()))
     vi.stubGlobal('fetch', fetch)
     const client = new CloudClient('https://gpu.example')
     const captured = { scene: {} as never, blobs: new Map() }
     const signal = new AbortController().signal
-    await client.render(captured, camera, 100, 80, signal, 'preview')
-    await client.render(captured, camera, 100, 80, signal)
-    const [preview, view] = fetch.mock.calls.map((call) =>
+    await client.frame(captured, still('f'), signal)
+    await client.frame(captured, still('m'), signal)
+    await client.frame(captured, still(), signal)
+    const [focus, meter, rest] = fetch.mock.calls.map((call) =>
       JSON.parse(new TextDecoder().decode(call[1].body as Uint8Array)),
     )
-    expect(preview.kind).toBe('preview')
-    expect(preview.quality).toEqual(PREVIEW_QUALITY)
-    expect(view.kind).toBe('view')
-    expect(view.quality).toEqual(CLOUD_QUALITY)
-    expect(preview.session).toBe(`${view.session}p`)
+    expect(focus.kind).toBe('spin')
+    expect(focus.output).toBe('frame')
+    expect(focus.quality).toEqual(THUMB)
+    const base = rest.session.slice(0, -1)
+    expect([focus.session, meter.session, rest.session]).toEqual([
+      `${base}f`,
+      `${base}m`,
+      `${base}s`,
+    ])
   })
 
-  it('upload each missing blob once when a preview and its view both need it', async () => {
+  it('upload each missing blob once when two stills both need it', async () => {
     const puts: string[] = []
     let rendered = 0
     vi.stubGlobal(
@@ -93,7 +104,7 @@ describe('cloud requests', () => {
           return new Response(JSON.stringify({ missing: ['a'.repeat(64), 'b'.repeat(64)] }), {
             status: 409,
           })
-        return image()
+        return finished()
       }),
     )
     const blob = () => Promise.resolve(new Uint8Array([1, 2, 3]))
@@ -105,8 +116,8 @@ describe('cloud requests', () => {
     const signal = new AbortController().signal
     const captured = { scene: {} as never, blobs }
     await Promise.all([
-      client.render(captured, camera, 100, 80, signal, 'preview'),
-      client.render(captured, camera, 100, 80, signal),
+      client.frame(captured, still('f'), signal),
+      client.frame(captured, still(), signal),
     ])
     expect(puts.sort()).toEqual([
       `https://gpu.example/blobs/${'a'.repeat(64)}`,
@@ -126,15 +137,7 @@ describe('cloud requests', () => {
           ),
       ),
     )
-    const request = {
-      camera,
-      width: 100,
-      height: 80,
-      quality: PREVIEW_QUALITY,
-      finish: { exposure: 1, gain: 1 },
-      priority: 0,
-      generation: 1,
-    }
+    const request = still()
     const captured = { scene: {} as never, blobs: new Map() }
     const client = new CloudClient('https://gpu.example')
     let outcome: unknown = null
@@ -142,7 +145,7 @@ describe('cloud requests', () => {
       outcome = error
     })
     // Twenty seconds beyond twice the frame's own time limit.
-    await vi.advanceTimersByTimeAsync(FRAME_TIMEOUT_MS + 2 * PREVIEW_QUALITY.timeLimit * 1000 - 1)
+    await vi.advanceTimersByTimeAsync(FRAME_TIMEOUT_MS + 2 * THUMB.timeLimit * 1000 - 1)
     expect(outcome).toBeNull()
     await vi.advanceTimersByTimeAsync(1)
     expect(outcome).toBeInstanceOf(Busy)
@@ -155,7 +158,7 @@ describe('cloud requests', () => {
     own.abort(new Error('turned away'))
     await vi.advanceTimersByTimeAsync(0)
     expect(aborted).toEqual(new Error('turned away'))
-    // A longer frame opened since (an export's) may be rendered ahead of it on the session's one
+    // A longer frame opened since (an export) may be rendered ahead of it on the session's one
     // GPU: it is allowed that frame's time limit too, and gives up only after it.
     const patient = new CloudClient('https://gpu.example')
     let waited: unknown = null
@@ -163,11 +166,11 @@ describe('cloud requests', () => {
       waited = error
     })
     await vi.advanceTimersByTimeAsync(1000)
-    const final = { ...request, quality: CLOUD_QUALITY }
-    patient.frame(captured, final, new AbortController().signal).catch(() => {})
-    await vi.advanceTimersByTimeAsync(FRAME_TIMEOUT_MS + 2 * PREVIEW_QUALITY.timeLimit * 1000)
+    const exported = { ...request, quality: EXPORT }
+    patient.frame(captured, exported, new AbortController().signal).catch(() => {})
+    await vi.advanceTimersByTimeAsync(FRAME_TIMEOUT_MS + 2 * THUMB.timeLimit * 1000)
     expect(waited).toBeNull()
-    await vi.advanceTimersByTimeAsync(CLOUD_QUALITY.timeLimit * 1000 - 1000 - 1)
+    await vi.advanceTimersByTimeAsync(EXPORT.timeLimit * 1000 - 1000 - 1)
     expect(waited).toBeNull()
     await vi.advanceTimersByTimeAsync(1)
     expect(waited).toBeInstanceOf(Busy)
@@ -186,20 +189,12 @@ describe('cloud requests', () => {
     const captured = { scene: {} as never, blobs }
     const signal = new AbortController().signal
     await expect(
-      new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal),
+      new CloudClient('https://gpu.example').frame(captured, still(), signal),
     ).rejects.toBeInstanceOf(Busy)
   })
 
-  it('tell a finished spin frame from a server that predates the spin', async () => {
-    const request = {
-      camera,
-      width: 100,
-      height: 80,
-      quality: PREVIEW_QUALITY,
-      finish: { exposure: 1, gain: 1 },
-      priority: 0,
-      generation: 1,
-    }
+  it('tell a finished frame from a server that predates finished frames', async () => {
+    const request = still()
     const captured = { scene: {} as never, blobs: new Map() }
     const signal = new AbortController().signal
     const frame = new Response(new Uint8Array(8), {
@@ -356,7 +351,6 @@ describe('scene capture', () => {
 })
 
 describe('render sessions', () => {
-  const camera = { matrix: Array(16).fill(0), fov: 34, near: 0.1, far: 2000 }
   const signal = new AbortController().signal
   afterEach(() => vi.unstubAllGlobals())
 
@@ -365,16 +359,14 @@ describe('render sessions', () => {
       if (init.method === 'PUT') return new Response(null, { status: 204 })
       if (fetch.mock.calls.length === 1)
         return new Response(JSON.stringify({ missing: ['a'.repeat(64)] }), { status: 409 })
-      return new Response(new Uint8Array(16), {
-        headers: { 'x-image-width': '1', 'x-image-height': '1' },
-      })
+      return finished()
     })
     vi.stubGlobal('fetch', fetch)
     const blobs = new Map([['a'.repeat(64), () => Promise.resolve(new Uint8Array([1]))]])
     const captured = { scene: {} as never, blobs }
-    await new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal)
-    // A second client on the page (the spin's, say) is the same session: the same GPU.
-    await new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal)
+    await new CloudClient('https://gpu.example').frame(captured, still(), signal)
+    // A second client on the page (one made after a lost GPU device, say) is the same session.
+    await new CloudClient('https://gpu.example').frame(captured, still(), signal)
     const sessions = fetch.mock.calls.map((call) =>
       new URL(call[0] as string).searchParams.get('session'),
     )
@@ -433,23 +425,12 @@ describe('render sessions', () => {
       vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 503 }))
     vi.stubGlobal('fetch', answer({ error: 'Every cloud GPU is in use', full: true }))
     await expect(
-      new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal),
+      new CloudClient('https://gpu.example').frame(captured, still(), signal),
     ).rejects.toBeInstanceOf(Full)
     vi.stubGlobal('fetch', answer({ detail: 'Cloud renderer unavailable; try again shortly' }))
     await expect(
-      new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal),
+      new CloudClient('https://gpu.example').frame(captured, still(), signal),
     ).rejects.toBeInstanceOf(Busy)
-  })
-})
-
-describe('cloud warmth', () => {
-  it('does not treat a new client as a warm GPU', () => {
-    const client = new CloudClient('https://gpu.example')
-    expect(client.warm).toBe(false)
-    client.lastSuccess = performance.now()
-    expect(client.warm).toBe(true)
-    client.lastSuccess = performance.now() - 5 * 60 * 1000
-    expect(client.warm).toBe(false)
   })
 })
 
@@ -535,59 +516,6 @@ describe('instance and sky blobs', () => {
     expect(view.getUint32(8, true)).toBe(1)
     const half = Array.from(new Uint16Array(blob.buffer, 12, 6)).map(DataUtils.fromHalfFloat)
     expect(half).toEqual([0.5, 1, 2, 4, 8, 16])
-  })
-})
-
-describe('rendered images', () => {
-  it('decode the server packing exactly', () => {
-    // pack_image() of a 3x2 image, inflated (render-server/fury_render/protocol.py).
-    const packed = Uint8Array.from(
-      atob('ADg8PED89AAW4BMAPj4+PPzCPQD0MrgAAAAAAAAAAABAGQAAAAAAAAAA7wBmZt4A'),
-      (c) => c.charCodeAt(0),
-    )
-    const values = Array.from(unpackImage(packed, 3, 2)).map(DataUtils.fromHalfFloat)
-    const expected = [
-      [0, 0.5, 1, 1],
-      [2, 0.25, 0.125, 1],
-      [100, 0.001, 3.5, 1],
-      [1.5, 1.5, 1.5, 1],
-      [0.75, 0, 65000, 1],
-      [0.1, 0.2, 0.3, 1],
-    ].flat()
-    values.forEach((v, i) =>
-      expect(v).toBeCloseTo(expected[i], Math.abs(expected[i]) > 10 ? -2 : 3),
-    )
-  })
-
-  it('reject truncated data', () => {
-    expect(() => unpackImage(new Uint8Array(10), 3, 2)).toThrow()
-  })
-
-  it('decode from the gzip file kept in the view cache, or already inflated', async () => {
-    const packed = Uint8Array.from(
-      atob('ADg8PED89AAW4BMAPj4+PPzCPQD0MrgAAAAAAAAAAABAGQAAAAAAAAAA7wBmZt4A'),
-      (c) => c.charCodeAt(0),
-    )
-    const expected = Array.from(unpackImage(packed, 3, 2))
-    const stats = { queueMs: 0, prepareMs: 0, renderMs: 0, totalMs: 0, device: '', denoise: '' }
-    for (const bytes of [new Uint8Array(gzipSync(packed)), packed]) {
-      const texture = await decodeFrame({ bytes, width: 3, height: 2, stats })
-      expect(Array.from(texture.image.data as Uint16Array)).toEqual(expected)
-      expect([texture.image.width, texture.image.height]).toEqual([3, 2])
-    }
-  })
-})
-
-describe('camera', () => {
-  it('narrows the field of view with zoom', () => {
-    const camera = new PerspectiveCamera(60, 1.5, 0.1, 500)
-    camera.zoom = 2
-    camera.position.set(1, 2, 3)
-    camera.updateMatrixWorld()
-    const record = cameraRecord(camera)
-    expect(record.fov).toBeCloseTo((2 * Math.atan(Math.tan(Math.PI / 6) / 2) * 180) / Math.PI)
-    expect(record.matrix.slice(12, 15)).toEqual([1, 2, 3])
-    expect([record.near, record.far]).toEqual([0.1, 500])
   })
 })
 

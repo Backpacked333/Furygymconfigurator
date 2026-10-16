@@ -46,6 +46,7 @@ import {
   type Unit,
 } from '../lib/config'
 import { QUALITY_DETAILS, type Quality } from '../render/quality'
+import { usePendingChoice } from '../render/stillStatus'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
@@ -151,6 +152,10 @@ export default function ConfigPanel({
 }) {
   const product = productFamily(c.family)
   const container = c.family === 'container'
+  // The option whose still is on its way gets a ring that runs round it until the still swaps in.
+  const pending = usePendingChoice()
+  const rendering = (field: string, value: string) =>
+    pending?.field === field && pending.value === value ? ' swatch-rendering' : ''
   /** Applies a change unless it would obstruct the planned entry. */
   const guarded = (next: Config, message: string) => {
     if (layoutIssues(next).length) {
@@ -509,7 +514,10 @@ export default function ConfigPanel({
                   aria-pressed={c.finish === f.id}
                   onClick={() => onChange({ ...c, finish: f.id })}
                 >
-                  <span className="finish-swatch" style={{ background: f.color }}>
+                  <span
+                    className={`finish-swatch${rendering('finish', f.id)}`}
+                    style={{ background: f.color }}
+                  >
                     {c.finish === f.id && (
                       <Check
                         size={18}
@@ -609,7 +617,7 @@ export default function ConfigPanel({
                 return (
                   <button
                     key={p.id}
-                    className={c.package === p.id ? 'selected' : ''}
+                    className={`${c.package === p.id ? 'selected' : ''}${rendering('package', p.id)}`}
                     aria-pressed={c.package === p.id}
                     onClick={() => applyPackage(p.id)}
                   >
@@ -641,7 +649,7 @@ export default function ConfigPanel({
                   onClick={() => onChange({ ...c, interiorStyle: style.id })}
                 >
                   <span
-                    className="interior-swatch"
+                    className={`interior-swatch${rendering('interiorStyle', style.id)}`}
                     style={{ background: interiorSwatch[style.id] }}
                   />
                   <strong>{style.name}</strong>
@@ -662,7 +670,10 @@ export default function ConfigPanel({
                   className={c.flooring === f.id ? 'selected' : ''}
                   onClick={() => onChange({ ...c, flooring: f.id })}
                 >
-                  <span style={{ background: f.color }} />
+                  <span
+                    className={rendering('flooring', f.id).trim() || undefined}
+                    style={{ background: f.color }}
+                  />
                   {f.name}
                   {c.flooring === f.id && <Check size={13} />}
                 </button>
@@ -733,7 +744,7 @@ export default function ConfigPanel({
                 return (
                   <button
                     key={env.id}
-                    className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}`}
+                    className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}${rendering('environment', env.id)}`}
                     aria-pressed={c.environment === env.id}
                     onClick={() => onChange({ ...c, environment: env.id })}
                   >
@@ -813,7 +824,7 @@ export default function ConfigPanel({
               label="Path-traced stills"
               detail={
                 traceSupported || cloud
-                  ? `When the view rests, it refines into a ray-traced image with true bounce light, soft shadows, and real reflections, traced ${cloud ? 'in the cloud' : 'on this device'}.`
+                  ? `The gallery shows ray-traced stills with true bounce light, soft shadows, and real reflections, traced ${cloud ? 'in the cloud' : 'on this device'}. The 360° view is always live.`
                   : 'Needs a browser with WebGPU or a cloud renderer. Real-time rendering stays available.'
               }
               checked={trace && (traceSupported || cloud)}

@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 
 /**
  * What `?bench=1` reports (App.tsx BenchPanel, docs/benchmarks.md): when the live view, the first
- * path-traced preview and the first good frame reached the screen, how the cloud answered, what
+ * thumbnail and the first path-traced still reached the screen, how the cloud answered, what
  * each of its frames cost, and how long the local tracer took. Marks are milliseconds since the
  * page started (performance.now()). Kept outside React and free of three.js imports, like
  * traceStatus.ts, so the app shell can show it; recording is a few assignments, so it runs
@@ -10,22 +10,22 @@ import { useSyncExternalStore } from 'react'
  */
 
 /**
- * Firsts on the way to a path-traced view, each recorded once: when the live view drew, when the
+ * Firsts on the way to a path-traced still, each recorded once: when the live view drew, when the
  * scanned textures had settled, when the scene was captured for the cloud, when the first request
- * went to it, and when its first preview and first good frame were on screen.
+ * went to it, when its first thumbnail came, and when the first still was on the stage.
  */
 export type Mark =
   | 'firstRaster'
   | 'texturesSettled'
   | 'sceneCaptured'
   | 'firstRequest'
-  | 'firstPreview'
-  | 'firstGood'
+  | 'firstThumb'
+  | 'firstStill'
   | 'firstLocalTrace'
 /**
  * How the cloud is answering: `off` until it has (or none is configured), `cold` when its first
  * answer came from the shared renderer or took a container start, `warm` when it answered at once,
- * `full` while every GPU is in use, `failed` once the spin gave up on it.
+ * `full` while every GPU is in use, `failed` once the stills gave up on it.
  */
 export type CloudState = 'off' | 'cold' | 'warm' | 'full' | 'failed'
 
@@ -61,8 +61,8 @@ const fresh = (): BenchStats => ({
     texturesSettled: null,
     sceneCaptured: null,
     firstRequest: null,
-    firstPreview: null,
-    firstGood: null,
+    firstThumb: null,
+    firstStill: null,
     firstLocalTrace: null,
   },
   cloud: 'off',
@@ -118,7 +118,7 @@ export const bench = {
       publish({ cloud: answer.renderer === 'shared' || answer.totalMs > COLD_MS ? 'cold' : 'warm' })
     else if (stats.cloud === 'full') publish({ cloud: 'warm' })
   },
-  /** The cloud is full of other visitors, or the spin gave up on it. */
+  /** The cloud is full of other visitors, or the stills gave up on it. */
   cloud(state: 'full' | 'failed') {
     if (stats.cloud === 'failed' || stats.cloud === state) return
     publish({ cloud: state })

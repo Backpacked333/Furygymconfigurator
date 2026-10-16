@@ -16,6 +16,7 @@ import {
   roundedRectShape,
   type UVOptions,
 } from './geometry'
+import { CONTAINER_BACK, FLOOR_Y, STUDIO, interiorBounds } from './envelope'
 import { material } from './materials'
 import {
   awningSashes,
@@ -28,19 +29,11 @@ import {
 import { palette } from './palette'
 import { oriented, part, type Part, type V3 } from './parts'
 
-/** Top of the finished floor; equipment stands on it. */
-export const FLOOR_Y = 0.96
-/**
- * Studio portal (feet): base height, shell wall thickness, outer corner radius, depth, and the
- * width of the front face (proud lip plus recessed bezel) around the glazing.
- */
-export const STUDIO = { base: 0.3, wall: 0.36, radius: 1.6, depth: 8, bezel: 0.8, lip: 0.3 }
 /** Center plane of the Studio glazing frame. */
 const GLAZING_Z = 3.5
 /** Container opening: sill and the plane of the infill behind the welded frame. */
 const SILL = 0.62
 const INFILL_Z = 3.55
-const CONTAINER_BACK = -3.62
 
 export const finishColor = (c: Config) => FINISHES.find((f) => f.id === c.finish)!.color
 
@@ -850,25 +843,5 @@ export function containerInterior(c: Config): Part[] {
   return parts
 }
 
-/** Interior geometry the lights and probe need for either family. */
-export function interiorBounds(c: Config) {
-  const H = productHeight(c)
-  const slatted = c.interiorStyle === 'slatted'
-  if (c.family === 'studio') {
-    const top = STUDIO.base + H - STUDIO.wall - 0.08
-    return {
-      ceiling: slatted ? top - 0.42 : top,
-      back: -3.74,
-      front: 3.62,
-      halfWidth: c.length / 2 - 0.62,
-    }
-  }
-  return {
-    ceiling: slatted ? H - 1.1 : H - 0.72,
-    back: CONTAINER_BACK,
-    front: 3.6,
-    halfWidth: c.length / 2 - 0.62,
-  }
-}
-
+export { FLOOR_Y, STUDIO, interiorBounds }
 export type { V3 }
