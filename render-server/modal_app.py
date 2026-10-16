@@ -92,7 +92,6 @@ gateway_image = (
     scaledown_window=60,
     timeout=240,
     secrets=[
-        modal.Secret.from_name(os.environ.get("FURY_AUTH_SECRET", "fury-render-auth")),
         modal.Secret.from_dict(
             {"FURY_ALLOWED_ORIGINS": os.environ.get("FURY_ALLOWED_ORIGINS", "(?!)")}
         ),

@@ -1,11 +1,11 @@
 import gzip
 import hashlib
-import time
+import json
 
 import pytest
 from fastapi.testclient import TestClient
 
-from fury_render.gateway import create_gateway, pin_hash
+from fury_render.gateway import create_gateway
 from fury_render.protocol import ProtocolError, decompress
 from scene_kit import Kit, request
 
@@ -18,78 +18,46 @@ def gateway():
         calls.append((method, path, body, client))
         return 200, {"x-device": "test"}, b"result"
 
-    app = create_gateway(dispatch, pin_hash("test-pin"), "k" * 64, r"^https://test\.example$")
+    app = create_gateway(dispatch, r"^https://test\.example$")
     with TestClient(app) as client:
         yield client, calls
 
 
-def login(client):
-    response = client.post("/auth", json={"pin": "test-pin"})
-    assert response.status_code == 200
-    return {"Authorization": "Bearer " + response.json()["token"]}
-
-
-def test_locked_requests_never_start_gpu(gateway):
+def test_forwards_renders_and_uploads_without_a_pin(gateway):
     client, calls = gateway
-    assert client.get("/health").status_code == 200
-    assert client.post("/auth", json={"pin": "wrong"}).status_code == 401
-    assert client.post("/render", json=request(Kit().scene())).status_code == 401
-    assert client.put("/blobs/" + "a" * 64, content=b"bad").status_code == 401
-    assert calls == []
-
-
-def test_unlock_and_forward(gateway):
-    client, calls = gateway
-    headers = login(client)
-    response = client.post("/render", headers=headers, json=request(Kit().scene()))
+    assert client.get("/health").json()["ok"]
+    assert client.post("/auth", json={"pin": "fury"}).status_code in (404, 405)
+    response = client.post("/render", json=request(Kit().scene()))
     assert response.status_code == 200 and response.content == b"result"
     assert response.headers["cache-control"] == "no-store"
     assert len(calls) == 1
     data = b"geometry"
     assert (
         client.put(
-            "/blobs/" + hashlib.sha256(data).hexdigest(),
-            headers=headers,
-            content=gzip.compress(data),
+            "/blobs/" + hashlib.sha256(data).hexdigest(), content=gzip.compress(data)
         ).status_code
         == 200
     )
     assert calls[-1][2] == data
 
 
-def test_expired_tampered_and_wrong_key_tokens(gateway, monkeypatch):
+def test_caps_render_time(gateway):
     client, calls = gateway
-    headers = login(client)
-    original = headers["Authorization"]
-    headers["Authorization"] = original[:-1] + ("0" if original[-1] != "0" else "1")
-    assert client.post("/render", headers=headers).status_code == 401
-    headers["Authorization"] = original
-    now = time.time()
-    monkeypatch.setattr(time, "time", lambda: now + 3601)
-    assert client.post("/render", headers=headers).status_code == 401
-    assert calls == []
-
-
-def test_login_throttle_and_body_limit(gateway):
-    client, calls = gateway
-    assert client.post("/auth", content=b"x" * 1025).status_code == 413
-    for _ in range(4):
-        assert client.post("/auth", json={"pin": "wrong"}).status_code == 401
-    assert client.post("/auth", json={"pin": "test-pin"}).status_code == 429
-    assert calls == []
+    body = request(Kit().scene())
+    body["quality"] = {"timeLimit": 60}
+    assert client.post("/render", json=body).status_code == 200
+    forwarded = json.loads(calls[-1][2])
+    assert forwarded["quality"]["timeLimit"] == 15
 
 
 def test_bad_inputs_and_render_throttle(gateway):
     client, calls = gateway
-    headers = login(client)
-    assert client.post("/render", headers=headers, content=b"[]").status_code == 400
-    assert client.put("/blobs/" + "a" * 64, headers=headers, content=b"wrong").status_code == 400
+    assert client.post("/render", content=b"[]").status_code == 400
+    assert client.put("/blobs/" + "a" * 64, content=b"wrong").status_code == 400
     # The malformed request above took one of the burst of 8.
     for _ in range(7):
-        assert (
-            client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 200
-        )
-    assert client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 429
+        assert client.post("/render", json=request(Kit().scene())).status_code == 200
+    assert client.post("/render", json=request(Kit().scene())).status_code == 429
     assert len(calls) == 7
 
 
@@ -107,12 +75,8 @@ def test_gzip_bomb_never_dispatches(gateway, monkeypatch):
     import fury_render.gateway as module
 
     client, calls = gateway
-    headers = login(client)
     monkeypatch.setattr(module, "MAX_SCENE_BYTES", 100)
-    assert (
-        client.post("/render", headers=headers, content=gzip.compress(b"x" * 1000)).status_code
-        == 400
-    )
+    assert client.post("/render", content=gzip.compress(b"x" * 1000)).status_code == 400
     assert calls == []
 
 
@@ -138,7 +102,7 @@ def test_cors(gateway):
             headers={
                 "Origin": origin,
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "authorization,content-type",
+                "Access-Control-Request-Headers": "content-type",
             },
         )
         assert response.status_code == expected
@@ -168,9 +132,9 @@ def test_images_stay_compressed_through_the_private_call():
     async def dispatch(method, path, body, client):
         return await call_app(renderer, method, path, body, client)
 
-    app = create_gateway(dispatch, pin_hash("test-pin"), "k" * 64, r"^https://test\.example$")
+    app = create_gateway(dispatch, r"^https://test\.example$")
     with TestClient(app) as client:
-        response = client.post("/render", headers=login(client), json=request(Kit().scene()))
+        response = client.post("/render", json=request(Kit().scene()))
     # The browser receives the compressed bytes and inflates them itself.
     assert response.headers["content-encoding"] == "gzip"
     assert int(response.headers["content-length"]) == len(packed)

@@ -41,7 +41,6 @@ import {
 } from './orbit'
 import { createExposureMeter } from './pipeline'
 import { cloudUrl, type TraceState } from './traceStatus'
-import { cloudAuthorization, lockCloud } from './cloudAccess'
 
 export { cloudUrl }
 
@@ -666,11 +665,9 @@ export class CloudClient {
         const body = isImage ? raw : await gzip(raw)
         const response = await fetch(`${this.url}/blobs/${key}`, {
           method: 'PUT',
-          headers: cloudAuthorization(this.url),
           body: body as BodyInit,
           signal,
         })
-        if (response.status === 401) lockCloud()
         if (!response.ok) throw new Error(`upload failed (${response.status})`)
       }
     }
@@ -707,7 +704,7 @@ export class CloudClient {
     for (let attempt = 0; attempt < 3; attempt++) {
       const response = await fetch(`${this.url}/render`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...cloudAuthorization(this.url) },
+        headers: { 'content-type': 'application/json' },
         body: payload as BodyInit,
         signal,
       })
@@ -719,7 +716,6 @@ export class CloudClient {
           continue
         }
       }
-      if (response.status === 401) lockCloud()
       if (!response.ok) throw new Error(`cloud render failed (${response.status})`)
       const bytes = new Uint8Array(await response.arrayBuffer())
       this.lastSuccess = performance.now()

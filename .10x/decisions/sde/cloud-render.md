@@ -185,3 +185,16 @@ Verification:
   behind a fence that waits for every queued GPU command, and each queued raster frame takes
   about a second there. On a real GPU that is a frame or two. `?traceStats=1` logs both times
   for each pre-rendered view.
+
+## Follow-up: PIN removed
+
+The owner asked to remove the PIN page so the configurator always opens. The PIN screen, the
+browser's session token, and the gateway's `/auth` endpoint and token check are gone, along with
+the `fury-render-auth` Modal secret.
+
+- **What still protects the GPU:** CORS limited to the configured origins, request validation, a
+  15 s render cap, and global rate limits of 40 renders a minute (burst 8) and 1 GiB of uploads
+  an hour.
+- **Cost risk:** these limits are in-process, and a script that ignores CORS can still use them up.
+  The Modal workspace spending limit is the hard cap.
+- **If the gateway can't be reached:** the browser traces on its own GPU, as it did before.
