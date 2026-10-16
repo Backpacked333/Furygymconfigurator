@@ -170,3 +170,16 @@ Verification:
   never starts the local tracer.
 - pytest: the `"transfer": "file"` response is a gzip file without `Content-Encoding`, smaller
   than the inflated one, and decodes to the same image; the gateway throttle at the new burst.
+- Full app (Chromium, WebGL 2 on a software GPU, local CPU render server, 550×427):
+  - The first view rested on grid pose 4/15/23 and rendered in 16 s.
+  - The ring started at once, nearest azimuths first, as gzip files of about 1.0 MB.
+  - One arrow-key press later the camera rested on pose 5/15/23, which was already rendered. It
+    was shown from the cache with no render request, and the badge read "4/48 angles ready".
+- The first browser run found a bug that predates this work. `motionPixels` measured rotation
+  as `acos(q·q')`, and a unit quaternion's dot with itself can round to just under 1 (17 of 48
+  test orientations). A camera at rest then read as a sliver of motion every frame, so the snap
+  never started and `settleGlide` kept requesting frames. An unmoved camera now reads as exactly
+  still.
+- **Not measured:** time from rest to a cached view on a real GPU. On the software GPU, frames
+  take about a second, so resting and the GPU readbacks of the exposure match take seconds.
+  `?traceStats=1` logs the decode and exposure-match times of each pre-rendered view.

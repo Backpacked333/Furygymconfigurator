@@ -866,6 +866,7 @@ export class CloudSession {
   begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture, orbit: OrbitContext = null) {
     this.halt()
     const epoch = ++this.epoch
+    const rested = performance.now()
     const abort = new AbortController()
     this.abort = abort
     this.state = 'preparing'
@@ -914,7 +915,9 @@ export class CloudSession {
           this.progress()
         }
         if (epoch !== this.epoch) return
+        const decoding = performance.now()
         const texture = await decodeFrame(result.frame)
+        const decoded = performance.now()
         if (epoch !== this.epoch) {
           texture.dispose()
           return
@@ -940,7 +943,7 @@ export class CloudSession {
           const { width, height } = result.frame
           console.info(
             result.cached
-              ? `[cloud render] ${width}x${height} pre-rendered view`
+              ? `[cloud render] ${width}x${height} pre-rendered view: on screen ${Math.round(this.start - rested)} ms after rest (decode ${Math.round(decoded - decoding)} ms, exposure match ${Math.round(this.start - decoded)} ms)`
               : `[cloud render] ${width}x${height} on ${s.device}, ${s.denoise} denoising: ${(s.totalMs / 1000).toFixed(1)} s total (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
           )
         }
