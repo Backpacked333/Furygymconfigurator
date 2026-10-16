@@ -166,13 +166,25 @@ def test_a_call_the_gateway_stops_waiting_for_is_cancelled():
 
             self.get, self.cancel = SimpleNamespace(aio=get), SimpleNamespace(aio=cancel)
 
-    async def scenario():
-        answered, stuck = Call((200, {}, b"frame")), Call()
-        assert await answer_or_cancel(answered) == (200, {}, b"frame")
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(answer_or_cancel(stuck), 0.01)
-        await asyncio.sleep(0)
-        return answered.cancelled, stuck.cancelled
+    async def spawn(call, accepted=None):
+        if accepted:
+            await accepted.wait()
+        return call
 
-    # Left queued, the stuck call would be rendered for no one once the GPU starts.
-    assert asyncio.run(scenario()) == (False, True)
+    async def scenario():
+        answered, stuck, late = Call((200, {}, b"frame")), Call(), Call()
+        assert await answer_or_cancel(spawn(answered)) == (200, {}, b"frame")
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(answer_or_cancel(spawn(stuck)), 0.01)
+        # The wait ends while Modal is still accepting the call: it is cancelled once it exists.
+        accepted = asyncio.Event()
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(answer_or_cancel(spawn(late, accepted)), 0.01)
+        assert not late.cancelled
+        accepted.set()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        return answered.cancelled, stuck.cancelled, late.cancelled
+
+    # Left queued, these calls would be rendered for no one once the GPU starts.
+    assert asyncio.run(scenario()) == (False, True, True)

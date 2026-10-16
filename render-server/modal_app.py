@@ -126,7 +126,6 @@ def gateway():
     async def dispatch(method, path, body, client):
         # Spawned rather than called, so a request the gateway stops waiting for is cancelled
         # instead of left queued for the GPU.
-        call = await renderer.request.spawn.aio(method, path, body, client)
-        return await answer_or_cancel(call)
+        return await answer_or_cancel(renderer.request.spawn.aio(method, path, body, client))
 
     return create_gateway(dispatch)
