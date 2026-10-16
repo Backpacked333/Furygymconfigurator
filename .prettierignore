@@ -2,3 +2,5 @@ dist
 node_modules
 package-lock.json
 public/textures/sources.json
+figures/kit
+public/how-its-built*.html

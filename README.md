@@ -68,6 +68,10 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 - **History:** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z redoes. Changing size preserves selections, and downsizing is blocked if current equipment would no longer fit.
 - **Photo mode:** expands the scene and downloads a rasterized PNG at the current canvas resolution. It is not 4K path tracing.
 
+## How it's built figure
+
+`public/how-its-built.html` (and `-light.html`) is a standalone isometric figure, deployed with the site at `/how-its-built.html`. It assembles a 20′ Container Gym in twelve steps in about seven seconds and then loops: piers, base frame, end frames, plywood floor, rear wall, insulated lining and electrics, rubber floor, equipment, roll-up door, front wall, roof, cargo doors. Hover to scrub, click or press Enter to replay, and use the arrow keys to step. Sizes follow `src/lib/products.ts`; part geometry is illustrative. Rebuild it with `npm run figure` after editing `figures/how-its-built/`. `figures/kit/` is a vendored copy of the MIT-licensed Anatomy isometric kit.
+
 ## Configuration architecture
 
 One validated, versioned `Config` object drives the scene, layout, quote checklist, share payload, and PDF. `src/lib/config.ts` owns the Zod schema, planning equipment, presets, validation rules, unit conversions, and quote semantics. `src/lib/products.ts` owns the sourced product facts. Never add prices separately in a component or PDF.
