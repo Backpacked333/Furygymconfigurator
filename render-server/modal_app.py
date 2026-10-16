@@ -18,12 +18,9 @@ environment = {
     "FURY_DEVICE": "auto",
     "FURY_BLOB_DIR": "/tmp/fury-blobs",
     # OptiX compiles its kernels on first use; keep them between containers.
-    "OPTIX_CACHE_PATH": "/cache/optix",
-    "XDG_CACHE_HOME": "/cache/xdg",
+    "OPTIX_CACHE_PATH": "/fury-cache/optix",
+    "XDG_CACHE_HOME": "/fury-cache/xdg",
 }
-# A custom domain for the configurator can be allowed at deploy time.
-if os.environ.get("FURY_ALLOWED_ORIGINS"):
-    environment["FURY_ALLOWED_ORIGINS"] = os.environ["FURY_ALLOWED_ORIGINS"]
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -41,11 +38,10 @@ image = (
     )
     # Keep in step with requirements.txt.
     .uv_pip_install("bpy==4.5.0", "fastapi[standard]==0.143.2", "numpy==1.26.4")
-    .env(environment)
     .add_local_python_source("fury_render")
 )
 
-app = modal.App("fury-render")
+app = modal.App(os.environ.get("FURY_APP_NAME", "fury-render"))
 
 
 @app.cls(
@@ -53,7 +49,7 @@ app = modal.App("fury-render")
     gpu=GPU,
     cpu=4,
     memory=16384,
-    volumes={"/cache": cache},
+    volumes={"/fury-cache": cache},
     scaledown_window=IDLE_SECONDS,
     max_containers=1,
     timeout=900,
@@ -62,6 +58,8 @@ app = modal.App("fury-render")
 class Renderer:
     @modal.enter()
     def start(self):
+        # Set cache paths after volume mounting, not while the image is being built.
+        os.environ.update(environment)
         from fury_render.api import create_app
 
         self.web_app = create_app(start=False)
@@ -69,6 +67,43 @@ class Renderer:
         print("renderer ready:", info)
         cache.commit()
 
-    @modal.asgi_app()
-    def web(self):
-        return self.web_app
+    @modal.method()
+    async def request(self, method: str, path: str, body: bytes, client: str):
+        import httpx
+
+        transport = httpx.ASGITransport(app=self.web_app, client=(client, 0))
+        async with httpx.AsyncClient(transport=transport, base_url="http://renderer") as session:
+            response = await session.request(method, path, content=body)
+            headers = {
+                k: v for k, v in response.headers.items()
+                if k not in ("content-encoding", "content-length")
+            }
+            return response.status_code, headers, response.content
+
+
+gateway_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .uv_pip_install("fastapi[standard]==0.143.2", "numpy==1.26.4")
+    .add_local_python_source("fury_render")
+)
+
+
+@app.function(
+    image=gateway_image, cpu=0.25, memory=2048, max_containers=1,
+    scaledown_window=60, timeout=240,
+    secrets=[
+        modal.Secret.from_name(os.environ.get("FURY_AUTH_SECRET", "fury-render-auth")),
+        modal.Secret.from_dict({"FURY_ALLOWED_ORIGINS": os.environ.get("FURY_ALLOWED_ORIGINS", "(?!)")}),
+    ],
+)
+@modal.concurrent(max_inputs=8)
+@modal.asgi_app()
+def gateway():
+    from fury_render.gateway import create_gateway
+
+    renderer = Renderer()
+
+    async def dispatch(method, path, body, client):
+        return await renderer.request.remote.aio(method, path, body, client)
+
+    return create_gateway(dispatch)

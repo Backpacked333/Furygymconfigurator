@@ -9,10 +9,13 @@ import '@fontsource/dm-sans/latin-400.css'
 import '@fontsource/dm-sans/latin-500.css'
 import '@fontsource/dm-sans/latin-600.css'
 import App from './App'
+import CloudAccessGate from './components/CloudAccessGate'
 import './styles.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <CloudAccessGate>
+      <App />
+    </CloudAccessGate>
   </React.StrictMode>,
 )

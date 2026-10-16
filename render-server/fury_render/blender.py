@@ -108,12 +108,12 @@ class Studio:
         c = s.cycles
         c.use_adaptive_sampling = True
         c.use_denoising = True
-        optix = self.device["device"] == "OPTIX"
-        c.denoiser = "OPTIX" if optix else "OPENIMAGEDENOISE"
+        # OptiX ray tracing works on Modal, but its denoiser fails at startup.
+        c.denoiser = "OPENIMAGEDENOISE"
         c.denoising_input_passes = "RGB_ALBEDO_NORMAL"
         c.denoising_prefilter = "ACCURATE"
         if hasattr(c, "denoising_use_gpu"):
-            c.denoising_use_gpu = self.device["device"] != "CPU"
+            c.denoising_use_gpu = False
         # Matches the browser tracer: ten bounces, glossy filtering, no volumes.
         c.max_bounces = 10
         c.diffuse_bounces = 10

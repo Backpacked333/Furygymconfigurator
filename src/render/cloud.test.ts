@@ -11,12 +11,24 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   cameraRecord,
+  CloudClient,
   cloudUrl,
   encodeGeometry,
   encodeInstances,
   encodeSky,
   unpackImage,
 } from './cloud'
+
+describe('cloud warmth', () => {
+  it('does not treat a new client as a warm GPU', () => {
+    const client = new CloudClient('https://gpu.example')
+    expect(client.warm).toBe(false)
+    client.lastSuccess = performance.now()
+    expect(client.warm).toBe(true)
+    client.lastSuccess = performance.now() - 5 * 60 * 1000
+    expect(client.warm).toBe(false)
+  })
+})
 
 /** Reads an FRG1 blob back the way render-server/fury_render/protocol.py does. */
 function parseGeometry(blob: Uint8Array) {

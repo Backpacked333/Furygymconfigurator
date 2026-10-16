@@ -26,6 +26,7 @@ import type { SkyLook } from '../lib/visuals'
 import { environmentTexture, lookKey, preparePathTraceScene, sunLight } from './pathtrace'
 import { createExposureMeter } from './pipeline'
 import { cloudUrl, type TraceState } from './traceStatus'
+import { cloudAuthorization, lockCloud } from './cloudAccess'
 
 export { cloudUrl }
 
@@ -38,8 +39,8 @@ export { cloudUrl }
  * Bulky data travels as blobs named by the SHA-256 of their content: geometry, instance
  * matrices, the sky map, and texture files. The server keeps them, so a new camera angle or a
  * material edit sends only the small JSON description, and a blob is uploaded only when the
- * server answers that it is missing (409). Textures the deployed site serves are fetched by the
- * server itself. The image comes back as linear half floats, so it gets exactly the same
+ * server answers that it is missing (409). Texture bytes are uploaded by the browser too.
+ * The image comes back as linear half floats, so it gets exactly the same
  * finishing (exposure match, bloom, tone mapping) as a local trace.
  */
 
@@ -596,7 +597,7 @@ export class CloudClient {
   private readonly session = Math.random().toString(36).slice(2)
   private seq = 0
   /** When the server last answered with an image: a warm GPU answers within seconds. */
-  lastSuccess = 0
+  lastSuccess: number | null = null
 
   constructor(url: string) {
     this.url = url
@@ -604,7 +605,7 @@ export class CloudClient {
 
   /** True while the server has rendered recently enough that its GPU is likely still on. */
   get warm() {
-    return performance.now() - this.lastSuccess < 4 * 60 * 1000
+    return this.lastSuccess !== null && performance.now() - this.lastSuccess < 4 * 60 * 1000
   }
 
   private async upload(keys: string[], blobs: Map<string, BlobSource>, signal: AbortSignal) {
@@ -619,9 +620,11 @@ export class CloudClient {
         const body = isImage ? raw : await gzip(raw)
         const response = await fetch(`${this.url}/blobs/${key}`, {
           method: 'PUT',
+          headers: cloudAuthorization(this.url),
           body: body as BodyInit,
           signal,
         })
+        if (response.status === 401) lockCloud()
         if (!response.ok) throw new Error(`upload failed (${response.status})`)
       }
     }
@@ -652,7 +655,7 @@ export class CloudClient {
     for (let attempt = 0; attempt < 3; attempt++) {
       const response = await fetch(`${this.url}/render`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...cloudAuthorization(this.url) },
         body: payload as BodyInit,
         signal,
       })
@@ -664,6 +667,7 @@ export class CloudClient {
           continue
         }
       }
+      if (response.status === 401) lockCloud()
       if (!response.ok) throw new Error(`cloud render failed (${response.status})`)
       const w = Number(response.headers.get('x-image-width'))
       const h = Number(response.headers.get('x-image-height'))
