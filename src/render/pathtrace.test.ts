@@ -121,4 +121,23 @@ describe('path-traced scene capture', () => {
     expect(sceneSignature(f.scene, 'a')).not.toBe(updated)
     expect(base).toBeTypeOf('number')
   })
+
+  it('notices a move along any axis, alone or combined', () => {
+    const f = fixture()
+    f.scene.updateMatrixWorld(true)
+    const moves: [number, number, number][] = [
+      [4.25, 0, -2.75], // a floor-plan drag that a weighted sum of x and z cancels
+      [0.25, 0, 0],
+      [0, 0.25, 0],
+      [0, 0, 0.25],
+    ]
+    for (const move of moves) {
+      const before = sceneSignature(f.scene, 'a')
+      f.stone.position.x += move[0]
+      f.stone.position.y += move[1]
+      f.stone.position.z += move[2]
+      f.scene.updateMatrixWorld(true)
+      expect(sceneSignature(f.scene, 'a')).not.toBe(before)
+    }
+  })
 })

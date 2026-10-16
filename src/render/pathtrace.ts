@@ -191,8 +191,9 @@ export function sceneSignature(scene: Scene, lookKey: string) {
   scene.traverse((object) => {
     mix(object.id)
     mix(object.visible ? 1 : 0)
-    const e = object.matrixWorld.elements
-    mix(e[0] + e[5] * 3 + e[10] * 7 + e[12] * 11 + e[13] * 13 + e[14] * 17)
+    // Every element separately: a weighted sum cancels for some moves, such as a floor-plan
+    // drag of (4.25, -2.75) ft.
+    for (const element of object.matrixWorld.elements) mix(element)
     const mesh = object as Mesh & {
       instanceMatrix?: { version: number }
       count?: number
