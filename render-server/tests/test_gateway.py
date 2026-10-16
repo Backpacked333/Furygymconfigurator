@@ -144,3 +144,47 @@ def test_images_stay_compressed_through_the_private_call():
     assert response.headers["content-encoding"] == "gzip"
     assert int(response.headers["content-length"]) == len(packed)
     assert response.content == image and response.headers["x-image-width"] == "2"
+
+
+def test_a_call_the_gateway_stops_waiting_for_is_cancelled():
+    import asyncio
+    from types import SimpleNamespace
+
+    from fury_render.rpc import answer_or_cancel
+
+    class Call:
+        def __init__(self, answer=None):
+            self.answer, self.cancelled = answer, False
+
+            async def get():
+                if self.answer is None:
+                    await asyncio.Event().wait()  # Still waiting for a GPU to be placed.
+                return self.answer
+
+            async def cancel():
+                self.cancelled = True
+
+            self.get, self.cancel = SimpleNamespace(aio=get), SimpleNamespace(aio=cancel)
+
+    async def spawn(call, accepted=None):
+        if accepted:
+            await accepted.wait()
+        return call
+
+    async def scenario():
+        answered, stuck, late = Call((200, {}, b"frame")), Call(), Call()
+        assert await answer_or_cancel(spawn(answered)) == (200, {}, b"frame")
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(answer_or_cancel(spawn(stuck)), 0.01)
+        # The wait ends while Modal is still accepting the call: it is cancelled once it exists.
+        accepted = asyncio.Event()
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(answer_or_cancel(spawn(late, accepted)), 0.01)
+        assert not late.cancelled
+        accepted.set()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        return answered.cancelled, stuck.cancelled, late.cancelled
+
+    # Left queued, these calls would be rendered for no one once the GPU starts.
+    assert asyncio.run(scenario()) == (False, True, True)

@@ -3,7 +3,9 @@
 import asyncio
 import os
 
-from fury_render.api import PRIORITY, BlobStore, RenderQueue
+import pytest
+
+from fury_render.api import PRIORITY, BlobStore, RenderQueue, uninterrupted
 
 
 def test_waiting_views_go_ahead_of_pre_renders():
@@ -45,6 +47,50 @@ def test_a_cancelled_wait_does_not_block_the_queue():
         return queue.busy
 
     assert asyncio.run(scenario()) is False
+
+
+def test_a_render_cancelled_midway_keeps_its_worker_until_it_ends():
+    async def scenario():
+        queue = RenderQueue()
+        rendered = asyncio.Event()
+        order = []
+
+        async def blender():
+            await rendered.wait()
+            order.append("first rendered")
+            return "frame"
+
+        async def job(name, work):
+            async with queue.turn(1):
+                order.append(name)
+                return await uninterrupted(work)
+
+        first = asyncio.create_task(job("first", blender()))
+        await asyncio.sleep(0.01)
+        second = asyncio.create_task(job("second", asyncio.sleep(0, "frame")))
+        await asyncio.sleep(0.01)
+        # The gateway stopped waiting: the render goes on, and so does the worker's turn.
+        first.cancel()
+        await asyncio.sleep(0.01)
+        assert order == ["first"] and queue.busy
+        rendered.set()
+        assert await asyncio.wait_for(second, 1) == "frame"
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        return order, queue.busy
+
+    assert asyncio.run(scenario()) == (["first", "first rendered", "second"], False)
+
+
+def test_uninterrupted_work_reports_its_own_failure():
+    async def scenario():
+        async def broken():
+            raise RuntimeError("the renderer stopped")
+
+        await uninterrupted(broken())
+
+    with pytest.raises(RuntimeError, match="the renderer stopped"):
+        asyncio.run(scenario())
 
 
 def test_renders_side_by_side_on_every_worker():

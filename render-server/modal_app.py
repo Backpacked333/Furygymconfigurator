@@ -119,10 +119,13 @@ gateway_image = (
 @modal.asgi_app()
 def gateway():
     from fury_render.gateway import create_gateway
+    from fury_render.rpc import answer_or_cancel
 
     renderer = Renderer()
 
     async def dispatch(method, path, body, client):
-        return await renderer.request.remote.aio(method, path, body, client)
+        # Spawned rather than called, so a request the gateway stops waiting for is cancelled
+        # instead of left queued for the GPU.
+        return await answer_or_cancel(renderer.request.spawn.aio(method, path, body, client))
 
     return create_gateway(dispatch)

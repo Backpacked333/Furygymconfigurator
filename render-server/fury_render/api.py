@@ -27,6 +27,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -250,6 +251,26 @@ def finish_frame(path: str, finish: dict) -> tuple[bytes, float]:
     return finishing.encode_webp(rgb), finishing.traced_key(hdr)
 
 
+async def uninterrupted(work: Awaitable):
+    """Awaits work that cannot be stopped once begun, such as a frame Blender is rendering.
+
+    A cancelled caller (its gateway stopped waiting) still waits for the work to end before the
+    cancellation is raised. Until then the work keeps the worker's turn and output file: released
+    any sooner, the next render would share the worker's pipe while Blender is still answering.
+    """
+    task = asyncio.ensure_future(work)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.wait([task])
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 class RenderQueue:
     """Renders on a number of workers, one each, by priority (lower first), then in order of arrival.
 
@@ -390,75 +411,86 @@ class Service:
         queued = time.perf_counter()
         self.waiting += 1
         try:
-            out = os.path.join(tempfile.gettempdir(), f"fury-{uuid.uuid4().hex}.bin")
-            try:
-                async with self.queue.turn(priority) as index:
-                    if session and self.latest.get(session, seq) > seq:
-                        return JSONResponse({"superseded": True}, status_code=409)
-                    waited = time.perf_counter() - queued
-                    worker = self.workers[index]
+            # Waiting for a worker can be given up: the request leaves the queue.
+            index = await self.queue.acquire(priority)
+
+            async def on_worker() -> Response:
+                out = os.path.join(tempfile.gettempdir(), f"fury-{uuid.uuid4().hex}.bin")
+                try:
                     try:
-                        result = await asyncio.to_thread(
-                            worker.call, {"op": "render", "request": request, "out": out}
+                        if session and self.latest.get(session, seq) > seq:
+                            return JSONResponse({"superseded": True}, status_code=409)
+                        waited = time.perf_counter() - queued
+                        worker = self.workers[index]
+                        try:
+                            result = await asyncio.to_thread(
+                                worker.call, {"op": "render", "request": request, "out": out}
+                            )
+                        except WorkerDied:
+                            worker.crashed()
+                            await asyncio.to_thread(worker.start)
+                            return JSONResponse({"error": "renderer restarted"}, status_code=503)
+                        if not result.get("ok"):
+                            return JSONResponse(
+                                {"error": result.get("error", "render failed")},
+                                status_code=int(result.get("status", 500)),
+                            )
+                        if not frame:
+                            with open(out, "rb") as f:
+                                image = f.read()
+                    finally:
+                        self.queue.release(index)
+                    stats = result["stats"]
+                    timings = {
+                        "X-Queue-Ms": str(round(waited * 1000)),
+                        "X-Prepare-Ms": str(stats["prepareMs"]),
+                        "X-Render-Ms": str(stats["renderMs"]),
+                        "X-Device": str(stats["device"]),
+                        "X-Denoise": str(stats.get("denoise", "")),
+                    }
+                    if frame:
+                        # The GPU is free again: finish this frame while it renders the next.
+                        started = time.perf_counter()
+                        data, key_light = await asyncio.get_running_loop().run_in_executor(
+                            self.finisher, finish_frame, out, request["finish"]
                         )
-                    except WorkerDied:
-                        worker.crashed()
-                        await asyncio.to_thread(worker.start)
-                        return JSONResponse({"error": "renderer restarted"}, status_code=503)
-                    if not result.get("ok"):
-                        return JSONResponse(
-                            {"error": result.get("error", "render failed")},
-                            status_code=int(result.get("status", 500)),
+                        self.frames.put(key, FRAME_KEY.pack(key_light) + data)
+                        return self.frame_response(
+                            data,
+                            request,
+                            {
+                                **timings,
+                                "X-Cache": "miss",
+                                "X-Finish-Ms": str(round((time.perf_counter() - started) * 1000)),
+                                "X-Traced-Key": f"{key_light:.4f}",
+                            },
                         )
-                    if not frame:
-                        with open(out, "rb") as f:
-                            image = f.read()
-                stats = result["stats"]
-                timings = {
-                    "X-Queue-Ms": str(round(waited * 1000)),
-                    "X-Prepare-Ms": str(stats["prepareMs"]),
-                    "X-Render-Ms": str(stats["renderMs"]),
-                    "X-Device": str(stats["device"]),
-                    "X-Denoise": str(stats.get("denoise", "")),
-                }
-                if frame:
-                    # The GPU is free again: finish this frame while it renders the next.
-                    started = time.perf_counter()
-                    data, key_light = await asyncio.get_running_loop().run_in_executor(
-                        self.finisher, finish_frame, out, request["finish"]
-                    )
-                    self.frames.put(key, FRAME_KEY.pack(key_light) + data)
-                    return self.frame_response(
-                        data,
-                        request,
-                        {
-                            **timings,
-                            "X-Cache": "miss",
-                            "X-Finish-Ms": str(round((time.perf_counter() - started) * 1000)),
-                            "X-Traced-Key": f"{key_light:.4f}",
-                        },
-                    )
-            finally:
-                if os.path.exists(out):
-                    os.remove(out)
+                finally:
+                    if os.path.exists(out):
+                        os.remove(out)
+                # As a gzip file the browser keeps the image compressed (it caches pre-rendered
+                # views); as gzip transfer encoding it arrives inflated.
+                as_file = body.get("transfer") == "file"
+                return Response(
+                    image,
+                    media_type="application/gzip" if as_file else "application/octet-stream",
+                    headers={
+                        **({} if as_file else {"Content-Encoding": "gzip"}),
+                        **timings,
+                        "X-Image-Format": IMAGE_FORMAT,
+                        "X-Image-Width": str(stats["width"]),
+                        "X-Image-Height": str(stats["height"]),
+                        "X-Pack-Ms": str(stats["packMs"]),
+                        "Cache-Control": "no-store",
+                    },
+                )
+
+            # On a worker, the request goes on even if its caller has gone (the gateway stopped
+            # waiting): Blender can't be interrupted, and a finished spin frame is cached for
+            # whoever asks for it next, the browser's retry included.
+            return await uninterrupted(on_worker())
         finally:
             self.waiting -= 1
-        # As a gzip file the browser keeps the image compressed (it caches pre-rendered views);
-        # as gzip transfer encoding it arrives inflated.
-        as_file = body.get("transfer") == "file"
-        return Response(
-            image,
-            media_type="application/gzip" if as_file else "application/octet-stream",
-            headers={
-                **({} if as_file else {"Content-Encoding": "gzip"}),
-                **timings,
-                "X-Image-Format": IMAGE_FORMAT,
-                "X-Image-Width": str(stats["width"]),
-                "X-Image-Height": str(stats["height"]),
-                "X-Pack-Ms": str(stats["packMs"]),
-                "Cache-Control": "no-store",
-            },
-        )
 
     @staticmethod
     def frame_response(data: bytes, request: dict, headers: dict) -> Response:

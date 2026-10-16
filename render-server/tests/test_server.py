@@ -131,6 +131,34 @@ def test_finished_frames_are_cached(client):
     assert np.asarray(Image.open(io.BytesIO(brighter.content)), dtype=float).mean() > pixels.mean()
 
 
+def test_a_frame_cancelled_midway_is_still_finished_and_cached(client):
+    """The gateway stopped waiting while Blender rendered: the browser's retry gets the frame."""
+    import asyncio
+
+    from fury_render.api import frame_digest
+    from fury_render.protocol import validate_request
+
+    service = client.app.state.service
+    kit = Kit()
+    scene = kit.scene(wall_color=(0.2, 0.5, 0.3))
+    upload_missing(client, kit, client.post("/render", json=request(scene)))
+    body = {**request(scene), "output": "frame", "finish": {"exposure": 1, "gain": 1.25}}
+
+    async def scenario():
+        render = asyncio.create_task(service.render(body))
+        while not service.queue.busy:
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.05)
+        render.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await render
+
+    asyncio.run(scenario())
+    assert not service.queue.busy and service.waiting == 0
+    assert service.frames.read(frame_digest(validate_request(body))) is not None
+    assert client.post("/render", json=body).headers["x-cache"] == "hit"
+
+
 def test_panorama_frame(client):
     import io
 

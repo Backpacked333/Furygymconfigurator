@@ -74,6 +74,12 @@ durable counters.
 - Gateway: global 600 render requests/minute (burst 240), 1 GiB of uploads/hour (burst 512 MiB).
   Missing-blob retries count as render requests. The render limit leaves room for a visitor's
   spin: twelve frame requests open at a time, a few hundred per design. A busy answer (429 or 503) makes the browser wait two seconds and ask again.
+- The gateway waits up to 180 seconds for the GPU, then answers 503 and **cancels** the Modal
+  call (`fury_render/rpc.py`). A plain `.remote()` call would stay queued: while the GPU
+  container was still "scheduling", calls the gateway had given up on minutes earlier were still
+  pending, waiting to be rendered for no one. A call cancelled mid-render still finishes on its
+  GPU (Blender can't be interrupted), and the worker stays taken until it does. A finished spin
+  frame still goes into the frame cache, so asking again gets it without another render.
 - These token buckets are in-process and reset when the gateway restarts/scales down. They reduce
   abuse but are **not durable quotas or a hard budget**. With no PIN, a script that ignores CORS
   could keep the GPU busy up to these limits; the Modal workspace spending limit caps the cost.
@@ -111,6 +117,8 @@ reuse and material edits. They do not replace deployed GPU or browser tests.
 
 - `fury_render/gateway.py`: CORS, request validation and pre-GPU request limits.
 - `modal_app.py`: CPU ASGI endpoint and private GPU RPC, persistent OptiX cache.
+- `fury_render/rpc.py`: the private call, with compressed images kept compressed and abandoned
+  calls cancelled.
 - `fury_render/api.py`: missing-blob protocol, frame cache, priority queue over the workers and
   superseded-view handling.
 - `fury_render/worker.py`: isolated Blender process, one per GPU; one render at a time each.
