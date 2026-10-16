@@ -90,3 +90,29 @@ switch the GPU off when idle (no paid warm hours).
   with 3 ms of scene sync and no uploads, and the status read "Path traced".
 - **Not verified:** GPU render times, cold-start time, and OptiX kernel caching. All three need
   the owner's Modal deploy.
+
+## Follow-up: review of PR #11 (PIN gateway)
+
+PR #11 put a CPU-only PIN gateway in front of the GPU and called the renderer through a private
+Modal method. Two of its changes cost seconds per view; both measured on the merged code.
+
+1. **Images were inflated in transit.** The method read the renderer's response with httpx,
+   which decodes `Content-Encoding: gzip`, and the gateway sent the result on uncompressed. A
+   1920×1200 view crossed as 18.4 MB instead of 4.9 MB. `fury_render/rpc.py` now passes the raw,
+   still-compressed body and its encoding through. A gateway test checks the wire length.
+2. **Denoising moved to the CPU.** The OptiX denoiser fails on Modal, so PR #11 switched to
+   OIDN, but also turned off OIDN's GPU mode. On 4 vCPUs, OIDN with the accurate prefilter took
+   about 12.5 s per 1920×1200 frame.
+   - The renderer now runs OIDN on the GPU (it uses its own CUDA kernels, not OptiX).
+   - If that fails at warm-up, fails to start, or crashes mid-render, it falls back to CPU
+     denoising with the fast prefilter (about 3.5 s on the same machine).
+   - `FURY_DENOISE=cpu` forces the CPU; `/health`, `X-Denoise`, and `?traceStats=1` report which
+     path is in use.
+   - **Not verified:** GPU denoising on Modal needs a deploy to confirm.
+
+Raised with the owner, not changed:
+
+- The PIN screen gates the whole configurator whenever `VITE_CLOUD_RENDER_URL` is set.
+- An expired session replaces the app with the PIN screen.
+- The global render limit is 12 a minute (burst 3), counting missing-blob retries.
+- A short PIN can be brute-forced at 10 attempts a minute.

@@ -1,8 +1,14 @@
 # Cloud renderer
 
-Optional Blender Cycles renderer for the configurator. An L40S uses OptiX hardware ray tracing;
-CPU OpenImageDenoise finishes the image. OptiX denoising fails on the tested Modal runtime, even
-though OptiX rendering works. The browser applies exposure matching, bloom, and tone mapping.
+Optional Blender Cycles renderer for the configurator. An L40S uses OptiX hardware ray tracing,
+and Open Image Denoise (OIDN) finishes the image on the GPU. OptiX's own denoiser fails on the
+tested Modal runtime even though OptiX rendering works, so OIDN is used instead.
+
+If GPU denoising fails, the renderer falls back to CPU denoising by itself. That covers failing
+at warm-up, failing to start, or crashing mid-render. The CPU path uses OIDN's fast prefilter:
+about 3.5 s at 1920×1200 on 4 vCPUs, against 12.5 s with the accurate one. `/health`, the
+`X-Denoise` header, and the browser's `?traceStats=1` log say which is in use. The browser
+applies exposure matching, bloom, and tone mapping.
 
 ## Access and deployment
 
@@ -51,6 +57,7 @@ Settings read during deployment:
 | `FURY_ALLOWED_ORIGINS` | No origins         | Fully anchored regex for approved browser origins |
 | `FURY_GPU`             | `L40S`             | GPU type                                          |
 | `FURY_IDLE_SECONDS`    | `300`              | GPU idle tail before scale-to-zero; billed time   |
+| `FURY_DENOISE`         | `auto`             | `cpu` skips GPU denoising (it falls back anyway)  |
 
 Stop a test with `modal app stop <app-name>` and confirm zero tasks with `modal app list`.
 To revoke all issued sessions, rotate `FURY_SESSION_KEY` and redeploy. Changing only the PIN hash
@@ -69,9 +76,12 @@ replacing the in-memory limits with shared durable counters.
 - Wire and expanded bodies are bounded: 32 MiB for scenes, 128 MiB for individual blobs.
   Texture URLs are never fetched by the server, preventing redirects/private-network SSRF.
 - GPU failure falls back to local tracing where supported. WebGL retains the raster image.
+- Rendered images stay gzip-compressed from the GPU method through the gateway to the browser
+  (`fury_render/rpc.py`). At 1920×1200 that is about 4.9 MB instead of 18.4 MB raw.
 - A tiny 640×480/128-sample scene passed through the deployed PIN gateway to L40S/OptiX:
-  660 ms rendering, 1.85 s HTTP round trip with a warm worker after blob uploads.
-  This is not a full configurator benchmark. Verify actual scenes and cold starts before launch.
+  660 ms rendering, 1.85 s HTTP round trip with a warm worker after blob uploads. That run
+  predates GPU denoising and compressed transfer. It is not a full configurator benchmark:
+  verify actual scenes, GPU denoising, and cold starts before launch.
 
 ## Local development and tests
 
