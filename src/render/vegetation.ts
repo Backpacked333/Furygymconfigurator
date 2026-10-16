@@ -14,7 +14,6 @@ import {
 } from 'three/webgpu'
 import {
   cameraViewMatrix,
-  color,
   vec3,
   mix,
   modelWorldMatrix,
@@ -107,14 +106,22 @@ function leafAtlas(biome: Biome) {
  * Foliage material: alpha-tested leaf cards whose shading normals are bent toward the crown's
  * sphere, so a canopy reads as one soft volume instead of thousands of flat, noisy quads.
  */
+const leafMaterials = new Map<string, MeshStandardNodeMaterial>()
 export function leafMaterial(biome: Biome, crownHeight: number, hedge = false) {
+  // Kept for the session, like the material library, so returning to a biome reuses them.
+  const key = `${biome}|${crownHeight}|${hedge}`
+  const cached = leafMaterials.get(key)
+  if (cached) return cached
   const m = new MeshStandardNodeMaterial({ side: DoubleSide, roughness: 0.72, metalness: 0 })
+  leafMaterials.set(key, m)
   const map = leafAtlas(biome)
   const sample = texture(map, uv())
   m.colorNode = sample.rgb
   m.opacityNode = sample.a
   m.alphaTest = 0.45
-  const crown = modelWorldMatrix.mul(vec4(0, crownHeight, 0, 1)).xyz
+  // Per-tree values are uniforms, not constants, so every tree (and both biomes) shares one
+  // compiled shader instead of compiling its own.
+  const crown = modelWorldMatrix.mul(vec4(0, uniform(crownHeight), 0, 1)).xyz
   // A hedge bends normals away from its long axis rather than from a single point.
   const offset = positionWorld.sub(crown)
   const direction = hedge ? vec3(0, offset.y, offset.z) : offset
@@ -207,10 +214,16 @@ export function grassBlade(height = 1, bend = 0.35, width = 0.035) {
 }
 
 /** Grass shaded from a dark, damp base to a sunlit tip using the blade's height ramp. */
+const grassMaterials = new Map<string, MeshStandardNodeMaterial>()
 export function grassMaterial(base: string, tip: string) {
+  const key = `${base}|${tip}`
+  const cached = grassMaterials.get(key)
+  if (cached) return cached
   const m = new MeshStandardNodeMaterial({ side: DoubleSide, roughness: 0.85 })
+  grassMaterials.set(key, m)
   const height = positionWorld.y.div(2.2).clamp(0, 1)
-  m.colorNode = mix(color(base), color(tip), height.pow(0.8))
+  // Uniforms rather than constants: all grass shares one compiled shader across biomes.
+  m.colorNode = mix(uniform(new Color(base)), uniform(new Color(tip)), height.pow(0.8))
   return m
 }
 

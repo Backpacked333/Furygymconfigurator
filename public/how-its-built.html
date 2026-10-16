@@ -1,0 +1,206 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>How a Fury gym is built</title><style>
+.iso{
+  --anatomy-page:#0b0b0b;--anatomy-card:#131313;--anatomy-text:#a3a3a3;--anatomy-strong:#e6e6e6;--anatomy-muted:#6e6e6e;
+  --anatomy-paper:#131313;--anatomy-face:#1b1b1b;--anatomy-top:#1c1c1c;
+  --anatomy-shade-0:#0f0f0f;--anatomy-shade-1:#121212;--anatomy-shade-2:#151515;--anatomy-shade-3:#181818;
+  --anatomy-lit-top:#262626;--anatomy-lit-shade:#1d1d1d;
+  --anatomy-hi:#d4d4d4;--anatomy-mid:#6a6a6a;--anatomy-lo:#3e3e3e;--anatomy-faint:#2a2a2a;--anatomy-lit:#ffffff;
+  --anatomy-halo:#050505;--anatomy-halo-opacity:.9;--anatomy-dot:#e6e6e6;
+  --anatomy-red:#ff6b6b;--anatomy-green:#6be0a0;--anatomy-blue:#6b9bff;
+  --anatomy-weight:.6px;--anatomy-ease:cubic-bezier(.32,.72,0,1);
+  --anatomy-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --anatomy-lift:inset 0 1px 0 0 #ffffff0a,inset 0 0 0 1px #ffffff06,0 0 0 1px #00000026,0 1px 1px -.5px #00000014,0 3px 3px -1.5px #00000014,0 6px 6px -3px #00000014,0 12px 12px -6px #00000014;
+}
+.iso[data-theme="light"]{
+  --anatomy-page:#f2f2ef;--anatomy-card:#fbfbfa;--anatomy-text:#57575a;--anatomy-strong:#18181a;--anatomy-muted:#8c8c90;
+  --anatomy-paper:#fbfbfa;--anatomy-face:#ffffff;--anatomy-top:#ffffff;
+  --anatomy-shade-0:#dcdcd9;--anatomy-shade-1:#e5e5e2;--anatomy-shade-2:#ededea;--anatomy-shade-3:#f4f4f1;
+  --anatomy-lit-top:#ffffff;--anatomy-lit-shade:#eeeeeb;
+  --anatomy-hi:#26262a;--anatomy-mid:#8a8a8f;--anatomy-lo:#b4b4b8;--anatomy-faint:#d4d4d6;--anatomy-lit:#000000;
+  --anatomy-halo:#8a8a80;--anatomy-halo-opacity:.32;--anatomy-dot:#3a3a3e;
+  --anatomy-red:#e5484d;--anatomy-green:#30a46c;--anatomy-blue:#3e63dd;
+  --anatomy-lift:inset 0 1px 0 0 #ffffff,0 0 0 1px #0000000f,0 1px 1px -.5px #0000000a,0 3px 3px -1.5px #0000000a,0 6px 6px -3px #0000000a,0 12px 12px -6px #0000000a;
+}
+.iso-svg{display:block;width:100%;height:auto;overflow:visible}
+.iso-svg path,.iso-svg circle{vector-effect:non-scaling-stroke}
+.iso-fill{fill:var(--anatomy-paper);stroke:none}
+.iso-solid[data-lit]>.iso-fill{fill:var(--anatomy-face)}
+.iso-shade,.iso-top{stroke:none}
+.iso-shade[data-shade="0"]{fill:var(--anatomy-shade-0)}
+.iso-shade[data-shade="1"]{fill:var(--anatomy-shade-1)}
+.iso-shade[data-shade="2"]{fill:var(--anatomy-shade-2)}
+.iso-shade[data-shade="3"]{fill:var(--anatomy-shade-3)}
+.iso-top{fill:var(--anatomy-top)}
+.iso-solid[data-lit]>.iso-top{fill:var(--anatomy-lit-top)}
+.iso-solid[data-lit]>.iso-shade{fill:var(--anatomy-lit-shade)}
+.iso-solid[data-seamless]>.iso-shade,.iso-solid[data-seamless]>.iso-top{stroke-width:.4;stroke-linejoin:round}
+.iso-solid[data-seamless]>.iso-shade[data-shade="0"]{stroke:var(--anatomy-shade-0)}
+.iso-solid[data-seamless]>.iso-shade[data-shade="1"]{stroke:var(--anatomy-shade-1)}
+.iso-solid[data-seamless]>.iso-shade[data-shade="2"]{stroke:var(--anatomy-shade-2)}
+.iso-solid[data-seamless]>.iso-shade[data-shade="3"]{stroke:var(--anatomy-shade-3)}
+.iso-solid[data-seamless]>.iso-top{stroke:var(--anatomy-top)}
+.iso-solid[data-seamless][data-lit]>.iso-top{stroke:var(--anatomy-lit-top)}
+.iso-solid[data-seamless][data-lit]>.iso-shade{stroke:var(--anatomy-lit-shade)}
+.iso-solid[data-lit]>.iso-edge{stroke:var(--anatomy-lit)}
+.iso-halo{fill:var(--anatomy-halo);stroke:none;filter:blur(9px);opacity:var(--anatomy-halo-opacity);transform:translateY(3px)}
+.iso-line{fill:none;stroke:var(--anatomy-lo);stroke-width:var(--anatomy-weight);stroke-linecap:round;stroke-linejoin:round}
+.iso-line[data-tone="hi"]{stroke:var(--anatomy-hi)}
+.iso-line[data-tone="mid"]{stroke:var(--anatomy-mid)}
+.iso-line[data-tone="lo"]{stroke:var(--anatomy-lo)}
+.iso-line[data-tone="faint"]{stroke:var(--anatomy-faint)}
+.iso-line[data-tone="lit"]{stroke:var(--anatomy-lit)}
+.iso-line[data-tone="red"]{stroke:var(--anatomy-red)}
+.iso-line[data-tone="green"]{stroke:var(--anatomy-green)}
+.iso-line[data-tone="blue"]{stroke:var(--anatomy-blue)}
+.iso-line[data-dotted]{stroke-dasharray:.01 3.5;stroke-width:1}
+.iso-line[data-dashed]{stroke-dasharray:3 3}
+.iso-line[data-flow]{stroke-dasharray:2 6}
+.iso-wire-end{fill:var(--anatomy-paper);stroke:var(--anatomy-lo);stroke-width:var(--anatomy-weight)}
+.iso-wire[data-tone="hi"] .iso-wire-end{stroke:var(--anatomy-hi)}
+.iso-wire[data-tone="mid"] .iso-wire-end{stroke:var(--anatomy-mid)}
+.iso-wire[data-tone="faint"] .iso-wire-end{stroke:var(--anatomy-faint)}
+.iso-wire[data-tone="lit"] .iso-wire-end{stroke:var(--anatomy-lit)}
+.iso-dots circle{fill:var(--anatomy-dot);stroke:none;opacity:.32}
+.iso-dots[data-tone="hi"] circle{opacity:.85}
+.iso-dots[data-tone="mid"] circle{opacity:.45}
+.iso-dots[data-tone="lo"] circle{opacity:.22}
+.iso-dots[data-tone="faint"] circle{opacity:.12}
+.iso-face-text{fill:var(--anatomy-mid);font-family:var(--anatomy-mono);letter-spacing:.04em}
+.iso-face-text[data-tone="hi"]{fill:var(--anatomy-hi)}
+.iso-face-text[data-tone="lo"]{fill:var(--anatomy-lo)}
+.iso-face-text[data-tone="faint"]{fill:var(--anatomy-faint)}
+.tb-body{fill:var(--anatomy-shade-2);stroke:none}
+.tb-shine{fill:var(--anatomy-top);stroke:none}
+.tb-shade{fill:var(--anatomy-shade-0);stroke:none}
+.tb-ring{fill:none;stroke:var(--anatomy-lo);stroke-width:.45;stroke-linecap:butt;stroke-linejoin:round}
+.tb-ring[data-tone="mid"]{stroke:var(--anatomy-mid)}
+.tb-ring[data-tone="faint"]{stroke:var(--anatomy-faint)}
+.tb-ring[data-tone="hi"]{stroke:var(--anatomy-hi)}
+@keyframes iso-flow{to{stroke-dashoffset:-32}}
+@keyframes iso-pulse{0%,100%{opacity:.18}12%{opacity:1}40%{opacity:.18}}
+.iso-line[data-flow]{animation:iso-flow 1600ms linear infinite}
+.iso-dots circle[data-pulse]{animation:iso-pulse 1600ms steps(1,end) infinite;animation-delay:var(--pulse-at,0ms)}
+.iso-figure{margin:32px 0 36px}
+.iso-plate{position:relative;padding:52px 24px;border-radius:0;background:var(--anatomy-card);box-shadow:0 0 0 1px var(--anatomy-mid);--anatomy-paper:var(--anatomy-card)}
+.iso-plate-corners{position:absolute;inset:18px 20px;pointer-events:none}
+.iso-plate-corner{position:absolute;color:var(--anatomy-muted);font-family:var(--anatomy-mono);font-size:10.5px;line-height:1;letter-spacing:.04em;white-space:nowrap}
+.iso-plate-corner[data-corner="fig"]{top:0;left:0;color:var(--anatomy-text)}
+.iso-plate-corner[data-corner="title"]{top:0;right:0;text-transform:uppercase;letter-spacing:.1em}
+.iso-plate-corner[data-corner="hint"]{bottom:0;left:0;text-transform:uppercase;letter-spacing:.1em}
+.iso-plate-corner[data-corner="readout"]{right:0;bottom:0;color:var(--anatomy-text);font-variant-numeric:tabular-nums}
+.iso-plate .iso-svg{margin:0 auto}
+.iso-legend{display:grid;gap:8px;margin-top:12px;color:var(--anatomy-muted);font-size:13px;line-height:1.55}
+.iso-keys{display:flex;flex-wrap:wrap;gap:6px 18px}
+.iso-key{display:inline-flex;align-items:center;gap:7px}
+.iso-swatch{width:16px;height:10px;flex:none;overflow:visible}
+.iso-swatch path{fill:none;stroke:var(--anatomy-hi);stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+.iso-swatch[data-mark="raised"] path,.iso-swatch[data-mark="flat"] path{stroke:var(--anatomy-mid)}
+.iso-swatch[data-mark="lit"] path{stroke:var(--anatomy-lit)}
+.iso-swatch[data-mark="dim"] path{stroke:var(--anatomy-lo)}
+.iso-swatch[data-mark="dotted"] path{stroke-dasharray:.01 3;stroke-width:1.4}
+.iso-swatch[data-mark="dashed"] path{stroke-dasharray:3 2.5}
+.iso-swatch[data-mark="red"] path{stroke:var(--anatomy-red)}
+.iso-swatch[data-mark="green"] path{stroke:var(--anatomy-green)}
+.iso-swatch[data-mark="blue"] path{stroke:var(--anatomy-blue)}
+.iso-swatch-crease{stroke:var(--anatomy-lo)!important}
+@media (max-width:560px){.iso-plate{padding:48px 12px 70px}.iso-plate-corner[data-corner="hint"]{bottom:18px}}
+@media (prefers-reduced-motion:reduce){.iso-line[data-flow],.iso-dots circle[data-pulse]{animation:none}}
+
+.iso[data-theme="tint"]{
+  --anatomy-page:#edf1ec;--anatomy-card:#f5f8f4;--anatomy-text:#4b5a52;--anatomy-strong:#16211c;--anatomy-muted:#84948b;
+  --anatomy-paper:#f5f8f4;--anatomy-face:#fbfdfa;--anatomy-top:#fcfefb;
+  --anatomy-shade-0:#d3ddd5;--anatomy-shade-1:#dde6df;--anatomy-shade-2:#e7eee8;--anatomy-shade-3:#f0f5f0;
+  --anatomy-lit-top:#ffffff;--anatomy-lit-shade:#e8f0ea;
+  --anatomy-hi:#1f2e27;--anatomy-mid:#6e8378;--anatomy-lo:#a7b8ae;--anatomy-faint:#cdd9d1;--anatomy-lit:#1d6b4f;
+  --anatomy-halo:#5f7d6d;--anatomy-halo-opacity:.28;--anatomy-dot:#2f4038;
+  --anatomy-lift:inset 0 1px 0 0 #ffffff,0 0 0 1px #1d3a2a12,0 1px 1px -.5px #1d3a2a0a,0 3px 3px -1.5px #1d3a2a0a,0 6px 6px -3px #1d3a2a0a;
+}
+body[data-theme="tint"]{color-scheme:light}
+
+.iso[data-theme="color"]{
+  --anatomy-page:#f2f1ed;--anatomy-card:#fbfaf8;--anatomy-text:#57575a;--anatomy-strong:#18181a;--anatomy-muted:#8c8c90;
+  --anatomy-paper:#fbfaf8;--anatomy-face:#ffffff;--anatomy-top:#ffffff;
+  --anatomy-shade-0:#dcdcd9;--anatomy-shade-1:#e5e5e2;--anatomy-shade-2:#ededea;--anatomy-shade-3:#f4f4f1;
+  --anatomy-lit-top:#ffffff;--anatomy-lit-shade:#eeeeeb;
+  --anatomy-hi:#26262a;--anatomy-mid:#8a8a8f;--anatomy-lo:#b4b4b8;--anatomy-faint:#d4d4d6;--anatomy-lit:#c2410c;
+  --anatomy-halo:#8a8a80;--anatomy-halo-opacity:.32;--anatomy-dot:#3a3a3e;
+  --anatomy-lift:inset 0 1px 0 0 #ffffff,0 0 0 1px #0000000f,0 1px 1px -.5px #0000000a,0 3px 3px -1.5px #0000000a,0 6px 6px -3px #0000000a;
+}
+body[data-theme="color"]{color-scheme:light}
+.iso[data-theme="color"] .cg-glass{fill:#8cc4dc;fill-opacity:.3}
+.iso[data-theme="color"] .m-concrete{--anatomy-paper:#bab6ad;--anatomy-face:#bab6ad;--anatomy-top:#c4c0b8;--anatomy-lit-top:#c9c6bf;--anatomy-lit-shade:#afaba3;--anatomy-shade-0:#8d8a83;--anatomy-shade-1:#9c9991;--anatomy-shade-2:#aba79f;--anatomy-shade-3:#b6b2aa;--anatomy-hi:#4d4c49;--anatomy-mid:#74716c;--anatomy-lo:#8a8781;--anatomy-faint:#a09d95;--anatomy-dot:#4d4c49}
+.iso[data-theme="color"] .m-paint{--anatomy-paper:#303335;--anatomy-face:#303335;--anatomy-top:#4d5051;--anatomy-lit-top:#5e6061;--anatomy-lit-shade:#2d3032;--anatomy-shade-0:#242728;--anatomy-shade-1:#282b2d;--anatomy-shade-2:#2c2f31;--anatomy-shade-3:#2f3234;--anatomy-hi:#98999a;--anatomy-mid:#727476;--anatomy-lo:#5e6061;--anatomy-faint:#4b4e4f;--anatomy-dot:#98999a}
+.iso[data-theme="color"] .m-shell{--anatomy-paper:#373b3d;--anatomy-face:#373b3d;--anatomy-top:#535658;--anatomy-lit-top:#636668;--anatomy-lit-shade:#343739;--anatomy-shade-0:#2a2d2e;--anatomy-shade-1:#2e3233;--anatomy-shade-2:#333638;--anatomy-shade-3:#363a3c;--anatomy-hi:#9b9d9e;--anatomy-mid:#777a7b;--anatomy-lo:#636668;--anatomy-faint:#515456;--anatomy-dot:#9b9d9e}
+.iso[data-theme="color"] .m-galv{--anatomy-paper:#a7acae;--anatomy-face:#a7acae;--anatomy-top:#b3b8b9;--anatomy-lit-top:#babec0;--anatomy-lit-shade:#9da2a4;--anatomy-shade-0:#7f8384;--anatomy-shade-1:#8c9092;--anatomy-shade-2:#9a9ea0;--anatomy-shade-3:#a4a9ab;--anatomy-hi:#474949;--anatomy-mid:#696c6d;--anatomy-lo:#7d8082;--anatomy-faint:#909596;--anatomy-dot:#474949}
+.iso[data-theme="color"] .m-blacksteel{--anatomy-paper:#2a2c2d;--anatomy-face:#2a2c2d;--anatomy-top:#484a4a;--anatomy-lit-top:#595a5b;--anatomy-lit-shade:#27292a;--anatomy-shade-0:#202122;--anatomy-shade-1:#232526;--anatomy-shade-2:#272829;--anatomy-shade-3:#292b2c;--anatomy-hi:#959696;--anatomy-mid:#6e7070;--anatomy-lo:#595a5b;--anatomy-faint:#464748;--anatomy-dot:#959696}
+.iso[data-theme="color"] .m-chrome{--anatomy-paper:#d3d8db;--anatomy-face:#d3d8db;--anatomy-top:#d9dde0;--anatomy-lit-top:#dde1e3;--anatomy-lit-shade:#c6cbce;--anatomy-shade-0:#a0a4a6;--anatomy-shade-1:#b1b5b8;--anatomy-shade-2:#c2c7c9;--anatomy-shade-3:#cfd4d7;--anatomy-hi:#555758;--anatomy-mid:#828486;--anatomy-lo:#9c9fa1;--anatomy-faint:#b5babc;--anatomy-dot:#555758}
+.iso[data-theme="color"] .m-rubber{--anatomy-paper:#2e3130;--anatomy-face:#2e3130;--anatomy-top:#4b4e4d;--anatomy-lit-top:#5c5e5e;--anatomy-lit-shade:#2b2e2d;--anatomy-shade-0:#232524;--anatomy-shade-1:#272928;--anatomy-shade-2:#2a2d2c;--anatomy-shade-3:#2d302f;--anatomy-hi:#979898;--anatomy-mid:#717372;--anatomy-lo:#5c5e5e;--anatomy-faint:#494c4b;--anatomy-dot:#979898}
+.iso[data-theme="color"] .m-iron{--anatomy-paper:#2c2e2d;--anatomy-face:#2c2e2d;--anatomy-top:#4a4b4a;--anatomy-lit-top:#5a5c5b;--anatomy-lit-shade:#292b2a;--anatomy-shade-0:#212322;--anatomy-shade-1:#252726;--anatomy-shade-2:#282a29;--anatomy-shade-3:#2b2d2c;--anatomy-hi:#969796;--anatomy-mid:#707170;--anatomy-lo:#5a5c5b;--anatomy-faint:#474948;--anatomy-dot:#969796}
+.iso[data-theme="color"] .m-vinyl{--anatomy-paper:#24262a;--anatomy-face:#24262a;--anatomy-top:#434448;--anatomy-lit-top:#545659;--anatomy-lit-shade:#222427;--anatomy-shade-0:#1b1d20;--anatomy-shade-1:#1e2023;--anatomy-shade-2:#212327;--anatomy-shade-3:#232529;--anatomy-hi:#929395;--anatomy-mid:#6a6b6e;--anatomy-lo:#545659;--anatomy-faint:#404246;--anatomy-dot:#929395}
+.iso[data-theme="color"] .m-teak{--anatomy-paper:#a8734a;--anatomy-face:#a8734a;--anatomy-top:#b48763;--anatomy-lit-top:#bb9272;--anatomy-lit-shade:#9e6c46;--anatomy-shade-0:#805738;--anatomy-shade-1:#8d613e;--anatomy-shade-2:#9b6a44;--anatomy-shade-3:#a57149;--anatomy-hi:#473629;--anatomy-mid:#6a4c35;--anatomy-lo:#7d583c;--anatomy-faint:#916542;--anatomy-dot:#473629}
+.iso[data-theme="color"] .m-oak{--anatomy-paper:#c69c69;--anatomy-face:#c69c69;--anatomy-top:#ceaa7e;--anatomy-lit-top:#d3b28a;--anatomy-lit-shade:#ba9363;--anatomy-shade-0:#967750;--anatomy-shade-1:#a68358;--anatomy-shade-2:#b69061;--anatomy-shade-3:#c29967;--anatomy-hi:#514433;--anatomy-mid:#7a6346;--anatomy-lo:#927551;--anatomy-faint:#aa875c;--anatomy-dot:#514433}
+.iso[data-theme="color"] .m-ply{--anatomy-paper:#d6ba8c;--anatomy-face:#d6ba8c;--anatomy-top:#dcc49c;--anatomy-lit-top:#dfc9a5;--anatomy-lit-shade:#c9af84;--anatomy-shade-0:#a38d6a;--anatomy-shade-1:#b49c76;--anatomy-shade-2:#c5ab81;--anatomy-shade-3:#d2b689;--anatomy-hi:#564d3e;--anatomy-mid:#83745a;--anatomy-lo:#9e8a6a;--anatomy-faint:#b8a07a;--anatomy-dot:#564d3e}
+.iso[data-theme="color"] .m-pine{--anatomy-paper:#dcbf8a;--anatomy-face:#dcbf8a;--anatomy-top:#e1c89a;--anatomy-lit-top:#e4cda4;--anatomy-lit-shade:#cfb482;--anatomy-shade-0:#a79169;--anatomy-shade-1:#b9a074;--anatomy-shade-2:#cab07f;--anatomy-shade-3:#d8bb87;--anatomy-hi:#584f3e;--anatomy-mid:#877659;--anatomy-lo:#a28e68;--anatomy-faint:#bda578;--anatomy-dot:#584f3e}
+.iso[data-theme="color"] .m-foam{--anatomy-paper:#e8d38c;--anatomy-face:#e8d38c;--anatomy-top:#ebd99c;--anatomy-lit-top:#eddda5;--anatomy-lit-shade:#dac684;--anatomy-shade-0:#b0a06a;--anatomy-shade-1:#c3b176;--anatomy-shade-2:#d5c281;--anatomy-shade-3:#e3cf89;--anatomy-hi:#5c553e;--anatomy-mid:#8d825a;--anatomy-lo:#aa9c6a;--anatomy-faint:#c7b57a;--anatomy-dot:#5c553e}
+.iso[data-theme="color"] .m-lining{--anatomy-paper:#f3f1ec;--anatomy-face:#f3f1ec;--anatomy-top:#f5f3ef;--anatomy-lit-top:#f6f4f0;--anatomy-lit-shade:#e4e3de;--anatomy-shade-0:#b9b7b3;--anatomy-shade-1:#cccac6;--anatomy-shade-2:#e0ded9;--anatomy-shade-3:#eeece7;--anatomy-hi:#5f5f5d;--anatomy-mid:#949290;--anatomy-lo:#b2b1ad;--anatomy-faint:#d0cfca;--anatomy-dot:#5f5f5d}
+.iso[data-theme="color"] .m-mirror{--anatomy-paper:#c4d4db;--anatomy-face:#c4d4db;--anatomy-top:#ccdae0;--anatomy-lit-top:#d1dde3;--anatomy-lit-shade:#b8c7ce;--anatomy-shade-0:#95a1a6;--anatomy-shade-1:#a5b2b8;--anatomy-shade-2:#b4c3c9;--anatomy-shade-3:#c0d0d7;--anatomy-hi:#505658;--anatomy-mid:#798286;--anatomy-lo:#919ca1;--anatomy-faint:#a9b6bc;--anatomy-dot:#505658}
+.iso[data-theme="color"] .m-screen{--anatomy-paper:#18191b;--anatomy-face:#18191b;--anatomy-top:#38393b;--anatomy-lit-top:#4b4c4d;--anatomy-lit-shade:#171819;--anatomy-shade-0:#121315;--anatomy-shade-1:#141517;--anatomy-shade-2:#161719;--anatomy-shade-3:#18191a;--anatomy-hi:#8c8c8d;--anatomy-mid:#626364;--anatomy-lo:#4b4c4d;--anatomy-faint:#363739;--anatomy-dot:#8c8c8d}
+.iso[data-theme="color"] .m-mat{--anatomy-paper:#4e6258;--anatomy-face:#4e6258;--anatomy-top:#67786f;--anatomy-lit-top:#75857d;--anatomy-lit-shade:#495c53;--anatomy-shade-0:#3b4a43;--anatomy-shade-1:#42524a;--anatomy-shade-2:#485a51;--anatomy-shade-3:#4c6056;--anatomy-hi:#2b312e;--anatomy-mid:#37423d;--anatomy-lo:#3e4c45;--anatomy-faint:#46564e;--anatomy-dot:#2b312e}
+.iso[data-theme="color"] .m-lens{--anatomy-paper:#fff4d6;--anatomy-face:#fff4d6;--anatomy-top:#fff6dc;--anatomy-lit-top:#fff6df;--anatomy-lit-shade:#f0e5c9;--anatomy-shade-0:#c2b9a3;--anatomy-shade-1:#d6cdb4;--anatomy-shade-2:#ebe0c5;--anatomy-shade-3:#faefd2;--anatomy-hi:#636056;--anatomy-mid:#9a9483;--anatomy-lo:#bab39e;--anatomy-faint:#dad1b8;--anatomy-dot:#636056}
+.iso[data-theme="color"] .m-brick{--anatomy-paper:#b4553d;--anatomy-face:#b4553d;--anatomy-top:#bf6d58;--anatomy-lit-top:#c57a68;--anatomy-lit-shade:#a95039;--anatomy-shade-0:#89412e;--anatomy-shade-1:#974733;--anatomy-shade-2:#a64e38;--anatomy-shade-3:#b0533c;--anatomy-hi:#4b2d25;--anatomy-mid:#703b2e;--anatomy-lo:#864333;--anatomy-faint:#9b4c37;--anatomy-dot:#4b2d25}
+
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body[data-theme="light"],body[data-theme="tint"],body[data-theme="color"]{color-scheme:light}
+body{margin:0;background:var(--anatomy-page);color:var(--anatomy-text);font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;transition:background .3s ease}
+.cg-page{width:min(760px,100% - 32px);margin:56px auto 96px}
+.cg-head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px;margin-bottom:24px}
+.cg-head h1{margin:0 0 6px;font-size:20px;font-weight:600;color:var(--anatomy-strong);letter-spacing:-.01em}
+.cg-head p{margin:0;max-width:56ch}
+.cg-themes{display:inline-flex;gap:2px;padding:2px;box-shadow:0 0 0 1px var(--anatomy-mid);font-family:var(--anatomy-mono);font-size:11.5px}
+.cg-themes button{all:unset;cursor:pointer;padding:5px 12px;color:var(--anatomy-muted);letter-spacing:.04em}
+.cg-themes button[aria-pressed="true"]{background:var(--anatomy-strong);color:var(--anatomy-page)}
+.cg-themes button:focus-visible{outline:1px solid var(--anatomy-muted);outline-offset:2px}
+.cg-group{margin:40px 0 10px;font-family:var(--anatomy-mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--anatomy-muted)}
+.cg-frame{display:block;width:100%;height:640px;border:0;margin:0 0 28px;background:transparent}
+.cg-embed-doc{margin-top:48px;padding-top:24px;box-shadow:0 -1px 0 var(--anatomy-faint)}
+.cg-embed-doc h2{margin:0 0 8px;font-size:15px;font-weight:600;color:var(--anatomy-strong)}
+.cg-embed-doc code,.cg-embed-doc pre{font-family:var(--anatomy-mono);font-size:12px}
+.cg-embed-doc pre{margin:12px 0;padding:12px 14px;overflow-x:auto;background:var(--anatomy-card);box-shadow:0 0 0 1px var(--anatomy-faint);color:var(--anatomy-strong)}
+.cg-embed-doc table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+.cg-embed-doc td{padding:6px 8px 6px 0;vertical-align:top;box-shadow:0 1px 0 var(--anatomy-faint)}
+.cg-embed-doc td:first-child{white-space:nowrap;font-family:var(--anatomy-mono);font-size:12px;color:var(--anatomy-strong)}
+</style></head><body class="iso" data-theme="dark"><main class="cg-page">
+<header class="cg-head"><div><h1>How a Fury gym is built</h1><p>Every unit and option Fury offers, assembled piece by piece. Sizes follow Fury's published specs; part geometry is illustrative, not manufacturer CAD.</p></div>
+<div class="cg-themes" role="group" aria-label="Theme"><button type="button" data-theme="dark" aria-pressed="true">Dark</button><button type="button" data-theme="light" aria-pressed="false">White</button><button type="button" data-theme="tint" aria-pressed="false">Tint</button><button type="button" data-theme="color" aria-pressed="false">Color</button></div></header>
+<h2 class="cg-group">Container Gym</h2><iframe class="cg-frame" data-id="container" title="Container Gym · build" loading="lazy" src="how-its-built/container.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="container-center" title="Container · center opening · build" loading="lazy" src="how-its-built/container-center.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="container-partial" title="Container · partial open side · build" loading="lazy" src="how-its-built/container-partial.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="container-full" title="Container · full open side · build" loading="lazy" src="how-its-built/container-full.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="container-40" title="40′ Container Gym · build" loading="lazy" src="how-its-built/container-40.html?frame=card&amp;theme=dark"></iframe><h2 class="cg-group">S-Series Studio</h2><iframe class="cg-frame" data-id="studio-single" title="S-Series Studio · build" loading="lazy" src="how-its-built/studio-single.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="studio-long" title="40′ S-Series Studio · build" loading="lazy" src="how-its-built/studio-long.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="studio-double" title="Double-wide Studio · build" loading="lazy" src="how-its-built/studio-double.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="studio-deck" title="Studio + deck + gazebo" loading="lazy" src="how-its-built/studio-deck.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="studio-roof" title="Studio + rooftop deck" loading="lazy" src="how-its-built/studio-roof.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="studio-full" title="Studio + every add-on" loading="lazy" src="how-its-built/studio-full.html?frame=card&amp;theme=dark"></iframe><iframe class="cg-frame" data-id="studio-stacked" title="Stacked Studios · build" loading="lazy" src="how-its-built/studio-stacked.html?frame=card&amp;theme=dark"></iframe><h2 class="cg-group">No excuses</h2><iframe class="cg-frame" data-id="no-excuses" title="No excuses · build" loading="lazy" src="how-its-built/no-excuses.html?frame=card&amp;theme=dark"></iframe>
+<section class="cg-embed-doc"><h2>Use a build on its own</h2><p>Every figure is its own page under <code>/how-its-built/</code>. Embed one in an iframe for a landing page or a loading screen. With no options it shows just the build on a transparent background.</p>
+<pre>&lt;iframe src="/how-its-built/studio-single.html?theme=light&amp;site=0&amp;interactive=0"
+        title="S-Series Studio being built" style="border:0;width:100%;aspect-ratio:16/10"&gt;&lt;/iframe&gt;</pre>
+<table><tr><td>theme=dark|light|tint|color</td><td>Dark, white, white with a light sage tint, or color: every part in its real material (steel, plywood, oak, teak, rubber, glass). Light is the default.</td></tr><tr><td>frame=card</td><td>The framed card with title, live readout, legend and steps. Without it you get just the build.</td></tr><tr><td>site=0</td><td>Hide the concrete pad and ruler and crop tight to the unit.</td></tr><tr><td>interactive=0</td><td>No hover scrubbing, clicks or keys: for loading screens and backgrounds.</td></tr><tr><td>paper=%23ffffff</td><td>The colour solids are filled with. Set it to the background behind the build.</td></tr><tr><td>speed=1.5</td><td>Playback speed, from 0.1 to 4.</td></tr><tr><td>still=1</td><td>Show the finished unit only, with no motion.</td></tr></table>
+<table><tr><td>container.html</td><td>Container Gym</td></tr><tr><td>container-center.html</td><td>Container · center opening</td></tr><tr><td>container-partial.html</td><td>Container · partial open side</td></tr><tr><td>container-full.html</td><td>Container · full open side</td></tr><tr><td>container-40.html</td><td>40′ Container Gym</td></tr><tr><td>studio-single.html</td><td>S-Series Studio</td></tr><tr><td>studio-long.html</td><td>40′ S-Series Studio</td></tr><tr><td>studio-double.html</td><td>Double-wide Studio</td></tr><tr><td>studio-deck.html</td><td>Studio + deck + gazebo</td></tr><tr><td>studio-roof.html</td><td>Studio + rooftop deck</td></tr><tr><td>studio-full.html</td><td>Studio + every add-on</td></tr><tr><td>studio-stacked.html</td><td>Stacked Studios</td></tr><tr><td>no-excuses.html</td><td>No excuses</td></tr></table>
+<p>A host page can change the theme live with <code>frame.contentWindow.postMessage({ cg: "theme", theme: "tint" }, "*")</code>, and each figure posts <code>{ cg: "height", height }</code> to its parent whenever its height changes.</p></section>
+</main><script>
+const frames = [...document.querySelectorAll(".cg-frame")];
+const buttons = [...document.querySelectorAll(".cg-themes button")];
+const apply = (theme) => {
+  document.body.dataset.theme = theme;
+  buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.theme === theme)));
+  // Loaded figures switch in place; the rest load in the new theme.
+  for (const f of frames) {
+    if (f.dataset.loaded) f.contentWindow.postMessage({ cg: "theme", theme }, "*");
+    else f.src = f.src.replace(/theme=[a-z]+/, "theme=" + theme);
+  }
+  const url = new URL(location.href);
+  url.searchParams.set("theme", theme);
+  history.replaceState(null, "", url);
+};
+buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.theme)));
+frames.forEach((f) => f.addEventListener("load", () => (f.dataset.loaded = "1")));
+addEventListener("message", (event) => {
+  const frame = frames.find((f) => f.contentWindow === event.source);
+  if (frame && event.data && event.data.cg === "height") frame.style.height = Math.ceil(event.data.height) + "px";
+});
+const start = new URLSearchParams(location.search).get("theme");
+if (["light", "tint", "color"].includes(start)) apply(start);
+</script></body></html>

@@ -77,16 +77,14 @@ export const palette = {
     m({ set: 'beige_wall_001', color, roughness: 0.92, normalScale: 0.22, interior: true }),
   concrete: (interior = false) => m({ set: 'concrete_wall_001', roughness: 1, interior }),
   // Light and glass ---------------------------------------------------------------------------
+  /** Clear float glass: the room behind stays sharp; reflections follow Fresnel. */
   glass: () =>
     m({
-      color: '#ffffff',
-      transmission: 1,
-      roughness: 0.03,
+      color: '#000000',
+      roughness: 0,
       ior: 1.52,
-      thickness: 0.03,
-      attenuationColor: '#cfe6dc',
-      attenuationDistance: 1.2,
       specularIntensity: 1,
+      thinGlass: true,
       side: DoubleSide,
     }),
   tintedGlass: () =>
