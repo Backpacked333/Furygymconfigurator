@@ -878,6 +878,12 @@ export class CloudSession {
     // Looking at something else: stop pre-rendering the orbit.
     if (!spot) this.stopRing()
     const cached = spot ? this.views.get(spot.key) : undefined
+    if (TRACE_STATS)
+      console.info(
+        spot
+          ? `[cloud view] orbit pose ${spot.pose.azimuth}/${spot.pose.polar}/${spot.pose.radius}, scene ${spot.sceneKey}${cached ? ', pre-rendered' : ''}`
+          : '[cloud view] off the orbit grid',
+      )
     const sceneKey = spot?.sceneKey ?? String(sceneSignature(scene, lookKey(look)))
     const size = spot?.size ?? this.renderer.getDrawingBufferSize(new Vector2())
     const view = cameraRecord(camera)
