@@ -597,6 +597,8 @@ export function unpackImage(bytes: Uint8Array, width: number, height: number) {
 export class Superseded extends Error {}
 /** The server or gateway is busy (rate limit, full queue): worth trying again shortly. */
 export class Busy extends Error {}
+/** The server answered a frame request with a view's raw image: it predates the spin. */
+export class Outdated extends Error {}
 
 export type CloudCamera = { matrix: number[]; fov: number; near: number; far: number }
 
@@ -788,6 +790,9 @@ export class CloudClient {
       captured,
       signal,
     )
+    // An older server ignores the frame fields and renders a view: a half-float image, not WebP.
+    if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
+      throw new Outdated('the render server does not finish spin frames; redeploy it')
     const header = (name: string) => Number(response.headers.get(name) ?? 0)
     return {
       image: await response.blob(),

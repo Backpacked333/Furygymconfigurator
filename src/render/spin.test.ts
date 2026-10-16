@@ -2,7 +2,7 @@
 import { Matrix4, Scene, Vector3 } from 'three/webgpu'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SkyLook } from '../lib/visuals'
-import { Busy, type CloudCamera, type CloudClient } from './cloud'
+import { Busy, Outdated, type CloudCamera, type CloudClient } from './cloud'
 import { ORBIT_LIMITS } from './orbit'
 import {
   DEFAULT_LEVEL,
@@ -308,6 +308,69 @@ describe('spin session', () => {
     session.texture()
     expect(session.progress.loading).toBe(true)
     now.mockRestore()
+    session.dispose()
+  })
+
+  it('gives up at once on a server that predates the spin', async () => {
+    let asked = 0
+    const frame = vi.fn(async (_captured: unknown, request: FrameRequest) => {
+      if (request.channel === 'm')
+        return { image: new Blob(['x']), cached: false, renderMs: 1, totalMs: 1, tracedKey: 0 }
+      asked++
+      throw new Outdated('old server')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let changes = 0
+    const session = new SpinSession({ frame } as unknown as CloudClient, () => changes++)
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), async (at) =>
+      raster(0, at),
+    )
+    await settle()
+    await settle()
+    expect(session.progress.failed).toBe(true)
+    expect(changes).toBeGreaterThan(0)
+    // The requests already open were all it sent; nothing more is asked of it.
+    expect(asked).toBe(12)
+    warn.mockRestore()
+    session.dispose()
+  })
+
+  it('gives up when the exposure meter finds an outdated server', async () => {
+    const frame = vi.fn(async () => {
+      throw new Outdated('old server')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const session = new SpinSession({ frame } as unknown as CloudClient, () => {})
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), async (at) =>
+      raster(0, at),
+    )
+    await settle()
+    await settle()
+    expect(session.progress.failed).toBe(true)
+    expect(frame).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+    session.dispose()
+  })
+
+  it('gives up on a frame that is not an image', async () => {
+    const { client, requests } = fakeClient()
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(() => Promise.reject(new Error('not an image'))),
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const session = new SpinSession(client, () => {})
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), async (at) =>
+      raster(0, at),
+    )
+    await settle()
+    requests[0].resolve()
+    await settle()
+    expect(session.texture()).toBeNull()
+    await settle()
+    expect(session.progress.failed).toBe(true)
+    warn.mockRestore()
+    vi.unstubAllGlobals()
     session.dispose()
   })
 

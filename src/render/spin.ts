@@ -8,7 +8,14 @@ import {
   type Scene,
 } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
-import { Busy, captureScene, type CapturedScene, type CloudCamera, type CloudClient } from './cloud'
+import {
+  Busy,
+  Outdated,
+  captureScene,
+  type CapturedScene,
+  type CloudCamera,
+  type CloudClient,
+} from './cloud'
 import { ORBIT_LIMITS } from './orbit'
 import { lookKey } from './pathtrace'
 
@@ -216,7 +223,7 @@ export class SpinSession {
   private readonly gains = new Map<string, Gains>()
   private metering = ''
   private readonly frames = new Map<string, Stored>()
-  private readonly decoded = new Map<string, Promise<Decoded> | Decoded>()
+  private readonly decoded = new Map<string, Promise<Decoded | null> | Decoded>()
   /** Textures on screen (or fading out); disposing them waits until they are not. */
   private held = new Set<Texture>()
   private readonly doomed = new Set<Texture>()
@@ -326,6 +333,7 @@ export class SpinSession {
       this.pump()
     }
     this.meterViews(rasterKey).then(settle, (error) => {
+      if (error instanceof Outdated) return this.fail(error)
       if (this.metering === design && !this.closed.signal.aborted)
         console.warn('The path-traced exposure could not be metered.', error)
       // Not kept: the next design with this look meters again.
@@ -516,16 +524,25 @@ export class SpinSession {
           setTimeout(() => this.pump(), BUSY_MS)
           return
         }
-        if (++this.failures >= 3) {
-          console.warn('The path-traced spin could not be rendered.', error)
-          this.progress = { ...this.progress, loading: false, failed: true }
-          this.onChange()
-        }
+        // A server that cannot render frames will not start to: no point asking twice more.
+        if (error instanceof Outdated || ++this.failures >= 3) this.fail(error)
       })
       .finally(() => {
         inFlight.delete(id)
         if (generation === this.generation) this.pump()
       })
+  }
+
+  /**
+   * Gives up on the spin for this page: RenderEffects then renders resting views one at a time,
+   * as with `?spin=0`, which an older server also supports.
+   */
+  private fail(error: unknown) {
+    if (this.progress.failed) return
+    console.warn('The path-traced spin could not be rendered.', error)
+    this.failures = 3
+    this.progress = { ...this.progress, loading: false, failed: true }
+    this.onChange()
   }
 
   /** Disposes a texture once it is no longer on screen. */
@@ -620,7 +637,7 @@ export class SpinSession {
     const blob = stored.final ?? stored.preview!
     const final = !!stored.final
     const design = this.design
-    const work: Promise<Decoded> = createImageBitmap(blob).then((bitmap) => {
+    const work: Promise<Decoded | null> = createImageBitmap(blob).then((bitmap) => {
       // Shown as the server encoded it: display sRGB, with no conversion.
       const texture = new Texture(bitmap as never)
       texture.flipY = false
@@ -644,6 +661,11 @@ export class SpinSession {
       }
       this.onChange()
       return decoded
+    })
+    // A frame that is not an image would otherwise wait on the loading screen forever.
+    work.catch((error) => {
+      if (this.decoded.get(key) === work) this.decoded.delete(key)
+      this.fail(error)
     })
     this.decoded.set(key, work)
     return null

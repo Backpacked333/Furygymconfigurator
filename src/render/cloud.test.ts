@@ -19,6 +19,7 @@ import {
   encodeGeometry,
   encodeInstances,
   encodeSky,
+  Outdated,
   PREVIEW_QUALITY,
   unpackImage,
 } from './cloud'
@@ -85,6 +86,39 @@ describe('cloud requests', () => {
       `https://gpu.example/blobs/${'a'.repeat(64)}`,
       `https://gpu.example/blobs/${'b'.repeat(64)}`,
     ])
+  })
+
+  it('tell a finished spin frame from a server that predates the spin', async () => {
+    const request = {
+      camera,
+      width: 100,
+      height: 80,
+      quality: PREVIEW_QUALITY,
+      finish: { exposure: 1, gain: 1 },
+      priority: 0,
+      generation: 1,
+    }
+    const captured = { scene: {} as never, blobs: new Map() }
+    const signal = new AbortController().signal
+    const frame = new Response(new Uint8Array(8), {
+      headers: { 'content-type': 'image/webp', 'x-traced-key': '-2.4600', 'x-cache': 'hit' },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(frame))
+    const finished = await new CloudClient('https://gpu.example').frame(captured, request, signal)
+    expect(finished.tracedKey).toBeCloseTo(-2.46, 4)
+    expect(finished.cached).toBe(true)
+    // An older server ignores the frame fields and sends a view's half-float image.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(new Uint8Array(16), {
+          headers: { 'content-type': 'application/octet-stream' },
+        }),
+      ),
+    )
+    await expect(
+      new CloudClient('https://gpu.example').frame(captured, request, signal),
+    ).rejects.toBeInstanceOf(Outdated)
   })
 })
 
