@@ -264,7 +264,14 @@ export function sitePad(h, put, P, { x0, x1, y0, y1, ruler }) {
 
 // --- Training equipment, drawn against a back wall at y = -42.8 on a floor at z = 6.8 ------------
 // `place` shifts the whole set (exact in this camera), so the Studio reuses it on its own floor.
-export function equipment(h, put, stage, P, shift = [0, 0, 0], { rack = true } = {}) {
+export function equipment(
+  h,
+  put,
+  stage,
+  P,
+  shift = [0, 0, 0],
+  { rack = true, mirror = true } = {},
+) {
   const { S, Ln, D, plan, box, at, onY, alongX, alongY } = h
   const FLOOR = 6.8
   const move = k.translateAlong(P, shift)
@@ -272,16 +279,17 @@ export function equipment(h, put, stage, P, shift = [0, 0, 0], { rack = true } =
   const pieces = []
   const add = (svg) => pieces.push(`<g transform="${move}">${svg}</g>`)
   // Mirror on the rear wall.
-  add(
-    S(box(-14, 34, -42.8, -42, 14, 92, 0.3), {
-      tone: 'hi',
-      crease: 'lo',
-      inner: Ln(
-        k.segment([-6, -42, 14], [14, -42, 92], P) + k.segment([2, -42, 14], [22, -42, 92], P),
-        { tone: 'faint' },
-      ),
-    }),
-  )
+  if (mirror)
+    add(
+      S(box(-14, 34, -42.8, -42, 14, 92, 0.3), {
+        tone: 'hi',
+        crease: 'lo',
+        inner: Ln(
+          k.segment([-6, -42, 14], [14, -42, 92], P) + k.segment([2, -42, 14], [22, -42, 92], P),
+          { tone: 'faint' },
+        ),
+      }),
+    )
   if (rack) {
     // Power rack: two feet, four uprights with hole rows, crossbars, J-hooks, safeties, pull-up bar.
     const XS = [-70, -27]

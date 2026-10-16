@@ -70,7 +70,22 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 
 ## How it's built figures
 
-`public/how-its-built.html` (and `-light.html`) is a standalone page, deployed with the site at `/how-its-built.html`. It has one isometric figure per unit Fury offers, each building itself in five to seven seconds and then looping: the 20′ Container Gym, the S-Series Studio, the Studio with a front deck and gazebo, the Studio with a rooftop deck and exterior stairs, and two Studios stacked. Hover to scrub, click or press Enter to replay, and use the arrow keys to step. Sizes follow `src/lib/products.ts` and the configurator's models; part geometry is illustrative. Rebuild with `npm run figure` after editing `figures/how-its-built/` (`container.mjs`, `studio.mjs`, shared parts in `common.mjs`). `figures/kit/` is a vendored copy of the MIT-licensed Anatomy isometric kit.
+`public/how-its-built.html` is a gallery of isometric figures, one per unit and option Fury offers, each building itself piece by piece and looping. There are five Container Gyms (the 10′ roll-up door, a center opening, a partial open side, a full open side, and 40′) and seven Studios (single, 40′, double-wide, front deck and gazebo, rooftop deck and stairs, every add-on, and stacked). A switch in the gallery header chooses between three themes: dark, white, and a light sage tint.
+
+Each figure is also a standalone page under `public/how-its-built/` (`container.html`, `studio-single.html` and so on) for landing pages and loading screens. With no options it shows just the build on a transparent background. URL options:
+
+| Option                    | Effect                                                     |
+| ------------------------- | ---------------------------------------------------------- |
+| `theme=dark\|light\|tint` | Colours; light is the default                              |
+| `frame=card`              | The framed card with title, live readout, legend and steps |
+| `site=0`                  | Hide the concrete pad and ruler and crop to the unit       |
+| `interactive=0`           | No hover, click or keys                                    |
+| `paper=<colour>`          | Fill colour for the solids; match it to the page behind    |
+| `speed=<n>` / `still=1`   | Playback speed, or the finished unit only                  |
+
+For example: `<iframe src="/how-its-built/studio-single.html?theme=light&site=0&interactive=0" style="border:0;width:100%;aspect-ratio:16/10"></iframe>`. A host page can switch themes live by posting `{ cg: "theme", theme }` to the frame, and each frame posts `{ cg: "height", height }` to its parent.
+
+Sizes follow `src/lib/products.ts`, `openingGeometry()` and the configurator's models; part geometry is illustrative. Rebuild with `npm run figure` after editing `figures/how-its-built/` (`container.mjs`, `studio.mjs`, shared parts in `common.mjs`, pages in `build.mjs`). `figures/kit/` is a vendored copy of the MIT-licensed Anatomy isometric kit.
 
 ## Configuration architecture
 

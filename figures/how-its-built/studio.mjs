@@ -20,17 +20,33 @@ import {
   sitePad,
 } from './common.mjs'
 
-const X1 = 120 // half of 20′
 const BASE = 3.6 // recessed plinth
 const HT = 120 // 10′ shell
 const WALL = 4.3
 const RADIUS = 13.2
-const SY0 = -47.2 // back of the shell
-const SY1 = 47.2 // front face of the shell
-const BACK = -45.8 // inside face of the back skin
 const FLOOR = 11.5 // finished floor above the shell bottom
-const GLASS = [44.6, 45.8] // glazing frame depth
-const MULLIONS = [-68.3, -22.8, 22.8, 68.3]
+
+// Plan sizes for the figure being drawn: set by studioFigure() from the unit's length and depth.
+let X1 = 120 // half the length
+let SY0 = -47.2 // back of the shell
+let SY1 = 47.2 // front face of the shell
+let BACK = -45.8 // inside face of the back skin
+let GLASS = [44.6, 45.8] // glazing frame depth
+let MULLIONS = [-68.3, -22.8, 22.8, 68.3]
+let DOOR = [-21.6, 21.6] // the door bay, between its two mullions
+function plan(lengthFt, depthFt) {
+  X1 = lengthFt * 6
+  SY1 = depthFt * 6 - 0.8
+  SY0 = -SY1
+  BACK = SY0 + 1.4
+  GLASS = [SY1 - 2.6, SY1 - 1.4]
+  const ix = X1 - WALL - 1.9
+  const bays = lengthFt === 40 ? 9 : 5
+  const w = (2 * ix) / bays
+  MULLIONS = Array.from({ length: bays - 1 }, (_, i) => -ix + w * (i + 1))
+  const mid = Math.floor(bays / 2)
+  DOOR = [-ix + w * mid + 1.2, -ix + w * (mid + 1) - 1.2]
+}
 
 const VARIANTS = {
   single: {
@@ -57,6 +73,29 @@ const VARIANTS = {
     caption:
       'The Studio with a rooftop deck and exterior stairs: teak boards on the roof, a 3.5′ glass balustrade set panel by panel with a steel top rail, and a 17-riser stair at the end, its treads set from the bottom up, climbing 10.4′ to a landing that meets the gap in the rail.',
   },
+  long: {
+    title: '40′ S-Series Studio · build',
+    done: 'built · 40′ × 8′ × 10′ · 320 sq ft',
+    length: 40,
+    pad: { x0: -270, x1: 286, y0: -66, y1: 96 },
+    caption:
+      'The 40′ S-Series Studio: the same rounded portal twice as long, on its plinth of ground screws, framed in ribs and purlins, skinned, closed at the back, floored, lined and wired, finished in oak, fitted out with two training zones, and glazed across nine bays with the door in the middle. Nominal 40′ × 8′ × 10′, 320 sq ft.',
+  },
+  double: {
+    title: 'Double-wide Studio · build',
+    done: 'built · 20′ × 16′ × 10′ · 320 sq ft',
+    depth: 16,
+    pad: { x0: -150, x1: 166, y0: -114, y1: 144 },
+    caption:
+      "A double-wide Studio (a custom inquiry with Fury): two modules' depth under one rounded portal, 16′ front to back, joined along the middle under a standing seam, with the floor, lining and glazing carried right across. Nominal 20′ × 16′ × 10′, 320 sq ft.",
+  },
+  full: {
+    title: 'Studio + every add-on',
+    done: 'built · Studio + deck, gazebo, rooftop + stairs',
+    pad: { x0: -150, x1: 186, y0: -66, y1: 200 },
+    caption:
+      'The Studio with all four published add-ons: the front deck and gazebo, then the rooftop deck with its glass balustrade, reached by the 17-riser stair at the end of the deck.',
+  },
   stacked: {
     fig: 'Fig 5',
     title: 'Stacked Studios · build',
@@ -67,13 +106,16 @@ const VARIANTS = {
   },
 }
 
-export function studioFigure(variant) {
+export function studioFigure(variant, fig) {
   const meta = VARIANTS[variant]
+  plan(meta.length || 20, meta.depth || 8)
   const tall = variant === 'stacked'
-  const WIDTH = 600
-  const HEIGHT = tall ? 560 : 420
+  const deck = variant === 'deck' || variant === 'full'
+  const roof = variant === 'roof' || variant === 'full'
+  const WIDTH = variant === 'long' ? 760 : 600
+  const HEIGHT = tall ? 560 : variant === 'long' ? 380 : 420
   const pad = meta.pad
-  const top = tall ? 2 * (BASE + HT) + 48 : variant === 'roof' ? BASE + HT + 48 : BASE + HT + 20
+  const top = tall ? 2 * (BASE + HT) + 48 : roof ? BASE + HT + 48 : BASE + HT + 20
   const P = k.fitProjection(
     [
       ...k.boxCorners(
@@ -103,6 +145,12 @@ export function studioFigure(variant) {
       true,
     )}"/>`
 
+  /** Evenly spaced positions from a to b, about `step` apart, both ends included. */
+  const along = (a, b, step) => {
+    const n = Math.max(1, Math.round((b - a) / step))
+    return Array.from({ length: n + 1 }, (_, i) => a + ((b - a) * i) / n)
+  }
+
   sitePad(h, put, P, { ...pad, ruler: [-X1, X1, pad.y1 - 22] })
 
   const stages = []
@@ -129,14 +177,10 @@ export function studioFigure(variant) {
     const ix = X1 - WALL
 
     if (plinth) {
-      const screws = [
-        [-100, -34],
-        [0, -34],
-        [100, -34],
-        [-100, 34],
-        [0, 34],
-        [100, 34],
-      ].sort((a, b) => depth(a[0], a[1]) - depth(b[0], b[1]))
+      const screws = []
+      for (const x of along(-X1 + 20, X1 - 20, 100))
+        for (const y of along(SY0 + 13, SY1 - 13, 68)) screws.push([x, y])
+      screws.sort((a, b) => depth(a[0], a[1]) - depth(b[0], b[1]))
       putEach(
         st.plinth,
         screws.map(
@@ -148,10 +192,10 @@ export function studioFigure(variant) {
       )
       put(
         st.plinth,
-        plain(box(-111.6, 111.6, -40.8, 40.8, z0, z0 + BASE, 0.3), 'lo', {
+        plain(box(-X1 + 8.4, X1 - 8.4, SY0 + 6.4, SY1 - 6.4, z0, z0 + BASE, 0.3), 'lo', {
           inner: Ln(
-            [-74, -37, 0, 37, 74]
-              .map((x) => k.segment([x, 40.8, z0], [x, 40.8, z0 + BASE], P))
+            along(-X1 + 46, X1 - 46, 37)
+              .map((x) => k.segment([x, SY1 - 6.4, z0], [x, SY1 - 6.4, z0 + BASE], P))
               .join(''),
             { tone: 'faint' },
           ),
@@ -170,7 +214,7 @@ export function studioFigure(variant) {
 
     // Back skin closing the portal, five panels from left to right.
     const backRing = roundedSection(-ix, ix, iz0, zTop - WALL, RADIUS - WALL)
-    const cuts = [-ix, -68.3, -22.8, 22.8, 68.3, ix]
+    const cuts = [-ix, ...MULLIONS, ix]
     putEach(
       st.back,
       cuts.slice(0, -1).map((x0, i) =>
@@ -187,11 +231,11 @@ export function studioFigure(variant) {
 
     // Steel ribs, back to front, with purlins along the roof and rails along the end wall.
     const ribRing = roundedSection(-X1 + 0.6, X1 - 0.6, z0 + BASE + 0.6, zTop - 0.6, RADIUS - 0.6)
-    const ribs = [-40, -20, 0, 20, 40].map((y) => {
+    const ribs = along(SY0 + 7, SY1 - 7, 20).map((y) => {
       const r = shellOf(ACROSS_Y, ribRing, INNER, y - 1.4, y + 1.4, P)
       return plain(r.inner, 'hi', { crease: 'lo' }) + plain(r.outer, 'hi', { crease: 'lo' })
     })
-    const purlins = [-84, -42, 0, 42, 84].map((x) =>
+    const purlins = along(-X1 + 36, X1 - 36, 42).map((x) =>
       plain(box(x - 1.6, x + 1.6, SY0 + 1, SY1 - 1, zTop - WALL, zTop - 0.6, 0.3)),
     )
     const rails = [
@@ -230,7 +274,7 @@ export function studioFigure(variant) {
     const cassette = cutSection(INNER, iz0, floorTop - 0.8)
     putEach(
       st.floor,
-      [-96, -72, -48, -24, 0, 24, 48, 72, 96].map((x) =>
+      along(-X1 + 24, X1 - 24, 24).map((x) =>
         plain(box(x - 1.2, x + 1.2, BACK, SY1 - 0.4, iz0, floorTop - 1.4, 0.2), 'lo'),
       ),
     )
@@ -239,21 +283,26 @@ export function studioFigure(variant) {
     // Services: LED cove, mini-split, room controller, outlets.
     put(
       st.lining,
-      plain(box(-100, 100, BACK + 1, BACK + 2.6, z0 + 108, z0 + 109.6), 'hi', { crease: 'lo' }),
+      plain(box(-X1 + 20, X1 - 20, BACK + 1, BACK + 2.6, z0 + 108, z0 + 109.6), 'hi', {
+        crease: 'lo',
+      }),
       0.7,
     )
+    for (const x of X1 > 120 ? [-110, 190] : [70])
+      put(
+        st.lining,
+        plain(box(x - 18, x + 18, BACK + 1, BACK + 7.2, z0 + 92, z0 + 103, 0.5), 'hi', {
+          crease: 'lo',
+        }) +
+          Ln(h.onY(BACK + 7.2, x - 15, x + 15, z0 + 93.4, z0 + 94.8), { tone: 'lo' }) +
+          D([at([x + 14.8, BACK + 7.2, z0 + 100.6])], { size: 0.4, tone: 'hi' }),
+        0.85,
+      )
     put(
       st.lining,
-      plain(box(52, 88, BACK + 1, BACK + 7.2, z0 + 92, z0 + 103, 0.5), 'hi', { crease: 'lo' }) +
-        Ln(h.onY(BACK + 7.2, 55, 85, z0 + 93.4, z0 + 94.8), { tone: 'lo' }) +
-        D([at([84.8, BACK + 7.2, z0 + 100.6])], { size: 0.4, tone: 'hi' }),
-      0.85,
-    )
-    put(
-      st.lining,
-      plain(box(-100, -94, BACK + 1, BACK + 1.6, z0 + 52, z0 + 61), 'lo') +
-        D([at([-97, BACK + 1.6, z0 + 58.6])], { size: 0.45, tone: 'hi' }) +
-        [-40, 40, 100]
+      plain(box(-X1 + 20, -X1 + 26, BACK + 1, BACK + 1.6, z0 + 52, z0 + 61), 'lo') +
+        D([at([-X1 + 23, BACK + 1.6, z0 + 58.6])], { size: 0.45, tone: 'hi' }) +
+        along(-X1 + 80, X1 - 20, 80)
           .map(
             (x) =>
               plain(box(x - 1.6, x + 1.6, BACK + 1, BACK + 1.5, z0 + 20, z0 + 24.4), 'lo') +
@@ -270,7 +319,7 @@ export function studioFigure(variant) {
     for (let i = 0; i < 6; i++) {
       const y0 = BACK + i * span
       const y1 = y0 + span
-      const joints = [-90, -54, -18, 18, 54, 90]
+      const joints = along(-X1 + 30, X1 - 30, 36)
         .map((x) => k.lineOnTop([x + (i % 2) * 18, y0], [x + (i % 2) * 18, y1], floorTop, P))
         .join('')
       strips.push(S(prismY(finish, y0, y1), { tone: 'lo', inner: Ln(joints, { tone: 'faint' }) }))
@@ -281,12 +330,19 @@ export function studioFigure(variant) {
     if (gear) {
       put(
         st.gear,
-        plain(box(-108, -78, BACK + 1, BACK + 2.4, z0 + 66, z0 + 83, 0.3), 'lo') +
-          Ln(h.onY(BACK + 2.4, -106.6, -79.4, z0 + 67.4, z0 + 81.6), { tone: 'faint' }) +
-          D([at([-80.4, BACK + 2.4, z0 + 68.4])], { size: 0.35, tone: 'hi' }),
+        plain(box(-X1 + 12, -X1 + 42, BACK + 1, BACK + 2.4, z0 + 66, z0 + 83, 0.3), 'lo') +
+          Ln(h.onY(BACK + 2.4, -X1 + 13.4, -X1 + 40.6, z0 + 67.4, z0 + 81.6), {
+            tone: 'faint',
+          }) +
+          D([at([-X1 + 39.6, BACK + 2.4, z0 + 68.4])], { size: 0.35, tone: 'hi' }),
         0,
       )
-      equipment(h, put, st.gear, P, [0, BACK + 1 + 42.8, floorTop - 6.8], { rack: gear === 'rack' })
+      for (const dx of X1 > 120 ? [-120, 118] : [0])
+        // In a double-wide the gear stands out on the open floor, where the glazing shows it.
+        equipment(h, put, st.gear, P, [dx, SY1 > 60 ? 28 : BACK + 1 + 42.8, floorTop - 6.8], {
+          rack: gear === 'rack',
+          mirror: SY1 < 60,
+        })
     }
 
     // Glazing: the frame and mullions, then a pane in each bay, then the door.
@@ -304,35 +360,60 @@ export function studioFigure(variant) {
     const edges = [-ix + 1.9, ...MULLIONS, ix - 1.9]
     const panes = edges.slice(0, -1).map((x0, i) => {
       const x1 = edges[i + 1]
-      const poly = cutSection(GH, x0 + (i ? 1.2 : 0), x1 - (i < 4 ? 1.2 : 0), 0)
-      const streak = x1 - x0 > 30 ? k.segment([x0 + 8, 45.2, zb], [x0 + 22, 45.2, zt], P) : ''
-      return glassFace(poly.map(([x, z]) => [x, 45.2, z])) + Ln(streak, { tone: 'faint' })
+      const last = edges.length - 2
+      const poly = cutSection(GH, x0 + (i ? 1.2 : 0), x1 - (i < last ? 1.2 : 0), 0)
+      const gy = GLASS[0] + 0.6
+      const streak = x1 - x0 > 30 ? k.segment([x0 + 8, gy, zb], [x0 + 22, gy, zt], P) : ''
+      return glassFace(poly.map(([x, z]) => [x, gy, z])) + Ln(streak, { tone: 'faint' })
     })
-    ;[0, 4, 1, 3, 2].forEach((i, n) => put(st.glazing, panes[i], 0.25 + (n / 4) * 0.5))
+    // Panes go in from both ends toward the door.
+    const order = panes
+      .map((_, i) => i)
+      .sort((a, b) => Math.abs(b - (panes.length - 1) / 2) - Math.abs(a - (panes.length - 1) / 2))
+    order.forEach((i, n) =>
+      put(st.glazing, panes[i], 0.25 + (n / Math.max(1, order.length - 1)) * 0.5),
+    )
     for (const x of MULLIONS)
       put(st.glazing, plain(box(x - 1.2, x + 1.2, GLASS[0], GLASS[1], zb, zt, 0.2)), 0.1)
     put(
       st.glazing,
-      plain(box(-21.6, 21.6, GLASS[0], GLASS[1], z0 + 91, z0 + 93, 0.2)) +
-        plain(box(-21.6, 21.6, GLASS[0], GLASS[1], floorTop, floorTop + 2, 0.2)),
+      plain(box(DOOR[0], DOOR[1], GLASS[0], GLASS[1], z0 + 91, z0 + 93, 0.2)) +
+        plain(box(DOOR[0], DOOR[1], GLASS[0], GLASS[1], floorTop, floorTop + 2, 0.2)),
       0.85,
     )
     put(st.glazing, plain(frame.outer, 'mid'), 0)
     put(
       st.glazing,
-      plain(box(-21.6, 21.6, GLASS[1], SY1 + 2.4, floorTop - 1.2, floorTop, 0.3), 'hi', {
+      plain(box(DOOR[0], DOOR[1], GLASS[1], SY1 + 2.4, floorTop - 1.2, floorTop, 0.3), 'hi', {
         crease: 'lo',
       }) +
-        plain(box(13.4, 14.6, GLASS[1], GLASS[1] + 1.6, z0 + 50, z0 + 51.4)) +
-        plain(box(13.4, 14.6, GLASS[1], GLASS[1] + 1.6, z0 + 68, z0 + 69.4)) +
-        plain(k.cylinder(14, GLASS[1] + 2.2, 0.7, z0 + 46, 28, P, 12), 'hi'),
+        plain(box(DOOR[1] - 8.2, DOOR[1] - 7, GLASS[1], GLASS[1] + 1.6, z0 + 50, z0 + 51.4)) +
+        plain(box(DOOR[1] - 8.2, DOOR[1] - 7, GLASS[1], GLASS[1] + 1.6, z0 + 68, z0 + 69.4)) +
+        plain(k.cylinder(DOOR[1] - 7.6, GLASS[1] + 2.2, 0.7, z0 + 46, 28, P, 12), 'hi'),
       1,
     )
 
     // The outside of the shell over everything inside it, with its standing seams across the roof
     // and along the end wall, FURY engraved small in the front face, gutter outlet and downpipe.
     const seams = []
-    for (let x = -96; x <= 96; x += 24) seams.push(k.segment([x, SY0, zTop], [x, SY1, zTop], P))
+    for (const x of along(-X1 + 24, X1 - 24, 24))
+      seams.push(k.segment([x, SY0, zTop], [x, SY1, zTop], P))
+    // Two modules joined along the middle: a standing seam right across the roof.
+    // It follows the section over the top and down the end, from silhouette to silhouette.
+    if (SY1 > 60) {
+      const V = G.viewOf(P)
+      const ring = OUTER
+      const n = ring.length
+      const facing = ring.map((_, i) => {
+        const [x0, z0p] = ring[(i - 1 + n) % n]
+        const [x1, z1p] = ring[(i + 1) % n]
+        return (z1p - z0p) * V[0] - (x1 - x0) * V[2] < 0
+      })
+      const run = []
+      const start = facing.findIndex((f, i) => f && !facing[(i - 1 + n) % n])
+      for (let i = 0; i < n && facing[(start + i) % n]; i++) run.push(ring[(start + i) % n])
+      seams.push(k.pathOf(run.map(([x, z]) => at([x, 0, z]))))
+    }
     for (const z of [36, 66, 96]) seams.push(k.segment([X1, SY0, z0 + z], [X1, SY1, z0 + z], P))
     put(
       st.skin,
@@ -344,8 +425,8 @@ export function studioFigure(variant) {
     )
     put(
       st.skin,
-      plain(box(-91, 91, SY1 - 3, SY1 - 2, zTop, zTop + 0.6), 'mid', { crease: 'none' }) +
-        k.faceTextSvg(k.sideMatrix([-96, SY1], z0 + 4.4, P, 'left'), 'FURY', {
+      plain(box(-X1 + 29, X1 - 29, SY1 - 3, SY1 - 2, zTop, zTop + 0.6), 'mid', { crease: 'none' }) +
+        k.faceTextSvg(k.sideMatrix([-X1 + 24, SY1], z0 + 4.4, P, 'left'), 'FURY', {
           size: 2.6,
           tone: 'lo',
           anchor: 'start',
@@ -354,9 +435,9 @@ export function studioFigure(variant) {
     const foot = z0 ? z0 : -8
     put(
       st.skin,
-      plain(box(X1 - 2, X1 + 3.2, -45, -41, zTop - 6, zTop - 2.4, 0.3)) +
-        plain(k.cylinder(X1 + 1.6, -43, 1.3, foot, zTop - 6 - foot, P, 14)) +
-        (z0 ? '' : plain(box(X1 - 2, X1 + 6, -48, -38, -8, -7, 0.3), 'lo')),
+      plain(box(X1 - 2, X1 + 3.2, SY0 + 2.2, SY0 + 6.2, zTop - 6, zTop - 2.4, 0.3)) +
+        plain(k.cylinder(X1 + 1.6, SY0 + 4.2, 1.3, foot, zTop - 6 - foot, P, 14)) +
+        (z0 ? '' : plain(box(X1 - 2, X1 + 6, SY0 - 0.8, SY0 + 9.2, -8, -7, 0.3), 'lo')),
     )
   }
 
@@ -494,7 +575,7 @@ export function studioFigure(variant) {
   }
 
   /** The unit's services outside: the condenser by the end wall, with its line set. */
-  const outside = (st) => put(st, condenserSvg(h, P, 126, -40, X1), 1)
+  const outside = (st) => put(st, condenserSvg(h, P, X1 + 6, SY0 + 7, X1), 1)
 
   const studioStages = (prefix = '') => ({
     plinth: stage(`${prefix}ground screws + steel plinth`, 26),
@@ -510,9 +591,9 @@ export function studioFigure(variant) {
 
   if (variant !== 'stacked') {
     const st = studioStages()
-    unit(0, st, { step: variant !== 'deck' })
+    unit(0, st, { step: !deck })
     outside(st.lining)
-    if (variant === 'deck') {
+    if (deck) {
       const frame = stage('deck footings + joists', 26)
       const deckBoards = stage('teak boards + front step', 20)
       const portal = stage('gazebo portal frame', 56)
@@ -572,7 +653,7 @@ export function studioFigure(variant) {
           ),
       )
     }
-    if (variant === 'roof') {
+    if (roof) {
       const roofBoards = stage('rooftop deck boards', 24)
       const glass = stage('glass balustrade', 26)
       const flight = stage('17-riser exterior stair', 44)
@@ -593,7 +674,15 @@ export function studioFigure(variant) {
         [[111, -16.8], [111, 43.2], zt],
         [[-111, 43.2], [111, 43.2], zt],
       ])
-      stair(flight, rails, { x0: 144, yStart: 138, dir: -1, risers: 17, rise: 7.34, going: 9.96 })
+      // With the front deck, the stair starts from the deck's end instead of the ground.
+      stair(flight, rails, {
+        x0: 144,
+        yStart: 138,
+        dir: -1,
+        risers: 17,
+        rise: 7.34,
+        going: 9.96,
+      })
     }
   } else {
     const lower = studioStages('lower ')
@@ -633,7 +722,7 @@ export function studioFigure(variant) {
 
   return {
     id: `studio-${variant}`,
-    fig: meta.fig,
+    fig: fig || meta.fig,
     title: meta.title,
     width: WIDTH,
     height: HEIGHT,

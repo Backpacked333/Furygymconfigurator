@@ -1,13 +1,24 @@
-// "How a Fury gym is built": isometric figures that assemble each product Fury offers, one card
-// each, in five to seven seconds, then take it apart and start again.
+// "How a Fury gym is built": isometric figures that assemble each unit Fury offers, piece by
+// piece, then take it apart and start again.
 //
-//   node figures/how-its-built/build.mjs          → public/how-its-built.html
-//   node figures/how-its-built/build.mjs --light  → public/how-its-built-light.html
+//   node figures/how-its-built/build.mjs
+//     → public/how-its-built/<id>.html   one page per figure, for embedding (see below)
+//     → public/how-its-built.html        the gallery, which loads those pages
+//
+// Each figure page takes URL options, so the same file serves a gallery card, a landing page
+// hero or a loading screen:
+//   theme=dark|light|tint   colours (default light)
+//   frame=card|none         the framed card with title, readout and steps, or just the build
+//   site=0                  hide the concrete pad and ruler and crop to the unit
+//   interactive=0           no hover, click or keys (for loading screens)
+//   paper=<css colour>      what the solids are filled with; match it to the page behind
+//   speed=<number>          playback speed (1 is normal)
+//   still=1                 show the finished unit only
 //
 // World units are inches (1 ft = 12): x along the unit's length, y across its width with the
 // front at +y, z up. Nominal sizes come from src/lib/products.ts; part sizes follow the
 // configurator's models (src/render/architecture.ts, addons.ts). Geometry is illustrative.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as k from '../kit/iso-kit.mjs'
@@ -17,17 +28,38 @@ import { studioFigure } from './studio.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '..', '..', 'public')
-const theme = process.argv.includes('--light') ? 'light' : 'dark'
+const DIR = join(OUT, 'how-its-built')
 
 const FIGURES = [
-  containerFigure(),
-  studioFigure('single'),
-  studioFigure('deck'),
-  studioFigure('roof'),
-  studioFigure('stacked'),
+  containerFigure({ fig: 'Fig 1' }),
+  containerFigure({ opening: 'center', fig: 'Fig 2' }),
+  containerFigure({ opening: 'partial', fig: 'Fig 3' }),
+  containerFigure({ opening: 'full', fig: 'Fig 4' }),
+  containerFigure({ length: 40, fig: 'Fig 5' }),
+  studioFigure('single', 'Fig 6'),
+  studioFigure('long', 'Fig 7'),
+  studioFigure('double', 'Fig 8'),
+  studioFigure('deck', 'Fig 9'),
+  studioFigure('roof', 'Fig 10'),
+  studioFigure('full', 'Fig 11'),
+  studioFigure('stacked', 'Fig 12'),
 ]
 
-const css = `
+// A third theme: light, with a quiet sage tint through the paper, faces and lines.
+const TINT = `
+.iso[data-theme="tint"]{
+  --anatomy-page:#edf1ec;--anatomy-card:#f5f8f4;--anatomy-text:#4b5a52;--anatomy-strong:#16211c;--anatomy-muted:#84948b;
+  --anatomy-paper:#f5f8f4;--anatomy-face:#fbfdfa;--anatomy-top:#fcfefb;
+  --anatomy-shade-0:#d3ddd5;--anatomy-shade-1:#dde6df;--anatomy-shade-2:#e7eee8;--anatomy-shade-3:#f0f5f0;
+  --anatomy-lit-top:#ffffff;--anatomy-lit-shade:#e8f0ea;
+  --anatomy-hi:#1f2e27;--anatomy-mid:#6e8378;--anatomy-lo:#a7b8ae;--anatomy-faint:#cdd9d1;--anatomy-lit:#1d6b4f;
+  --anatomy-halo:#5f7d6d;--anatomy-halo-opacity:.28;--anatomy-dot:#2f4038;
+  --anatomy-lift:inset 0 1px 0 0 #ffffff,0 0 0 1px #1d3a2a12,0 1px 1px -.5px #1d3a2a0a,0 3px 3px -1.5px #1d3a2a0a,0 6px 6px -3px #1d3a2a0a;
+}
+body[data-theme="tint"]{color-scheme:light}
+`
+
+const FIGURE_CSS = `
 .cg-hole{fill:var(--anatomy-shade-0);stroke:var(--anatomy-lo);stroke-width:var(--anatomy-weight);vector-effect:non-scaling-stroke}
 .cg-glass{fill:var(--anatomy-hi);fill-opacity:.07;stroke:none}
 .cg-svg [data-s] .iso-edge{transition:stroke .35s ease}
@@ -38,16 +70,28 @@ const css = `
 .cg-steps li{transition:color .3s ease}
 .cg-steps li[data-on]{color:var(--anatomy-strong)}
 .cg-steps li[data-done]{color:var(--anatomy-text)}
-.cg-intro{margin:0 0 8px;color:var(--anatomy-text)}
-.cg-intro h1{margin:0 0 6px;font-size:20px;font-weight:600;color:var(--anatomy-strong);letter-spacing:-.01em}
-.cg-intro p{margin:0;max-width:62ch}
 `
 
-/** One card: the SVG with each item in its stage's group, the step list under it. */
-function card(f) {
+const EMBED_CSS = `
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--anatomy-page);color:var(--anatomy-text);font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;color-scheme:dark}
+body[data-theme="light"]{color-scheme:light}
+.cg-embed{padding:1px}
+.cg-embed .iso-figure{margin:0}
+body.cg-bare{background:transparent}
+.cg-bare .cg-embed{padding:0}
+.cg-bare .iso-plate{padding:0;background:none;box-shadow:none;--anatomy-paper:var(--cg-paper,var(--anatomy-page))}
+.cg-bare .iso-plate-corners,.cg-bare .iso-legend{display:none}
+.cg-nosite .cg-site{display:none}
+.cg-static .cg-stage{cursor:default;pointer-events:none}
+`
+
+/** One figure: the SVG with each item in its stage's group, inside the card markup. */
+function figureHtml(f) {
   const body = f.items.map(({ stage, svg, k: at }) =>
     stage < 0
-      ? svg
+      ? `<g class="cg-site">${svg}</g>`
       : `<g data-s="${stage}"${at == null ? '' : ` data-k="${at.toFixed(3)}"`}>${svg}</g>`,
   )
   const svg = k.figureSvg({
@@ -71,7 +115,7 @@ function card(f) {
   return `<div data-fig="${f.id}">${plate.replace('</figcaption>', `${steps}</figcaption>`)}</div>`
 }
 
-/** What the page needs to run each figure: its camera, timeline and any parts redrawn live. */
+/** What the page needs to run a figure: its camera, timeline and any parts redrawn live. */
 function runtimeOf(f) {
   const timeline = f.stages.map((s, i) => ({ ...s, start: f.first + i * f.spacing, dur: f.dur }))
   const last = timeline[timeline.length - 1]
@@ -88,12 +132,36 @@ function runtimeOf(f) {
   }
 }
 
-const live = `
+// The page runtime: options from the URL, then the figure's build loop.
+const runtime = `
 ${leafSvg.toString()}
 ${shutterSvg.toString()}
 const K = { towardViewer, extrude, solidSvg, cylinder, slabOf, segment, lineSvg };
-const FIGS = ${JSON.stringify(FIGURES.map(runtimeOf))};
+const Q = new URLSearchParams(location.search);
+const THEMES = ["dark", "light", "tint"];
+const OPT = {
+  theme: THEMES.includes(Q.get("theme")) ? Q.get("theme") : "light",
+  card: Q.get("frame") === "card",
+  site: Q.get("site") !== "0",
+  interactive: Q.get("interactive") !== "0",
+  speed: Math.max(0.1, Math.min(4, parseFloat(Q.get("speed")) || 1)),
+  still: Q.get("still") === "1",
+  paper: Q.get("paper"),
+};
+document.body.dataset.theme = OPT.theme;
+document.body.classList.toggle("cg-bare", !OPT.card);
+document.body.classList.toggle("cg-nosite", !OPT.site);
+document.body.classList.toggle("cg-static", !OPT.interactive);
+if (OPT.paper && CSS.supports("color", OPT.paper)) document.body.style.setProperty("--cg-paper", OPT.paper);
+// A host page can switch the theme without reloading, and learns the height it needs.
+addEventListener("message", (event) => {
+  if (event.data && event.data.cg === "theme" && THEMES.includes(event.data.theme)) document.body.dataset.theme = event.data.theme;
+});
+const tell = () => parent !== window && parent.postMessage({ cg: "height", id: FIG.id, height: document.documentElement.scrollHeight }, "*");
+new ResizeObserver(tell).observe(document.body);
+
 const still = matchMedia("(prefers-reduced-motion: reduce)");
+const calm = () => still.matches || OPT.still;
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -186,7 +254,16 @@ function mount(cfg) {
     return started;
   }
 
-  let t = 0, target = 0, clock = 0, last = 0, frame = 0, visible = false, touring = !still.matches, idle = 0, said = -2;
+  // Without the pad, crop to the finished unit, with room above for parts coming down.
+  if (!OPT.site) {
+    draw(BUILT);
+    const b = svg.getBBox();
+    const rise = screenRise(Math.max(...STAGES.map((s) => s.drop)), P) * 0.7;
+    const side = b.width * 0.03;
+    svg.setAttribute("viewBox", [b.x - side, b.y - rise, b.width + 2 * side, b.height + rise + side].map((v) => v.toFixed(1)).join(" "));
+  }
+
+  let t = 0, target = 0, clock = 0, last = 0, frame = 0, visible = false, touring = !calm(), idle = 0, said = -2;
   function describe(started) {
     if (started === said) return;
     said = started;
@@ -194,13 +271,13 @@ function mount(cfg) {
     stage.setAttribute("aria-valuetext", started < 0 ? "Empty site" : "Step " + (started + 1) + " of " + N + ": " + STAGES[started].name);
   }
   function tick(now) {
-    const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
+    const dt = (last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60) * OPT.speed;
     last = now;
     if (touring) {
       clock = (clock + dt) % CYCLE;
       t = clock;
     } else {
-      t = still.matches ? target : t + (target - t) * (1 - Math.exp(-dt / 0.18));
+      t = calm() ? target : t + (target - t) * (1 - Math.exp(-dt / 0.18));
       if (Math.abs(target - t) < 0.002) t = target;
     }
     describe(draw(t));
@@ -210,54 +287,149 @@ function mount(cfg) {
   const run = () => { if (!frame && visible) { last = 0; frame = requestAnimationFrame(tick); } };
   const resume = (delay) => {
     clearTimeout(idle);
-    if (still.matches) return;
+    if (calm()) return;
     idle = setTimeout(() => { touring = true; clock = Math.min(t, BUILT); run(); }, delay);
   };
   const steer = (next) => { touring = false; target = clamp(next, 0, BUILT); resume(3600); run(); };
   new IntersectionObserver((entries) => { visible = entries[entries.length - 1].isIntersecting; if (visible) run(); }, { rootMargin: "120px 0px" }).observe(stage);
-  stage.addEventListener("pointermove", (event) => {
-    if (event.pointerType === "touch") return;
-    const r = svg.getBoundingClientRect();
-    steer(clamp(((event.clientX - r.left) / r.width - 0.12) / 0.76) * BUILT);
-  });
-  stage.addEventListener("pointerleave", () => resume(1400));
-  stage.addEventListener("click", () => { touring = !still.matches; clock = 0; t = target = still.matches ? BUILT : 0; run(); });
-  const ends = STAGES.map((s, i) => (i === N - 1 ? BUILT : s.start + s.dur));
-  stage.addEventListener("keydown", (event) => {
-    const now = touring ? Math.min(t, BUILT) : target;
-    const at = ends.findIndex((e) => e > now + 0.01);
-    const here = at < 0 ? N : at;
-    let to = null;
-    if (event.key === "ArrowRight" || event.key === "ArrowUp") to = here >= N ? BUILT : ends[here];
-    if (event.key === "ArrowLeft" || event.key === "ArrowDown") to = here - 2 >= 0 ? ends[here - 2] : 0;
-    if (event.key === "Home") to = 0;
-    if (event.key === "End") to = BUILT;
-    if (event.key === " " || event.key === "Enter") { event.preventDefault(); stage.click(); return; }
-    if (to === null) return;
-    event.preventDefault();
-    if (still.matches) t = to;
-    steer(to);
-  });
-  if (still.matches) { touring = false; t = target = BUILT; }
-  describe(draw(still.matches ? BUILT : 0));
+  if (OPT.interactive) {
+    stage.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return;
+      const r = svg.getBoundingClientRect();
+      steer(clamp(((event.clientX - r.left) / r.width - 0.12) / 0.76) * BUILT);
+    });
+    stage.addEventListener("pointerleave", () => resume(1400));
+    stage.addEventListener("click", () => { touring = !calm(); clock = 0; t = target = calm() ? BUILT : 0; run(); });
+    const ends = STAGES.map((s, i) => (i === N - 1 ? BUILT : s.start + s.dur));
+    stage.addEventListener("keydown", (event) => {
+      const now = touring ? Math.min(t, BUILT) : target;
+      const at = ends.findIndex((e) => e > now + 0.01);
+      const here = at < 0 ? N : at;
+      let to = null;
+      if (event.key === "ArrowRight" || event.key === "ArrowUp") to = here >= N ? BUILT : ends[here];
+      if (event.key === "ArrowLeft" || event.key === "ArrowDown") to = here - 2 >= 0 ? ends[here - 2] : 0;
+      if (event.key === "Home") to = 0;
+      if (event.key === "End") to = BUILT;
+      if (event.key === " " || event.key === "Enter") { event.preventDefault(); stage.click(); return; }
+      if (to === null) return;
+      event.preventDefault();
+      if (calm()) t = to;
+      steer(to);
+    });
+  } else {
+    stage.removeAttribute("tabindex");
+  }
+  if (calm()) { touring = false; t = target = BUILT; }
+  describe(draw(calm() ? BUILT : 0));
 }
-FIGS.forEach(mount);
+mount(FIG);
+tell();
 `
 
-const intro = `<header class="cg-intro"><h1>How a Fury gym is built</h1><p>Every unit Fury offers, assembled step by step: the Container Gym, the S-Series Studio on its own, with a front deck and gazebo, with a rooftop deck and stairs, and stacked two levels high. Sizes follow Fury's published specs; part geometry is illustrative, not manufacturer CAD.</p></header>`
-const page = k.pageHtml({
-  title: 'How a Fury gym is built',
-  theme,
-  width: 760,
-  body: intro + FIGURES.map(card).join('') + `<style>${css}</style>`,
-  script:
-    readFileSync(join(HERE, '..', 'kit', 'iso-kit.mjs'), 'utf8').replace(/^export /gm, '') + live,
-})
-const name = theme === 'light' ? 'how-its-built-light.html' : 'how-its-built.html'
-writeFileSync(join(OUT, name), page)
+const KIT = readFileSync(join(HERE, '..', 'kit', 'iso-kit.mjs'), 'utf8').replace(/^export /gm, '')
+const esc = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+
+rmSync(DIR, { recursive: true, force: true })
+mkdirSync(DIR, { recursive: true })
+let bytes = 0
+for (const f of FIGURES) {
+  const script = KIT + `\nconst FIG = ${JSON.stringify(runtimeOf(f))};\n` + runtime
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(f.title.replace(' · build', ''))} · how it's built</title><style>${k.ISO_CSS}${TINT}${FIGURE_CSS}${EMBED_CSS}</style></head><body class="iso cg-bare" data-theme="light"><main class="cg-embed">${figureHtml(f)}</main><script type="module">${script.replace(/<\/(script)/gi, '<\\/$1')}</script></body></html>`
+  writeFileSync(join(DIR, `${f.id}.html`), page)
+  bytes += page.length
+}
+
+// --- The gallery: every figure as a card, a theme switch, and how to embed them ----------------
+const GALLERY_CSS = `
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body[data-theme="light"],body[data-theme="tint"]{color-scheme:light}
+body{margin:0;background:var(--anatomy-page);color:var(--anatomy-text);font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;transition:background .3s ease}
+.cg-page{width:min(760px,100% - 32px);margin:56px auto 96px}
+.cg-head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px;margin-bottom:24px}
+.cg-head h1{margin:0 0 6px;font-size:20px;font-weight:600;color:var(--anatomy-strong);letter-spacing:-.01em}
+.cg-head p{margin:0;max-width:56ch}
+.cg-themes{display:inline-flex;gap:2px;padding:2px;box-shadow:0 0 0 1px var(--anatomy-mid);font-family:var(--anatomy-mono);font-size:11.5px}
+.cg-themes button{all:unset;cursor:pointer;padding:5px 12px;color:var(--anatomy-muted);letter-spacing:.04em}
+.cg-themes button[aria-pressed="true"]{background:var(--anatomy-strong);color:var(--anatomy-page)}
+.cg-themes button:focus-visible{outline:1px solid var(--anatomy-muted);outline-offset:2px}
+.cg-group{margin:40px 0 10px;font-family:var(--anatomy-mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--anatomy-muted)}
+.cg-frame{display:block;width:100%;height:640px;border:0;margin:0 0 28px;background:transparent}
+.cg-embed-doc{margin-top:48px;padding-top:24px;box-shadow:0 -1px 0 var(--anatomy-faint)}
+.cg-embed-doc h2{margin:0 0 8px;font-size:15px;font-weight:600;color:var(--anatomy-strong)}
+.cg-embed-doc code,.cg-embed-doc pre{font-family:var(--anatomy-mono);font-size:12px}
+.cg-embed-doc pre{margin:12px 0;padding:12px 14px;overflow-x:auto;background:var(--anatomy-card);box-shadow:0 0 0 1px var(--anatomy-faint);color:var(--anatomy-strong)}
+.cg-embed-doc table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+.cg-embed-doc td{padding:6px 8px 6px 0;vertical-align:top;box-shadow:0 1px 0 var(--anatomy-faint)}
+.cg-embed-doc td:first-child{white-space:nowrap;font-family:var(--anatomy-mono);font-size:12px;color:var(--anatomy-strong)}
+`
+const groups = [
+  ['Container Gym', FIGURES.filter((f) => f.id.startsWith('container'))],
+  ['S-Series Studio', FIGURES.filter((f) => f.id.startsWith('studio'))],
+]
+const frames = groups
+  .map(
+    ([name, list]) =>
+      `<h2 class="cg-group">${name}</h2>` +
+      list
+        .map(
+          (f) =>
+            `<iframe class="cg-frame" data-id="${f.id}" title="${esc(f.title)}" loading="lazy" src="how-its-built/${f.id}.html?frame=card&amp;theme=dark"></iframe>`,
+        )
+        .join(''),
+  )
+  .join('')
+const options = [
+  ['theme=dark|light|tint', 'Dark, white, or white with a light sage tint. Light is the default.'],
+  [
+    'frame=card',
+    'The framed card with title, live readout, legend and steps. Without it you get just the build.',
+  ],
+  ['site=0', 'Hide the concrete pad and ruler and crop tight to the unit.'],
+  ['interactive=0', 'No hover scrubbing, clicks or keys: for loading screens and backgrounds.'],
+  [
+    'paper=%23ffffff',
+    'The colour solids are filled with. Set it to the background behind the build.',
+  ],
+  ['speed=1.5', 'Playback speed, from 0.1 to 4.'],
+  ['still=1', 'Show the finished unit only, with no motion.'],
+]
+const gallery = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>How a Fury gym is built</title><style>${k.ISO_CSS}${TINT}${GALLERY_CSS}</style></head><body class="iso" data-theme="dark"><main class="cg-page">
+<header class="cg-head"><div><h1>How a Fury gym is built</h1><p>Every unit and option Fury offers, assembled piece by piece. Sizes follow Fury's published specs; part geometry is illustrative, not manufacturer CAD.</p></div>
+<div class="cg-themes" role="group" aria-label="Theme"><button type="button" data-theme="dark" aria-pressed="true">Dark</button><button type="button" data-theme="light" aria-pressed="false">White</button><button type="button" data-theme="tint" aria-pressed="false">Tint</button></div></header>
+${frames}
+<section class="cg-embed-doc"><h2>Use a build on its own</h2><p>Every figure is its own page under <code>/how-its-built/</code>. Embed one in an iframe for a landing page or a loading screen. With no options it shows just the build on a transparent background.</p>
+<pre>&lt;iframe src="/how-its-built/studio-single.html?theme=light&amp;site=0&amp;interactive=0"
+        title="S-Series Studio being built" style="border:0;width:100%;aspect-ratio:16/10"&gt;&lt;/iframe&gt;</pre>
+<table>${options.map(([o, d]) => `<tr><td>${esc(o)}</td><td>${d}</td></tr>`).join('')}</table>
+<table>${FIGURES.map((f) => `<tr><td>${f.id}.html</td><td>${esc(f.title.replace(' · build', ''))}</td></tr>`).join('')}</table>
+<p>A host page can change the theme live with <code>frame.contentWindow.postMessage({ cg: "theme", theme: "tint" }, "*")</code>, and each figure posts <code>{ cg: "height", height }</code> to its parent whenever its height changes.</p></section>
+</main><script>
+const frames = [...document.querySelectorAll(".cg-frame")];
+const buttons = [...document.querySelectorAll(".cg-themes button")];
+const apply = (theme) => {
+  document.body.dataset.theme = theme;
+  buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.theme === theme)));
+  // Loaded figures switch in place; the rest load in the new theme.
+  for (const f of frames) {
+    if (f.dataset.loaded) f.contentWindow.postMessage({ cg: "theme", theme }, "*");
+    else f.src = f.src.replace(/theme=[a-z]+/, "theme=" + theme);
+  }
+  const url = new URL(location.href);
+  url.searchParams.set("theme", theme);
+  history.replaceState(null, "", url);
+};
+buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.theme)));
+frames.forEach((f) => f.addEventListener("load", () => (f.dataset.loaded = "1")));
+addEventListener("message", (event) => {
+  const frame = frames.find((f) => f.contentWindow === event.source);
+  if (frame && event.data && event.data.cg === "height") frame.style.height = Math.ceil(event.data.height) + "px";
+});
+const start = new URLSearchParams(location.search).get("theme");
+if (["light", "tint"].includes(start)) apply(start);
+</script></body></html>`
+writeFileSync(join(OUT, 'how-its-built.html'), gallery)
+rmSync(join(OUT, 'how-its-built-light.html'), { force: true })
 console.log(
-  'wrote',
-  join('public', name),
-  `${(page.length / 1024).toFixed(0)} KB`,
-  FIGURES.map((f) => `${f.id}:${f.items.length}`).join(' '),
+  `wrote public/how-its-built.html and ${FIGURES.length} figures in public/how-its-built/ (${(bytes / 1048576).toFixed(1)} MB)`,
 )

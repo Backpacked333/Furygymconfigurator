@@ -12,7 +12,7 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "figure": "node figures/how-its-built/build.mjs && node figures/how-its-built/build.mjs --light"
+    "figure": "node figures/how-its-built/build.mjs"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.6",
