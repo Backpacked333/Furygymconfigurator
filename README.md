@@ -68,9 +68,9 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 - **History:** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z redoes. Changing size preserves selections, and downsizing is blocked if current equipment would no longer fit.
 - **Photo mode:** expands the scene and downloads a rasterized PNG at the current canvas resolution. It is not 4K path tracing.
 
-## How it's built figure
+## How it's built figures
 
-`public/how-its-built.html` (and `-light.html`) is a standalone isometric figure, deployed with the site at `/how-its-built.html`. It assembles a 20′ Container Gym in twelve steps in about seven seconds and then loops: piers, base frame, end frames, plywood floor, rear wall, insulated lining and electrics, rubber floor, equipment, roll-up door, front wall, roof, cargo doors. Hover to scrub, click or press Enter to replay, and use the arrow keys to step. Sizes follow `src/lib/products.ts`; part geometry is illustrative. Rebuild it with `npm run figure` after editing `figures/how-its-built/`. `figures/kit/` is a vendored copy of the MIT-licensed Anatomy isometric kit.
+`public/how-its-built.html` (and `-light.html`) is a standalone page, deployed with the site at `/how-its-built.html`. It has one isometric figure per unit Fury offers, each building itself in five to seven seconds and then looping: the 20′ Container Gym, the S-Series Studio, the Studio with a front deck and gazebo, the Studio with a rooftop deck and exterior stairs, and two Studios stacked. Hover to scrub, click or press Enter to replay, and use the arrow keys to step. Sizes follow `src/lib/products.ts` and the configurator's models; part geometry is illustrative. Rebuild with `npm run figure` after editing `figures/how-its-built/` (`container.mjs`, `studio.mjs`, shared parts in `common.mjs`). `figures/kit/` is a vendored copy of the MIT-licensed Anatomy isometric kit.
 
 ## Configuration architecture
 
