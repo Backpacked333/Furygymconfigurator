@@ -11,14 +11,20 @@ export function requestedBackend(search = window.location.search): Backend | nul
   return value === 'webgl' || value === 'webgl2' ? 'webgl2' : value === 'webgpu' ? 'webgpu' : null
 }
 
-/** Starting tier: `?quality=` wins, otherwise the viewport decides. Users can change it later. */
+/**
+ * Starting tier: `?quality=` wins, otherwise the viewport and device decide. Ultra (screen-space
+ * GI) is opt-in: a wide window says nothing about the GPU behind it, and starting integrated
+ * graphics on Ultra made the view stutter and lose the GPU device. Users can change it later.
+ */
 export function defaultQuality(
   width = window.innerWidth,
   search = window.location.search,
+  memoryGB = (navigator as { deviceMemory?: number }).deviceMemory,
 ): Quality {
   const requested = new URLSearchParams(search).get('quality')
   if (requested === 'ultra' || requested === 'high' || requested === 'lite') return requested
-  return width >= 1100 ? 'ultra' : width >= 700 ? 'high' : 'lite'
+  if (memoryGB !== undefined && memoryGB < 4) return 'lite'
+  return width >= 700 ? 'high' : 'lite'
 }
 
 export const QUALITY_DETAILS: Record<Quality, string> = {

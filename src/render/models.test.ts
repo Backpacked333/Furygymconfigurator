@@ -87,3 +87,51 @@ describe('architecture', () => {
     },
   )
 })
+
+/** Everything a part list renders: material identity, placement, and geometry. */
+function signature(parts: Part[]) {
+  return parts.map((p) => {
+    const position = p.geometry.getAttribute('position').array as ArrayLike<number>
+    let sum = 0
+    for (let i = 0; i < position.length; i++) sum += position[i] * ((i % 7) + 1)
+    return [p.material.uuid, p.shadow, Array.from(p.matrix.elements), position.length, sum]
+  })
+}
+
+// StudioModel caches each part list under a key naming only the inputs its builder reads; any
+// other input must leave the list unchanged, or a narrowed key would show stale geometry.
+describe('part lists ignore inputs outside their cache keys', () => {
+  const studio = DEFAULT_CONFIG
+  const container = setFamily(DEFAULT_CONFIG, 'container')
+  // Not chalk: the interiors read the finish only to choose chalk or standard paint.
+  const others: Partial<Config>[] = [
+    { finish: 'olive' },
+    { finish: 'bronze' },
+    { lights: false },
+    { mirror: true },
+    { environment: 'desert', time: 9 },
+    { accent: true },
+    { addons: { deck: true, gazebo: true, roof: true, stairs: false } },
+    { integratedFinish: true },
+  ]
+  it.each([
+    ['studio interior', studioInterior, studio],
+    ['container interior', containerInterior, container],
+    ['studio glazing', studioGlazing, studio],
+    ['roof deck', roofDeck, studio],
+    ['timber accent', timberAccent, studio],
+  ] as const)('%s', (_, build, base) => {
+    const reference = signature(build(base))
+    for (const change of others) {
+      expect(signature(build({ ...base, ...change }))).toEqual(reference)
+    }
+    // The comparison does see changes to inputs the keys do name.
+    expect(signature(build({ ...base, length: 40 }))).not.toEqual(reference)
+  })
+
+  it('see the flooring and chalk paint in the interiors', () => {
+    const reference = signature(studioInterior(studio))
+    expect(signature(studioInterior({ ...studio, flooring: 'oak' }))).not.toEqual(reference)
+    expect(signature(studioInterior({ ...studio, finish: 'chalk' }))).not.toEqual(reference)
+  })
+})

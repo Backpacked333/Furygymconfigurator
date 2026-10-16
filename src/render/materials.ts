@@ -1,17 +1,28 @@
 import {
   Color,
+  CustomBlending,
+  DataTexture,
+  DataUtils,
   FrontSide,
+  HalfFloatType,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   NoColorSpace,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
+  RGBAFormat,
   RepeatWrapping,
   SRGBColorSpace,
+  Texture,
   TextureLoader,
+  UnsignedByteType,
   Vector2,
   type ColorRepresentation,
+  type ColorSpace,
   type Side,
-  type Texture,
 } from 'three'
 import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
-import { pmremTexture } from 'three/tsl'
+import { float, normalView, pmremTexture, positionViewDirection } from 'three/tsl'
 import { textureProgress } from './progress'
 
 /**
@@ -66,6 +77,11 @@ export type MaterialSpec = {
   attenuationColor?: ColorRepresentation
   attenuationDistance?: number
   specularIntensity?: number
+  /**
+   * Clear glazing drawn over the scene behind it rather than through a filtered copy of it:
+   * sharp at any distance, reflecting and dimming by Fresnel's law like a real pane.
+   */
+  thinGlass?: boolean
   emissive?: ColorRepresentation
   emissiveIntensity?: number
   transparent?: boolean
@@ -97,22 +113,161 @@ function configure(texture: Texture, size: number, color: boolean) {
   return texture
 }
 
+/**
+ * Scans decode off the main thread where createImageBitmap takes its options (Safari 17+, Firefox
+ * 98+, the gate three's GLTFLoader uses). An <img> would instead be decoded synchronously by the
+ * first GPU upload, stalling a frame for every arriving map.
+ */
+const decodeOffThread = (() => {
+  if (typeof createImageBitmap === 'undefined' || typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  const safari = /^((?!chrome|android).)*safari/i.test(ua)
+  const safariVersion = Number(ua.match(/Version\/(\d+)/)?.[1] ?? -1)
+  const firefoxVersion = Number(ua.match(/Firefox\/(\d+)\./)?.[1] ?? -1)
+  return !(safari && safariVersion < 17) && !(ua.includes('Firefox') && firefoxVersion < 98)
+})()
+
+/**
+ * Decoded already upright, so the texture keeps flipY false (as three's in-shader flip for bitmaps
+ * requires), and without premultiplication or color conversion: the same texels an <img> uploads.
+ */
+/**
+ * Phones, tablets, and machines with under 8 GB of memory get scans of at most 1024 px. A 2048 px
+ * map takes about 21 MB of GPU memory with mipmaps; a dozen of them on top of shadow maps and
+ * post-processing buffers is what made shared-memory GPUs drop the device (a black view).
+ */
+const MAX_SCAN_SIZE = (() => {
+  if (typeof navigator === 'undefined') return 2048
+  const memory = (navigator as { deviceMemory?: number }).deviceMemory
+  const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+  return touch || (memory !== undefined && memory < 8) ? 1024 : 2048
+})()
+
+async function decode(blob: Blob) {
+  const bitmap = await createImageBitmap(blob, {
+    imageOrientation: 'flipY',
+    premultiplyAlpha: 'none',
+    colorSpaceConversion: 'none',
+  })
+  if (bitmap.width <= MAX_SCAN_SIZE && bitmap.height <= MAX_SCAN_SIZE) return bitmap
+  const scale = MAX_SCAN_SIZE / Math.max(bitmap.width, bitmap.height)
+  const smaller = await createImageBitmap(bitmap, {
+    resizeWidth: Math.round(bitmap.width * scale),
+    resizeHeight: Math.round(bitmap.height * scale),
+    resizeQuality: 'high',
+    premultiplyAlpha: 'none',
+    colorSpaceConversion: 'none',
+  })
+  bitmap.close()
+  return smaller
+}
+
+/** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
+const releasable = new Set<Texture>()
+
+async function fetchBitmapTexture(url: string) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`${response.status} for ${url}`)
+  const blob = await response.blob()
+  const texture = new Texture(await decode(blob))
+  texture.flipY = false
+  texture.userData.scan = blob
+  // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map).
+  texture.onUpdate = () => (texture.image as ImageBitmap).close()
+  return texture
+}
+
+/**
+ * Decodes released maps again. A new renderer uploads every texture afresh, so the canvas's gl
+ * factory awaits this before the renderer draws anything.
+ */
+export function restoreTextures() {
+  return Promise.all(
+    [...releasable]
+      .filter((texture) => (texture.image as ImageBitmap).width === 0)
+      .map(async (texture) => {
+        texture.image = await decode(texture.userData.scan as Blob)
+        texture.needsUpdate = true
+      }),
+  )
+}
+
+/** Retries a dropped request twice (after 1 s, then 2 s) before giving up on a map. */
+function fetchTexture(url: string, attempt = 0): Promise<Texture> {
+  const request = decodeOffThread ? fetchBitmapTexture(url) : loader.loadAsync(url)
+  return request.catch((error: unknown) => {
+    if (attempt >= 2) throw error
+    return new Promise<void>((resolve) => setTimeout(resolve, 1000 * 2 ** attempt)).then(() =>
+      fetchTexture(url, attempt + 1),
+    )
+  })
+}
+
+/** A failed set is requested again after this pause, doubling each round up to five minutes. */
+const RETRY_SET_AFTER_MS = 30_000
+const RETRY_SET_MAX_MS = 300_000
+const failedRounds = new Map<TextureSet, number>()
+/** Surfaces built while their set was failing, given its scans when a later round lands. */
+const waiting = new Map<TextureSet, ((maps: Maps) => void)[]>()
+
+/**
+ * A set's scans, waiting through failed rounds: a dropped connection that recovers still textures
+ * every surface that asked during the outage.
+ */
+function whenLoaded(set: TextureSet): Promise<Maps> {
+  return load(set).catch(
+    () =>
+      new Promise<Maps>((resolve) => {
+        let list = waiting.get(set)
+        if (!list) waiting.set(set, (list = []))
+        list.push(resolve)
+      }),
+  )
+}
+
 function load(set: TextureSet): Promise<Maps> {
   let pending = sets.get(set)
   if (pending) return pending
   const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
   const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
   textureProgress.update(names.length, 0)
-  pending = Promise.all(
+  pending = Promise.allSettled(
     names.map((name) =>
-      loader.loadAsync(`${base}${set}/${name}.webp`).then((texture) => {
-        textureProgress.update(0, 1)
-        return [name, configure(texture, info.size, name === 'albedo')] as const
-      }),
+      fetchTexture(`${base}${set}/${name}.webp`)
+        // A map that never arrives still counts as settled, so the progress bar always finishes.
+        .finally(() => textureProgress.update(0, 1))
+        .then((texture) => [name, configure(texture, info.size, name === 'albedo')] as const),
     ),
-  ).then((entries) => {
+  ).then((results) => {
+    const entries = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    )
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    )
+    if (failure) {
+      // The maps that did arrive are dropped with the set: free their decoded pixels now.
+      entries.forEach(([, texture]) => (texture.image as Partial<ImageBitmap>).close?.())
+      // Surfaces keep their neutral look; after a pause the set tries again for those waiting.
+      const rounds = (failedRounds.get(set) ?? 0) + 1
+      failedRounds.set(set, rounds)
+      setTimeout(
+        () => {
+          if (sets.get(set) === pending) sets.delete(set)
+          if (waiting.get(set)?.length) load(set).catch(() => {})
+        },
+        Math.min(RETRY_SET_MAX_MS, RETRY_SET_AFTER_MS * 2 ** (rounds - 1)),
+      )
+      throw failure.reason
+    }
+    entries.forEach(([, texture]) => {
+      if (texture.userData.scan) releasable.add(texture)
+    })
     const maps = Object.fromEntries(entries) as Maps
     ready.set(set, maps)
+    failedRounds.delete(set)
+    waiting.get(set)?.forEach((resolve) => resolve(maps))
+    waiting.delete(set)
     return maps
   })
   sets.set(set, pending)
@@ -143,6 +298,40 @@ function changed(change: MaterialChange) {
   changeListeners.forEach((listener) => listener(change))
 }
 
+/**
+ * Neutral 1x1 stand-ins bound until a set's scans arrive: white albedo, a flat normal (half float,
+ * so it decodes to exactly 0,0,1), and full AO, roughness, and metalness factors. They look exactly
+ * like no maps at all, but the material's shader already has its final shape, so arriving scans
+ * are swapped in without recompiling every textured material a second time. Sampler state matches
+ * the scans because WebGPU pipelines are keyed on it.
+ */
+function neutral(
+  texel: number[],
+  type: typeof UnsignedByteType | typeof HalfFloatType,
+  space: ColorSpace,
+) {
+  const data =
+    type === HalfFloatType
+      ? new Uint16Array(texel.map((v) => DataUtils.toHalfFloat(v)))
+      : new Uint8Array(texel.map((v) => v * 255))
+  const t = new DataTexture(data, 1, 1, RGBAFormat, type)
+  t.colorSpace = space
+  t.wrapS = t.wrapT = RepeatWrapping
+  t.magFilter = LinearFilter
+  t.minFilter = LinearMipmapLinearFilter
+  t.needsUpdate = true
+  return t
+}
+let stand: { albedo: Texture; normal: Texture; arm: Texture } | null = null
+function standIns() {
+  stand ??= {
+    albedo: neutral([1, 1, 1, 1], UnsignedByteType, SRGBColorSpace),
+    normal: neutral([0.5, 0.5, 1, 1], HalfFloatType, NoColorSpace),
+    arm: neutral([1, 1, 1, 1], UnsignedByteType, NoColorSpace),
+  }
+  return stand
+}
+
 function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps: Maps) {
   const info = TEXTURE_SETS[spec.set!] as { metallic?: boolean }
   if (maps.albedo) material.map = maps.albedo
@@ -150,7 +339,6 @@ function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps:
   material.roughnessMap = maps.arm
   material.aoMap = maps.arm
   if (info.metallic) material.metalnessMap = maps.arm
-  material.needsUpdate = true
 }
 
 export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
@@ -190,14 +378,38 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     m.attenuationDistance = spec.attenuationDistance ?? Infinity
     m.specularIntensity = spec.specularIntensity ?? 1
   }
+  if (spec.thinGlass) {
+    // The lit color is the pane's reflection alone (its albedo is black). Blending adds it to what
+    // lies behind, dimmed by the share the pane reflects: Schlick's Fresnel for a 1.5 surface,
+    // combined for the pane's two faces.
+    const grazing = normalView.dot(positionViewDirection).abs().oneMinus().pow(5)
+    const surface = float(0.04).add(grazing.mul(0.96))
+    m.opacityNode = surface.mul(2).div(surface.add(1))
+    m.transparent = true
+    m.depthWrite = false
+    m.blending = CustomBlending
+    m.blendSrc = m.blendSrcAlpha = OneFactor
+    m.blendDst = m.blendDstAlpha = OneMinusSrcAlphaFactor
+    // What lies behind is already fogged; fogging the reflection's sum would veil the pane.
+    m.fog = false
+    m.userData.glass = true
+  }
   if (spec.set) {
     const maps = ready.get(spec.set)
     if (maps) applyMaps(m, spec, maps)
-    else
-      load(spec.set).then((loaded) => {
+    else {
+      const info = TEXTURE_SETS[spec.set] as { detailOnly?: boolean }
+      const neutralMaps = standIns()
+      applyMaps(m, spec, {
+        ...neutralMaps,
+        albedo: info.detailOnly ? undefined : neutralMaps.albedo,
+      })
+      // Neutral maps until the scans arrive, however many rounds that takes.
+      void whenLoaded(spec.set).then((loaded) => {
         applyMaps(m, spec, loaded)
         changed('textures')
       })
+    }
   }
   if (spec.interior) {
     interiorMaterials.add(m)
@@ -224,5 +436,10 @@ export function setInteriorEnvironment(texture: Texture | null) {
 
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */
 export function textureMaps(set: TextureSet) {
-  return load(set)
+  return whenLoaded(set)
+}
+
+/** Starts (or joins) a set's download without waiting on it. */
+export function prefetchTextures(set: TextureSet) {
+  load(set).catch(() => {})
 }
