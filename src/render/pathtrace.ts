@@ -4,23 +4,21 @@ import {
   FloatType,
   LinearFilter,
   MeshStandardMaterial,
-  NearestFilter,
-  NoToneMapping,
   RGBAFormat,
   RectAreaLight,
   RenderTarget,
   StorageTexture,
-  UnsignedByteType,
+  Vector2,
   Vector3,
   type Camera,
   type Material,
+  type PerspectiveCamera,
   type Mesh,
   type Object3D,
   type Scene,
   type Texture,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { diffuseColor, mrt, normalView, vec4 } from 'three/tsl'
 import type { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu'
 import {
   SUN_ANGULAR_RADIUS,
@@ -30,6 +28,8 @@ import {
   studioRadiance,
   type SkyLook,
 } from '../lib/visuals'
+import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
+import { GBuffer, ViewHistory } from './history'
 import { createExposureMeter } from './pipeline'
 import type { TraceState } from './traceStatus'
 
@@ -50,6 +50,9 @@ import type { TraceState } from './traceStatus'
  *   glossy surfaces show a real sun glint, while the sky arrives as an HDR radiance map with the
  *   same clouds as the raster sky.
  */
+
+/** `?traceStats=1` logs, per view, when the first traced image appeared and when it settled. */
+const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
 
 /** Samples per pixel at which a resting view stops refining. */
 export const REST_SAMPLES = 1024
@@ -75,6 +78,11 @@ export const DENOISER_WEIGHTS = `${import.meta.env.BASE_URL}denoise/rt_hdr_alb_n
 const SUN_DISTANCE = 12000
 const ENV_WIDTH = 1024
 const ENV_HEIGHT = 512
+/**
+ * Most passes per batch. Once most pixels have converged a pass is cheap, so batches grow until
+ * they keep the GPU busy for about two display frames.
+ */
+const MAX_PASSES = 64
 /** Wavefront path slots per dispatch: ~300 bytes each, so this stays under 128 MB bindings. */
 const FRAME_BUDGET = 262144
 
@@ -114,6 +122,19 @@ export function thinGlass(material: Material & Record<string, unknown>) {
   return { thickness: 0, attenuationDistance: Infinity, color }
 }
 
+/** The sun as path tracers see it, or null when it is down or the setting is the studio. */
+export function sunLight(look: SkyLook) {
+  const { sunlight } = look
+  if (sunlight.intensity <= 1e-4 || look.environment === 'studio') return null
+  return {
+    /** Unit vector toward the sun. */
+    direction: [...sunlight.direction] as [number, number, number],
+    color: [...sunlight.color] as [number, number, number],
+    irradiance: SUN_INTENSITY * sunlight.intensity,
+    angularRadius: SUN_ANGULAR_RADIUS,
+  }
+}
+
 /**
  * Swaps the scene into its path-traced form and returns a function that restores it. Everything
  * happens synchronously around the tracer's capture, so the rasterizer never sees the swap.
@@ -147,17 +168,18 @@ export function preparePathTraceScene(scene: Scene, look: SkyLook, environment: 
   })
 
   // The sun as a disc light at its true angular size, replacing the raster directional light.
-  const { sunlight } = look
-  if (sunlight.intensity > 1e-4 && look.environment !== 'studio') {
-    const radius = SUN_DISTANCE * Math.tan(SUN_ANGULAR_RADIUS)
-    const irradiance = SUN_INTENSITY * sunlight.intensity
+  const sunlight = sunLight(look)
+  if (sunlight) {
+    const radius = SUN_DISTANCE * Math.tan(sunlight.angularRadius)
     const sun = new RectAreaLight(0xffffff, 1, radius * 2, radius * 2) as RectAreaLight & {
       isCircular: boolean
     }
     sun.isCircular = true
+    sun.userData.sun = true
     sun.color.setRGB(...sunlight.color)
     // A disc of radius r at distance d subtends π r²/d², so radiance = irradiance / solid angle.
-    sun.intensity = irradiance / ((Math.PI * radius * radius) / (SUN_DISTANCE * SUN_DISTANCE))
+    sun.intensity =
+      sunlight.irradiance / ((Math.PI * radius * radius) / (SUN_DISTANCE * SUN_DISTANCE))
     sun.position.copy(new Vector3(...sunlight.direction).multiplyScalar(SUN_DISTANCE))
     sun.lookAt(0, 0, 0)
     sun.updateMatrixWorld()
@@ -181,38 +203,78 @@ export function preparePathTraceScene(scene: Scene, look: SkyLook, environment: 
   }
 }
 
-/** A cheap fingerprint of everything the tracer captures: geometry, transforms, materials, lights. */
-export function sceneSignature(scene: Scene, lookKey: string) {
-  let hash = 2166136261
-  const mix = (value: number) => {
-    hash = Math.imul(hash ^ Math.round(value * 1000), 16777619)
+/**
+ * Cheap fingerprints of what the tracer captures, one per kind of change, so an edit rebuilds
+ * only what it touched: meshes appearing, disappearing, or changing shape need a new capture
+ * (BVH and kernels), while moved objects, changed finishes, and changed lights are updated in
+ * place.
+ */
+export type SceneParts = {
+  structure: number
+  transforms: number
+  materials: number
+  lights: number
+}
+
+export function sceneParts(scene: Scene): SceneParts {
+  const hash = {
+    structure: 2166136261,
+    transforms: 2166136261,
+    materials: 2166136261,
+    lights: 2166136261,
   }
-  for (let i = 0; i < lookKey.length; i++) mix(lookKey.charCodeAt(i))
+  const mix = (part: keyof SceneParts, value: number) => {
+    hash[part] = Math.imul(hash[part] ^ Math.round(value * 1000), 16777619)
+  }
   scene.traverse((object) => {
-    mix(object.id)
-    mix(object.visible ? 1 : 0)
+    mix('structure', object.id)
+    mix('structure', object.visible ? 1 : 0)
     // Every element separately: a weighted sum cancels for some moves, such as a floor-plan
     // drag of (4.25, -2.75) ft.
-    for (const element of object.matrixWorld.elements) mix(element)
+    for (const element of object.matrixWorld.elements) mix('transforms', element)
     const mesh = object as Mesh & {
       instanceMatrix?: { version: number }
       count?: number
     }
     if (mesh.isMesh) {
-      mix(mesh.geometry.id)
-      mix(mesh.instanceMatrix?.version ?? 0)
-      mix(mesh.count ?? 0)
+      mix('structure', mesh.geometry.id)
+      mix('structure', mesh.instanceMatrix?.version ?? 0)
+      mix('structure', mesh.count ?? 0)
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
       for (const material of materials) {
         const m = material as Material & { id: number; emissiveIntensity?: number }
-        mix(m.id)
-        mix(material.version)
-        mix(m.emissiveIntensity ?? 0)
+        mix('materials', m.id)
+        mix('materials', material.version)
+        mix('materials', m.emissiveIntensity ?? 0)
       }
     }
-    const light = object as Object3D & { isLight?: boolean; intensity?: number }
-    if (light.isLight) mix(light.intensity ?? 0)
+    const light = object as Object3D & {
+      isLight?: boolean
+      intensity?: number
+      color?: { r: number; g: number; b: number }
+    }
+    if (light.isLight) {
+      mix('lights', light.intensity ?? 0)
+      mix('lights', (light.color?.r ?? 0) + (light.color?.g ?? 0) * 3 + (light.color?.b ?? 0) * 7)
+    }
   })
+  return {
+    structure: hash.structure >>> 0,
+    transforms: hash.transforms >>> 0,
+    materials: hash.materials >>> 0,
+    lights: hash.lights >>> 0,
+  }
+}
+
+/** One fingerprint of everything the tracer captures, including the sky and sun. */
+export function sceneSignature(scene: Scene, lookKey: string) {
+  const parts = sceneParts(scene)
+  let hash = 2166136261
+  const mix = (value: number) => {
+    hash = Math.imul(hash ^ value, 16777619)
+  }
+  for (let i = 0; i < lookKey.length; i++) mix(lookKey.charCodeAt(i))
+  for (const value of Object.values(parts)) mix(value)
   return hash >>> 0
 }
 
@@ -275,8 +337,16 @@ function zeroFill(renderer: WebGPURenderer, texture: Texture) {
   )
 }
 
-/** Accumulation milestones at which the image is denoised and crossfaded in. */
-const MILESTONES = [8, 32, 128, EXPORT_SAMPLES, REST_SAMPLES]
+/**
+ * Accumulation milestones at which the image is denoised and crossfaded in. They double, so
+ * each denoised image can be compared with the last to find the regions that have settled.
+ */
+const MILESTONES = [8, 16, 32, 64, 128, 256, 512, REST_SAMPLES]
+/**
+ * A view seeded from the previous one is mostly converged from the start; only what that view did
+ * not show is new, so its first image is denoised almost at once.
+ */
+const SEEDED_MILESTONES = [2, ...MILESTONES]
 /** Crossfade between successive images, in milliseconds. */
 const FADE_MS = 520
 
@@ -303,7 +373,14 @@ export class PathTraceSession {
   private readonly sink = new RenderTarget(1, 1)
   private readonly denoisers: Denoiser[]
   private snapshot: StorageTexture | null = null
-  private aux: RenderTarget | null = null
+  /** The current view's rasterized albedo, normals, and positions (denoiser guides, reuse). */
+  private readonly gbuffer = new GBuffer()
+  /** The last traced view, reprojected into the next one so it never starts from nothing. */
+  private readonly history = new ViewHistory()
+  /** Whether the current view started from the previous view's samples. */
+  seeded = false
+  /** Retires regions whose denoised image has settled, so samples go where it still changes. */
+  private readonly adaptive = new AdaptiveSampler()
   private scene: Scene | null = null
   private camera: Camera | null = null
   private running: { index: number; samples: number } | null = null
@@ -320,8 +397,12 @@ export class PathTraceSession {
   private rasterKey: Promise<number> | null = null
   private metering = false
   private signature = -1
+  /** What the tracer holds: the scene parts and sky it last captured or updated. */
+  private captured: { parts: SceneParts; look: string } | null = null
   /** Bumped per view, so readbacks that land after the camera moved are ignored. */
   private epoch = 0
+  /** When this view started tracing, and when its first traced image appeared. */
+  private timing = { start: 0, first: 0 }
   private frames = 0
   private passes = 1
   private inFlight = false
@@ -376,25 +457,56 @@ export class PathTraceSession {
   /** Starts refining the current view, re-capturing the scene only if it changed. */
   begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture, target = REST_SAMPLES) {
     const key = lookKey(look)
+    const parts = sceneParts(scene)
     const signature = sceneSignature(scene, key)
     this.state = 'preparing'
-    if (signature !== this.signature) {
+    const last = this.captured
+    if (!last || last.parts.structure !== parts.structure) {
+      // New or reshaped meshes: build the BVH and kernels again.
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
         this.tracer.setScene(scene, camera)
       } finally {
         restore()
       }
-      this.signature = signature
+    } else if (signature !== this.signature) {
+      // Same meshes: update in place only what changed, keeping the BVH and compiled kernels.
+      const moved = last.parts.transforms !== parts.transforms
+      const sky = last.look !== key
+      const restore = preparePathTraceScene(scene, look, environmentTexture(look))
+      try {
+        if (moved) this.tracer.updateTransforms()
+        if (last.parts.materials !== parts.materials) this.tracer.updateMaterials()
+        if (sky) this.tracer.updateEnvironment()
+        if (sky || moved || last.parts.lights !== parts.lights) this.tracer.updateLights()
+      } finally {
+        restore()
+      }
+      this.tracer.updateCamera()
     } else {
       this.tracer.updateCamera()
     }
+    // Samples of a different design, time of day, or texture set describe a different image.
+    if (signature !== this.signature) this.history.clear()
+    this.signature = signature
+    this.captured = { parts, look: key }
     this.epoch++
     this.scene = scene
     this.camera = camera
     this.target = target
     this.tracer.maxSamples = target
+    // Size the accumulation now rather than on the first sample, which would clear the seed.
+    const { width, height } = this.syncSize()
     this.tracer.reset()
+    this.gbuffer.render(this.renderer, scene, camera as PerspectiveCamera, width, height)
+    this.seeded = this.history.seed(
+      this.renderer,
+      this.backend,
+      this.gbuffer,
+      this.signature,
+      target,
+    )
+    this.adaptive.reset()
     for (const denoiser of this.denoisers) denoiser.reset()
     this.running = null
     this.shownIndex = -1
@@ -410,6 +522,30 @@ export class PathTraceSession {
     // Meter the frozen raster frame now, before anything else draws over the GPU's time.
     this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
     this.state = 'tracing'
+    this.timing = { start: performance.now(), first: 0 }
+  }
+
+  /** The tracer's accumulation targets. */
+  private get backend() {
+    return (
+      this.tracer as unknown as {
+        _pathTracer: {
+          outputTarget: StorageTexture
+          sampleCountTarget: StorageTexture
+          setSize: (w: number, h: number) => boolean
+        }
+      }
+    )._pathTracer
+  }
+
+  /** Allocates the accumulation at the size the tracer is about to render at. */
+  private syncSize() {
+    const size = this.renderer.getDrawingBufferSize(new Vector2())
+    const width = Math.max(1, Math.floor(this.tracer.renderScale * size.x))
+    const height = Math.max(1, Math.floor(this.tracer.renderScale * size.y))
+    this.tracer.setSize(width, height)
+    this.backend.setSize(width, height)
+    return { width, height }
   }
 
   private get denoising() {
@@ -445,8 +581,8 @@ export class PathTraceSession {
         .then(() => {
           // Size batches to roughly two display frames of GPU time.
           const busy = performance.now() - now
-          if (busy < 28 && this.passes < 16) this.passes++
-          else if (busy > 45 && this.passes > 1) this.passes--
+          if (busy < 28) this.passes = Math.min(MAX_PASSES, Math.ceil(this.passes * 1.5))
+          else if (busy > 45) this.passes = Math.max(1, Math.floor(this.passes * 0.75))
         })
         .catch(() => {})
         .finally(() => {
@@ -458,7 +594,17 @@ export class PathTraceSession {
     const settled = this.denoising
       ? !this.accumulating && !this.running && this.shownSamples >= this.samples
       : !this.accumulating && this.tracer.fadeState >= 1
-    if (settled && this.view(now).t >= 1) this.state = 'converged'
+    if (!this.timing.first && this.view(now).t > 0) this.timing.first = now
+    if (settled && this.view(now).t >= 1) {
+      this.state = 'converged'
+      if (TRACE_STATS) {
+        const { start, first } = this.timing
+        const { width, height } = this.tracer.target!.image as { width: number; height: number }
+        console.info(
+          `[path tracing] ${width}x${height}${this.seeded ? ', seeded' : ''}: first image ${((first - start) / 1000).toFixed(1)} s, settled ${((now - start) / 1000).toFixed(1)} s`,
+        )
+      }
+    }
     return this.state !== 'converged'
   }
 
@@ -488,6 +634,16 @@ export class PathTraceSession {
           this.matchExposure(denoiser.texture)
           return
         }
+        // Regions this image shows unchanged from the last one are finished: stop sampling them.
+        const previous = this.shownIndex >= 0 ? this.denoisers[this.shownIndex].texture : null
+        if (previous && this.shownSamples >= MIN_SETTLE_SAMPLES && this.accumulating)
+          this.adaptive.update(
+            this.renderer,
+            denoiser.texture,
+            previous,
+            this.backend.sampleCountTarget,
+            this.target,
+          )
         this.transition = { from: this.view(now).to, to: denoiser.texture, start: now }
         if (this.shownIndex < 0) this.transition.from = null
         this.shownIndex = running.index
@@ -499,7 +655,9 @@ export class PathTraceSession {
     // Wait for the previous image to finish fading in before replacing what it fades from.
     if (this.transition.to && this.view(now).t < 1) return
     const goal = this.accumulating
-      ? MILESTONES.find((m) => m > this.shownSamples && m <= this.target)
+      ? (this.seeded ? SEEDED_MILESTONES : MILESTONES).find(
+          (m) => m > this.shownSamples && m <= this.target,
+        )
       : this.samples > this.shownSamples
         ? this.samples
         : undefined
@@ -515,13 +673,12 @@ export class PathTraceSession {
     const size = this.snapshot.image as { width: number; height: number }
     if (size.width !== width || size.height !== height) this.snapshot.setSize(width, height, 1)
     this.renderer.copyTextureToTexture(color, this.snapshot)
-    const aux = this.renderAux(width, height)
     const index = this.shownIndex === 0 ? 1 : 0
     const denoiser = this.denoisers[index]
     denoiser.reset()
     this.running = { index, samples: this.samples }
     const epoch = this.epoch
-    denoiser.denoise(this.snapshot, aux.textures[0], aux.textures[1]).catch((error) => {
+    denoiser.denoise(this.snapshot, this.gbuffer.albedo, this.gbuffer.normal).catch((error) => {
       if (epoch !== this.epoch) return
       console.warn('Denoising is unavailable; showing the raw path-traced image.', error)
       this.denoiseFailed = true
@@ -550,36 +707,6 @@ export class PathTraceSession {
       })
   }
 
-  /** Albedo and view-space normals that guide the denoiser, rasterized once per view. */
-  private renderAux(width: number, height: number) {
-    if (!this.aux) {
-      this.aux = new RenderTarget(width, height, {
-        count: 2,
-        type: UnsignedByteType,
-        minFilter: NearestFilter,
-        magFilter: NearestFilter,
-        samples: 4,
-      })
-      this.aux.textures[0].name = 'output'
-      this.aux.textures[1].name = 'normal'
-    }
-    const aux = this.aux
-    if (aux.width !== width || aux.height !== height) aux.setSize(width, height)
-    if (this.shownIndex >= 0 || this.running) return aux
-    const renderer = this.renderer
-    const target = renderer.getRenderTarget()
-    const toneMapping = renderer.toneMapping
-    const previousMRT = renderer.getMRT()
-    renderer.toneMapping = NoToneMapping
-    renderer.setRenderTarget(aux)
-    renderer.setMRT(mrt({ output: diffuseColor, normal: vec4(normalView.mul(0.5).add(0.5), 1) }))
-    renderer.render(this.scene!, this.camera!)
-    renderer.setMRT(previousMRT)
-    renderer.setRenderTarget(target)
-    renderer.toneMapping = toneMapping
-    return aux
-  }
-
   /** The images to composite this frame. */
   view(now = performance.now()): TraceView {
     const raw = this.tracer.target!
@@ -602,6 +729,9 @@ export class PathTraceSession {
   }
 
   halt() {
+    // Keep what this view accumulated for the next one. Queued after any batch still in flight.
+    if (this.frames > 0 && (this.state === 'tracing' || this.state === 'converged'))
+      this.history.store(this.renderer, this.backend, this.gbuffer, this.signature)
     this.state = 'off'
     this.samples = 0
     this.running = null
@@ -611,6 +741,7 @@ export class PathTraceSession {
   /** Forces the next `begin` to re-capture, e.g. after textures finish streaming in. */
   invalidate() {
     this.signature = -1
+    this.captured = null
   }
 
   dispose() {
@@ -618,7 +749,9 @@ export class PathTraceSession {
     this.meter.dispose()
     this.sink.dispose()
     this.snapshot?.dispose()
-    this.aux?.dispose()
+    this.gbuffer.dispose()
+    this.history.dispose()
+    this.adaptive.dispose()
     for (const denoiser of this.denoisers) denoiser.dispose()
   }
 }
