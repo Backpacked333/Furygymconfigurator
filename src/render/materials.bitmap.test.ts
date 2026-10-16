@@ -50,6 +50,22 @@ describe('scans decoded off the main thread', () => {
     expect((albedo.image as FakeBitmap).width).toBe(4)
     expect(albedo.version).toBe(version + 1)
   })
+
+  it('keep the decoded pixels while a local path tracer reads them', async () => {
+    const { keepDecodedTextures, textureMaps } = await import('./materials')
+    const albedo = (await textureMaps('teak_veneer')).albedo as Texture
+    // Released before the tracer loaded: decoded again, and kept through later uploads, since the
+    // tracer packs its own texture array from these pixels (a released map traces black).
+    albedo.onUpdate!(albedo)
+    await keepDecodedTextures(true)
+    expect((albedo.image as FakeBitmap).width).toBe(4)
+    albedo.onUpdate!(albedo)
+    expect((albedo.image as FakeBitmap).width).toBe(4)
+    // Without a tracer the pixels are freed after upload again.
+    await keepDecodedTextures(false)
+    albedo.onUpdate!(albedo)
+    expect((albedo.image as FakeBitmap).width).toBe(0)
+  })
 })
 
 describe('a scan set that fails', () => {

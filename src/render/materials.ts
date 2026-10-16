@@ -151,6 +151,18 @@ const decode = (blob: Blob) =>
 
 /** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
 const releasable = new Set<Texture>()
+/**
+ * The local path tracer packs every map into a texture array of its own from the decoded pixels,
+ * so while one exists they are kept: a released map would trace black (the ground, the brick),
+ * and the exposure match would then brighten the whole view to make up for it.
+ */
+let keepDecoded = false
+
+/** Keeps scans decoded (and decodes the released ones again) while a local tracer needs them. */
+export function keepDecodedTextures(keep: boolean) {
+  keepDecoded = keep
+  return keep ? restoreTextures() : Promise.resolve([])
+}
 
 async function fetchBitmapTexture(url: string) {
   const response = await fetch(url)
@@ -160,7 +172,9 @@ async function fetchBitmapTexture(url: string) {
   texture.flipY = false
   texture.userData.scan = blob
   // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map).
-  texture.onUpdate = () => (texture.image as ImageBitmap).close()
+  texture.onUpdate = () => {
+    if (!keepDecoded) (texture.image as ImageBitmap).close()
+  }
   return texture
 }
 

@@ -46,7 +46,7 @@ import {
   type SpinState,
 } from '../render/spin'
 import { INTERIOR_EXPOSURE } from './Atmosphere'
-import { onMaterialsChanged } from '../render/materials'
+import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import {
   EXPORT_SAMPLES,
   EXPORT_TIMEOUT_MS,
@@ -242,7 +242,11 @@ export function RenderEffects({
     let created: TraceSession | null = null
     const local = localAvailable
       ? loadTracerModule()
-          .then((module) => new PathTraceSession(renderer, module, denoise))
+          .then(async (module) => {
+            // The tracer reads the scans' decoded pixels, which are otherwise freed after upload.
+            await keepDecodedTextures(true)
+            return new PathTraceSession(renderer, module, denoise)
+          })
           .catch((error) => {
             console.warn('Path tracing is unavailable on this device.', error)
             return null
@@ -263,6 +267,7 @@ export function RenderEffects({
       active = false
       created?.dispose()
       setSession(null)
+      if (localAvailable) void keepDecodedTextures(false)
       // Hand the canvas straight back to the rasterizer.
       mode.current = 'raster'
       changed.current = true
