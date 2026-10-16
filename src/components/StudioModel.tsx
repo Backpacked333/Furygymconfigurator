@@ -72,7 +72,8 @@ function MirrorWall({ config: c, quality }: { config: Config; quality: Quality }
     ]
   }, [width])
   return (
-    <group position={[-L * 0.16, 4.9, b.back + 0.04]}>
+    // Inside the room: the spin's panorama changes with it, its exterior ring does not.
+    <group position={[-L * 0.16, 4.9, b.back + 0.04]} userData={{ interior: true }}>
       <Parts parts={frame} />
       <Mirror width={width} height={height} quality={quality} />
     </group>
@@ -111,9 +112,17 @@ export function StudioModel({
   return (
     // Tagged so the site reflection probe can leave the unit out of its capture.
     <group userData={{ unit: true }}>
-      <Parts parts={shell} />
-      <Parts parts={interior} />
-      {glazing.length > 0 && <Parts parts={glazing} />}
+      {/* The shell and its glazing (the door, the windows) are seen from both sides: an edit to
+          them, a door opened, costs the spin its exterior ring and its panorama alike. */}
+      <group userData={{ shared: true }}>
+        <Parts parts={shell} />
+        {glazing.length > 0 && <Parts parts={glazing} />}
+      </group>
+      {/* What is inside the room is marked, so an edit there costs the spin only its panorama,
+          not the exterior ring (pathtrace.ts sceneSignature). */}
+      <group userData={{ interior: true }}>
+        <Parts parts={interior} />
+      </group>
       <InteriorLights config={c} quality={quality} />
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}

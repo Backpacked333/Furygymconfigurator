@@ -29,6 +29,7 @@ import {
   type SkyLook,
 } from '../lib/visuals'
 import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
+import { bench } from './bench'
 import { GBuffer, ViewHistory } from './history'
 import { createExposureMeter } from './pipeline'
 import type { TraceState } from './traceStatus'
@@ -216,7 +217,24 @@ export type SceneParts = {
   lights: number
 }
 
-export function sceneParts(scene: Scene): SceneParts {
+/**
+ * A part of the scene whose frames the spin keeps on their own: inside the building (what the
+ * panorama shows: the room's linings, equipment, luminaires, the mirror; marked with
+ * `userData.interior = true` on the groups that wrap them) or everything else, which the exterior
+ * ring shows. An edit inside then costs the one panorama, not the ring's 72 frames; what the room
+ * shows through the glazing from outside is accepted as a little behind. The shell and its
+ * glazing are seen from both sides (the panorama looks straight at the door and the windows), so
+ * they are marked `userData.shared = true` and count for both parts: a door opened costs both.
+ */
+export type ScenePart = 'exterior' | 'interior'
+
+/**
+ * The fingerprints of the whole scene, or of one `part` of it. A part leaves out subtrees with
+ * `userData.pathTrace === false` (the dimensions helpers, the raster sun), which no tracer sees,
+ * so toggling them changes no frame. The whole scene keeps them: the local tracer's own
+ * fingerprint tells apart edits by what they touch, and the sun's level is one of them.
+ */
+export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
   const hash = {
     structure: 2166136261,
     transforms: 2166136261,
@@ -226,7 +244,7 @@ export function sceneParts(scene: Scene): SceneParts {
   const mix = (part: keyof SceneParts, value: number) => {
     hash[part] = Math.imul(hash[part] ^ Math.round(value * 1000), 16777619)
   }
-  scene.traverse((object) => {
+  const read = (object: Object3D) => {
     mix('structure', object.id)
     mix('structure', object.visible ? 1 : 0)
     // Every element separately: a weighted sum cancels for some moves, such as a floor-plan
@@ -257,7 +275,18 @@ export function sceneParts(scene: Scene): SceneParts {
       mix('lights', light.intensity ?? 0)
       mix('lights', (light.color?.r ?? 0) + (light.color?.g ?? 0) * 3 + (light.color?.b ?? 0) * 7)
     }
-  })
+  }
+  const walk = (object: Object3D, inside: boolean, both: boolean) => {
+    if (part !== undefined && object.userData.pathTrace === false) return
+    const interior = inside || object.userData.interior === true
+    const shared = both || object.userData.shared === true
+    // The exterior part never looks into an interior subtree; the interior part reads only there
+    // and in what is seen from both sides.
+    if (part === 'exterior' && interior) return
+    if (part !== 'interior' || interior || shared) read(object)
+    for (const child of object.children) walk(child, interior, shared)
+  }
+  walk(scene, false, false)
   return {
     structure: hash.structure >>> 0,
     transforms: hash.transforms >>> 0,
@@ -266,9 +295,12 @@ export function sceneParts(scene: Scene): SceneParts {
   }
 }
 
-/** One fingerprint of everything the tracer captures, including the sky and sun. */
-export function sceneSignature(scene: Scene, lookKey: string) {
-  const parts = sceneParts(scene)
+/**
+ * One fingerprint of everything the tracer captures, including the sky and sun; of one part of
+ * the scene when `part` is given (the spin's frames outside and inside change on their own).
+ */
+export function sceneSignature(scene: Scene, lookKey: string, part?: ScenePart) {
+  const parts = sceneParts(scene, part)
   let hash = 2166136261
   const mix = (value: number) => {
     hash = Math.imul(hash ^ value, 16777619)
@@ -594,11 +626,16 @@ export class PathTraceSession {
     const settled = this.denoising
       ? !this.accumulating && !this.running && this.shownSamples >= this.samples
       : !this.accumulating && this.tracer.fadeState >= 1
-    if (!this.timing.first && this.view(now).t > 0) this.timing.first = now
+    if (!this.timing.first && this.view(now).t > 0) {
+      this.timing.first = now
+      bench.mark('firstLocalTrace', now)
+      bench.local({ firstMs: now - this.timing.start, settledMs: null })
+    }
     if (settled && this.view(now).t >= 1) {
       this.state = 'converged'
+      const { start, first } = this.timing
+      bench.local({ firstMs: first - start, settledMs: now - start })
       if (TRACE_STATS) {
-        const { start, first } = this.timing
         const { width, height } = this.tracer.target!.image as { width: number; height: number }
         console.info(
           `[path tracing] ${width}x${height}${this.seeded ? ', seeded' : ''}: first image ${((first - start) / 1000).toFixed(1)} s, settled ${((now - start) / 1000).toFixed(1)} s`,

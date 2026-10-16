@@ -3211,3 +3211,32 @@ h3 {
     animation: none;
   }
 }
+
+/* Rendering benchmarks over the stage (`?bench=1`, App.tsx BenchPanel): plain text, out of the
+   way of the controls, never in the way of a click. */
+.bench-panel {
+  position: fixed;
+  top: 88px;
+  left: 16px;
+  z-index: 6;
+  border-collapse: collapse;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgb(32 35 31 / 0.88);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.bench-panel th {
+  padding: 0 12px 0 0;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bench-panel td {
+  white-space: nowrap;
+}

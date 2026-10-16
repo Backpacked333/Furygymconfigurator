@@ -39,6 +39,7 @@ import {
   ringOrder,
   type GridPose,
 } from './orbit'
+import { bench } from './bench'
 import { createExposureMeter } from './pipeline'
 import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
 import { cloudUrl, type TraceState } from './traceStatus'
@@ -57,6 +58,11 @@ export { cloudUrl, renderSession, warmCloud, warmth }
  * server answers that it is missing (409). Texture bytes are uploaded by the browser too.
  * The image comes back as linear half floats, so it gets exactly the same
  * finishing (exposure match, bloom, tone mapping) as a local trace.
+ *
+ * The description names nothing by the page's own ids: objects, materials and textures are keyed
+ * by their content and listed in key order, so the same design serializes to the same bytes on
+ * every page load and for every visitor, and the server's frame cache (keyed by the scene's
+ * SHA-256) answers a design anyone has viewed before.
  */
 
 /** `?traceStats=1` logs each cloud render's timings. */
@@ -77,6 +83,39 @@ const FADE_MS = 520
 const GAIN_RANGE = [0.5, 4] as const
 /** Uploads in flight at once. */
 const UPLOADS = 4
+/**
+ * A spin frame that has not come after this long, beyond twice its own time limit and the longest
+ * of the session's other open frames (its GPU renders one at a time, and an export's panorama
+ * ahead of it takes up to a minute), is taken as a busy server: the session asks again after a
+ * backoff rather than holding a place open for a connection that may be dead.
+ */
+export const FRAME_TIMEOUT_MS = 20_000
+
+/**
+ * One signal for several, aborted as soon as any of them is, with the reason of the first. Where
+ * `AbortSignal.any` is missing the listeners are kept until `done` is called, so a long-lived
+ * signal (a whole design's) is not left with one listener per frame.
+ */
+function anySignal(signals: AbortSignal[]): { signal: AbortSignal; done: () => void } {
+  if (typeof AbortSignal.any === 'function') return { signal: AbortSignal.any(signals), done() {} }
+  const controller = new AbortController()
+  const listeners: (() => void)[] = []
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+      break
+    }
+    const listener = () => controller.abort(signal.reason)
+    signal.addEventListener('abort', listener, { once: true })
+    listeners.push(() => signal.removeEventListener('abort', listener))
+  }
+  return {
+    signal: controller.signal,
+    done() {
+      for (const remove of listeners) remove()
+    },
+  }
+}
 
 // --- Scene description ----------------------------------------------------------------------
 
@@ -181,6 +220,44 @@ async function sha256(bytes: Uint8Array) {
 /** Hashes a blob once; the bytes are dropped and re-made from `source` if an upload needs them. */
 async function hashed(source: BlobSource): Promise<HashedBlob> {
   return { hash: await sha256(await source()), source }
+}
+
+/**
+ * A short hash of a string (cyrb53's two words as hex), naming a record by its content: the same
+ * material or texture gets the same name on every page load, where a uuid would be new each time.
+ */
+export function fingerprint(text: string) {
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
+}
+
+/** JSON with every object's keys in order, so the same content is always the same text. */
+export function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const fields = Object.keys(record)
+      .sort()
+      .filter((key) => record[key] !== undefined)
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    return `{${fields.join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+/** A record with its keys in order, so it serializes the same however it was filled. */
+function sorted<T>(record: Record<string, T>): Record<string, T> {
+  const out: Record<string, T> = {}
+  for (const key of Object.keys(record).sort()) out[key] = record[key]
+  return out
 }
 
 // Geometry -------------------------------------------------------------------------------------
@@ -476,21 +553,31 @@ function lightRecord(light: Light): CloudLight | null {
 
 /**
  * Describes the scene as the local path tracer would see it. The scene is read synchronously
- * while in its path-traced form; hashing blobs finishes asynchronously.
+ * while in its path-traced form; hashing blobs finishes asynchronously, and the names come last:
+ * a texture is named by its file's hash (and how it is applied), a material by its values with
+ * those names in, an object by its geometry, instances, materials and placement. Two of anything
+ * alike are one, objects are listed by name and the records by key, so the description is the
+ * same from any page load (uuids would differ every time) and the server's frame cache hits.
  */
 export async function captureScene(scene: Scene, look: SkyLook): Promise<CapturedScene> {
   const environment = environmentTexture(look)
-  const objects: {
-    record: Omit<CloudObject, 'geometry' | 'instances'>
+  const meshes: {
+    materials: Material[]
+    matrix: number[]
     geometry: Promise<HashedBlob>
     instances?: Promise<HashedBlob>
   }[] = []
-  const materials: Record<string, CloudMaterial> = {}
-  const textureRefs = new Map<string, Texture>()
+  // Read while the scene is in its path-traced form; named once the textures are hashed.
+  const params = new Map<Material, CloudMaterial>()
+  const textureRefs = new Map<Texture, string>()
   const lights: CloudLight[] = []
-  const textureKey = (texture: Texture) => {
-    textureRefs.set(texture.uuid, texture)
-    return texture.uuid
+  const placeholder = (texture: Texture) => {
+    let name = textureRefs.get(texture)
+    if (!name) {
+      name = `t${textureRefs.size}`
+      textureRefs.set(texture, name)
+    }
+    return name
   }
   const restore = preparePathTraceScene(scene, look, environment)
   try {
@@ -506,15 +593,13 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
       const mesh = object as Mesh
       if (!mesh.isMesh || !mesh.geometry?.getAttribute('position')) return
       const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-      const keys = list.map((material) => {
-        if (!materials[material.uuid])
-          materials[material.uuid] = materialParams(material, textureKey)
-        return material.uuid
-      })
+      for (const material of list)
+        if (!params.has(material)) params.set(material, materialParams(material, placeholder))
       const instanced = mesh as InstancedMesh
       if (instanced.isInstancedMesh && instanced.count === 0) return
-      objects.push({
-        record: { id: mesh.uuid, materials: keys, matrix: Array.from(mesh.matrixWorld.elements) },
+      meshes.push({
+        materials: list,
+        matrix: Array.from(mesh.matrixWorld.elements),
         geometry: geometryBlob(mesh.geometry),
         instances: instanced.isInstancedMesh ? instanceBlob(instanced) : undefined,
       })
@@ -537,36 +622,83 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
     blobs.set(blob.hash, blob.source)
     return blob.hash
   }
+  // Textures, named by their content and how they are applied.
   const textures: Record<string, CloudTexture> = {}
+  const textureKeys = new Map<string, string>()
   await Promise.all(
-    [...textureRefs].map(async ([key, texture]) => {
+    [...textureRefs].map(async ([texture, name]) => {
       const { blob, url } = textureBlob(texture)
       const resolved = await blob
       if (!resolved) return
       texture.updateMatrix()
-      textures[key] = {
+      const record: CloudTexture = {
         blob: keep(resolved),
         ...(url ? { url } : {}),
         srgb: texture.colorSpace === SRGBColorSpace,
         wrap: wrapOf(texture),
         matrix: Array.from(texture.matrix.elements),
       }
+      // The URL is only where the file may be fetched from: not what the texture is.
+      const key = fingerprint(
+        stableJson({
+          blob: record.blob,
+          srgb: record.srgb,
+          wrap: record.wrap,
+          matrix: record.matrix,
+        }),
+      )
+      textureKeys.set(name, key)
+      textures[key] = record
     }),
   )
-  // Materials whose texture could not be read fall back to their plain values.
-  for (const params of Object.values(materials))
-    for (const slot of MAP_SLOTS)
-      if (params.maps[slot] && !textures[params.maps[slot]!]) delete params.maps[slot]
-  const resolved = await Promise.all(
-    objects.map(async ({ record, geometry, instances }) => ({
-      ...record,
-      geometry: keep(await geometry),
-      ...(instances ? { instances: keep(await instances) } : {}),
-    })),
-  )
+  // Materials, named by their values with the textures' names in; one whose texture could not be
+  // read falls back to its plain values.
+  const materials: Record<string, CloudMaterial> = {}
+  const materialKeys = new Map<Material, string>()
+  for (const [material, record] of params) {
+    for (const slot of MAP_SLOTS) {
+      const name = record.maps[slot]
+      if (!name) continue
+      const key = textureKeys.get(name)
+      if (key) record.maps[slot] = key
+      else delete record.maps[slot]
+    }
+    const key = fingerprint(stableJson(record))
+    materials[key] = record
+    materialKeys.set(material, key)
+  }
+  // Objects, named by everything about them; two alike are one.
+  const objects = new Map<string, CloudObject>()
+  for (const object of await Promise.all(
+    meshes.map(async ({ materials: list, matrix, geometry, instances }) => {
+      const keys = list.map((material) => materialKeys.get(material)!)
+      const record: CloudObject = {
+        id: '',
+        geometry: keep(await geometry),
+        materials: keys,
+        matrix,
+        ...(instances ? { instances: keep(await instances) } : {}),
+      }
+      record.id = fingerprint(
+        [record.geometry, record.instances ?? '', keys.join(','), matrix.join(',')].join('|'),
+      )
+      return record
+    }),
+  ))
+    objects.set(object.id, object)
   const sky = keep(await skyBlob(look))
+  const byText = (a: unknown, b: unknown) => {
+    const [x, y] = [stableJson(a), stableJson(b)]
+    return x < y ? -1 : x > y ? 1 : 0
+  }
   return {
-    scene: { objects: resolved, materials, textures, lights, environment: { blob: sky } },
+    scene: {
+      objects: [...objects.keys()].sort().map((id) => objects.get(id)!),
+      materials: sorted(materials),
+      textures: sorted(textures),
+      lights: [...lights].sort(byText),
+      environment: { blob: sky },
+    },
     blobs,
   }
 }
@@ -660,6 +792,8 @@ export class CloudClient {
   private readonly uploading = new Map<string, Promise<void>>()
   /** When the server last answered with an image: a warm GPU answers within seconds. */
   lastSuccess: number | null = null
+  /** The spin frames open, by time limit: the session's GPU may render any of them ahead of another. */
+  private readonly open = new Set<{ timeLimit: number }>()
 
   constructor(url: string) {
     this.url = url
@@ -682,6 +816,9 @@ export class CloudClient {
       body: body as BodyInit,
       signal,
     })
+    // Turned away for now (rate limit, full queue): the render that needs it is asked again later.
+    if (response.status === 429 || response.status === 503)
+      throw new Busy(`upload turned away (${response.status})`)
     if (!response.ok) throw new Error(`upload failed (${response.status})`)
   }
 
@@ -741,6 +878,15 @@ export class CloudClient {
     )
     const bytes = new Uint8Array(await response.arrayBuffer())
     const header = (name: string) => Number(response.headers.get(name) ?? 0)
+    const totalMs = performance.now() - start
+    // A view is finished in the browser: the server's finishing time is none.
+    bench.frame({
+      renderMs: header('x-render-ms'),
+      finishMs: null,
+      totalMs,
+      cached: false,
+      renderer: response.headers.get('x-fury-renderer') ?? '',
+    })
     return {
       bytes,
       width: header('x-image-width'),
@@ -749,7 +895,7 @@ export class CloudClient {
         queueMs: header('x-queue-ms'),
         prepareMs: header('x-prepare-ms'),
         renderMs: header('x-render-ms'),
-        totalMs: performance.now() - start,
+        totalMs,
         device: response.headers.get('x-device') ?? '',
         denoise: response.headers.get('x-denoise') ?? '',
       },
@@ -759,7 +905,8 @@ export class CloudClient {
   /**
    * A finished frame of the path-traced spin (spin.ts): tone mapped, with bloom, as WebP. All
    * frames of one `generation` share a sequence number, so a newer generation (the design
-   * changed) drops the ones still queued.
+   * changed) drops the ones still queued. A frame that takes too long to come (FRAME_TIMEOUT_MS
+   * beyond twice its time limit and the longest other frame open) is given up as a busy server.
    */
   async frame(
     captured: CapturedScene,
@@ -777,34 +924,67 @@ export class CloudClient {
     signal: AbortSignal,
   ): Promise<SpinFrame> {
     const start = performance.now()
-    const response = await this.post(
-      {
-        session: `${this.session}${request.channel ?? 's'}`,
-        seq: request.generation,
-        kind: 'spin',
-        priority: request.priority,
-        output: 'frame',
-        camera: request.camera,
-        width: request.width,
-        height: request.height,
-        quality: request.quality,
-        finish: request.finish,
-      },
-      captured,
-      signal,
-    )
-    // An older server ignores the frame fields and renders a view: a half-float image, not WebP.
-    if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
-      throw new Outdated('the render server does not finish spin frames; redeploy it')
-    const header = (name: string) => Number(response.headers.get(name) ?? 0)
-    const renderer = response.headers.get('x-fury-renderer')
-    return {
-      image: await response.blob(),
-      cached: response.headers.get('x-cache') === 'hit',
-      renderMs: header('x-render-ms'),
-      totalMs: performance.now() - start,
-      tracedKey: Number(response.headers.get('x-traced-key') ?? NaN),
-      renderer: renderer === 'shared' || renderer === 'own' ? renderer : '',
+    const opened = { timeLimit: request.quality.timeLimit }
+    this.open.add(opened)
+    // A timer of its own rather than AbortSignal.timeout, so it is cleared when the frame lands,
+    // and set again at its deadline when a longer frame was opened since, which may render first.
+    const clock = new AbortController()
+    const budget = () => {
+      let longest = 0
+      for (const other of this.open)
+        if (other !== opened) longest = Math.max(longest, other.timeLimit)
+      return FRAME_TIMEOUT_MS + (2 * opened.timeLimit + longest) * 1000
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const arm = () => {
+      const left = start + budget() - performance.now()
+      if (left > 0) timer = setTimeout(arm, left)
+      else clock.abort()
+    }
+    arm()
+    const either = anySignal([signal, clock.signal])
+    try {
+      const response = await this.post(
+        {
+          session: `${this.session}${request.channel ?? 's'}`,
+          seq: request.generation,
+          kind: 'spin',
+          priority: request.priority,
+          output: 'frame',
+          camera: request.camera,
+          width: request.width,
+          height: request.height,
+          quality: request.quality,
+          finish: request.finish,
+        },
+        captured,
+        either.signal,
+      )
+      // An older server ignores the frame fields and renders a view: a half-float image, not WebP.
+      if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
+        throw new Outdated('the render server does not finish spin frames; redeploy it')
+      const header = (name: string) => Number(response.headers.get(name) ?? 0)
+      const renderer = response.headers.get('x-fury-renderer')
+      const frame: SpinFrame = {
+        image: await response.blob(),
+        cached: response.headers.get('x-cache') === 'hit',
+        renderMs: header('x-render-ms'),
+        finishMs: header('x-finish-ms'),
+        totalMs: performance.now() - start,
+        tracedKey: Number(response.headers.get('x-traced-key') ?? NaN),
+        renderer: renderer === 'shared' || renderer === 'own' ? renderer : '',
+      }
+      bench.frame(frame)
+      return frame
+    } catch (error) {
+      // The caller's own abort is theirs; the clock's is the server not answering in time.
+      if (clock.signal.aborted && !signal.aborted)
+        throw new Busy(`no frame within ${Math.round(performance.now() - start)} ms`)
+      throw error
+    } finally {
+      clearTimeout(timer)
+      this.open.delete(opened)
+      either.done()
     }
   }
 
@@ -813,6 +993,8 @@ export class CloudClient {
     const encoded = new TextEncoder().encode(JSON.stringify({ ...fields, scene: captured.scene }))
     const payload = encoded.byteLength > 32 * 1024 ? await gzip(encoded) : encoded
     for (let attempt = 0; attempt < 3; attempt++) {
+      // Timed from this attempt alone: the page's first request also uploads every blob first.
+      const started = performance.now()
       const response = await fetch(`${this.url}/render?session=${RENDER_SESSION}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -834,6 +1016,11 @@ export class CloudClient {
       if (response.status === 429 || response.status === 503)
         throw new Busy(`cloud renderer busy (${response.status})`)
       if (!response.ok) throw new Error(`cloud render failed (${response.status})`)
+      // The first answer of the page tells the bench whether the cloud was warm or started.
+      bench.answered({
+        renderer: response.headers.get('x-fury-renderer') ?? '',
+        totalMs: performance.now() - started,
+      })
       this.lastSuccess = performance.now()
       return response
     }
@@ -848,7 +1035,10 @@ export class CloudClient {
 export type SpinFrame = {
   image: Blob
   cached: boolean
+  /** The server's render and finishing (exposure, bloom, tone mapping, WebP) time. */
   renderMs: number
+  finishMs: number
+  /** The whole round trip as the browser saw it. */
   totalMs: number
   tracedKey: number
   /** Which renderer answered (X-Fury-Renderer): the session's own GPU or the shared warm one. */

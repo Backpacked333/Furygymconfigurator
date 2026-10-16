@@ -194,46 +194,51 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
   const spotIntensity = 46
   return (
     <>
-      <Parts parts={fixtures} />
-      {(!linear || quality === 'lite') &&
-        columns.map((x, i) => (
-          <Downlight
-            key={x}
-            position={[x + 0.12, b.ceiling - 0.08, 0.1]}
-            intensity={(linear ? spotIntensity * 0.8 : spotIntensity) * level}
-            shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
-          />
-        ))}
-      {linear &&
-        quality !== 'lite' &&
-        LINEAR_ROWS.map((z) => (
-          <Wash
-            key={z}
-            position={[0, b.ceiling - 0.03, z]}
-            target={[0, FLOOR_Y, z]}
-            width={channel}
-            height={0.14}
-            intensity={52 * level}
-          />
-        ))}
-      {quality !== 'lite' && (
-        <>
-          <Wash
-            position={[0, b.ceiling - 0.1, b.back + 0.12]}
-            target={[0, FLOOR_Y + 3, b.back - 0.6]}
-            width={L - 2.6}
-            height={0.12}
-            intensity={26 * level}
-          />
-          <Wash
-            position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
-            target={[0, b.ceiling, b.back - 0.4]}
-            width={L - 1.6}
-            height={0.06}
-            intensity={16 * level}
-          />
-        </>
-      )}
+      {/* The room's lights and fixtures are inside it: a change there costs the spin only its
+          panorama (pathtrace.ts sceneSignature). The canopy's downlights wash the ground outside
+          and stay with the exterior. */}
+      <group userData={{ interior: true }}>
+        <Parts parts={fixtures} />
+        {(!linear || quality === 'lite') &&
+          columns.map((x, i) => (
+            <Downlight
+              key={x}
+              position={[x + 0.12, b.ceiling - 0.08, 0.1]}
+              intensity={(linear ? spotIntensity * 0.8 : spotIntensity) * level}
+              shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
+            />
+          ))}
+        {linear &&
+          quality !== 'lite' &&
+          LINEAR_ROWS.map((z) => (
+            <Wash
+              key={z}
+              position={[0, b.ceiling - 0.03, z]}
+              target={[0, FLOOR_Y, z]}
+              width={channel}
+              height={0.14}
+              intensity={52 * level}
+            />
+          ))}
+        {quality !== 'lite' && (
+          <>
+            <Wash
+              position={[0, b.ceiling - 0.1, b.back + 0.12]}
+              target={[0, FLOOR_Y + 3, b.back - 0.6]}
+              width={L - 2.6}
+              height={0.12}
+              intensity={26 * level}
+            />
+            <Wash
+              position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
+              target={[0, b.ceiling, b.back - 0.4]}
+              width={L - 1.6}
+              height={0.06}
+              intensity={16 * level}
+            />
+          </>
+        )}
+      </group>
       {c.family === 'container' && c.addons.canopy && <CanopyLights config={c} level={level} />}
     </>
   )

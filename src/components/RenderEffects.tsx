@@ -31,12 +31,17 @@ import {
   cloudUrl,
   type CloudCamera,
 } from '../render/cloud'
+import { bench } from '../render/bench'
 import { EXTERIOR_FOV, cameraFraming } from '../render/framing'
+import { IDLE_MS } from '../render/plan'
 import {
+  DRIFT_MS,
   SpinSession,
+  spinDrift,
   spinView,
   type Decoded,
   type RasterMeter,
+  type SceneKeys,
   type SpinState,
 } from '../render/spin'
 import { INTERIOR_EXPOSURE } from './Atmosphere'
@@ -72,6 +77,8 @@ const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infi
  */
 const TRACE_AFTER_FRAMES = 6
 const REST_MS = 150
+/** Samples at which a local trace on screen counts as the bench's good frame (the spin's good tier). */
+const GOOD_SAMPLES = 256
 /** `?denoise=0` shows the raw accumulation, for comparing against the denoised image. */
 const denoise = new URLSearchParams(window.location.search).get('denoise') !== '0'
 
@@ -92,6 +99,7 @@ type PendingCapture = { deadline: number; resolvers: ((image: string) => void)[]
  * arrives; the live view is never held back for one.
  */
 export function RenderEffects({
+  active,
   quality,
   trace,
   look,
@@ -102,6 +110,8 @@ export function RenderEffects({
   onCaptureReady,
   onSlow,
 }: {
+  /** False while hidden under the floor plan: no frame runs, and the visitor is editing. */
+  active: boolean
   quality: Quality
   /** Path-trace resting views (on a cloud GPU, or locally with WebGPU). */
   trace: boolean
@@ -146,6 +156,10 @@ export function RenderEffects({
   const meterEye = useRef(new Vector3()).current
   const meterTarget = useRef(new Vector3()).current
   const spinRotation = useRef(new Matrix3()).current
+  /** When the design last changed: the spin fetches frames ahead once it has held still a while. */
+  const lastChange = useRef(performance.now())
+  /** A redraw booked for a moment no event brings (the design turning idle, a drift ending). */
+  const wake = useRef<{ at: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const timing = useRef({
     last: 0,
     samples: [] as number[],
@@ -162,6 +176,22 @@ export function RenderEffects({
     if (captureTimer.current) clearTimeout(captureTimer.current)
     captureTimer.current = null
     capture?.resolvers.forEach((resolve) => resolve(image))
+  }
+  /** Redraws at `at` (the earliest asked for), so the spin learns what time alone changes. */
+  const wakeAt = (at: number) => {
+    const booked = wake.current
+    if (booked && booked.at <= at) return
+    if (booked) clearTimeout(booked.timer)
+    wake.current = {
+      at,
+      timer: setTimeout(
+        () => {
+          wake.current = null
+          invalidate()
+        },
+        Math.max(0, at - performance.now()) + 1,
+      ),
+    }
   }
 
   useEffect(() => {
@@ -252,7 +282,8 @@ export function RenderEffects({
     from: Texture | null
     start: number
   }>({ frame: null, mode: 'exterior', from: null, start: 0 })
-  const sceneKey = useRef('')
+  /** The scene outside and inside, fingerprinted apart so an edit in the room keeps the ring. */
+  const sceneKeys = useRef<SceneKeys>({ exterior: '', interior: '' })
   const sceneDirty = useRef(true)
   /** Waiting for the raster frame's brightness at a camera, which the next frame measures. */
   const meterWanted = useRef<
@@ -288,6 +319,14 @@ export function RenderEffects({
     sceneDirty.current = true
     invalidate()
   }, [config, view, dimensions, invalidate])
+  // The design alone: a view switch or the dimensions are no edit, so they keep the spin's pace.
+  useEffect(() => {
+    lastChange.current = performance.now()
+  }, [config])
+  // Under the floor plan no frame runs to tell the spin the visitor is editing: told here.
+  useEffect(() => {
+    if (!active) spinner.current?.session.setIdle(false)
+  }, [active])
 
   // Streamed textures change surfaces, and each interior probe capture redraws shadow maps with
   // foliage and glazing hidden, so both also refresh the shadows.
@@ -339,6 +378,7 @@ export function RenderEffects({
     () => () => {
       if (restTimer.current) clearTimeout(restTimer.current)
       if (captureTimer.current) clearTimeout(captureTimer.current)
+      if (wake.current) clearTimeout(wake.current.timer)
       // An export never waits on a scene that is gone.
       const capture = pending.current
       pending.current = null
@@ -351,8 +391,9 @@ export function RenderEffects({
   useFrame(() => beginFrame(renderer), FRAME_BEGIN)
 
   useFrame(() => {
-    const active = pipeline.current
-    if (!active) return
+    // Not `active`: that is the prop, which the spin's idle gate below reads.
+    const pipe = pipeline.current
+    if (!pipe) return
     const now = performance.now()
     const tracer = session && present.current ? session : null
     const report = (force = false) => {
@@ -385,20 +426,33 @@ export function RenderEffects({
       const panoramaWidth = Math.round((size.x * 2 * Math.PI) / across / 16) * 16
       const outside = renderer.toneMappingExposure / (view === 'interior' ? INTERIOR_EXPOSURE : 1)
       if (sceneDirty.current) {
-        sceneKey.current = String(sceneSignature(scene, lookKey(lookRef.current)))
+        // The fingerprints read world matrices, which nothing refreshes before this frame's
+        // render: a dragged bench would otherwise be signed where it was, and the panorama kept.
+        scene.updateMatrixWorld()
+        const key = lookKey(lookRef.current)
+        sceneKeys.current = {
+          exterior: String(sceneSignature(scene, key, 'exterior')),
+          interior: String(sceneSignature(scene, key, 'interior')),
+        }
         sceneDirty.current = false
       }
       const looking = view === 'interior' ? 'interior' : 'exterior'
       const textures = textureProgress.get()
+      // Both pass with time alone, so a redraw is booked for when they do.
+      const drift = spinDrift(now)
+      const idle = active && now - lastChange.current >= IDLE_MS
+      if (drift !== 0) wakeAt(spinView.turned + DRIFT_MS)
+      if (active && !idle) wakeAt(lastChange.current + IDLE_MS)
       const state: SpinState = {
         active: looking,
+        width: size.x,
+        height: size.y,
+        dpr: renderer.getPixelRatio(),
         exterior:
           spinView.spec && spinView.pose
             ? {
                 spec: spinView.spec,
                 pose: spinView.pose,
-                width: size.x,
-                height: size.y,
                 lens: { fov: EXTERIOR_FOV, near: cam.near, far: cam.far },
               }
             : null,
@@ -421,11 +475,13 @@ export function RenderEffects({
           },
         },
         exposure: { exterior: outside, interior: outside * INTERIOR_EXPOSURE },
+        drift,
+        idle,
       }
       spinning.session.sync(
         scene,
         lookRef.current,
-        sceneKey.current,
+        sceneKeys.current,
         state,
         (at) =>
           new Promise<RasterMeter>((resolve) => {
@@ -435,6 +491,10 @@ export function RenderEffects({
         // Scanned materials still streaming in: the spin waits for them (each arrival is redrawn).
         textures.loaded >= textures.requested,
       )
+      // The full render is made only for an export: of the frame the visitor looks at, while a
+      // capture waits for it.
+      const focus = spinning.session.focusKey()
+      spinning.session.wantFinal(pending.current && focus ? focus : null)
       if (meterWanted.current.length) {
         // The raster frame for this look at each camera asked for (the interior's while the
         // visitor is outside: only the camera and exposure differ between views), rendered a few
@@ -445,7 +505,7 @@ export function RenderEffects({
         const position = cam.position.clone()
         const quaternion = cam.quaternion.clone()
         const fov = cam.fov
-        const frames = Math.min(16, Math.max(4, active.settleFrames))
+        const frames = Math.min(16, Math.max(4, pipe.settleFrames))
         let metered = false
         for (const { camera: at, resolve } of meterWanted.current.splice(0)) {
           if (at) {
@@ -455,11 +515,11 @@ export function RenderEffects({
             cam.updateProjectionMatrix()
             cam.updateMatrixWorld()
           }
-          for (let i = 0; i < frames; i++) active.render()
+          for (let i = 0; i < frames; i++) pipe.render()
           const record = at ?? cameraRecord(cam)
           resolve(
             spinning.meter
-              .measure(active.hdr, false)
+              .measure(pipe.hdr, false)
               .then((key) => ({ key, camera: record, width: size.x, height: size.y })),
           )
           cam.position.copy(position)
@@ -473,7 +533,7 @@ export function RenderEffects({
           // else redraws the view, and the first traced image fades in from `hdr`, so draw it
           // again here, settled as the meter's frames were; otherwise the raster path redraws it
           // (and the tracer meters `hdr`) only once it knows the frame is not the view.
-          if (mode.current === 'trace') for (let i = 0; i < frames; i++) active.render()
+          if (mode.current === 'trace') for (let i = 0; i < frames; i++) pipe.render()
           else fresh.current = false
         }
       }
@@ -522,6 +582,8 @@ export function RenderEffects({
               : null,
         })
         sceneProgress.drawn()
+        bench.mark('firstPreview', now)
+        if (current.frame.tier !== 'preview') bench.mark('firstGood', now)
         spinning.session.hold(
           t < 1 && current.from ? [current.frame.texture, current.from] : [current.frame.texture],
         )
@@ -530,8 +592,8 @@ export function RenderEffects({
         // The full-quality frame of the view itself: not the nearest one standing in for it, nor
         // the previous design's, kept at this pose while its replacement renders.
         const exact =
-          current.frame.final &&
-          current.frame.design === spinning.session.currentDesign() &&
+          current.frame.tier === 'final' &&
+          spinning.session.isCurrent(current.frame) &&
           spinning.session.isFocus(current.frame)
         if (capture && (exact || now > capture.deadline))
           deliver(renderer.domElement.toDataURL('image/png'))
@@ -585,6 +647,8 @@ export function RenderEffects({
       if (traced.from || traced.t > 0) {
         present.current!.render(traced)
         sceneProgress.drawn()
+        bench.mark('firstPreview', now)
+        if (tracer.ready(GOOD_SAMPLES)) bench.mark('firstGood', now)
       }
       const capture = pending.current
       if (capture && (tracer.ready(EXPORT_SAMPLES) || now > capture.deadline))
@@ -603,7 +667,7 @@ export function RenderEffects({
         view === 'exterior' && controls && !controls.autoRotate
           ? { target: controls.target.clone() }
           : null
-      tracer.begin(scene, camera, lookRef.current, active.hdr, REST_SAMPLES, orbit)
+      tracer.begin(scene, camera, lookRef.current, pipe.hdr, REST_SAMPLES, orbit)
       report(true)
       invalidate()
       return
@@ -611,12 +675,13 @@ export function RenderEffects({
 
     // Raster rendering with a settle run after every change.
     const chained = settle.current > 0
-    if (settle.current <= 0) settle.current = active.settleFrames
+    if (settle.current <= 0) settle.current = pipe.settleFrames
     // A frame right after a change, a streamed texture, or a probe capture also compiles shaders,
     // uploads textures, and redraws shadows: one-off work, not the cost of the tier.
     if (refreshShadows(scene)) eventful = true
-    active.render()
+    pipe.render()
     sceneProgress.drawn()
+    bench.mark('firstRaster', now)
     fresh.current = true
     settle.current--
     still.current++

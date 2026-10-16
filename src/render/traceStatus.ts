@@ -93,7 +93,8 @@ export type SpinStatus = {
   loading: boolean
   ready: number
   total: number
-  final: number
+  /** Of those, at good quality or better. */
+  good: number
   /** The cloud answered an image in the last few minutes, so its preview is worth a short wait. */
   warm: boolean
   /** Milliseconds since the spin first had a design to render, in tenths of a second, capped. */
@@ -109,7 +110,7 @@ const SPIN_OFF: SpinStatus = {
   loading: false,
   ready: 0,
   total: 0,
-  final: 0,
+  good: 0,
   warm: false,
   gateMs: 0,
   failed: false,

@@ -70,9 +70,12 @@ import {
 } from './render/traceStatus'
 import { warmCloud } from './render/renderSession'
 import { sceneProgress, textureProgress } from './render/progress'
+import { benchEnabled, useBench } from './render/bench'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
+/** `?bench=1`: read once, as the panel is for a page opened to measure it. */
+const BENCH = benchEnabled()
 
 export default function App() {
   const { config, encoded, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
@@ -498,6 +501,7 @@ export default function App() {
           </button>
         </div>
       )}
+      {BENCH && <BenchPanel />}
       {dialog === 'estimate' && <EstimateDialog config={config} onClose={close} />}
       {dialog === 'share' && <ShareDialog config={config} onClose={close} notify={notify} />}
       {dialog === 'brief' && (
@@ -620,7 +624,7 @@ function TraceBadge() {
   if (spin.active) {
     // Counts say what is there: previews of every angle, or some; never "in full".
     const label = spin.panorama
-      ? spin.final
+      ? spin.good
         ? 'Path traced · 360°'
         : spin.ready
           ? 'Preview ready · 360°'
@@ -678,6 +682,47 @@ function TraceBadge() {
       />
       {status.exporting ? `Rendering image · ${status.samples} samples` : label}
     </span>
+  )
+}
+
+/**
+ * The rendering benchmarks `?bench=1` shows (src/render/bench.ts, docs/benchmarks.md): a small
+ * table of seconds from page load to each first, how the cloud answered and what its frames cost,
+ * and the local tracer's times. Text only, so it is read off a screenshot as easily as the page.
+ */
+function BenchPanel() {
+  const stats = useBench()
+  const seconds = (ms: number | null) => (ms === null ? '—' : `${(ms / 1000).toFixed(1)} s`)
+  const millis = (ms: number | null) => (ms === null ? '—' : `${Math.round(ms)} ms`)
+  const { own, shared } = stats.renderer
+  const renderer = own || shared ? ` · own ${own} / shared ${shared}` : ''
+  const frames = stats.frames ? ` (${stats.frames} frames, ${stats.cached} cached)` : ''
+  const rows: [string, string][] = [
+    ['first raster frame', seconds(stats.marks.firstRaster)],
+    ['first preview', seconds(stats.marks.firstPreview)],
+    ['first good frame', seconds(stats.marks.firstGood)],
+    ['first local trace', seconds(stats.marks.firstLocalTrace)],
+    ['cloud', `${stats.cloud}${renderer}`],
+    [
+      'server frame',
+      `render ${millis(stats.renderMs)} · finish ${millis(stats.finishMs)} · round trip ${millis(stats.totalMs)}${frames}`,
+    ],
+    [
+      'local tracer',
+      `first image ${seconds(stats.local.firstMs)} · settled ${seconds(stats.local.settledMs)}`,
+    ],
+  ]
+  return (
+    <table className="bench-panel" aria-label="Rendering benchmarks">
+      <tbody>
+        {rows.map(([name, value]) => (
+          <tr key={name}>
+            <th scope="row">{name}</th>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 

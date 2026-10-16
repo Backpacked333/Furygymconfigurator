@@ -164,6 +164,84 @@ describe('path-traced scene capture', () => {
     expect(changed(() => f.scene.add(new Mesh(new BoxGeometry(), f.leaf)))).toContain('structure')
   })
 
+  it('fingerprints the room and the outside apart, and the helpers in neither', () => {
+    const f = fixture()
+    const room = new Group()
+    room.userData.interior = true
+    const bench = new Mesh(new BoxGeometry(), new MeshStandardNodeMaterial())
+    const lamp = new RectAreaLight(0xffffff, 10, 1, 1)
+    room.add(bench, lamp)
+    f.scene.add(room)
+    f.scene.updateMatrixWorld(true)
+    const outside = () => sceneSignature(f.scene, 'a', 'exterior')
+    const inside = () => sceneSignature(f.scene, 'a', 'interior')
+    const [out0, in0] = [outside(), inside()]
+    expect(out0).not.toBe(in0)
+    // An edit in the room: a moved bench, a dimmed lamp. The outside is unchanged.
+    bench.position.x = 2
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).toBe(out0)
+    expect(inside()).not.toBe(in0)
+    const in1 = inside()
+    lamp.intensity = 4
+    expect(outside()).toBe(out0)
+    expect(inside()).not.toBe(in1)
+    const in2 = inside()
+    // An edit outside: the room is unchanged.
+    f.stone.position.y = 3
+    f.scene.updateMatrixWorld(true)
+    expect(inside()).toBe(in2)
+    expect(outside()).not.toBe(out0)
+    const out1 = outside()
+    // The dimensions helpers (pathTrace: false) come and go without a frame changing.
+    const dimensions = new Group()
+    dimensions.userData.pathTrace = false
+    dimensions.add(new Mesh(new BoxGeometry(), new MeshBasicMaterial()))
+    f.scene.add(dimensions)
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).toBe(out1)
+    expect(inside()).toBe(in2)
+    f.helpers.visible = false
+    expect(outside()).toBe(out1)
+    expect(inside()).toBe(in2)
+    // The whole scene's fingerprint, the local tracer's, still sees the room.
+    expect(sceneSignature(f.scene, 'a')).not.toBe(out1)
+  })
+
+  it('fingerprints the shell and its glazing, seen from both sides, into both parts', () => {
+    const f = fixture()
+    const room = new Group()
+    room.userData.interior = true
+    room.add(new Mesh(new BoxGeometry(), new MeshStandardNodeMaterial()))
+    const shell = new Group()
+    shell.userData.shared = true
+    const door = new Mesh(new BoxGeometry(), new MeshStandardNodeMaterial())
+    shell.add(door)
+    f.scene.add(room, shell)
+    f.scene.updateMatrixWorld(true)
+    const outside = () => sceneSignature(f.scene, 'a', 'exterior')
+    const inside = () => sceneSignature(f.scene, 'a', 'interior')
+    const [out0, in0] = [outside(), inside()]
+    // The door swings open: the panorama looks straight at it, and so does the ring.
+    door.rotation.y = 1.2
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).not.toBe(out0)
+    expect(inside()).not.toBe(in0)
+    const [out1, in1] = [outside(), inside()]
+    // A new door leaf (rebuilt parts have new ids), likewise.
+    shell.remove(door)
+    shell.add(new Mesh(new BoxGeometry(), new MeshStandardNodeMaterial()))
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).not.toBe(out1)
+    expect(inside()).not.toBe(in1)
+    // A mesh outside any marked group is still the ring's alone.
+    const [out2, in2] = [outside(), inside()]
+    f.stone.position.y = 3
+    f.scene.updateMatrixWorld(true)
+    expect(outside()).not.toBe(out2)
+    expect(inside()).toBe(in2)
+  })
+
   it('notices a move along any axis, alone or combined', () => {
     const f = fixture()
     f.scene.updateMatrixWorld(true)

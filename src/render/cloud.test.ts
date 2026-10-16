@@ -6,12 +6,22 @@ import {
   DataUtils,
   InterleavedBuffer,
   InterleavedBufferAttribute,
+  Mesh,
+  MeshStandardMaterial,
   PerspectiveCamera,
+  RectAreaLight,
+  Scene,
+  SpotLight,
+  SRGBColorSpace,
+  Texture,
 } from 'three/webgpu'
+import { createHash } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { skyLook } from '../lib/visuals'
 import {
   cameraRecord,
+  captureScene,
   CLOUD_QUALITY,
   CloudClient,
   cloudUrl,
@@ -19,15 +29,26 @@ import {
   encodeGeometry,
   encodeInstances,
   encodeSky,
+  fingerprint,
+  FRAME_TIMEOUT_MS,
   Full,
   Busy,
   Outdated,
   PREVIEW_QUALITY,
   renderSession,
+  stableJson,
   unpackImage,
   warmCloud,
   warmth,
 } from './cloud'
+
+// The sky map takes seconds to compute: a scene capture gets a tiny one.
+vi.mock('./pathtrace', async (original) => {
+  const actual = await original<typeof import('./pathtrace')>()
+  const { DataTexture, FloatType, RGBAFormat } = await import('three/webgpu')
+  const sky = new DataTexture(new Float32Array(8).fill(0.5), 2, 1, RGBAFormat, FloatType)
+  return { ...actual, environmentTexture: () => sky }
+})
 
 describe('cloud requests', () => {
   const camera = { matrix: Array(16).fill(0), fov: 34, near: 0.1, far: 2000 }
@@ -93,6 +114,82 @@ describe('cloud requests', () => {
     ])
   })
 
+  it('give up on a frame that does not come in time, as on a busy server', async () => {
+    vi.useFakeTimers()
+    // A connection that never answers, unless the caller gives up on it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_, reject) =>
+            init.signal!.addEventListener('abort', () => reject(init.signal!.reason)),
+          ),
+      ),
+    )
+    const request = {
+      camera,
+      width: 100,
+      height: 80,
+      quality: PREVIEW_QUALITY,
+      finish: { exposure: 1, gain: 1 },
+      priority: 0,
+      generation: 1,
+    }
+    const captured = { scene: {} as never, blobs: new Map() }
+    const client = new CloudClient('https://gpu.example')
+    let outcome: unknown = null
+    client.frame(captured, request, new AbortController().signal).catch((error) => {
+      outcome = error
+    })
+    // Twenty seconds beyond twice the frame's own time limit.
+    await vi.advanceTimersByTimeAsync(FRAME_TIMEOUT_MS + 2 * PREVIEW_QUALITY.timeLimit * 1000 - 1)
+    expect(outcome).toBeNull()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(outcome).toBeInstanceOf(Busy)
+    // The caller's own abort is theirs, not a busy server.
+    const own = new AbortController()
+    let aborted: unknown = null
+    client.frame(captured, request, own.signal).catch((error) => {
+      aborted = error
+    })
+    own.abort(new Error('turned away'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(aborted).toEqual(new Error('turned away'))
+    // A longer frame opened since (an export's) may be rendered ahead of it on the session's one
+    // GPU: it is allowed that frame's time limit too, and gives up only after it.
+    const patient = new CloudClient('https://gpu.example')
+    let waited: unknown = null
+    patient.frame(captured, request, new AbortController().signal).catch((error) => {
+      waited = error
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    const final = { ...request, quality: CLOUD_QUALITY }
+    patient.frame(captured, final, new AbortController().signal).catch(() => {})
+    await vi.advanceTimersByTimeAsync(FRAME_TIMEOUT_MS + 2 * PREVIEW_QUALITY.timeLimit * 1000)
+    expect(waited).toBeNull()
+    await vi.advanceTimersByTimeAsync(CLOUD_QUALITY.timeLimit * 1000 - 1000 - 1)
+    expect(waited).toBeNull()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(waited).toBeInstanceOf(Busy)
+    vi.useRealTimers()
+  })
+
+  it('take an upload the server turns away as a busy server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+        if (init.method === 'PUT') return new Response(null, { status: 503 })
+        return new Response(JSON.stringify({ missing: ['a'.repeat(64)] }), { status: 409 })
+      }),
+    )
+    const blobs = new Map([['a'.repeat(64), () => Promise.resolve(new Uint8Array([1]))]])
+    const captured = { scene: {} as never, blobs }
+    const signal = new AbortController().signal
+    await expect(
+      new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal),
+    ).rejects.toBeInstanceOf(Busy)
+  })
+
   it('tell a finished spin frame from a server that predates the spin', async () => {
     const request = {
       camera,
@@ -142,6 +239,95 @@ describe('cloud requests', () => {
     await expect(
       new CloudClient('https://gpu.example').frame(captured, request, signal),
     ).rejects.toBeInstanceOf(Outdated)
+  })
+})
+
+describe('scene capture', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /**
+   * A small gym built from scratch: a painted box, two plain ones sharing a material, a downlight
+   * and a strip. `shuffled` adds them in another order, as a page might mount them.
+   */
+  function build(shuffled: boolean) {
+    const image = document.createElement('img')
+    image.src = 'https://example.test/scans/oak.png'
+    const map = new Texture(image)
+    map.colorSpace = SRGBColorSpace
+    map.repeat.set(2, 2)
+    const painted = new MeshStandardMaterial({ map, roughness: 0.4 })
+    const plain = new MeshStandardMaterial({ color: 0x336699, metalness: 0.2 })
+    const floor = new Mesh(new BoxGeometry(1, 2, 3), painted)
+    floor.position.set(1, 0, 2)
+    const bench = new Mesh(new BoxGeometry(1, 1, 1), plain)
+    bench.position.set(-3, 0, 0)
+    const rack = new Mesh(new BoxGeometry(1, 1, 1), plain)
+    rack.position.set(0, 0, 4)
+    const downlight = new SpotLight(0xffd9ad, 20)
+    downlight.position.set(0, 3, 0)
+    const strip = new RectAreaLight(0xffd9ad, 5, 2, 0.1)
+    strip.position.set(0, 3, -2)
+    const scene = new Scene()
+    scene.add(
+      ...(shuffled
+        ? [strip, rack, downlight, bench, floor]
+        : [floor, bench, rack, downlight, strip]),
+    )
+    return scene
+  }
+
+  it('describe the same design identically however the page built it', async () => {
+    // The texture's file, and a digest for environments without WebCrypto.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))),
+    )
+    if (!globalThis.crypto?.subtle)
+      vi.stubGlobal('crypto', {
+        subtle: {
+          digest: async (_algorithm: string, bytes: Uint8Array) =>
+            createHash('sha256').update(bytes).digest().buffer,
+        },
+      })
+    const look = skyLook('backyard', 13)
+    const first = await captureScene(build(false), look)
+    const second = await captureScene(build(true), look)
+    expect(JSON.stringify(first.scene)).toBe(JSON.stringify(second.scene))
+    const { scene } = first
+    // Named by content, not by the page's uuids: three objects, two materials, one texture.
+    expect(scene.objects.map((o) => o.id)).toEqual([...scene.objects.map((o) => o.id)].sort())
+    expect(scene.objects).toHaveLength(3)
+    expect(scene.objects.every((o) => /^[0-9a-f]{16}$/.test(o.id))).toBe(true)
+    expect(Object.keys(scene.materials)).toHaveLength(2)
+    expect(Object.keys(scene.materials)).toEqual(Object.keys(scene.materials).sort())
+    const [texture] = Object.keys(scene.textures)
+    expect(Object.keys(scene.textures)).toHaveLength(1)
+    expect(scene.textures[texture]).toMatchObject({
+      url: 'https://example.test/scans/oak.png',
+      srgb: true,
+      wrap: 'clamp',
+    })
+    const painted = Object.values(scene.materials).find((m) => m.maps.map)!
+    expect(painted.maps.map).toBe(texture)
+    // Every blob the server may ask for is on hand (protocol.py required_blobs).
+    for (const o of scene.objects) expect(first.blobs.has(o.geometry)).toBe(true)
+    expect(first.blobs.has(scene.textures[texture].blob)).toBe(true)
+    expect(first.blobs.has(scene.environment!.blob)).toBe(true)
+    // Lights in a fixed order too, the sun among them.
+    expect(scene.lights.map((l) => l.type)).toEqual(
+      [...scene.lights]
+        .sort((a, b) => stableJson(a).localeCompare(stableJson(b)))
+        .map((l) => l.type),
+    )
+    expect(scene.lights.some((l) => l.type === 'sun')).toBe(true)
+  })
+
+  it('name content the same way every time, whatever the key order', () => {
+    expect(fingerprint('gym')).toBe(fingerprint('gym'))
+    expect(fingerprint('gym')).not.toBe(fingerprint('gyn'))
+    expect(fingerprint('gym')).toMatch(/^[0-9a-f]{16}$/)
+    expect(stableJson({ b: [1, { d: 2, c: 3 }], a: 'x' })).toBe('{"a":"x","b":[1,{"c":3,"d":2}]}')
+    expect(stableJson({ a: undefined, b: null })).toBe('{"b":null}')
   })
 })
 

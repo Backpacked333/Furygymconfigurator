@@ -32,6 +32,7 @@ import {
   specFrom,
   spinPosition,
   spinView,
+  turnDirection,
   type SpinPose,
 } from '../render/spin'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
@@ -252,7 +253,7 @@ function CameraRig({
         )
         camera.quaternion.setFromEuler(new Euler(pitch.current, yaw.current, 0, 'YXZ'))
       } else if (spinRef.current && controls.current && spinView.spec && spinView.pose) {
-        // One frame of the spin per press: 5° around, or the next distance in or out.
+        // One frame of the spin per press: 10° around, or the next distance in or out.
         const { level, azimuth } = spinView.pose
         const next: SpinPose =
           e.key === 'ArrowLeft' || e.key === 'ArrowRight'
@@ -310,6 +311,12 @@ function CameraRig({
     const pose = nearestSpinPose(spec, proxy.position)
     const shown = spinView.pose
     if (shown && shown.level === pose.level && shown.azimuth === pose.azimuth) return
+    // The way the visitor turns: the spin renders that side of the ring first (plan.ts).
+    const turn = shown ? turnDirection(shown.azimuth, pose.azimuth) : 0
+    if (turn !== 0) {
+      spinView.drift = turn
+      spinView.turned = performance.now()
+    }
     spinView.pose = pose
     spinPosition(spec, pose, camera.position)
     camera.lookAt(spec.target)
@@ -556,6 +563,7 @@ export default memo(function Scene({
           <InteriorProbe config={config} quality={quality} />
           <SiteProbe config={config} quality={quality} />
           <RenderEffects
+            active={active}
             quality={quality}
             trace={trace}
             look={look}
