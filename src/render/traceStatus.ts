@@ -79,16 +79,25 @@ export function spinEnabled(search = window.location.search) {
   return new URLSearchParams(search).get('spin') !== '0'
 }
 
-/** The path-traced spin's progress (spin.ts), for the loading screen and the status badge. */
+/**
+ * How long, at most, the first open waits over the live view for a warm cloud's preview of the
+ * frame the visitor looks at (App.tsx SpinLoading). A warm GPU answers a preview in about two
+ * seconds; a cold one is not waited for at all.
+ */
+export const GATE_MAX_MS = 5000
+
+/** The path-traced spin's progress (spin.ts SpinProgress), for the gate and the status badge. */
 export type SpinStatus = {
   active: boolean
+  /** The frame the visitor looks at is not on screen yet, at any tier. */
   loading: boolean
   ready: number
   total: number
   final: number
-  /** What the loading screen waits for, and how much of it is ready (spin.ts SpinProgress). */
-  waitReady: number
-  waitTotal: number
+  /** The cloud answered an image in the last few minutes, so its preview is worth a short wait. */
+  warm: boolean
+  /** Milliseconds since the spin first had a design to render, in tenths of a second, capped. */
+  gateMs: number
   failed: boolean
   /** The interior's 360° panorama, rather than the exterior spin. */
   panorama: boolean
@@ -101,8 +110,8 @@ const SPIN_OFF: SpinStatus = {
   ready: 0,
   total: 0,
   final: 0,
-  waitReady: 0,
-  waitTotal: 0,
+  warm: false,
+  gateMs: 0,
   failed: false,
   panorama: false,
   showing: false,
@@ -112,7 +121,11 @@ const spinListeners = new Set<() => void>()
 
 /** null when the spin stops. A failure stays: the spin is not tried again on this page. */
 export function setSpinStatus(next: SpinStatus | null) {
-  const value = next ?? { ...SPIN_OFF, failed: spin.failed }
+  // The gate's clock in tenths of a second, capped where it stops mattering, so the badge is not
+  // re-rendered on every frame drawn.
+  const value = next
+    ? { ...next, gateMs: Math.min(GATE_MAX_MS, Math.floor(next.gateMs / 100) * 100) }
+    : { ...SPIN_OFF, failed: spin.failed }
   if ((Object.keys(value) as (keyof SpinStatus)[]).every((k) => value[k] === spin[k])) return
   spin = value
   spinListeners.forEach((listener) => listener())

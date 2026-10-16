@@ -86,9 +86,10 @@ type PendingCapture = { deadline: number; resolvers: ((image: string) => void)[]
  * configured, and progressively on this device where WebGPU is available (see TraceSession);
  * any camera or scene change hands back to the rasterizer.
  *
- * With `spin`, views are never shown with the rasterizer once the cloud has rendered them: the
- * exterior steps through the path-traced spin's frames and the interior is a 360° panorama
- * (spin.ts). The rasterizer only fills in until the first frame arrives.
+ * With `spin`, the exterior steps through the path-traced spin's frames and the interior is a
+ * 360° panorama (spin.ts), each frame drawn over the live view as it lands. A pose with no frame
+ * yet shows the live view, rested and traced on this device as without a cloud, until its frame
+ * arrives; the live view is never held back for one.
  */
 export function RenderEffects({
   quality,
@@ -136,6 +137,8 @@ export function RenderEffects({
   const rested = useRef(false)
   const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pending = useRef<PendingCapture | null>(null)
+  /** Redraws when a capture's wait runs out, in case nothing else does by then. */
+  const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reported = useRef(0)
   const lookRef = useRef(look)
   const spinSize = useRef(new Vector2()).current
@@ -156,6 +159,8 @@ export function RenderEffects({
   const deliver = (image: string) => {
     const capture = pending.current
     pending.current = null
+    if (captureTimer.current) clearTimeout(captureTimer.current)
+    captureTimer.current = null
     capture?.resolvers.forEach((resolve) => resolve(image))
   }
 
@@ -176,11 +181,14 @@ export function RenderEffects({
   }, [renderer, scene, camera, quality, invalidate])
 
   // The local tracer loads on demand, and only where WebGPU compute is available. With a cloud
-  // renderer, light devices leave all tracing to it.
+  // renderer, light devices leave all tracing to it, under the spin too: a pose with no frame yet
+  // shows the live view until its frame lands. The governor steps a device down to Lite for being
+  // slow, and a path tracer would slow it further.
   const remote = useMemo(() => cloudUrl(), [])
-  // The spin replaces both while it works.
+  // The spin replaces the one-view-at-a-time cloud session; the local tracer refines whatever
+  // pose has no spin frame yet.
   const cloudAvailable = trace && remote !== null && !spin
-  const localAvailable = webgpu && trace && !spin && (quality !== 'lite' || !cloudAvailable)
+  const localAvailable = webgpu && trace && (quality !== 'lite' || remote === null)
   useEffect(() => {
     if (!localAvailable && !cloudAvailable) return
     let active = true
@@ -300,30 +308,25 @@ export function RenderEffects({
 
   useEffect(() => {
     onCaptureReady(() => {
-      // The spin's full-quality frame, once it is on screen.
-      if (spinner.current)
-        return new Promise<string>((resolve) => {
-          if (pending.current) pending.current.resolvers.push(resolve)
-          else
-            pending.current = {
-              deadline: performance.now() + EXPORT_TIMEOUT_MS,
-              resolvers: [resolve],
-            }
-          invalidate()
-        })
-      if (!session || !present.current) {
+      if (!spinner.current && (!session || !present.current)) {
         beginFrame(renderer)
         refreshShadows(scene)
         pipeline.current?.render()
         return Promise.resolve(renderer.domElement.toDataURL('image/png'))
       }
+      // The spin's full-quality frame once it is on screen, or a converged local trace of a pose
+      // the spin has no frame for yet; whatever is on screen when the wait runs out.
       return new Promise<string>((resolve) => {
         if (pending.current) pending.current.resolvers.push(resolve)
-        else
+        else {
           pending.current = {
             deadline: performance.now() + EXPORT_TIMEOUT_MS,
             resolvers: [resolve],
           }
+          // A pose the spin never brings a frame for, on a device without a tracer, would
+          // otherwise wait forever: the end of the wait redraws, and delivers what is on screen.
+          captureTimer.current = setTimeout(invalidate, EXPORT_TIMEOUT_MS + 50)
+        }
         if (mode.current !== 'trace') rested.current = true
         invalidate()
       })
@@ -335,6 +338,7 @@ export function RenderEffects({
   useEffect(
     () => () => {
       if (restTimer.current) clearTimeout(restTimer.current)
+      if (captureTimer.current) clearTimeout(captureTimer.current)
       // An export never waits on a scene that is gone.
       const capture = pending.current
       pending.current = null
@@ -434,16 +438,18 @@ export function RenderEffects({
       if (meterWanted.current.length) {
         // The raster frame for this look at each camera asked for (the interior's while the
         // visitor is outside: only the camera and exposure differ between views), rendered a few
-        // times so its temporal effects settle, and measured. The camera is put back, and a
-        // path-traced frame drawn below replaces the raster one before it is seen.
+        // times so its temporal effects settle, and measured. The camera is put back, and the
+        // view drawn again below.
         eventful = true
         refreshShadows(scene)
         const position = cam.position.clone()
         const quaternion = cam.quaternion.clone()
         const fov = cam.fov
         const frames = Math.min(16, Math.max(4, active.settleFrames))
+        let metered = false
         for (const { camera: at, resolve } of meterWanted.current.splice(0)) {
           if (at) {
+            metered = true
             meterMatrix.fromArray(at.matrix).decompose(cam.position, cam.quaternion, meterEye)
             cam.fov = at.fov
             cam.updateProjectionMatrix()
@@ -462,6 +468,14 @@ export function RenderEffects({
           cam.updateProjectionMatrix()
           cam.updateMatrixWorld()
         }
+        if (metered) {
+          // The meter left another camera's frame in `hdr` and on the canvas. Tracing, nothing
+          // else redraws the view, and the first traced image fades in from `hdr`, so draw it
+          // again here, settled as the meter's frames were; otherwise the raster path redraws it
+          // (and the tracer meters `hdr`) only once it knows the frame is not the view.
+          if (mode.current === 'trace') for (let i = 0; i < frames; i++) active.render()
+          else fresh.current = false
+        }
       }
       const frame = spinning.session.texture()
       const shown = spinShown.current
@@ -478,10 +492,21 @@ export function RenderEffects({
           from: fades ? shown.frame!.texture : null,
           start: now,
         }
+      } else if (!frame && shown.frame && shown.frame.key !== spinning.session.focusKey()) {
+        // Nothing decoded for this pose. The frame on screen stays only while it is for the pose
+        // the visitor looks at now (its replacement for a changed design still rendering); turned
+        // to a pose with no frame yet, the live view shows instead of a frozen one.
+        spinShown.current = { frame: null, mode: looking, from: null, start: 0 }
       }
       const current = spinShown.current
       // Until the next frame is decoded the last one stays, in the same view only.
       if (current.frame && current.mode === looking) {
+        if (mode.current === 'trace') {
+          // The frame takes over from the local tracer, which keeps its samples for later.
+          mode.current = 'raster'
+          tracer?.halt()
+          report(true)
+        }
         const t = current.from ? Math.min(1, (now - current.start) / 300) : 1
         spinning.present.render({
           from: t < 1 ? current.from : null,
@@ -502,8 +527,12 @@ export function RenderEffects({
         )
         if (t < 1) invalidate()
         const capture = pending.current
-        // The full-quality frame of the view itself, not the nearest one standing in for it.
-        const exact = current.frame.final && spinning.session.isFocus(current.frame)
+        // The full-quality frame of the view itself: not the nearest one standing in for it, nor
+        // the previous design's, kept at this pose while its replacement renders.
+        const exact =
+          current.frame.final &&
+          current.frame.design === spinning.session.currentDesign() &&
+          spinning.session.isFocus(current.frame)
         if (capture && (exact || now > capture.deadline))
           deliver(renderer.domElement.toDataURL('image/png'))
         else if (capture) invalidate()
@@ -515,13 +544,15 @@ export function RenderEffects({
         })
         return
       }
+      spinning.session.hold([])
       setSpinStatus({
         active: true,
         ...spinning.session.progress,
         panorama: looking === 'interior',
         showing: false,
       })
-      // Nothing path traced to show yet: the raster frame, which the exposure meter also reads.
+      // Nothing path traced to show for this pose yet: the live view, rested and traced on this
+      // device as without a cloud, which the exposure meter also reads.
     }
     const last = lastView.current
     const moved =
@@ -596,8 +627,12 @@ export function RenderEffects({
           rested.current = true
           invalidate()
         }, REST_MS)
-    } else if (settle.current <= 0 && pending.current)
-      deliver(renderer.domElement.toDataURL('image/png'))
+    } else if (settle.current <= 0 && pending.current) {
+      // Without a tracer the settled raster frame is the export, unless the spin may still bring
+      // the frame itself before the wait runs out (captureTimer redraws then).
+      if (!spinner.current || now > pending.current.deadline)
+        deliver(renderer.domElement.toDataURL('image/png'))
+    }
     // Back-to-back settle frames measure what this GPU can sustain at this tier. The first frames
     // after a pipeline is built, and eventful frames with the one after them (whose interval
     // still carries their GPU work), are ignored.

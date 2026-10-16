@@ -20,19 +20,22 @@ import {
 } from './cloud'
 import { ORBIT_LIMITS } from './orbit'
 import { lookKey } from './pathtrace'
+import { GATE_MAX_MS } from './traceStatus'
+
+export { GATE_MAX_MS }
 
 /**
- * The path-traced spin. With a cloud renderer the exterior is never shown with the real-time
- * renderer: the camera steps through a ring of pre-rendered, path-traced frames, 72 angles (every
- * 5°) at three distances, like a 360° product spin. The interior is one 360° panorama, so looking
- * around it stays path traced at any angle.
+ * The path-traced spin. With a cloud renderer the exterior steps through a ring of pre-rendered,
+ * path-traced frames, 72 angles (every 5°) at three distances, like a 360° product spin. The
+ * interior is one 360° panorama, so looking around it stays path traced at any angle.
  *
- * Each visitor has one GPU of their own. It renders what the visitor sees first, as a quick
- * preview and then at full quality, then the angles either side of it, which the loading screen
- * waits for, then the rest of the ring nearest first, and then the other distances. The plan
- * follows the visitor: wherever they turn to is rendered next. The server finishes frames
- * (exposure, bloom, tone mapping) and keeps them, so a design someone has viewed before comes back
- * from its cache.
+ * The live view is never held back: the real-time renderer draws first (and the local path tracer
+ * refines it where it can), and the frames arrive over it as they are rendered. Each visitor has
+ * one GPU of their own. It renders what the visitor sees first, as a quick preview and then at
+ * full quality, then the angles either side of it, then the rest of the ring nearest first, and
+ * then the other distances. The plan follows the visitor: wherever they turn to is rendered next.
+ * The server finishes frames (exposure, bloom, tone mapping) and keeps them, so a design someone
+ * has viewed before comes back from its cache.
  */
 
 export const SPIN_STEPS = 72
@@ -60,19 +63,14 @@ const MAX_EDGE = 3200
  */
 const IN_FLIGHT = 3
 /**
- * Angles on each side of the visitor's that the loading screen waits for, as previews (about 1.5 s
- * each), so turning a few steps either way shows a path-traced frame at once.
+ * Angles on each side of the visitor's that are rendered first, as previews (about 1.5 s each),
+ * so turning a few steps either way shows a path-traced frame at once.
  */
-export const NEAR = 4
+const NEAR = 4
 /** A busy server is asked again after this long, without counting as a failure. */
 const BUSY_MS = 2000
 /** Decoded frames kept as textures: the current one and its neighbours. */
 const DECODED = 12
-/**
- * The loading screen gives up waiting after this long and shows what is ready. About 30 s of
- * rendering, and the visitor's own GPU may be starting cold.
- */
-export const LOADING_TIMEOUT_MS = 90_000
 
 /** `?traceStats=1` logs the exposure match and each frame's timing. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
@@ -186,25 +184,27 @@ export type MeterRaster = (camera: CloudCamera | null) => Promise<RasterMeter>
 /** Exposure gains, one for each view: the raster interior is lit more generously than outside. */
 type Gains = { exterior: number; interior: number }
 
-/** Progress for the loading screen and the status badge. */
+/** Progress for the first-open gate (App.tsx SpinLoading) and the status badge. */
 export type SpinProgress = {
-  /** What the visitor looks at is not ready yet: its ring, or the panorama. */
+  /** The frame the visitor looks at (the panorama inside) is not on screen yet, at any tier. */
   loading: boolean
   /** Frames of the current ring ready, at least as previews (the panorama counts as one). */
   ready: number
   total: number
   /** Of those, at full quality. */
   final: number
-  /**
-   * What the loading screen waits for (the view at full quality, the angles near it), and how much
-   * of it is ready.
-   */
-  waitReady: number
-  waitTotal: number
+  /** The cloud answered an image in the last few minutes: its GPU is probably still on. */
+  warm: boolean
+  /** Milliseconds since the session first had a design to render: the gate's clock. */
+  gateMs: number
   failed: boolean
 }
 
-type Stored = { preview?: Blob; final?: Blob }
+/** A frame's quality: a preview rendered before the textures, a preview, or the full render. */
+type Tier = { final: boolean; provisional: boolean }
+const tier = (t: Tier) => (t.final ? 2 : t.provisional ? 0 : 1)
+/** A frame's images, and whether the best of them was rendered before the scene settled. */
+type Stored = { preview?: Blob; final?: Blob; provisional: boolean }
 type Job = {
   key: string
   final: boolean
@@ -221,8 +221,10 @@ type Job = {
    */
   focus: boolean
 }
-/** A decoded frame: which frame of which design, and whether it is the full-quality one. */
-export type Decoded = { texture: Texture; final: boolean; key: string; design: string }
+/** A decoded frame: which frame of which design, at which tier. */
+export type Decoded = Tier & { texture: Texture; key: string; design: string }
+/** A decode under way, and the tier it will give. */
+type Decoding = Tier & { work: Promise<Decoded | null> }
 
 /**
  * Renders and keeps the spin's frames and the interior panorama for the current design, and hands
@@ -246,30 +248,38 @@ export class SpinSession {
   private views = { exterior: '', interior: '' }
   private sceneKey = ''
   private captured: Promise<CapturedScene> | null = null
+  /** Whether the capture was taken with the scanned textures in. */
+  private capturedSettled = false
+  /** Whether the scene has its textures: until then only the visitor's preview is rendered. */
+  private settled = false
   private state: SpinState | null = null
   private gain: Gains | null = null
-  /** Metered gains by lighting look, and the design being metered now. */
-  private readonly gains = new Map<string, Gains>()
-  private metering = ''
+  /** Whether the gain in use was metered with the textures in. */
+  private gainSettled = false
+  /** Metered gains by lighting look, and whether they were metered with the textures in. */
+  private readonly gains = new Map<string, { gains: Gains; settled: boolean }>()
+  /** The metering under way, so a superseded one is dropped when it lands. */
+  private metering = 0
   private readonly frames = new Map<string, Stored>()
-  private readonly decoded = new Map<string, Promise<Decoded | null> | Decoded>()
+  /** Decoded frames, most recently used last, and the decodes under way. */
+  private readonly decoded = new Map<string, Decoded>()
+  private readonly decoding = new Map<string, Decoding>()
   /** Textures on screen (or fading out); disposing them waits until they are not. */
   private held = new Set<Texture>()
   private readonly doomed = new Set<Texture>()
   private inFlight = new Set<string>()
   private failures = 0
   private busyUntil = 0
-  /** When the visitor started waiting for what they look at: a new design, or the other view. */
-  private started = performance.now()
-  private watching = ''
+  /** When the session first had a design to render; a later design change does not reset it. */
+  private started: number | null = null
   private timeout: ReturnType<typeof setTimeout> | undefined
   progress: SpinProgress = {
     loading: true,
     ready: 0,
     total: SPIN_STEPS,
     final: 0,
-    waitReady: 0,
-    waitTotal: 1 + 2 * NEAR,
+    warm: false,
+    gateMs: 0,
     failed: false,
   }
 
@@ -286,9 +296,10 @@ export class SpinSession {
 
   /**
    * The design, look and view. Cheap to call every frame: work starts only when something that
-   * determines the frames changed. `rasterKey` meters the raster frame, once per look.
-   * While the scene is not `settled` (textures still arriving), the frames keep the design they
-   * have, so a design is rendered once, complete.
+   * determines the frames changed. `rasterKey` meters the raster frame, once per look. The design
+   * is the scene as it is now, textures or not: while it is not `settled` (textures still
+   * arriving) only the frame the visitor looks at is rendered, as a preview, and once they are in
+   * the exposure is metered again and that preview rendered again.
    */
   sync(
     scene: Scene,
@@ -300,8 +311,14 @@ export class SpinSession {
   ) {
     this.state = state
     const lighting = lookKey(look)
-    const design = settled ? `${sceneKey}|${lighting}` : this.design
-    if (!design) return
+    const design = `${sceneKey}|${lighting}`
+    if (this.started === null) {
+      this.started = performance.now()
+      // Nothing else may redraw when the gate's time runs out.
+      this.timeout = setTimeout(this.onChange, GATE_MAX_MS + 50)
+    }
+    const arrived = settled && !this.settled
+    this.settled = settled
     const ext = state.exterior
     const views = {
       exterior: ext
@@ -320,30 +337,43 @@ export class SpinSession {
         state.exposure.interior.toFixed(3),
       ].join(','),
     }
+    const fresh = design !== this.design
     const changed = views.exterior !== this.views.exterior || views.interior !== this.views.interior
-    if (design === this.design && !changed) {
+    if (!fresh && !changed && !arrived) {
       this.pump()
       return
     }
-    // Queued requests are for frames no longer wanted: drop them, here and on the server.
-    this.generation++
-    this.focused = ''
-    this.abort.abort()
-    this.abort = new AbortController()
-    this.inFlight = new Set()
-    this.failures = 0
-    if (design !== this.design) {
+    if (fresh || changed) {
+      // Queued requests are for frames no longer wanted: drop them, here and on the server.
+      this.generation++
+      this.focused = ''
+      this.abort.abort()
+      this.abort = new AbortController()
+      this.inFlight = new Set()
+      this.failures = 0
+    }
+    if (fresh) {
       this.design = design
       this.frames.clear()
-      for (const d of this.decoded.values()) if (!(d instanceof Promise)) this.doom(d.texture)
+      for (const d of this.decoded.values()) this.doom(d.texture)
       this.decoded.clear()
+      this.decoding.clear()
       this.progress = { ...this.progress, loading: true, failed: false }
-      if (sceneKey !== this.sceneKey || !this.captured) {
-        this.sceneKey = sceneKey
-        this.captured = captureScene(scene, look)
-      }
-      this.gain = this.gains.get(lighting) ?? null
-      if (this.gain === null) this.startMeter(lighting, rasterKey)
+    }
+    // Captured for a new scene, and again once its textures are in.
+    if (sceneKey !== this.sceneKey || !this.captured || (settled && !this.capturedSettled)) {
+      this.sceneKey = sceneKey
+      this.capturedSettled = settled
+      this.captured = captureScene(scene, look)
+    }
+    if (fresh) {
+      const known = this.gains.get(lighting)
+      this.gain = known?.gains ?? null
+      this.gainSettled = known?.settled ?? false
+      if (!known || (settled && !known.settled)) this.startMeter(lighting, rasterKey)
+    } else if (arrived && !this.gainSettled) {
+      // The textures came in under the same design: they change its brightness.
+      this.startMeter(lighting, rasterKey)
     }
     // A view framed or sized anew: forget its old frames.
     for (const kind of ['exterior', 'interior'] as const)
@@ -357,22 +387,27 @@ export class SpinSession {
   /**
    * Meters the gain for a look, once. The design must hold still meanwhile, so the traced render
    * and the raster frame show the same scene; if it changes, the next design meters again. The
-   * gain then holds however the view changes.
+   * gain then holds however the view changes. Metered before the textures, it serves until they
+   * are in and is metered again then.
    */
   private startMeter(lighting: string, rasterKey: MeterRaster) {
     const design = this.design
-    this.metering = design
+    const settled = this.settled
+    const token = ++this.metering
     const settle = (gains: Gains | null) => {
-      if (this.metering !== design) return
-      this.metering = ''
+      if (this.metering !== token) return
+      this.metering = 0
       if (design !== this.design || this.closed.signal.aborted) return
-      if (gains) this.gains.set(lighting, gains)
+      if (gains) this.gains.set(lighting, { gains, settled })
       this.gain = gains ?? { exterior: 1, interior: 1 }
+      this.gainSettled = settled
+      // The first answer also tells the gate whether the cloud is warm.
+      this.onChange()
       this.pump()
     }
     this.meterViews(rasterKey).then(settle, (error) => {
       if (error instanceof Outdated || error instanceof Full) return this.fail(error)
-      if (this.metering === design && !this.closed.signal.aborted)
+      if (this.metering === token && !this.closed.signal.aborted)
         console.warn('The path-traced exposure could not be metered.', error)
       // Not kept: the next design with this look meters again.
       settle(null)
@@ -437,6 +472,14 @@ export class SpinSession {
     return `i|${this.views.interior}|`
   }
 
+  /**
+   * Frames rendered now are stand-ins: the textures are still arriving, or the exposure was
+   * metered without them. They are rendered again once the scene has settled.
+   */
+  private get provisional() {
+    return !this.settled || !this.gainSettled
+  }
+
   /** The frames still to render, most wanted first. */
   private jobs(): Job[] {
     const state = this.state
@@ -467,8 +510,8 @@ export class SpinSession {
       const near = around.slice(1, 1 + 2 * NEAR)
       const rest = around.slice(1 + 2 * NEAR)
       const others = SPIN_LEVELS.map((_, l) => l).filter((l) => l !== focus.level)
-      // The visitor's frame; the angles near it, which the loading screen waits for, then at full
-      // quality; the rest of the ring the same way; then the other distances.
+      // The visitor's frame; the angles near it as previews, then at full quality; the rest of
+      // the ring the same way; then the other distances.
       const looking = state.active === 'exterior'
       outside[0] = [job(focus, false, looking), job(focus, true, looking)]
       outside[1] = near.map((p) => job(p, false))
@@ -496,8 +539,11 @@ export class SpinSession {
       inside: true,
       focus: false,
     })
-    // Outside, the panorama's preview comes once the loading screen's frames are done, so stepping
-    // inside soon shows a path-traced view too.
+    // Before the textures: only what the visitor looks at, as a preview; the rest once they are in.
+    if (this.provisional)
+      return state.active === 'interior' ? [panorama(false)] : outside[0].slice(0, 1)
+    // Outside, the panorama's preview comes once the near angles are done, so stepping inside
+    // soon shows a path-traced view too.
     const groups =
       state.active === 'interior'
         ? [[panorama(false), panorama(true)], ...outside]
@@ -522,7 +568,9 @@ export class SpinSession {
     }
     for (const job of this.jobs()) {
       const stored = this.frames.get(job.key)
-      if (job.final ? stored?.final : stored?.preview || stored?.final) continue
+      const have = job.final ? stored?.final : stored?.preview || stored?.final
+      // A frame rendered before the scene settled is rendered again once it has.
+      if (have && (!stored!.provisional || this.provisional)) continue
       const id = `${job.key}|${job.final}`
       if (this.inFlight.has(id)) continue
       if (!job.focus && this.inFlight.size >= IN_FLIGHT) break
@@ -532,6 +580,7 @@ export class SpinSession {
 
   private request(job: Job, id: string) {
     const generation = this.generation
+    const provisional = this.provisional
     const sequence = job.focus ? { generation: this.focusSeq, channel: 'f' } : { generation }
     const inFlight = this.inFlight
     const finish = {
@@ -558,19 +607,14 @@ export class SpinSession {
         if (generation !== this.generation) return
         if (TRACE_STATS)
           console.info(
-            `[spin] ${job.key.split('|').slice(-2).join('/') || 'panorama'} ${job.final ? 'final' : 'preview'} ${job.width}x${job.height}: ${frame.cached ? 'cached' : `render ${frame.renderMs} ms`}, ${Math.round(frame.totalMs)} ms in all`,
+            `[spin] ${job.key.split('|').slice(-2).join('/') || 'panorama'} ${job.final ? 'final' : 'preview'}${provisional ? ' (before the textures)' : ''} ${job.width}x${job.height}: ${frame.cached ? 'cached' : `render ${frame.renderMs} ms`}, ${Math.round(frame.totalMs)} ms in all${frame.renderer ? `, ${frame.renderer} renderer` : ''}`,
           )
-        const stored = this.frames.get(job.key) ?? {}
+        const stored = this.frames.get(job.key) ?? { provisional: false }
+        // Rendered before the textures and landing after a frame rendered with them: not wanted.
+        if (provisional && (stored.final || (stored.preview && !stored.provisional))) return
         stored[job.final ? 'final' : 'preview'] = frame.image
+        stored.provisional = provisional
         this.frames.set(job.key, stored)
-        if (job.final) {
-          // A full-quality frame replaces a preview already decoded.
-          const old = this.decoded.get(job.key)
-          if (old && !(old instanceof Promise) && !old.final) {
-            this.decoded.delete(job.key)
-            this.doom(old.texture)
-          }
-        }
         this.failures = 0
         this.onChange()
       })
@@ -625,51 +669,47 @@ export class SpinSession {
   private count() {
     const state = this.state
     if (!state) return
-    const watching = this.design && `${this.design}|${state.active}`
-    if (watching !== this.watching) {
-      // The first design's wait counts from the start, scene loading included.
-      if (this.watching) this.started = performance.now()
-      this.watching = watching
-      // Nothing else may redraw when the wait runs out.
-      clearTimeout(this.timeout)
-      const left = this.started + LOADING_TIMEOUT_MS - performance.now()
-      this.timeout = setTimeout(this.onChange, Math.max(0, left) + 50)
-    }
     let ready = 0,
       final = 0,
-      total = 1,
-      waitReady = 0,
-      waitTotal = 1
+      total = 1
     if (state.active === 'interior') {
       const p = this.frames.get(this.interiorKey())
       ready = p ? 1 : 0
-      final = waitReady = p?.final ? 1 : 0
+      final = p?.final ? 1 : 0
     } else if (state.exterior) {
       total = SPIN_STEPS
-      const { level, azimuth: center } = state.exterior.pose
+      const { level } = state.exterior.pose
       for (let azimuth = 0; azimuth < SPIN_STEPS; azimuth++) {
         const f = this.frames.get(this.exteriorKey({ level, azimuth }))
         if (f) ready++
         if (f?.final) final++
       }
-      // The visitor's own view at full quality, and the angles near it at least as previews.
-      const [focus, ...near] = ringOrder(center).slice(0, 1 + 2 * NEAR)
-      waitTotal = 1 + near.length
-      if (this.frames.get(this.exteriorKey({ level, azimuth: focus }))?.final) waitReady++
-      for (const azimuth of near)
-        if (this.frames.has(this.exteriorKey({ level, azimuth }))) waitReady++
     }
-    // Ready once all of that is, or the loading screen has waited long enough.
-    const loading = waitReady < waitTotal && performance.now() - this.started < LOADING_TIMEOUT_MS
+    // Loading only until the frame the visitor looks at is decoded, at whatever tier.
+    const focus = this.focusKey()
+    const loading = !this.progress.failed && !(focus !== null && this.decoded.has(focus))
     this.progress = {
       loading,
       ready,
       total,
       final,
-      waitReady,
-      waitTotal,
+      warm: this.client.warm,
+      gateMs: this.started === null ? 0 : performance.now() - this.started,
       failed: this.progress.failed,
     }
+  }
+
+  /** The key of the frame the visitor looks at: the pose's outside, the panorama's inside. */
+  focusKey(): string | null {
+    const state = this.state
+    if (!state) return null
+    if (state.active === 'interior') return this.interiorKey()
+    return state.exterior ? this.exteriorKey(state.exterior.pose) : null
+  }
+
+  /** The design (and look) the frames are rendered for now. */
+  currentDesign() {
+    return this.design
   }
 
   /**
@@ -697,29 +737,42 @@ export class SpinSession {
     for (const d of [1, -1, 2, -2])
       this.decode(this.exteriorKey({ level, azimuth: wrap(azimuth + d) }))
     this.decode(this.interiorKey())
-    return shown
+    // The frame turned to is still decoding: the nearest one decoded stands in meanwhile, rather
+    // than the live view for the moment the decode takes. Decoded frames are all of this design,
+    // so a changed design still shows none of the one before.
+    return (
+      shown ??
+      ringOrder(azimuth)
+        .map((a) => this.decoded.get(this.exteriorKey({ level, azimuth: a })))
+        .find((d) => d !== undefined) ??
+      null
+    )
   }
 
   /** Whether a frame is the one for what the visitor looks at, not the nearest stand-in for it. */
   isFocus(frame: Decoded) {
-    const state = this.state
-    if (!state) return false
-    if (state.active === 'interior') return frame.key === this.interiorKey()
-    return !!state.exterior && frame.key === this.exteriorKey(state.exterior.pose)
+    return frame.key === this.focusKey()
   }
 
+  /**
+   * The decoded frame, at the best tier decoded so far. A better tier stored (the full render
+   * after its preview, a preview rendered with the textures after one without) is decoded on top,
+   * even while a lesser one is still decoding, and replaces it when it lands.
+   */
   private decode(key: string): Decoded | null {
     const current = this.decoded.get(key)
-    if (current && !(current instanceof Promise)) {
+    if (current) {
       // Most recently used last.
       this.decoded.delete(key)
       this.decoded.set(key, current)
-      return current
     }
     const stored = this.frames.get(key)
-    if (current || !stored) return null
+    if (!stored) return current ?? null
+    const want: Tier = { final: !!stored.final, provisional: stored.provisional }
+    if (current && tier(current) >= tier(want)) return current
+    const pending = this.decoding.get(key)
+    if (pending && tier(pending) >= tier(want)) return current ?? null
     const blob = stored.final ?? stored.preview!
-    const final = !!stored.final
     const design = this.design
     const work: Promise<Decoded | null> = createImageBitmap(blob).then((bitmap) => {
       // Shown as the server encoded it: display sRGB, with no conversion.
@@ -732,27 +785,32 @@ export class SpinSession {
       // A panorama wraps around at its left and right edges.
       if (key.startsWith('i|')) texture.wrapS = RepeatWrapping
       texture.needsUpdate = true
-      const decoded = { texture, final, key, design }
-      if (this.decoded.get(key) !== work) {
+      const decoded: Decoded = { texture, key, design, ...want }
+      // Overtaken by a better tier, or the design changed: not wanted any more.
+      if (this.decoding.get(key)?.work !== work) {
         texture.dispose()
         return decoded
       }
+      this.decoding.delete(key)
+      const old = this.decoded.get(key)
+      if (old) this.doom(old.texture)
+      this.decoded.delete(key)
       this.decoded.set(key, decoded)
       while (this.decoded.size > DECODED) {
-        const [oldKey, old] = this.decoded.entries().next().value!
+        const [oldKey, evicted] = this.decoded.entries().next().value!
         this.decoded.delete(oldKey)
-        if (!(old instanceof Promise)) this.doom(old.texture)
+        this.doom(evicted.texture)
       }
       this.onChange()
       return decoded
     })
-    // A frame that is not an image would otherwise wait on the loading screen forever.
+    // A frame that is not an image would otherwise be waited for forever.
     work.catch((error) => {
-      if (this.decoded.get(key) === work) this.decoded.delete(key)
+      if (this.decoding.get(key)?.work === work) this.decoding.delete(key)
       this.fail(error)
     })
-    this.decoded.set(key, work)
-    return null
+    this.decoding.set(key, { work, ...want })
+    return current ?? null
   }
 
   dispose() {
@@ -761,9 +819,10 @@ export class SpinSession {
     this.generation++
     this.abort.abort()
     this.closed.abort()
-    for (const d of this.decoded.values()) if (!(d instanceof Promise)) d.texture.dispose()
+    for (const d of this.decoded.values()) d.texture.dispose()
     for (const texture of this.doomed) texture.dispose()
     this.decoded.clear()
+    this.decoding.clear()
     this.doomed.clear()
   }
 }

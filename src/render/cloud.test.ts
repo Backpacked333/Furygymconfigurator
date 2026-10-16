@@ -23,7 +23,10 @@ import {
   Busy,
   Outdated,
   PREVIEW_QUALITY,
+  renderSession,
   unpackImage,
+  warmCloud,
+  warmth,
 } from './cloud'
 
 describe('cloud requests', () => {
@@ -103,12 +106,30 @@ describe('cloud requests', () => {
     const captured = { scene: {} as never, blobs: new Map() }
     const signal = new AbortController().signal
     const frame = new Response(new Uint8Array(8), {
-      headers: { 'content-type': 'image/webp', 'x-traced-key': '-2.4600', 'x-cache': 'hit' },
+      headers: {
+        'content-type': 'image/webp',
+        'x-traced-key': '-2.4600',
+        'x-cache': 'hit',
+        'x-fury-renderer': 'own',
+      },
     })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(frame))
     const finished = await new CloudClient('https://gpu.example').frame(captured, request, signal)
     expect(finished.tracedKey).toBeCloseTo(-2.46, 4)
     expect(finished.cached).toBe(true)
+    expect(finished.renderer).toBe('own')
+    // A gateway from before the shared renderer names none.
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(new Uint8Array(8), { headers: { 'content-type': 'image/webp' } }),
+        ),
+    )
+    expect(
+      (await new CloudClient('https://gpu.example').frame(captured, request, signal)).renderer,
+    ).toBe('')
     // An older server ignores the frame fields and sends a view's half-float image.
     vi.stubGlobal(
       'fetch',
@@ -150,6 +171,50 @@ describe('render sessions', () => {
     expect(fetch.mock.calls.map((call) => call[1].method)).toEqual(['POST', 'PUT', 'POST', 'POST'])
     expect(new Set(sessions).size).toBe(1)
     expect(sessions[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
+  })
+
+  it('keep the session across reloads, and make a new one when none is kept or usable', () => {
+    const form = /^[A-Za-z0-9_-]{8,64}$/
+    const kept = { getItem: vi.fn(() => 'kept-session_01'), setItem: vi.fn() }
+    expect(renderSession(kept)).toBe('kept-session_01')
+    expect(kept.setItem).not.toHaveBeenCalled()
+    // Something else under the key (too short, or a stray character) is replaced.
+    const stray = { getItem: vi.fn(() => 'no good!'), setItem: vi.fn() }
+    const fresh = renderSession(stray)
+    expect(fresh).toMatch(form)
+    expect(stray.setItem).toHaveBeenCalledWith('fury-render-session', fresh)
+    // Private mode: storage throws on either side, and the page still has a session.
+    const forbidden = {
+      getItem: vi.fn(() => {
+        throw new Error('denied')
+      }),
+      setItem: vi.fn(() => {
+        throw new Error('denied')
+      }),
+    }
+    expect(renderSession(forbidden)).toMatch(form)
+    expect(renderSession(null)).toMatch(form)
+    expect(renderSession(null)).not.toBe(renderSession(null))
+  })
+
+  it('warm the session once per page, keeping what the gateway answered', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ warming: true, renderer: 'own' }), { status: 202 }),
+      )
+    vi.stubGlobal('fetch', fetch)
+    expect(warmth.asked).toBe(false)
+    warmCloud('https://gpu.example')
+    warmCloud('https://gpu.example')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit | undefined]
+    const asked = new URL(url)
+    expect(asked.pathname).toBe('/warm')
+    expect(asked.searchParams.get('session')).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
+    expect(init?.body).toBeUndefined()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(warmth).toEqual({ asked: true, status: 202, renderer: 'own' })
   })
 
   it('tell every GPU in use from a busy one', async () => {

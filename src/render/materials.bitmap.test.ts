@@ -75,10 +75,23 @@ describe('a scan set that fails', () => {
     fetchScan.mockClear()
     vi.stubGlobal('createImageBitmap', decode)
     vi.stubGlobal('fetch', fetchScan)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('counts the maps that never arrive as loaded, so nothing waits on the progress', async () => {
+    const { prefetchTextures } = await import('./materials')
+    const { textureProgress } = await import('./progress')
+    prefetchTextures('teak_veneer')
+    expect(textureProgress.get()).toEqual({ requested: 3, loaded: 0 })
+    // Two retries (1 s, then 2 s) and the normal map is given up on, for now.
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(textureProgress.get()).toEqual({ requested: 3, loaded: 3 })
+    expect(console.warn).toHaveBeenCalledTimes(1)
   })
 
   it('frees the maps that did arrive, pauses, and textures waiting surfaces once it recovers', async () => {

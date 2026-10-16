@@ -6,8 +6,7 @@ import { Busy, Full, Outdated, Superseded, type CloudCamera, type CloudClient } 
 import { ORBIT_LIMITS } from './orbit'
 import {
   DEFAULT_LEVEL,
-  LOADING_TIMEOUT_MS,
-  NEAR,
+  GATE_MAX_MS,
   SPIN_LEVELS,
   SPIN_STEPS,
   SpinSession,
@@ -108,7 +107,8 @@ type FrameRequest = {
 
 /**
  * A client that records frame requests and answers them when told to. The exposure meter's
- * frames (channel "m") answer at once, with a traced key of 0.
+ * frames (channel "m") answer at once, with a traced key of 0. `fake.warm` is the cloud's
+ * warmth as the session reads it.
  */
 function fakeClient() {
   const requests: { request: FrameRequest; resolve: () => void }[] = []
@@ -121,7 +121,8 @@ function fakeClient() {
     }
     return new Promise((resolve) => requests.push({ request, resolve: () => resolve(answer) }))
   })
-  return { client: { frame } as unknown as CloudClient, requests, meters }
+  const fake = { frame, warm: false }
+  return { client: fake as unknown as CloudClient, fake, requests, meters }
 }
 
 const look = { environment: 'meadow', sunlight: { direction: [0, 1, 0] }, night: 0 } as never
@@ -278,13 +279,16 @@ describe('spin session', () => {
     // The new design's frames are requested under a newer generation.
     const generations = requests.map((r) => r.request.generation)
     expect(Math.max(...generations.slice(before))).toBeGreaterThan(generations[0])
+    // Counted from here: the exposure meter's answer redrew once already (it tells the gate the
+    // cloud is warm).
+    const redrawn = changes
     requests[0].resolve()
     await settle()
-    expect(changes).toBe(0)
+    expect(changes).toBe(redrawn)
     // A frame of the current design counts.
     requests[before].resolve()
     await settle()
-    expect(changes).toBe(1)
+    expect(changes).toBe(redrawn + 1)
     session.dispose()
   })
 
@@ -311,25 +315,25 @@ describe('spin session', () => {
     session.dispose()
   })
 
-  it('gives up waiting a minute and a half after opening, scene loading included', async () => {
+  // Replaces the minute-and-a-half wait: the page never blocks, so the clock only tells the gate
+  // when a warm cloud's preview is no longer worth a short wait, and never restarts.
+  it('counts the gate from the first design, not from each change or the other view', async () => {
     const { client } = fakeClient()
     const now = vi.spyOn(performance, 'now').mockReturnValue(1000)
     const session = new SpinSession(client, () => {})
     const meter: MeterRaster = async (at) => raster(0, at)
-    // Textures load for 20 s before the design is known.
-    session.sync(scene, look as SkyLook, '', spinState('exterior'), meter, false)
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), meter, false)
+    now.mockReturnValue(3500)
     session.texture()
+    expect(session.progress.gateMs).toBe(2500)
+    session.sync(scene, look as SkyLook, 'design-b', spinState('exterior'), meter)
     now.mockReturnValue(21_000)
-    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), meter)
     session.texture()
-    expect(session.progress.loading).toBe(true)
-    now.mockReturnValue(1000 + LOADING_TIMEOUT_MS + 1)
+    expect(session.progress).toMatchObject({ loading: true, gateMs: 20_000 })
+    session.sync(scene, look as SkyLook, 'design-b', spinState('interior'), meter)
     session.texture()
-    expect(session.progress.loading).toBe(false)
-    // The interior's first visit waits anew.
-    session.sync(scene, look as SkyLook, 'design-a', spinState('interior'), meter)
-    session.texture()
-    expect(session.progress.loading).toBe(true)
+    expect(session.progress.gateMs).toBe(20_000)
+    expect(GATE_MAX_MS).toBe(5000)
     now.mockRestore()
     session.dispose()
   })
@@ -424,7 +428,7 @@ describe('spin session', () => {
     expect(await answer(requests, 21)).toEqual([
       '5 preview',
       '5 final',
-      // What the loading screen waits for: the angles either side, as previews.
+      // The angles either side, as previews, so turning a few steps shows a frame at once.
       ...['6', '4', '7', '3', '8', '2', '9', '1'].map((a) => `${a} preview`),
       // Stepping inside soon shows a path-traced view too.
       'panorama preview',
@@ -460,25 +464,104 @@ describe('spin session', () => {
     session.dispose()
   })
 
-  it('opens once the view is final and the angles near it are ready', async () => {
+  // Replaces "opens once the view is final and the angles near it are ready": the live view
+  // shows at once, and the gate waits for nothing but the visitor's own preview.
+  it("is loading only until the preview of the visitor's frame is on screen", async () => {
     stubBitmaps()
-    const { client, requests } = fakeClient()
+    const { client, fake, requests } = fakeClient()
     const session = new SpinSession(client, () => {})
     session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), async (at) =>
       raster(0, at),
     )
     await settle()
     session.texture()
-    expect(session.progress).toMatchObject({ loading: true, waitReady: 0, waitTotal: 1 + 2 * NEAR })
-    // The view's preview, its final, and all but one of the near angles.
-    await answer(requests, 1 + 2 * NEAR)
+    // A cold cloud: the App shows no gate, whatever `loading` says.
+    expect(session.progress).toMatchObject({ loading: true, warm: false, ready: 0 })
+    fake.warm = true
+    await answer(requests, 1)
+    // Stored is not on screen: decoded is.
     session.texture()
-    expect(session.progress).toMatchObject({ loading: true, waitReady: 2 * NEAR })
+    expect(session.progress).toMatchObject({ loading: true, warm: true, ready: 1 })
+    await settle()
+    session.texture()
+    expect(session.progress).toMatchObject({ loading: false, final: 0 })
+    // The badge counts the whole ring.
+    expect(session.progress.total).toBe(SPIN_STEPS)
+    // The interior's first visit does not start loading again for the gate's sake.
+    session.sync(scene, look as SkyLook, 'design-a', spinState('interior'), async (at) =>
+      raster(0, at),
+    )
+    session.texture()
+    expect(session.progress).toMatchObject({ loading: true, ready: 0, total: 1 })
+    vi.unstubAllGlobals()
+    session.dispose()
+  })
+
+  it('shows the full frame even when its preview is still decoding when it lands', async () => {
+    const bitmaps: (() => void)[] = []
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(
+        () =>
+          new Promise((resolve) =>
+            bitmaps.push(() => resolve({ width: 1, height: 1, close() {} })),
+          ),
+      ),
+    )
+    const { client, requests } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), async (at) =>
+      raster(0, at),
+    )
+    await settle()
     await answer(requests, 1)
     session.texture()
-    expect(session.progress).toMatchObject({ loading: false, waitReady: 1 + 2 * NEAR })
-    // The badge still counts the whole ring.
-    expect(session.progress.total).toBe(SPIN_STEPS)
+    expect(bitmaps).toHaveLength(1)
+    // The full frame lands while the preview decodes: it decodes too, without waiting.
+    await answer(requests, 1)
+    session.texture()
+    expect(bitmaps).toHaveLength(2)
+    // The preview finishes first, late: dropped, since the full frame is on its way.
+    bitmaps[0]()
+    await settle()
+    expect(session.texture()).toBeNull()
+    bitmaps[1]()
+    await settle()
+    expect(session.texture()).toMatchObject({ final: true, provisional: false })
+    vi.unstubAllGlobals()
+    session.dispose()
+  })
+
+  it('tells RenderEffects which frame may stay on screen through a design change', async () => {
+    stubBitmaps()
+    const { client, requests } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    const meter: MeterRaster = async (at) => raster(0, at)
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), meter)
+    await settle()
+    // The visitor's frame as a preview and at full quality.
+    await answer(requests, 2)
+    session.texture()
+    await settle()
+    const shown = session.texture()!
+    expect(shown.final).toBe(true)
+    expect(session.focusKey()).toBe(shown.key)
+    expect(session.currentDesign()).toBe(shown.design)
+    expect(session.isFocus(shown)).toBe(true)
+    // The design changes at the same pose: nothing of it is decoded yet, but the frame on screen
+    // is for the pose, so RenderEffects keeps it until its replacement lands.
+    session.sync(scene, look as SkyLook, 'design-b', spinState('exterior'), meter)
+    expect(session.texture()).toBeNull()
+    expect(session.focusKey()).toBe(shown.key)
+    // Kept on screen, but never an export: a final at the focus pose satisfies one only when it
+    // is of the current design (RenderEffects compares all three), so the held frame of the
+    // design before does not.
+    expect(session.currentDesign()).not.toBe(shown.design)
+    // Turned to another angle: no frame of it either, and the one on screen is not for it, so
+    // the live view shows instead.
+    session.sync(scene, look as SkyLook, 'design-b', spinState('exterior', 8), meter)
+    expect(session.texture()).toBeNull()
+    expect(session.focusKey()).not.toBe(shown.key)
     vi.unstubAllGlobals()
     session.dispose()
   })
@@ -507,6 +590,47 @@ describe('spin session', () => {
     const own = session.texture()!
     expect(own.key.endsWith('|8')).toBe(true)
     expect(session.isFocus(own)).toBe(true)
+    vi.unstubAllGlobals()
+    session.dispose()
+  })
+
+  it('keeps the stand-in on screen while the frame turned to decodes', async () => {
+    const bitmaps: (() => void)[] = []
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(
+        () =>
+          new Promise((resolve) =>
+            bitmaps.push(() => resolve({ width: 1, height: 1, close() {} })),
+          ),
+      ),
+    )
+    const { client, requests } = fakeClient()
+    const session = new SpinSession(client, () => {})
+    const meter: MeterRaster = async (at) => raster(0, at)
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), meter)
+    await settle()
+    await answer(requests, 1)
+    session.texture()
+    bitmaps.shift()!()
+    await settle()
+    // Turned three steps: angle 5 stands in for angle 8, whose frame then lands.
+    session.sync(scene, look as SkyLook, 'design-a', spinState('exterior', 8), meter)
+    await settle()
+    expect(session.texture()!.key.endsWith('|5')).toBe(true)
+    const eight = requests.findIndex((r) => label(r.request) === '8 preview')
+    expect(eight).toBeGreaterThanOrEqual(0)
+    requests.splice(eight, 1)[0].resolve()
+    await settle()
+    // Decoding it takes a moment, during which the stand-in stays rather than the live view
+    // showing for a few frames between the two.
+    const standIn = session.texture()
+    expect(bitmaps).toHaveLength(1)
+    expect(standIn?.key.endsWith('|5')).toBe(true)
+    expect(session.isFocus(standIn!)).toBe(false)
+    bitmaps.shift()!()
+    await settle()
+    expect(session.texture()!.key.endsWith('|8')).toBe(true)
     vi.unstubAllGlobals()
     session.dispose()
   })
@@ -552,29 +676,34 @@ describe('spin session', () => {
     session.dispose()
   })
 
-  it('holds the design while the scene is still loading', async () => {
+  // Replaces "holds the design while the scene is still loading": a preview of what the visitor
+  // looks at no longer waits for the textures.
+  it("renders the visitor's preview before the textures, the rest once they are in", async () => {
     const { client, requests, meters } = fakeClient()
     const session = new SpinSession(client, () => {})
     const meter: MeterRaster = async (at) => raster(0, at)
-    // Nothing starts before the scene has settled once.
     session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), meter, false)
     await settle()
-    expect(meters).toHaveLength(0)
+    // The exposure is metered, so the first preview has a gain, and only that frame is asked for.
+    expect(meters).toHaveLength(2)
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview'])
+    expect(requests[0].request.channel).toBe('f')
+    await answer(requests, 1)
+    expect(requests).toHaveLength(0)
+    // The textures are in: metered again (they change the brightness), then everything is asked
+    // for, the early preview included, which stands in meanwhile.
     session.sync(scene, look as SkyLook, 'design-a', spinState('exterior'), meter)
     await settle()
-    // A change arriving with textures still loading keeps the frames of the design on screen,
-    // following the view: the ring's requests keep the design's generation.
-    const ring = (r: FrameRequest) => r.channel === undefined
-    const generation = requests.map((r) => r.request).find(ring)!.generation
-    session.sync(scene, look as SkyLook, 'design-b', spinState('exterior', 9), meter, false)
-    requests[0].resolve()
-    await settle()
-    const turned = requests.map((r) => r.request)
-    expect(turned.filter(ring).every((r) => r.generation === generation)).toBe(true)
-    // The angle turned to is asked for at once.
-    expect(turned.filter((r) => r.channel === 'f').map(label)).toContain('9 preview')
-    expect(meters).toHaveLength(2)
+    expect(meters).toHaveLength(4)
+    expect(requests.map((r) => label(r.request))).toEqual(['5 preview', '5 final', '6 preview'])
     expect(session.progress.failed).toBe(false)
     session.dispose()
+    // Inside, the panorama's preview is what goes out early.
+    const second = fakeClient()
+    const inside = new SpinSession(second.client, () => {})
+    inside.sync(scene, look as SkyLook, 'design-a', spinState('interior'), meter, false)
+    await settle()
+    expect(second.requests.map((r) => label(r.request))).toEqual(['panorama preview'])
+    inside.dispose()
   })
 })

@@ -236,7 +236,13 @@ function load(set: TextureSet): Promise<Maps> {
       // The maps that did arrive are dropped with the set: free their decoded pixels now.
       entries.forEach(([, texture]) => (texture.image as Partial<ImageBitmap>).close?.())
       // Surfaces keep their neutral look; after a pause the set tries again for those waiting.
+      // Its maps counted as loaded above, so nothing waits on the progress for them.
       const rounds = (failedRounds.get(set) ?? 0) + 1
+      if (rounds === 1)
+        console.warn(
+          `The ${set} scans could not be loaded; its surfaces stay plain.`,
+          failure.reason,
+        )
       failedRounds.set(set, rounds)
       setTimeout(
         () => {

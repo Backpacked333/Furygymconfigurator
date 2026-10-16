@@ -40,9 +40,10 @@ import {
   type GridPose,
 } from './orbit'
 import { createExposureMeter } from './pipeline'
+import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
 import { cloudUrl, type TraceState } from './traceStatus'
 
-export { cloudUrl }
+export { cloudUrl, renderSession, warmCloud, warmth }
 
 /**
  * Off-device rendering: the resting view is rendered by Blender Cycles on a cloud GPU with
@@ -76,15 +77,6 @@ const FADE_MS = 520
 const GAIN_RANGE = [0.5, 4] as const
 /** Uploads in flight at once. */
 const UPLOADS = 4
-/**
- * This page's render session. The gateway gives each session a GPU of its own
- * (render-server/modal_app.py), so every request from the page, render or upload, names it. A query
- * parameter rather than a header: no CORS preflight depends on it, so a page works against a
- * gateway from before sessions too.
- */
-const RENDER_SESSION =
-  globalThis.crypto?.randomUUID?.().replaceAll('-', '') ??
-  `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 
 // --- Scene description ----------------------------------------------------------------------
 
@@ -805,12 +797,14 @@ export class CloudClient {
     if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
       throw new Outdated('the render server does not finish spin frames; redeploy it')
     const header = (name: string) => Number(response.headers.get(name) ?? 0)
+    const renderer = response.headers.get('x-fury-renderer')
     return {
       image: await response.blob(),
       cached: response.headers.get('x-cache') === 'hit',
       renderMs: header('x-render-ms'),
       totalMs: performance.now() - start,
       tracedKey: Number(response.headers.get('x-traced-key') ?? NaN),
+      renderer: renderer === 'shared' || renderer === 'own' ? renderer : '',
     }
   }
 
@@ -857,6 +851,8 @@ export type SpinFrame = {
   renderMs: number
   totalMs: number
   tracedKey: number
+  /** Which renderer answered (X-Fury-Renderer): the session's own GPU or the shared warm one. */
+  renderer: 'shared' | 'own' | ''
 }
 
 // Session --------------------------------------------------------------------------------------

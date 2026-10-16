@@ -61,12 +61,14 @@ import { useStagedScene } from './lib/useStagedScene'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
 import {
+  GATE_MAX_MS,
   cloudUrl,
   requestedTrace,
   usePrerenderProgress,
   useSpinStatus,
   useTraceStatus,
 } from './render/traceStatus'
+import { warmCloud } from './render/renderSession'
 import { sceneProgress, textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
@@ -145,6 +147,11 @@ export default function App() {
     [setConfig, notify],
   )
   useShareFragment(encoded, openShared)
+  // The visitor's cloud GPU boots while the scene chunk and the scanned materials load.
+  useEffect(() => {
+    const url = cloudUrl()
+    if (url !== null && trace) warmCloud(url)
+  }, [trace])
   useEffect(() => {
     if (initialNotice) timer.current = setTimeout(() => setToast(''), 6500)
     return () => {
@@ -576,10 +583,10 @@ export default function App() {
   )
 }
 /**
- * Covers the scene while the cloud path traces the spin, so the first view seen is the finished
- * one: on opening until the view is ready at full quality and the angles either side of it as
- * previews, and later whenever a view has no path-traced frame yet (the interior's first visit,
- * say). It gives up after a minute and a half.
+ * A word over the live view, which is drawn first and stays in reach, while a warm cloud's preview
+ * of the frame the visitor looks at is on its way: on the first open only, for at most GATE_MAX_MS,
+ * and only until that preview is on screen. A cold cloud is not waited for, and once the page has
+ * opened the gate never returns; the status line (TraceBadge) tells the rest.
  */
 function SpinLoading() {
   const spin = useSpinStatus()
@@ -588,23 +595,13 @@ function SpinLoading() {
   useEffect(() => {
     if (done) setOpened(true)
   }, [done])
-  const waiting = spin.active && !spin.failed && spin.loading && (!opened || !spin.showing)
+  const waiting =
+    !opened && spin.active && !spin.failed && spin.loading && spin.warm && spin.gateMs < GATE_MAX_MS
   if (!waiting) return null
-  const progress = spin.panorama ? null : spin.waitReady / Math.max(1, spin.waitTotal)
   return (
-    <div className={`spin-loading ${opened ? 'later' : ''}`} role="status" aria-live="polite">
+    <div className="spin-loading" role="status" aria-live="polite">
       <span className="loading-mark">F</span>
       <strong>{spin.panorama ? 'Path tracing the interior' : 'Path tracing your gym'}</strong>
-      <p>
-        {spin.panorama
-          ? 'A 360° view, so looking around stays photoreal'
-          : spin.waitReady
-            ? `${spin.waitReady} of ${spin.waitTotal} angles ready`
-            : 'Lighting every angle with true bounce light'}
-      </p>
-      <span className={`spin-progress ${progress === null ? 'indeterminate' : ''}`}>
-        <span style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }} />
-      </span>
     </div>
   )
 }
@@ -614,18 +611,30 @@ function TraceBadge() {
   const status = useTraceStatus()
   const orbit = usePrerenderProgress()
   const spin = useSpinStatus()
+  // Whether a spin frame has been on screen: before, the live view is waiting for the first one;
+  // after, for the frames of a change.
+  const [seen, setSeen] = useState(false)
+  useEffect(() => {
+    if (spin.showing) setSeen(true)
+  }, [spin.showing])
   if (spin.active) {
+    // Counts say what is there: previews of every angle, or some; never "in full".
     const label = spin.panorama
       ? spin.final
         ? 'Path traced · 360°'
-        : 'Path tracing 360° view'
-      : spin.final >= spin.total
-        ? 'Path traced · every angle'
-        : spin.ready === 0
-          ? // The previous design stays on screen until its first new frame arrives.
-            'Path tracing your changes'
-          : `Path traced · ${spin.final}/${spin.total} angles in full`
-    const state = spin.final >= spin.total ? 'converged' : 'tracing'
+        : spin.ready
+          ? 'Preview ready · 360°'
+          : 'Path tracing 360° view'
+      : spin.ready >= spin.total
+        ? `Path traced · ${spin.ready}/${spin.total} angles`
+        : spin.ready > 0
+          ? `Preview ready · ${spin.ready}/${spin.total} angles`
+          : seen
+            ? // No frame of this design yet: the live view, or the previous design's frame for
+              // this pose, shows while the first one renders.
+              'Path tracing your changes'
+            : 'Path tracing your gym'
+    const state = spin.ready >= spin.total ? 'converged' : 'tracing'
     return (
       <span
         className={`trace-badge ${state}`}
@@ -635,7 +644,7 @@ function TraceBadge() {
       >
         <span
           className="trace-meter"
-          style={{ '--progress': spin.final / Math.max(1, spin.total) } as never}
+          style={{ '--progress': spin.ready / Math.max(1, spin.total) } as never}
         />
         {label}
       </span>

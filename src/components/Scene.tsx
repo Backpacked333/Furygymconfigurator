@@ -468,11 +468,12 @@ export default memo(function Scene({
     [config.environment, config.time],
   )
   // With a cloud renderer the views are path traced as a spin (spin.ts), unless it fails;
-  // `?spin=0` keeps the earlier way, with resting views pre-rendered around the orbit grid.
+  // `?spin=0` keeps the earlier way, with resting views pre-rendered around the orbit grid, and
+  // so does a spin that failed: the camera then rests on the grid those views are rendered for.
   const cloud = useMemo(() => trace && cloudUrl() !== null, [trace])
   const spinFailed = useSpinFailed()
   const spin = cloud && spinEnabled() && !spinFailed
-  const snap = cloud && !spinEnabled()
+  const snap = cloud && (!spinEnabled() || spinFailed)
   // A lost GPU device (driver reset, GPU process crash, the OS reclaiming memory) would leave a
   // frozen canvas. Rebuild the renderer instead, a few times per session at most.
   const [generation, setGeneration] = useState(0)
