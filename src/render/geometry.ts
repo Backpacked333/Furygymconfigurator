@@ -7,6 +7,8 @@ import {
   ExtrudeGeometry,
   LatheGeometry,
   Shape,
+  SphereGeometry,
+  TorusGeometry,
   TubeGeometry,
   Vector2,
   Vector3,
@@ -127,6 +129,19 @@ export function cylinder(
 ) {
   return cached(`cyl:${k(radiusTop, radiusBottom, height, radial, uv.swap, uv.scale, open)}`, () =>
     cylinderProjectUV(new CylinderGeometry(radiusTop, radiusBottom, height, radial, 1, open), uv),
+  )
+}
+
+export function sphere(radius: number, widthSegments = 32, heightSegments = 20) {
+  return cached(`sphere:${k(radius, widthSegments, heightSegments)}`, () =>
+    cylinderProjectUV(new SphereGeometry(radius, widthSegments, heightSegments)),
+  )
+}
+
+/** Ring in the XY plane (axis along Z): cable rims, fan guards, ball cradles. */
+export function torus(radius: number, tube: number, radial = 10, tubular = 48) {
+  return cached(`torus:${k(radius, tube, radial, tubular)}`, () =>
+    boxProjectUV(new TorusGeometry(radius, tube, radial, tubular)),
   )
 }
 

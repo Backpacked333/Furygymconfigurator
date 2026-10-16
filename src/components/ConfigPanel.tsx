@@ -1,29 +1,37 @@
 import {
-  ArrowDownRight,
   ArrowRight,
+  Building2,
   Check,
   ChevronDown,
   Dumbbell,
   Flame,
   Footprints,
   Heart,
+  Home,
   Layers3,
   Leaf,
   Moon,
   Plus,
   ScanLine,
   Sun,
+  Sunrise,
   TreePine,
+  Umbrella,
   Waves,
   Wind,
 } from 'lucide-react'
 import {
   ADDONS,
   CATALOG,
+  ENVIRONMENTS,
   FINISHES,
   FLOORS,
+  INTERIORS,
   PACKAGES,
+  RAILINGS,
+  SIGNATURES,
   addEquipment,
+  addonAvailable,
   area,
   distance,
   layoutIssues,
@@ -34,60 +42,24 @@ import {
   productHeight,
   type Config,
   type PackageId,
+  type SignatureId,
   type Unit,
 } from '../lib/config'
 import { QUALITY_DETAILS, type Quality } from '../render/quality'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
+  OPENING_INFILLS,
+  PORTFOLIO_NOTE,
+  STUDIO_DOORS,
   STUDIO_LAYOUTS,
   PRODUCT_SOURCE_DATE,
   productFamily,
 } from '../lib/products'
+import { Elevation } from './Elevation'
 
 const STEPS = ['Space', 'Exterior', 'Interior', 'Setting']
-export function MiniStudio({
-  finish = '#353c33',
-  long = false,
-  deck = false,
-  family = 'studio',
-}: {
-  finish?: string
-  long?: boolean
-  deck?: boolean
-  family?: Config['family']
-}) {
-  return (
-    <svg viewBox="0 0 180 86" aria-hidden="true" className="mini-studio">
-      <path d="M 20 69 L 128 80 L 172 57 L 62 49 Z" fill="#a6a993" opacity=".2" />
-      {deck && <path d="M 27 62 L 132 73 L 158 60 L 52 49 Z" fill="#a08a65" />}
-      <path
-        d={`M 30 27 L ${long ? 157 : 140} 35 L ${long ? 157 : 140} 63 L 30 54 Z`}
-        fill={finish}
-      />
-      <path d="M 30 27 L 55 14 L 165 24 L 140 35 Z" fill={finish} />
-      <path d="M 140 35 L 165 24 L 165 51 L 140 63 Z" fill={finish} />
-      {family === 'studio' ? (
-        <path d="M 35 31 L 136 39 L 136 58 L 35 50 Z" fill="#afbfac" opacity=".65" />
-      ) : (
-        <path d="M 69 34 L 109 38 L 109 57 L 69 53 Z" fill="#151c18" />
-      )}
-      {[53, 73, 94, 115].map((x) => (
-        <path
-          key={x}
-          d={`M ${x} ${32 + (x - 35) * 0.08} V ${50 + (x - 35) * 0.08}`}
-          stroke={finish}
-          strokeWidth="2"
-        />
-      ))}
-      <path
-        d="M 145 37 L 160 30 M145 41L160 34 M145 45L160 38 M145 49L160 42 M145 53L160 46"
-        stroke="#b9a07c"
-        strokeWidth="1.5"
-      />
-    </svg>
-  )
-}
+
 function Toggle({
   label,
   detail,
@@ -118,6 +90,29 @@ const packageIcons = {
   cardio: Heart,
   empty: ScanLine,
 }
+const addonIcons = {
+  deck: Layers3,
+  gazebo: TreePine,
+  roof: Sun,
+  stairs: Footprints,
+  canopy: Umbrella,
+}
+const environmentIcons = {
+  residences: Building2,
+  campus: Sunrise,
+  backyard: Home,
+  courtyard: TreePine,
+  desert: Sun,
+  studio: Layers3,
+}
+/** Surface previews for the interior finish cards. */
+const interiorSwatch: Record<Config['interiorStyle'], string> = {
+  gallery: 'linear-gradient(180deg, #f5f3ef 0 72%, #ffe9c8 72% 76%, #f1efea 76%)',
+  slatted:
+    'repeating-linear-gradient(90deg, #c49a6a 0 5px, #1b1c1b 5px 8px) top / 100% 30% no-repeat, #efebe4',
+  timber: 'repeating-linear-gradient(180deg, #c98c57 0 7px, #9f6a3d 7px 8px)',
+  birch: 'linear-gradient(90deg, #dcc199 0 49%, #8a7356 49% 51%, #d8bc93 51%)',
+}
 
 export default function ConfigPanel({
   config: c,
@@ -128,9 +123,12 @@ export default function ConfigPanel({
   setUnit,
   quality,
   setQuality,
+  trace,
+  setTrace,
+  traceSupported,
   notify,
   onPlan,
-  onTemplate,
+  onSignature,
 }: {
   config: Config
   onChange: (c: Config) => void
@@ -140,11 +138,24 @@ export default function ConfigPanel({
   setUnit: (u: Unit) => void
   quality: Quality
   setQuality: (q: Quality) => void
+  trace: boolean
+  setTrace: (trace: boolean) => void
+  /** Path tracing needs WebGPU compute. */
+  traceSupported: boolean
   notify: (message: string) => void
   onPlan: () => void
-  onTemplate: (id: 'athlete' | 'retreat' | 'flow') => void
+  onSignature: (id: SignatureId) => void
 }) {
   const product = productFamily(c.family)
+  const container = c.family === 'container'
+  /** Applies a change unless it would obstruct the planned entry. */
+  const guarded = (next: Config, message: string) => {
+    if (layoutIssues(next).length) {
+      notify(message)
+      return
+    }
+    onChange(next)
+  }
   const applyPackage = (id: PackageId) => {
     const next = { ...c, package: id, items: packageItems(id, c.length) }
     if (layoutIssues(next).length) {
@@ -165,6 +176,14 @@ export default function ConfigPanel({
       `${PACKAGES.find((p) => p.id === id)!.name} layout applied. You can customize every item.`,
     )
   }
+  const operable = container ? c.containerOpening === 'roll-up' || c.openingInfill !== 'none' : true
+  const operableLabel = !container
+    ? 'Show the door open'
+    : c.containerOpening === 'roll-up'
+      ? 'Show the roll-up door raised'
+      : c.openingInfill === 'awning'
+        ? 'Show the sashes propped open'
+        : 'Show the glass door raised'
   return (
     <aside className="config-panel" aria-label="Gym configuration">
       <div className="panel-tabs" role="tablist" aria-label="Configuration steps">
@@ -213,6 +232,29 @@ export default function ConfigPanel({
                 Designed to feel entirely yours.
               </p>
             </div>
+            <div className="section-label">
+              Start from a Fury build <span>Portfolio</span>
+            </div>
+            <div className="signature-list" role="group" aria-label="Signature builds">
+              {SIGNATURES.map((build) => (
+                <button
+                  key={build.id}
+                  className="signature-card"
+                  onClick={() => onSignature(build.id)}
+                >
+                  <Elevation config={build.config} className="signature-art" />
+                  <span>
+                    <strong>{build.name}</strong>
+                    <small>{build.subtitle}</small>
+                  </span>
+                  <ArrowRight size={15} />
+                </button>
+              ))}
+            </div>
+            <p className="muted small">
+              Recreated from Fury build photography as concept models. Each one stays fully editable
+              and requires a quote.
+            </p>
             <div className="section-label">Choose your product family</div>
             <div className="family-options" role="group" aria-label="Product family">
               {PRODUCT_FAMILIES.map((family) => (
@@ -231,7 +273,7 @@ export default function ConfigPanel({
                     onChange(next)
                     if (c.family !== family.id)
                       notify(
-                        `${family.name} selected. Studio-only additions and custom requests are cleared when switching to Containers. Undo restores the previous design.`,
+                        `${family.name} selected. Family-specific openings, doors, and additions are reset. Undo restores the previous design.`,
                       )
                   }}
                 >
@@ -276,7 +318,10 @@ export default function ConfigPanel({
                       {c.length === length && <Check size={11} />}
                     </span>
                   </div>
-                  <MiniStudio long={length === 40} family={c.family} />
+                  <Elevation
+                    config={{ ...c, length, items: c.length === length ? c.items : [] }}
+                    className="mini-studio"
+                  />
                   <div className="size-card-bottom">
                     <strong>{distance(length, unit)} footprint</strong>
                     <small>
@@ -329,41 +374,6 @@ export default function ConfigPanel({
               Sources checked {PRODUCT_SOURCE_DATE}. Nominal exterior sizes; usable space and
               technical specifications require confirmation.
             </p>
-            <div className="section-label inspiration-label">
-              Concept inspiration, not Fury packages <ArrowDownRight size={16} />
-            </div>
-            <div className="inspiration-list">
-              <button onClick={() => onTemplate('athlete')}>
-                <span className="inspiration-icon">
-                  <Dumbbell size={20} />
-                </span>
-                <span>
-                  <strong>The daily athlete</strong>
-                  <small>Strength. Focus. Repeat.</small>
-                </span>
-                <ArrowRight size={15} />
-              </button>
-              <button onClick={() => onTemplate('retreat')}>
-                <span className="inspiration-icon warm">
-                  <Waves size={20} />
-                </span>
-                <span>
-                  <strong>The private retreat</strong>
-                  <small>Recovery, reimagined.</small>
-                </span>
-                <ArrowRight size={15} />
-              </button>
-              <button onClick={() => onTemplate('flow')}>
-                <span className="inspiration-icon pale">
-                  <Wind size={20} />
-                </span>
-                <span>
-                  <strong>The movement studio</strong>
-                  <small>Space to find your flow.</small>
-                </span>
-                <ArrowRight size={15} />
-              </button>
-            </div>
           </>
         )}
         {step === 1 && (
@@ -376,12 +386,12 @@ export default function ConfigPanel({
                 From the outside in.
               </h2>
               <p>
-                {c.family === 'studio'
-                  ? 'Published Studio additions, with concept finishes.'
-                  : 'Published Container openings, with concept finishes.'}
+                {container
+                  ? 'Published Container openings and portfolio glazing, with concept finishes.'
+                  : 'Published Studio additions and portfolio doors, with concept finishes.'}
               </p>
             </div>
-            {c.family === 'container' && (
+            {container ? (
               <>
                 <div className="section-label">Access + openings</div>
                 <div className="opening-options" role="group" aria-label="Container opening">
@@ -390,14 +400,16 @@ export default function ConfigPanel({
                       key={opening.id}
                       aria-pressed={c.containerOpening === opening.id}
                       className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
-                      onClick={() => {
-                        const next = { ...c, containerOpening: opening.id }
-                        if (layoutIssues(next).length) {
-                          notify('Rearrange equipment to keep the selected opening’s entry clear.')
-                          return
-                        }
-                        onChange(next)
-                      }}
+                      onClick={() =>
+                        guarded(
+                          {
+                            ...c,
+                            containerOpening: opening.id,
+                            openingInfill: opening.id === 'roll-up' ? 'none' : c.openingInfill,
+                          },
+                          'Rearrange equipment to keep the selected opening’s entry clear.',
+                        )
+                      }
                     >
                       <strong>{opening.name}</strong>
                       <small>{opening.detail}</small>
@@ -406,9 +418,35 @@ export default function ConfigPanel({
                   ))}
                 </div>
                 <p className="muted small">
-                  Available on 20′ and 40′ builds. Roll-up shown open. Open-side widths, positions,
-                  door height, and structure are conceptual, not approved construction dimensions.
+                  Available on 20′ and 40′ builds. Open-side widths, positions, door height, and
+                  structure are conceptual, not approved construction dimensions.
                 </p>
+                {c.containerOpening !== 'roll-up' && (
+                  <>
+                    <div className="section-label">
+                      Fill the opening <span>Portfolio</span>
+                    </div>
+                    <div className="choice-list" role="group" aria-label="Opening infill">
+                      {OPENING_INFILLS.map((infill) => (
+                        <button
+                          key={infill.id}
+                          aria-pressed={c.openingInfill === infill.id}
+                          className={`choice-card ${c.openingInfill === infill.id ? 'selected' : ''}`}
+                          onClick={() => onChange({ ...c, openingInfill: infill.id })}
+                        >
+                          <span>
+                            <strong>{infill.name}</strong>
+                            <small>{infill.detail}</small>
+                          </span>
+                          <span className="check-square">
+                            {c.openingInfill === infill.id && <Check size={13} />}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="muted small">{PORTFOLIO_NOTE}</p>
+                  </>
+                )}
                 <Toggle
                   label="Integrated exterior finish"
                   detail="Published design option. Material, detailing, and cost require a quote."
@@ -416,6 +454,43 @@ export default function ConfigPanel({
                   onChange={() => onChange({ ...c, integratedFinish: !c.integratedFinish })}
                 />
               </>
+            ) : (
+              <>
+                <div className="section-label">
+                  Glazed front <span>Portfolio</span>
+                </div>
+                <div className="choice-list" role="group" aria-label="Studio door">
+                  {STUDIO_DOORS.map((door) => (
+                    <button
+                      key={door.id}
+                      aria-pressed={c.studioDoor === door.id}
+                      className={`choice-card ${c.studioDoor === door.id ? 'selected' : ''}`}
+                      onClick={() =>
+                        guarded(
+                          { ...c, studioDoor: door.id },
+                          'Rearrange equipment to keep the new door’s entry clear.',
+                        )
+                      }
+                    >
+                      <span>
+                        <strong>{door.name}</strong>
+                        <small>{door.detail}</small>
+                      </span>
+                      <span className="check-square">
+                        {c.studioDoor === door.id && <Check size={13} />}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {operable && (
+              <Toggle
+                label={operableLabel}
+                detail="Visualization only. Shows how the door or glazing operates."
+                checked={c.doorsOpen}
+                onChange={() => onChange({ ...c, doorsOpen: !c.doorsOpen })}
+              />
             )}
             <div className="section-label">
               Concept color study <span>{FINISHES.find((f) => f.id === c.finish)!.name}</span>
@@ -433,7 +508,10 @@ export default function ConfigPanel({
                 >
                   <span className="finish-swatch" style={{ background: f.color }}>
                     {c.finish === f.id && (
-                      <Check size={18} color={f.id === 'chalk' ? '#252d23' : '#fff'} />
+                      <Check
+                        size={18}
+                        color={f.id === 'chalk' || f.id === 'cloud' ? '#252d23' : '#fff'}
+                      />
                     )}
                   </span>
                   <strong>{f.name}</strong>
@@ -441,58 +519,73 @@ export default function ConfigPanel({
                 </button>
               ))}
             </div>
-            {c.family === 'studio' && (
-              <>
-                <Toggle
-                  label="Concept timber accent"
-                  detail="Visual study only. Material and availability unconfirmed."
-                  checked={c.accent}
-                  onChange={() => onChange({ ...c, accent: !c.accent })}
-                />
-                <div className="section-label separated">
-                  Published Studio additions <span>Quote required</span>
+            {!container && (
+              <Toggle
+                label="Concept timber accent"
+                detail="Visual study only. Material and availability unconfirmed."
+                checked={c.accent}
+                onChange={() => onChange({ ...c, accent: !c.accent })}
+              />
+            )}
+            <div className="section-label separated">
+              {container ? 'Portfolio additions' : 'Published Studio additions'}{' '}
+              <span>Quote required</span>
+            </div>
+            <div className="addon-list">
+              {ADDONS.filter((addon) => addonAvailable(c.family, addon.id)).map((addon) => {
+                const Icon = addonIcons[addon.id]
+                return (
+                  <button
+                    key={addon.id}
+                    className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
+                    aria-pressed={c.addons[addon.id]}
+                    onClick={() => {
+                      const result = setAddon(c, addon.id)
+                      onChange(result.config)
+                      if (result.notice) notify(result.notice)
+                    }}
+                  >
+                    <span className="addon-icon">
+                      <Icon size={21} strokeWidth={1.3} />
+                    </span>
+                    <span className="addon-description">
+                      <strong>{addon.name}</strong>
+                      <small>{container ? addon.containerDetail : addon.detail}</small>
+                      <b>Quote required</b>
+                    </span>
+                    <span className="check-square">
+                      {c.addons[addon.id] ? <Check size={13} /> : <Plus size={13} />}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="muted small">
+              Available individually or combined. All add-on geometry is conceptual; support,
+              access, and compatibility need Fury’s approval.
+            </p>
+            {(c.addons.roof || c.addons.stairs) && (
+              <div className="setting-row railing-row">
+                <span>Guard rail</span>
+                <div className="segmented" role="group" aria-label="Guard rail">
+                  {RAILINGS.map((r) => (
+                    <button
+                      key={r.id}
+                      className={c.railing === r.id ? 'active' : ''}
+                      aria-pressed={c.railing === r.id}
+                      onClick={() => onChange({ ...c, railing: r.id })}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
                 </div>
-                <div className="addon-list">
-                  {ADDONS.map((addon, i) => {
-                    const icons = [Layers3, TreePine, Sun, Footprints],
-                      Icon = icons[i]
-                    return (
-                      <button
-                        key={addon.id}
-                        className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
-                        aria-pressed={c.addons[addon.id]}
-                        onClick={() => {
-                          const result = setAddon(c, addon.id)
-                          onChange(result.config)
-                          if (result.notice) notify(result.notice)
-                        }}
-                      >
-                        <span className="addon-icon">
-                          <Icon size={21} strokeWidth={1.3} />
-                        </span>
-                        <span className="addon-description">
-                          <strong>{addon.name}</strong>
-                          <small>{addon.detail}</small>
-                          <b>Quote required</b>
-                        </span>
-                        <span className="check-square">
-                          {c.addons[addon.id] ? <Check size={13} /> : <Plus size={13} />}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-                <p className="muted small">
-                  Available individually or combined. All add-on geometry is conceptual; support,
-                  access, and compatibility need Fury’s approval.
-                </p>
-                {c.addons.roof && !c.addons.stairs && (
-                  <p className="inline-notice">
-                    Rooftop selected without stairs. An approved access solution is required before
-                    installation.
-                  </p>
-                )}
-              </>
+              </div>
+            )}
+            {c.addons.roof && !c.addons.stairs && (
+              <p className="inline-notice">
+                Rooftop selected without stairs. An approved access solution is required before
+                installation.
+              </p>
             )}
           </>
         )}
@@ -533,6 +626,26 @@ export default function ConfigPanel({
               </span>
               <ArrowRight size={17} />
             </button>
+            <div className="section-label separated">
+              Interior finish <span>Concept</span>
+            </div>
+            <div className="interior-options" role="group" aria-label="Interior finish">
+              {INTERIORS.map((style) => (
+                <button
+                  key={style.id}
+                  aria-pressed={c.interiorStyle === style.id}
+                  className={c.interiorStyle === style.id ? 'selected' : ''}
+                  onClick={() => onChange({ ...c, interiorStyle: style.id })}
+                >
+                  <span
+                    className="interior-swatch"
+                    style={{ background: interiorSwatch[style.id] }}
+                  />
+                  <strong>{style.name}</strong>
+                  <small>{style.detail}</small>
+                </button>
+              ))}
+            </div>
             <div className="section-label separated">Concept floor appearance</div>
             <p className="muted small">
               Fury lists performance flooring. These looks and materials are not confirmed
@@ -566,31 +679,34 @@ export default function ConfigPanel({
                 Generic planning models, not endorsed partner products. Dimensions and working
                 clearances are illustrative. Equipment pricing requires a quote.
               </p>
-              <div className="catalog">
-                {CATALOG.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      const next = addEquipment(c, p.id)
-                      if (next) {
-                        onChange(next)
-                        notify(`${p.name} added. Drag it into place in the floor plan.`)
-                      } else
-                        notify(
-                          'No collision-free position is available. Remove or rearrange equipment, or choose a larger footprint.',
-                        )
-                    }}
-                  >
-                    <span>
-                      <strong>{p.name}</strong>
-                      <small>
-                        {distance(p.w, unit)} × {distance(p.d, unit)} · Quote required
-                      </small>
-                    </span>
-                    <Plus size={16} />
-                  </button>
-                ))}
-              </div>
+              {(['Strength', 'Cardio', 'Movement', 'Recovery'] as const).map((category) => (
+                <div className="catalog" key={category}>
+                  <span className="catalog-category">{category}</span>
+                  {CATALOG.filter((p) => p.category === category).map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        const next = addEquipment(c, p.id)
+                        if (next) {
+                          onChange(next)
+                          notify(`${p.name} added. Drag it into place in the floor plan.`)
+                        } else
+                          notify(
+                            'No collision-free position is available. Remove or rearrange equipment, or choose a larger footprint.',
+                          )
+                      }}
+                    >
+                      <span>
+                        <strong>{p.name}</strong>
+                        <small>
+                          {distance(p.w, unit)} × {distance(p.d, unit)} · Quote required
+                        </small>
+                      </span>
+                      <Plus size={16} />
+                    </button>
+                  ))}
+                </div>
+              ))}
             </details>
           </>
         )}
@@ -609,25 +725,18 @@ export default function ConfigPanel({
               Surroundings <span>Concept settings</span>
             </div>
             <div className="environment-options">
-              {(['courtyard', 'desert', 'studio'] as const).map((env, i) => {
-                const icons = [TreePine, Sun, Layers3],
-                  Icon = icons[i]
+              {ENVIRONMENTS.map((env) => {
+                const Icon = environmentIcons[env.id]
                 return (
                   <button
-                    key={env}
-                    className={`environment-card ${env} ${c.environment === env ? 'selected' : ''}`}
-                    aria-pressed={c.environment === env}
-                    onClick={() => onChange({ ...c, environment: env })}
+                    key={env.id}
+                    className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}`}
+                    aria-pressed={c.environment === env.id}
+                    onClick={() => onChange({ ...c, environment: env.id })}
                   >
-                    <Icon size={24} strokeWidth={1} />
-                    <span>
-                      {env === 'courtyard'
-                        ? 'The courtyard'
-                        : env === 'desert'
-                          ? 'Desert retreat'
-                          : 'Studio backdrop'}
-                    </span>
-                    {c.environment === env && <Check size={14} />}
+                    <Icon size={22} strokeWidth={1} />
+                    <span>{env.name}</span>
+                    {c.environment === env.id && <Check size={14} />}
                   </button>
                 )
               })}
@@ -635,7 +744,7 @@ export default function ConfigPanel({
             <div className="section-label separated">
               Chase the light{' '}
               <span>
-                {Math.floor(c.time)}:{c.time % 1 ? '30' : '00'}
+                {Math.floor(c.time)}:{String(Math.round((c.time % 1) * 60)).padStart(2, '0')}
               </span>
             </div>
             <input
@@ -643,7 +752,7 @@ export default function ConfigPanel({
               type="range"
               min="6"
               max="21"
-              step="0.5"
+              step="0.25"
               value={c.time}
               aria-label="Time of day"
               onChange={(e) => onChange({ ...c, time: Number(e.target.value) })}
@@ -697,6 +806,16 @@ export default function ConfigPanel({
               </div>
             </div>
             <p className="muted small quality-detail">{QUALITY_DETAILS[quality]}</p>
+            <Toggle
+              label="Path-traced stills"
+              detail={
+                traceSupported
+                  ? 'When the view rests, it refines into a ray-traced image with true bounce light, soft shadows, and real reflections.'
+                  : 'Needs a browser with WebGPU. Real-time rendering stays available.'
+              }
+              checked={trace && traceSupported}
+              onChange={() => traceSupported && setTrace(!trace)}
+            />
             <div className="nature-note">
               <Leaf size={22} />
               <p>

@@ -9,7 +9,7 @@ import {
   studioInterior,
   studioShell,
 } from '../render/architecture'
-import { deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
+import { canopy, deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
 import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
@@ -44,8 +44,8 @@ function Signature({ length }: { length: number }) {
   }, [length])
   useEffect(() => () => texture.dispose(), [texture])
   return (
-    <mesh position={[-length / 2 + 3.8, 10.13, 4.04]}>
-      <planeGeometry args={[5.6, 0.32]} />
+    <mesh position={[-length / 2 + 4.2, 10.15, 4.006]}>
+      <planeGeometry args={[5.6 * 0.8, 0.32 * 0.8]} />
       <meshStandardMaterial
         map={texture}
         transparent
@@ -88,26 +88,29 @@ export function StudioModel({
 }) {
   const studio = c.family === 'studio'
   const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
-  const interiorKey = `${shellKey}|${c.flooring}`
+  const openingKey = `${shellKey}|${c.openingInfill}|${c.doorsOpen}|${c.studioDoor}`
+  const interiorKey = `${shellKey}|${c.flooring}|${c.interiorStyle}|${c.openingInfill}`
   const shell = useParts(
     (x) => (x.family === 'studio' ? studioShell(x) : containerShell(x)),
     c,
-    shellKey,
+    openingKey,
   )
   const interior = useParts(
     (x) => (x.family === 'studio' ? studioInterior(x) : containerInterior(x)),
     c,
     interiorKey,
   )
-  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, shellKey)
+  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, openingKey)
   const a = c.addons
   const deckParts = useParts(deck, c, `${shellKey}|${c.lights}`)
   const pergolaParts = useParts(pergola, c, shellKey)
-  const roofParts = useParts(roofDeck, c, `${shellKey}|${a.stairs}`)
-  const stairParts = useParts(stairs, c, shellKey)
+  const roofParts = useParts(roofDeck, c, `${shellKey}|${a.stairs}|${c.railing}`)
+  const stairParts = useParts(stairs, c, `${shellKey}|${c.railing}`)
+  const canopyParts = useParts(canopy, c, `${shellKey}|${a.roof}|${c.lights}`)
   const accentParts = useParts(timberAccent, c, shellKey)
   return (
-    <group>
+    // Tagged so the site reflection probe can leave the unit out of its capture.
+    <group userData={{ unit: true }}>
       <Parts parts={shell} />
       <Parts parts={interior} />
       {glazing.length > 0 && <Parts parts={glazing} />}
@@ -115,10 +118,11 @@ export function StudioModel({
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}
       {studio && c.accent && <Parts parts={accentParts} />}
-      {studio && a.deck && <Parts parts={deckParts} />}
+      {a.deck && <Parts parts={deckParts} />}
       {studio && a.gazebo && <Parts parts={pergolaParts} />}
-      {studio && a.roof && <Parts parts={roofParts} />}
-      {studio && a.stairs && <Parts parts={stairParts} />}
+      {a.roof && <Parts parts={roofParts} />}
+      {a.stairs && <Parts parts={stairParts} />}
+      {!studio && a.canopy && <Parts parts={canopyParts} />}
       {c.items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}

@@ -20,13 +20,22 @@ import {
   placementIssue,
   readSaved,
   setAddon,
+  entryCenter,
+  SIGNATURES,
+  studioDoorCenter,
   shareUrl,
   writeSaved,
   type Config,
 } from './config'
 import { configReducer } from './useConfig'
 import { createBrief } from './export'
-import { CONTAINER_OPENINGS, PRODUCT_FAMILIES, STUDIO_LAYOUTS } from './products'
+import {
+  CONTAINER_OPENINGS,
+  OPENING_INFILLS,
+  PRODUCT_FAMILIES,
+  STUDIO_DOORS,
+  STUDIO_LAYOUTS,
+} from './products'
 
 const fresh = (): Config => structuredClone(DEFAULT_CONFIG)
 const encoded = (value: unknown) => LZString.compressToEncodedURIComponent(JSON.stringify(value))
@@ -71,7 +80,7 @@ describe('configuration and packages', () => {
     expect(
       decodeConfig(encoded({ ...config, items: [{ ...config.items[0], sku: 'invented' }] })),
     ).toBe(null)
-    expect(decodeConfig(encoded({ ...config, v: 3 }))).toBe(null)
+    expect(decodeConfig(encoded({ ...config, v: 4 }))).toBe(null)
   })
   it('rejects cross-family options at the sharing boundary', () => {
     expect(
@@ -94,7 +103,10 @@ describe('configuration and packages', () => {
 })
 describe('independent published add-on transitions', () => {
   it('allows individual Studio add-ons without invented dependency rules', () => {
-    const c = { ...fresh(), addons: { deck: false, gazebo: false, roof: false, stairs: false } }
+    const c = {
+      ...fresh(),
+      addons: { deck: false, gazebo: false, roof: false, stairs: false, canopy: false },
+    }
     const pergola = setAddon(c, 'gazebo'),
       stairs = setAddon(c, 'stairs')
     expect(pergola.config.addons.deck).toBe(false)
@@ -109,7 +121,7 @@ describe('independent published add-on transitions', () => {
     const c = {
       ...fresh(),
       finish: 'bronze' as const,
-      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+      addons: { deck: true, gazebo: true, roof: true, stairs: true, canopy: false },
     }
     const noDeck = setAddon(c, 'deck').config,
       noRoof = setAddon(c, 'roof').config
@@ -130,7 +142,7 @@ describe('placement rules', () => {
     const c = fresh(),
       item = c.items[1]
     expect(placementIssue({ ...item, x: 12 }, c)).toContain('usable floor')
-    expect(placementIssue({ ...item, x: 0, z: 1 }, c)).toContain('entry')
+    expect(placementIssue({ ...item, x: entryCenter(c), z: 1 }, c)).toContain('entry')
   })
   it('rejects overlap but not an unchanged position', () => {
     const c = fresh(),
@@ -184,7 +196,7 @@ describe('published pricing boundaries', () => {
       finish: 'bronze',
       accent: true,
       mirror: true,
-      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+      addons: { deck: true, gazebo: true, roof: true, stairs: true, canopy: false },
     }
     expect(estimate(c).startingPrice).toBe(35000)
     expect(estimate(c).lines.every((line) => line.amount === null)).toBe(true)
@@ -225,26 +237,70 @@ describe('product families', () => {
       length: 40,
       studioLayout: 'stacked',
       accent: true,
-      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+      addons: { deck: true, gazebo: true, roof: true, stairs: true, canopy: false },
     }
     const container = setFamily(original, 'container')
     expect(productHeight(container)).toBe(9.5)
     expect(container.length).toBe(40)
-    expect(Object.values(container.addons).some(Boolean)).toBe(false)
+    // Decks, roof decks, and stairs appear on Container builds too; the gazebo does not.
+    expect(container.addons).toEqual({
+      deck: true,
+      gazebo: false,
+      roof: true,
+      stairs: true,
+      canopy: false,
+    })
     expect(container.accent).toBe(false)
     expect(container.studioLayout).toBe('single')
+    expect(container.doorsOpen).toBe(true)
     expect(container.items).toEqual(original.items)
     expect(container.finish).toBe(original.finish)
-    expect(original.addons.deck).toBe(true)
+    expect(original.addons.gazebo).toBe(true)
     const studio = setFamily(
-      { ...container, containerOpening: 'partial', integratedFinish: true },
+      {
+        ...container,
+        containerOpening: 'partial',
+        openingInfill: 'glass-overhead',
+        integratedFinish: true,
+        addons: { ...container.addons, canopy: true },
+      },
       'studio',
     )
     expect(studio.containerOpening).toBe('roll-up')
+    expect(studio.openingInfill).toBe('none')
     expect(studio.integratedFinish).toBe(false)
+    expect(studio.addons.canopy).toBe(false)
+    expect(studio.doorsOpen).toBe(false)
     expect(productHeight(studio)).toBe(10)
     expect(setFamily(studio, 'studio')).toBe(studio)
-    expect(setAddon(container, 'deck').config).toBe(container)
+    expect(setAddon(container, 'gazebo').config).toBe(container)
+    expect(setAddon(studio, 'canopy').config).toBe(studio)
+    expect(setAddon(container, 'canopy').config.addons.canopy).toBe(true)
+  })
+  it('falls back to the centered sliding door when the hinged entry would be obstructed', () => {
+    const blocked: Config = {
+      ...setFamily(fresh(), 'container'),
+      items: [{ id: 'bike', sku: 'treadmill', x: 3.6, z: 0, rotation: 0 }],
+    }
+    expect(layoutIssues(blocked)).toEqual([])
+    const studio = setFamily(blocked, 'studio')
+    expect(studio.studioDoor).toBe('sliding')
+    expect(layoutIssues(studio)).toEqual([])
+    expect(setFamily(setFamily(fresh(), 'container'), 'studio').studioDoor).toBe('hinged')
+  })
+  it('rejects infill on the roll-up opening and portfolio options on the wrong family', () => {
+    const container = setFamily(fresh(), 'container')
+    expect(decodeConfig(encoded({ ...container, openingInfill: 'awning' }))).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...container, containerOpening: 'full', openingInfill: 'awning' })),
+    ).not.toBeNull()
+    expect(decodeConfig(encoded({ ...fresh(), openingInfill: 'glass-overhead' }))).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...fresh(), addons: { ...fresh().addons, canopy: true } })),
+    ).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...container, addons: { ...container.addons, gazebo: true } })),
+    ).toBeNull()
   })
   for (const length of [20, 40] as const)
     for (const opening of CONTAINER_OPENINGS)
@@ -288,20 +344,125 @@ describe('product families', () => {
     expect(configReducer(undone, { type: 'redo' }).present.family).toBe('container')
   })
 })
+describe('portfolio options', () => {
+  for (const length of [20, 40] as const)
+    for (const door of STUDIO_DOORS)
+      for (const pack of PACKAGES)
+        it(`${length} Studio with a ${door.id} door fits the ${pack.id} planning preset`, () => {
+          const config: Config = {
+            ...fresh(),
+            length,
+            studioDoor: door.id,
+            package: pack.id,
+            items: packageItems(pack.id, length),
+          }
+          expect(layoutIssues(config)).toEqual([])
+        })
+  it('places the hinged door in the second bay from the end and the slider at center', () => {
+    expect(studioDoorCenter({ length: 20, studioDoor: 'sliding' })).toBeCloseTo(0)
+    expect(studioDoorCenter({ length: 40, studioDoor: 'sliding' })).toBeCloseTo(0)
+    expect(studioDoorCenter({ length: 20, studioDoor: 'hinged' })).toBeCloseTo(3.616, 2)
+    expect(studioDoorCenter({ length: 40, studioDoor: 'hinged' })).toBeGreaterThan(13)
+    expect(entryCenter({ ...fresh(), studioDoor: 'hinged' })).toBeCloseTo(3.616, 2)
+  })
+  for (const infill of OPENING_INFILLS)
+    for (const open of [false, true])
+      it(`prices the ${infill.id} infill (${open ? 'open' : 'closed'}) as quote-only`, () => {
+        const config: Config = {
+          ...setFamily(fresh(), 'container'),
+          containerOpening: 'full',
+          openingInfill: infill.id,
+          doorsOpen: open,
+          addons: { deck: true, gazebo: false, roof: true, stairs: true, canopy: true },
+          railing: 'cable',
+        }
+        expect(decodeConfig(encodeConfig(config))).toEqual(config)
+        const names = estimate(config).lines.map((line) => line.name)
+        if (infill.id !== 'none') expect(names).toContain(`Portfolio: ${infill.name}`)
+        expect(names).toEqual(
+          expect.arrayContaining([
+            'Portfolio: Entry canopy',
+            'Portfolio: Rooftop deck',
+            'Portfolio: Steel cable rail',
+          ]),
+        )
+        expect(estimate(config).total).toBeNull()
+      })
+})
+
+describe('signature builds', () => {
+  for (const build of SIGNATURES)
+    it(`${build.id} is a valid, shareable, collision-free design`, () => {
+      expect(configSchema.parse(build.config)).toEqual(build.config)
+      expect(layoutIssues(build.config)).toEqual([])
+      expect(decodeConfig(encodeConfig(build.config))).toEqual(build.config)
+      expect(estimate(build.config).total).toBeNull()
+      expect(new Set(build.config.items.map((i) => i.id)).size).toBe(build.config.items.length)
+    })
+  it('reproduces the photographed builds', () => {
+    const by = Object.fromEntries(SIGNATURES.map((s) => [s.id, s.config]))
+    expect(by['courtyard-pod']).toMatchObject({
+      family: 'studio',
+      finish: 'cloud',
+      studioDoor: 'hinged',
+      environment: 'residences',
+    })
+    expect(by['campus-pod']).toMatchObject({
+      family: 'studio',
+      finish: 'graphite',
+      studioDoor: 'sliding',
+      flooring: 'oak',
+      environment: 'campus',
+    })
+    expect(by.clubhouse).toMatchObject({
+      family: 'container',
+      finish: 'espresso',
+      containerOpening: 'full',
+      openingInfill: 'glass-overhead',
+      doorsOpen: false,
+      interiorStyle: 'timber',
+    })
+    expect(by.clubhouse.addons.canopy).toBe(true)
+    expect(by['garden-pilates']).toMatchObject({
+      openingInfill: 'awning',
+      doorsOpen: true,
+      environment: 'backyard',
+    })
+    expect(by['garden-pilates'].addons.deck).toBe(true)
+    expect(by.rooftop).toMatchObject({ railing: 'cable', doorsOpen: true, mirror: true })
+    expect(by.rooftop.addons).toMatchObject({ roof: true, stairs: true })
+  })
+})
+
 describe('sharing and browser persistence', () => {
-  const legacy = () => {
-    const value: Record<string, unknown> = { ...fresh(), v: 1 }
-    for (const key of ['family', 'studioLayout', 'containerOpening', 'integratedFinish'])
-      delete value[key]
+  /** A payload as version 1 or 2 stored it: no portfolio fields, no canopy. */
+  const legacy = (v: 1 | 2 = 1) => {
+    const value: Record<string, unknown> = {
+      ...fresh(),
+      v,
+      environment: 'courtyard',
+      addons: { deck: false, gazebo: false, roof: false, stairs: false },
+    }
+    const removed = ['openingInfill', 'studioDoor', 'doorsOpen', 'railing', 'interiorStyle']
+    if (v === 1) removed.push('family', 'studioLayout', 'containerOpening', 'integratedFinish')
+    for (const key of removed) delete value[key]
     return value
   }
+  /** What a legacy Studio becomes: a centered slider and the original slatted interior. */
+  const upgraded = (addons: Config['addons']): Config => ({
+    ...fresh(),
+    environment: 'courtyard',
+    studioDoor: 'sliding',
+    interiorStyle: 'slatted',
+    addons,
+  })
   it('migrates version 1 links, drafts, and saved builds as Studios without losing choices', () => {
     const old = {
       ...legacy(),
       accent: true,
       addons: { deck: true, gazebo: true, roof: true, stairs: true },
     }
-    const migrated = { ...fresh(), accent: true, addons: old.addons }
+    const migrated = { ...upgraded({ ...old.addons, canopy: false }), accent: true }
     expect(decodeConfig(encoded(old))).toEqual(migrated)
     localStorage.setItem('fury-draft-v1', encoded(old))
     expect(initialConfig().config).toEqual(migrated)
@@ -310,6 +471,21 @@ describe('sharing and browser persistence', () => {
       JSON.stringify([{ id: 'old', name: 'Legacy Studio', date: '2026-10-10', config: old }]),
     )
     expect(readSaved()[0].config).toEqual(migrated)
+  })
+  it('migrates version 2 Containers with their opening shown open and layouts intact', () => {
+    const old = {
+      ...legacy(2),
+      family: 'container',
+      containerOpening: 'partial',
+      items: packageItems('cardio', 20),
+    }
+    const migrated = decodeConfig(encoded(old))!
+    expect(migrated).not.toBeNull()
+    expect(migrated.v).toBe(3)
+    expect(migrated.openingInfill).toBe('none')
+    expect(migrated.doorsOpen).toBe(true)
+    expect(migrated.items).toEqual(old.items)
+    expect(decodeConfig(encoded(legacy(2)))!.studioDoor).toBe('sliding')
   })
   it('still validates legacy payloads instead of trusting the migration', () => {
     expect(decodeConfig(encoded({ ...legacy(), length: 50 }))).toBeNull()

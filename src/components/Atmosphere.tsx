@@ -28,54 +28,41 @@ import {
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js'
 import type { Config, View } from '../lib/config'
 import {
-  SKY_PRESETS,
-  horizonRadiance,
+  CLOUD_LAYER,
+  SKY_SCALE,
+  STUDIO_AIM,
+  STUDIO_BACKDROP,
+  STUDIO_SOFTBOXES,
+  SUN_INTENSITY,
   nightAt,
-  skyRadiance,
+  skyLook,
   sunlightAt,
-  type Vec3,
+  SKY_PRESETS,
+  type SkyLook,
 } from '../lib/visuals'
 import type { Quality } from '../render/quality'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
 
-/**
- * three's Preetham sky is calibrated for a ~0.5 exposure with a 60,000-unit sun disc. Scaling its
- * radiance down puts clear-sky illuminance at roughly 1/3.5 of direct sun, as measured outdoors.
- */
-const SKY_SCALE = 0.13
-/**
- * Preetham's single-scattering zenith is ~12x darker than its horizon; measured clear skies are
- * 2-4x. A fill proportional to the horizon stands in for multiple scattering, so dark glossy
- * finishes facing the sky reflect it as they do in photographs.
- */
-const SKY_FILL = 0.12
-const SUN_INTENSITY = 4.2
-const CLOUDS = { courtyard: 0.32, desert: 0.12, studio: 0 }
+/** Half-width of the sun's shadow map in feet, and how far toward the sun it gathers casters. */
+const SHADOW_EXTENT = 64
+const SHADOW_REACH = 420
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
 const INTERIOR_EXPOSURE = 1.6
 
-type Environment = Config['environment']
-
-/** Airglow and scattered starlight keep a moonless sky deep blue rather than black. */
-const NIGHT_SKY: Vec3 = [0.0022, 0.0034, 0.0078]
-
-function configureSky(sky: Sky, environment: Environment, sun: Vec3, night: number) {
-  const preset = SKY_PRESETS[environment]
-  const horizon = horizonRadiance(sun, preset)
-  sky.fill.value.setRGB(
-    ...(horizon.map((v, i) => v * SKY_SCALE * SKY_FILL + NIGHT_SKY[i] * night) as Vec3),
-  )
+function configureSky(sky: Sky, look: SkyLook) {
+  const { preset } = look
+  sky.fill.value.setRGB(...look.fill)
   sky.turbidity.value = preset.turbidity
   sky.rayleigh.value = preset.rayleigh
   sky.mieCoefficient.value = preset.mieCoefficient
   sky.mieDirectionalG.value = preset.mieDirectionalG
-  sky.sunPosition.value.set(...sun)
-  sky.cloudCoverage.value = CLOUDS[environment]
-  sky.cloudDensity.value = 0.55
-  sky.cloudScale.value = 0.00018
+  sky.sunPosition.value.set(...look.sunlight.direction)
+  sky.cloudCoverage.value = look.clouds.coverage
+  sky.cloudDensity.value = CLOUD_LAYER.density
+  sky.cloudScale.value = CLOUD_LAYER.scale
   sky.cloudSpeed.value = 0
-  sky.cloudElevation.value = 0.55
+  sky.cloudElevation.value = CLOUD_LAYER.elevation
 }
 
 type Sky = SkyMesh & { fill: UniformNode<'color', Color> }
@@ -92,6 +79,8 @@ function createSky(sunDisc: boolean): Sky {
   sky.scale.setScalar(1500)
   sky.frustumCulled = false
   sky.renderOrder = -1
+  // The path tracer lights and backs the scene with an HDR map of this same sky.
+  sky.userData.pathTrace = false
   return sky
 }
 
@@ -101,7 +90,7 @@ function studioScene() {
   scene.add(
     new Mesh(
       new SphereGeometry(40, 32, 16),
-      new MeshBasicMaterial({ color: new Color(0.42, 0.41, 0.39), side: BackSide }),
+      new MeshBasicMaterial({ color: new Color(...STUDIO_BACKDROP), side: BackSide }),
     ),
   )
   const softbox = (w: number, h: number, intensity: number, x: number, y: number, z: number) => {
@@ -110,13 +99,10 @@ function studioScene() {
       new MeshBasicMaterial({ color: new Color(intensity, intensity * 0.98, intensity * 0.94) }),
     )
     panel.position.set(x, y, z)
-    panel.lookAt(0, 4, 0)
+    panel.lookAt(...STUDIO_AIM)
     scene.add(panel)
   }
-  softbox(30, 22, 5.5, 0, 34, 6)
-  softbox(10, 26, 3.2, -30, 12, 18)
-  softbox(10, 26, 2.2, 32, 10, -6)
-  softbox(40, 6, 1.6, 0, 6, 36)
+  for (const box of STUDIO_SOFTBOXES) softbox(...box)
   return scene
 }
 
@@ -160,30 +146,18 @@ export function Atmosphere({
 
   // Sky, fog, and the image-based lighting captured from them, keyed to time and surroundings.
   useLayoutEffect(() => {
-    const preset = SKY_PRESETS[environment]
-    const sunlight = sunlightAt(time, preset)
-    const sun = sunlight.direction
-    const night = nightAt(time)
-    configureSky(background, environment, sun, night)
-    configureSky(capture.sky, environment, sun, night)
-    foliageDaylight.value = Math.min(1, sunlight.intensity / 0.6)
-    const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
-    const horizonFill = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL)
-    const sky = skyRadiance([0, 1, 0], sun, preset).map(
-      (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[i] * night,
-    )
-    const direct = (SUN_INTENSITY * sunlight.intensity * Math.max(0, sun[1])) / Math.PI
-    ;(capture.ground.material as MeshBasicMaterial).color.setRGB(
-      ...(groundAlbedo.map((a, i) => a * (direct * sunlight.color[i] + sky[i] * Math.PI)) as Vec3),
-    )
+    const look = skyLook(environment, time)
+    configureSky(background, look)
+    configureSky(capture.sky, look)
+    foliageDaylight.value = Math.min(1, look.sunlight.intensity / 0.6)
+    ;(capture.ground.material as MeshBasicMaterial).color.setRGB(...look.ground)
     if (environment === 'studio') {
       scene.background = null
       scene.backgroundNode = mix(color('#a9a59c'), color('#e7e3db'), screenUV.y.oneMinus().pow(0.8))
       scene.fog = new Fog(new Color('#d6d2ca'), 90, 420)
     } else {
       scene.backgroundNode = null
-      const horizon = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE) as Vec3
-      scene.fog = new Fog(new Color(...horizon), 70, 520)
+      scene.fog = new Fog(new Color(...look.fog), 70, 520)
     }
     if (generator) {
       target.current = generator.fromScene(
@@ -218,25 +192,32 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
   const preset = SKY_PRESETS[config.environment]
   const sunlight = sunlightAt(config.time, preset)
   const night = nightAt(config.time)
-  const extent = config.length / 2 + 14
-  const distance = 80
+  // The map covers the site and the ground around it in view, and reaches far enough toward the
+  // sun that surrounding buildings and trees shade the site at low sun, as they do when traced.
+  const extent = Math.max(config.length / 2 + 14, SHADOW_EXTENT)
+  const distance = SHADOW_REACH
+  const depth = SHADOW_REACH * 2
   const [x, y, z] = sunlight.direction
   return (
     <>
       <directionalLight
+        // The path tracer replaces it with a sun disc of true angular size; the raster pipeline
+        // finds it to add contact shadows.
+        userData={{ pathTrace: false, sun: true }}
         position={[x * distance, Math.max(y, 0.02) * distance, z * distance]}
         color={new Color(...sunlight.color)}
         intensity={SUN_INTENSITY * sunlight.intensity}
         castShadow
-        shadow-mapSize={quality === 'lite' ? [1024, 1024] : [4096, 4096]}
+        shadow-mapSize={quality === 'lite' ? [2048, 2048] : [4096, 4096]}
         shadow-camera-left={-extent}
         shadow-camera-right={extent}
         shadow-camera-top={extent}
         shadow-camera-bottom={-extent}
         shadow-camera-near={10}
-        shadow-camera-far={180}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.03}
+        shadow-camera-far={depth}
+        // About 0.07 ft of depth bias whatever the depth range.
+        shadow-bias={-0.07 / depth}
+        shadow-normalBias={quality === 'lite' ? 0.05 : 0.03}
         shadow-radius={quality === 'lite' ? 2 : 4}
       />
       {night > 0.01 && (

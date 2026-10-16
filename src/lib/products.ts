@@ -48,3 +48,40 @@ export const STUDIO_LAYOUTS = [
   { id: 'stacked', name: 'Stacked' },
   { id: 'custom', name: 'Custom configuration' },
 ] as const
+
+/**
+ * Options seen in Fury's built portfolio (client-supplied reference photography reviewed on the
+ * source date above), rather than on the published product pages. They are modeled so a design
+ * can match those builds; none of them carries a published price, and all require a quote.
+ */
+export const PORTFOLIO_NOTE =
+  'Seen in Fury builds. Geometry is a concept interpretation; specification and price by quote.'
+export const OPENING_INFILLS = [
+  {
+    id: 'none',
+    name: 'Open side',
+    detail: 'An unobstructed connection to outdoor training.',
+  },
+  {
+    id: 'glass-overhead',
+    name: 'Glass overhead door',
+    detail: 'Full-view sectional door in aluminum frames that lifts into ceiling tracks.',
+  },
+  {
+    id: 'awning',
+    name: 'Top-hung glass sashes',
+    detail: 'Glazed sashes hinge at the head and prop open on gas struts.',
+  },
+] as const
+export const STUDIO_DOORS = [
+  {
+    id: 'hinged',
+    name: 'Hinged glass door',
+    detail: 'A black-framed door in the second bay from the end.',
+  },
+  {
+    id: 'sliding',
+    name: 'Sliding glass door',
+    detail: 'The center bay slides behind its neighbor.',
+  },
+] as const

@@ -7,6 +7,8 @@ import {
   entryCenter,
   openingGeometry,
   productName,
+  studioBays,
+  studioDoorCenter,
   placementIssue,
   type Config,
   type PlacedItem,
@@ -169,6 +171,7 @@ export default function FloorPlan({
             ENTRY / KEEP CLEAR
           </text>
         </g>
+        {config.family === 'studio' && <DoorSymbol config={config} />}
         <path
           d={`M ${-config.length / 2} -5.1 H ${config.length / 2} M ${-config.length / 2} -5.4 V -4.8 M ${config.length / 2} -5.4 V -4.8`}
           fill="none"
@@ -307,5 +310,35 @@ export default function FloorPlan({
         confirm manufacturer clearances, access, and installation requirements.
       </p>
     </div>
+  )
+}
+
+/** Plan symbol for the Studio door: a swing arc for the hinged leaf, a track for the slider. */
+function DoorSymbol({ config }: { config: Config }) {
+  const { width } = studioBays(config.length)
+  const center = studioDoorCenter(config)
+  const leaf = width - 0.14
+  const stroke = { fill: 'none', stroke: '#4f6140', strokeWidth: 0.05 }
+  if (config.studioDoor === 'sliding')
+    return (
+      <g pointerEvents="none">
+        <path
+          d={`M ${center - leaf / 2} 4.1 h ${leaf * 2}`}
+          {...stroke}
+          strokeDasharray="0.12 0.1"
+        />
+        <path d={`M ${center + leaf / 2} 4.1 h ${-leaf}`} {...stroke} strokeWidth={0.09} />
+      </g>
+    )
+  const hinge = center + leaf / 2
+  return (
+    <g pointerEvents="none">
+      <path d={`M ${hinge} 3.85 v ${leaf}`} {...stroke} strokeWidth={0.07} />
+      <path
+        d={`M ${hinge - leaf} 3.85 A ${leaf} ${leaf} 0 0 0 ${hinge} ${3.85 + leaf}`}
+        {...stroke}
+        strokeDasharray="0.12 0.1"
+      />
+    </g>
   )
 }

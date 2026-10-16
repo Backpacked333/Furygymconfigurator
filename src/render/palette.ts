@@ -22,6 +22,7 @@ export const palette = {
       normalScale: 0.3,
       clearcoat: 0.75,
       clearcoatRoughness: 0.16,
+      site: true,
     }),
   brushed: (interior = true, color = '#d7d9da') =>
     m({ set: 'brushed_metal', color, metalness: 1, roughness: 1, interior }),
@@ -71,11 +72,36 @@ export const palette = {
   hinoki: () => m({ set: 'hinoki_planks', color: '#fff4e6', roughness: 1, interior: true }),
   teak: (interior = false) =>
     m({ set: 'teak_veneer', color: '#e7d2bd', roughness: 0.95, interior }),
+  /** Clear-lacquered birch plywood. */
+  ply: (interior = true) =>
+    m({
+      set: 'plywood',
+      color: '#fff1de',
+      roughness: 0.8,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.4,
+      interior,
+    }),
+  /** Oiled western red cedar boards (interior lining, house cladding). */
+  cedar: (interior = true, color = '#e9c7a6') =>
+    m({ set: 'japanese_cedar_planks', color, roughness: 0.85, interior }),
   // Mineral -----------------------------------------------------------------------------------
   /** Eggshell-painted drywall: only a whisper of the scanned plaster relief survives the paint. */
   paint: (color = '#f2efe9') =>
     m({ set: 'beige_wall_001', color, roughness: 0.92, normalScale: 0.22, interior: true }),
   concrete: (interior = false) => m({ set: 'concrete_wall_001', roughness: 1, interior }),
+  /** Ground and sealed concrete slab: a soft satin sheen over the scanned aggregate. */
+  polishedConcrete: () =>
+    m({
+      set: 'concrete_floor_worn_001',
+      color: '#c9c8c2',
+      roughness: 0.7,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.18,
+      interior: true,
+    }),
+  stucco: (color: string) => m({ set: 'white_stucco', color, roughness: 1, normalScale: 0.6 }),
+  brick: (color = '#ffffff') => m({ set: 'red_brick_03', color, roughness: 1 }),
   // Light and glass ---------------------------------------------------------------------------
   glass: () =>
     m({
@@ -88,6 +114,7 @@ export const palette = {
       attenuationDistance: 1.2,
       specularIntensity: 1,
       side: DoubleSide,
+      site: true,
     }),
   tintedGlass: () =>
     m({

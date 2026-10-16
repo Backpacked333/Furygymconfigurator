@@ -37,24 +37,26 @@ import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import {
+  DEFAULT_CAMERA,
   DEFAULT_CONFIG,
   FINISHES,
+  SIGNATURES,
   area,
   distance,
   encodeConfig,
+  environmentName,
   estimate,
   money,
   productName,
   productHeight,
-  setFamily,
-  packageItems,
-  type Config,
+  type SignatureId,
   type Unit,
   type View,
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
+import { requestedTrace, useTraceStatus } from './render/traceStatus'
 import { textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
@@ -67,7 +69,8 @@ export default function App() {
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
-    [backend, setBackend] = useState<Backend | null>(null)
+    [backend, setBackend] = useState<Backend | null>(null),
+    [trace, setTrace] = useState(() => requestedTrace() ?? defaultQuality() !== 'lite')
   // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
   const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
   const [dialog, setDialog] = useState<Dialog>(null),
@@ -76,7 +79,8 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(false),
     [photoMode, setPhotoMode] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true)
-  const captureRef = useRef<(() => string) | null>(null),
+  const [camera, setCamera] = useState<[number, number, number]>(DEFAULT_CAMERA)
+  const captureRef = useRef<(() => Promise<string>) | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
     setToast(s)
@@ -95,13 +99,13 @@ export default function App() {
       `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
     )
   }, [quality, notify])
-  const onCaptureReady = useCallback((capture: () => string) => {
+  const onCaptureReady = useCallback((capture: () => Promise<string>) => {
     captureRef.current = capture
   }, [])
-  const capture = useCallback(() => {
-    if (view === 'plan') return null
+  const capture = useCallback(async () => {
+    if (view === 'plan' || !captureRef.current) return null
     try {
-      return captureRef.current?.() ?? null
+      return (await captureRef.current()) || null
     } catch {
       return null
     }
@@ -134,41 +138,24 @@ export default function App() {
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [dialog, undo, redo])
-  const template = (id: 'athlete' | 'retreat' | 'flow') => {
+  const signature = (id: SignatureId) => {
+    const build = SIGNATURES.find((s) => s.id === id)!
     if (
       !window.confirm(
-        'Apply this concept layout in your selected product family? This replaces your current design with a 20-foot example. You can undo the change.',
+        `Apply the ${build.name} build? This replaces your current design, including product family, size, and equipment. You can undo the change.`,
       )
     )
       return
-    const templates: Record<typeof id, Config> = {
-      athlete: { ...DEFAULT_CONFIG },
-      retreat: {
-        ...DEFAULT_CONFIG,
-        finish: 'chalk',
-        flooring: 'oak',
-        mirror: false,
-        package: 'recovery',
-        items: packageItems('recovery', 20),
-        addons: { deck: true, gazebo: true, roof: false, stairs: false },
-        time: 18,
-      },
-      flow: {
-        ...DEFAULT_CONFIG,
-        finish: 'olive',
-        flooring: 'oak',
-        package: 'movement',
-        items: packageItems('movement', 20),
-        time: 9,
-      },
-    }
-    setConfig(setFamily(templates[id], config.family))
+    setConfig(structuredClone(build.config))
+    setCamera(build.camera)
     setView('exterior')
     setReset((r) => r + 1)
-    notify('Concept layout applied. This is not an official Fury package.')
+    notify(`${build.name} applied. Every option stays editable; the build still requires a quote.`)
   }
-  const photo = () => {
-    const image = capture()
+  const photo = async () => {
+    if (trace && backend === 'webgpu')
+      notify('Rendering a path-traced image. Hold the view still for a moment.')
+    const image = await capture()
     if (!image) {
       notify('Your scene is still getting ready. Try again in a moment.')
       return
@@ -252,8 +239,10 @@ export default function App() {
                 dimensions={dimensions}
                 unit={unit}
                 reset={reset}
+                camera={camera}
                 autoRotate={autoRotate}
                 quality={quality}
+                trace={trace}
                 onCaptureReady={onCaptureReady}
                 onFallback={() => setView('plan')}
                 onBackend={setBackend}
@@ -380,6 +369,7 @@ export default function App() {
                     {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
                   </span>
                 )}
+                <TraceBadge />
                 <span>Concept visualization · Not manufacturer CAD</span>
               </div>
               <div className="scene-hint">
@@ -387,11 +377,7 @@ export default function App() {
               </div>
               <button className="environment-quick" onClick={() => setStep(3)}>
                 <Leaf size={14} />
-                {config.environment === 'courtyard'
-                  ? 'The courtyard'
-                  : config.environment === 'desert'
-                    ? 'Desert retreat'
-                    : 'Studio backdrop'}
+                {environmentName(config.environment)}
                 <ChevronDown size={13} />
               </button>
             </div>
@@ -425,12 +411,15 @@ export default function App() {
             setUnit={setUnit}
             quality={quality}
             setQuality={chooseQuality}
+            trace={trace}
+            setTrace={setTrace}
+            traceSupported={backend === 'webgpu'}
             notify={notify}
             onPlan={() => {
               setView('plan')
               setPhotoMode(false)
             }}
-            onTemplate={template}
+            onSignature={signature}
           />
         </div>
       </main>
@@ -546,6 +535,7 @@ export default function App() {
                 )
               ) {
                 setConfig(structuredClone(DEFAULT_CONFIG))
+                setCamera(DEFAULT_CAMERA)
                 setView('exterior')
                 setReset((r) => r + 1)
                 close()
@@ -560,6 +550,32 @@ export default function App() {
     </div>
   )
 }
+/** Path-tracing progress for a resting view, or the export waiting on it. */
+function TraceBadge() {
+  const status = useTraceStatus()
+  if (status.state === 'off') return null
+  const label =
+    status.state === 'preparing'
+      ? 'Preparing path tracer'
+      : status.state === 'converged'
+        ? `Path traced · ${status.samples} samples`
+        : `Path tracing · ${status.samples} / ${status.target}`
+  return (
+    <span
+      className={`trace-badge ${status.state}`}
+      role="status"
+      aria-live="polite"
+      title="The resting view refines with physically based path tracing: true bounce light, soft shadows, and real reflections."
+    >
+      <span
+        className="trace-meter"
+        style={{ '--progress': Math.min(1, status.samples / Math.max(1, status.target)) } as never}
+      />
+      {status.exporting ? `Rendering image · ${status.samples} samples` : label}
+    </span>
+  )
+}
+
 /** Shows progress while the photo-scanned material library streams in. */
 function MaterialProgress() {
   const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
