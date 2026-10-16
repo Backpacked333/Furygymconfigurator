@@ -107,7 +107,7 @@ def test_cors(gateway):
             headers={
                 "Origin": origin,
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "content-type,x-render-session",
+                "Access-Control-Request-Headers": "content-type",
             },
         )
         assert response.status_code == expected
@@ -194,19 +194,16 @@ def test_each_render_session_has_a_gpu_of_its_own(gateway):
     client, calls = gateway
     body = request(Kit().scene())
     for session in ("visitor-one", "visitor-two"):
-        assert (
-            client.post("/render", json=body, headers={"x-render-session": session}).status_code
-            == 200
-        )
+        assert client.post("/render", json=body, params={"session": session}).status_code == 200
     data = b"geometry"
     key = hashlib.sha256(data).hexdigest()
-    client.put(f"/blobs/{key}", content=data, headers={"x-render-session": "visitor-two"})
+    client.put(f"/blobs/{key}", content=data, params={"session": "visitor-two"})
     assert [call[4] for call in calls] == ["visitor-one", "visitor-two", "visitor-two"]
     # A page from before sessions shares one; a malformed session is refused.
     client.post("/render", json=body)
     assert calls[-1][4] == "shared-session"
     count = len(calls)
-    assert client.post("/render", json=body, headers={"x-render-session": "a/b"}).status_code == 400
+    assert client.post("/render", json=body, params={"session": "a/b"}).status_code == 400
     assert len(calls) == count
 
 
@@ -225,11 +222,11 @@ def test_sessions_beyond_the_limit_render_on_their_own(monkeypatch):
     body = request(Kit().scene())
 
     def post(session):
-        return client.post("/render", json=body, headers={"x-render-session": session})
+        return client.post("/render", json=body, params={"session": session})
 
     with TestClient(app) as client:
         # A malformed request takes no place.
-        bad = client.post("/render", content=b"[]", headers={"x-render-session": "session-zz"})
+        bad = client.post("/render", content=b"[]", params={"session": "session-zz"})
         assert bad.status_code == 400
         assert post("session-aa").status_code == 200
         assert post("session-bb").status_code == 200

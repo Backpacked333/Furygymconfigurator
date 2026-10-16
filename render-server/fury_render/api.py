@@ -522,9 +522,7 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
         CORSMiddleware,
         allow_origin_regex=service.settings.origins,
         allow_methods=["GET", "PUT", "POST"],
-        # The page names its render session for the gateway (gateway.py); a server of its own,
-        # as in local development, has only that one.
-        allow_headers=["content-type", "x-render-session"],
+        allow_headers=["content-type"],
         expose_headers=[
             "x-image-format",
             "x-image-width",

@@ -60,7 +60,7 @@ describe('cloud requests', () => {
       'fetch',
       vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
         if (init.method === 'PUT') {
-          puts.push(url)
+          puts.push(url.split('?')[0])
           await new Promise((resolve) => setTimeout(resolve, 5))
           return new Response(null, { status: 204 })
         }
@@ -144,8 +144,8 @@ describe('render sessions', () => {
     await new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal)
     // A second client on the page (the spin's, say) is the same session: the same GPU.
     await new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal)
-    const sessions = fetch.mock.calls.map(
-      (call) => (call[1].headers as Record<string, string>)['x-render-session'],
+    const sessions = fetch.mock.calls.map((call) =>
+      new URL(call[0] as string).searchParams.get('session'),
     )
     expect(fetch.mock.calls.map((call) => call[1].method)).toEqual(['POST', 'PUT', 'POST', 'POST'])
     expect(new Set(sessions).size).toBe(1)

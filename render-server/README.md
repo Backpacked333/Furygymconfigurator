@@ -19,8 +19,10 @@ and blob requests, then invokes a private Modal method. `/health` checks only th
 starts a GPU. There is no PIN: browsers on the allowed origins render directly. Anyone who can
 reach the gateway URL can request renders, so the Modal spending limit is the real cost cap.
 
-**One GPU per render session.** Each page names its render session in an `x-render-session`
-header on every render and upload (one id per page load, `src/render/cloud.ts`). The renderer is a
+**One GPU per render session.** Each page names its render session in a `session` query
+parameter on every render and upload (one id per page load, `src/render/cloud.ts`). A query
+parameter needs no CORS preflight, so pages and gateways from before sessions keep working with
+each other in either order of deployment. The renderer is a
 parametrized Modal class, `Renderer(session=...)`: each session is a Modal function of its own,
 with its own container holding one L40S, its own Blender process and its own queue. At most
 `FURY_MAX_SESSIONS` sessions (default 3) hold a GPU at once; a session keeps its place until two

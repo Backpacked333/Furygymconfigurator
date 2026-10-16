@@ -78,7 +78,9 @@ const GAIN_RANGE = [0.5, 4] as const
 const UPLOADS = 4
 /**
  * This page's render session. The gateway gives each session a GPU of its own
- * (render-server/modal_app.py), so every request from the page, render or upload, names it.
+ * (render-server/modal_app.py), so every request from the page, render or upload, names it. A query
+ * parameter rather than a header: no CORS preflight depends on it, so a page works against a
+ * gateway from before sessions too.
  */
 const RENDER_SESSION =
   globalThis.crypto?.randomUUID?.().replaceAll('-', '') ??
@@ -683,9 +685,8 @@ export class CloudClient {
     // Image files are compressed already.
     const isImage = raw[0] === 0x89 || raw[0] === 0xff || raw[0] === 0x52
     const body = isImage ? raw : await gzip(raw)
-    const response = await fetch(`${this.url}/blobs/${key}`, {
+    const response = await fetch(`${this.url}/blobs/${key}?session=${RENDER_SESSION}`, {
       method: 'PUT',
-      headers: { 'x-render-session': RENDER_SESSION },
       body: body as BodyInit,
       signal,
     })
@@ -818,9 +819,9 @@ export class CloudClient {
     const encoded = new TextEncoder().encode(JSON.stringify({ ...fields, scene: captured.scene }))
     const payload = encoded.byteLength > 32 * 1024 ? await gzip(encoded) : encoded
     for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await fetch(`${this.url}/render`, {
+      const response = await fetch(`${this.url}/render?session=${RENDER_SESSION}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-render-session': RENDER_SESSION },
+        headers: { 'content-type': 'application/json' },
         body: payload as BodyInit,
         signal,
       })

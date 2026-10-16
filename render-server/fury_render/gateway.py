@@ -2,7 +2,7 @@
 
 There is no PIN: browsers on the allowed origins render directly. Requests are validated and
 rate-limited here, before they can start a GPU. Each visitor's render session (the page's
-`x-render-session` header) is sent to a GPU of its own, and only so many sessions run at once.
+`session` query parameter) is sent to a GPU of its own, and only so many sessions run at once.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def create_gateway(
         CORSMiddleware,
         allow_origin_regex=origins or os.environ["FURY_ALLOWED_ORIGINS"],
         allow_methods=["GET", "POST", "PUT"],
-        allow_headers=["content-type", "x-render-session"],
+        allow_headers=["content-type"],
         expose_headers=[
             "x-image-format",
             "x-image-width",
@@ -117,7 +117,7 @@ def create_gateway(
 
     async def forward(request: Request, path: str, limit: int):
         client = request.client.host if request.client else "unknown"
-        session = request.headers.get("x-render-session", SHARED_SESSION)
+        session = request.query_params.get("session", SHARED_SESSION)
         if not SESSION.fullmatch(session):
             raise HTTPException(400, "Bad render session")
         # Not "busy": asking again soon would not help, so the page renders on its own.

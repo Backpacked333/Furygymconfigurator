@@ -307,8 +307,10 @@ Decisions:
 1. **A Modal function per session.** `Renderer` takes a `session` parameter; Modal binds each value
    to a function of its own (`FunctionBindParams`), which inherits `max_containers=1`, the idle
    shut-off and the GPU, so each session has one container with one L40S. The page sends one id
-   per page load as `x-render-session` on renders and uploads, so its blobs and frames stay on its
-   own container.
+   per page load as a `session` query parameter on renders and uploads, so its blobs and frames
+   stay on its own container. Not a header: a custom header needs CORS approval, and a page
+   deployed before its gateway would then have every request refused; a query parameter is
+   simply ignored by an older gateway.
 2. **A cap on sessions.** The gateway admits at most `FURY_MAX_SESSIONS` (3) sessions, each holding
    its place until two minutes after its last request. Beyond that it answers `503 {"full": true}`
    without starting a GPU, and the page traces on the visitor's device (spin.ts `Full`). Session

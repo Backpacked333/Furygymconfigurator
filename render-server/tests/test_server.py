@@ -51,19 +51,6 @@ def test_health(client):
     assert body["ok"] and body["device"] == "CPU" and body["denoise"] == "cpu"
 
 
-def test_pages_naming_a_render_session_may_call_it(client):
-    """A page sends its render session for the gateway; a local server must accept it too."""
-    response = client.options(
-        "/render",
-        headers={
-            "Origin": "http://localhost:5173",
-            "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "content-type,x-render-session",
-        },
-    )
-    assert response.status_code == 200
-
-
 def test_rejects_bad_hash_upload(client):
     r = client.put("/blobs/" + "0" * 64, content=b"not matching")
     assert r.status_code == 400
