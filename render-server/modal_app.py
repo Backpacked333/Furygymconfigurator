@@ -1,23 +1,24 @@
 """Deploys the renderer on Modal. From this directory: ``modal deploy modal_app.py``.
 
-One container with two L40S GPUs, switched off after a minute without requests. It renders the
-path-traced spin a visitor orbits through: a few hundred frames per design, most of them while the
-loading screen is up. Each GPU has a Blender process of its own and renders whole frames, side by
-side. Compiled GPU kernels, uploaded scene data and finished frames are kept on a volume, so a
-container starting cold reuses them.
+Each visitor's render session gets a container with one L40S of its own, switched off after a
+minute without requests. It renders the path-traced spin the visitor orbits through: their view and
+the angles nearest it while the loading screen is up, then the rest. Compiled GPU kernels, uploaded
+scene data and finished frames are kept on a volume, so a container starting cold reuses them.
 
-Two GPUs, because Modal places a container on one machine and says more than two GPUs per container
-usually means longer waits: an eight-L40S container sat "scheduling" for over ten minutes. More
-GPUs can be asked for with FURY_GPU (say L40S:4), at that risk.
+One GPU per container, because Modal places a container's GPUs on one machine: an eight-L40S
+container sat "scheduling" for over ten minutes, and a single L40S schedules in seconds. The
+gateway runs at most FURY_MAX_SESSIONS sessions at once (gateway.py); FURY_GPU (say L40S:2) gives
+each session more GPUs, at that risk.
 """
 
 import os
 
 import modal
 
-GPU = os.environ.get("FURY_GPU", "L40S:2")
+GPU = os.environ.get("FURY_GPU", "L40S")
 GPU_COUNT = int(GPU.split(":")[1]) if ":" in GPU else 1
 IDLE_SECONDS = int(os.environ.get("FURY_IDLE_SECONDS", "60"))
+MAX_SESSIONS = os.environ.get("FURY_MAX_SESSIONS", "3")
 
 cache = modal.Volume.from_name("fury-render-cache", create_if_missing=True)
 
@@ -26,8 +27,8 @@ environment = {
     # One renderer per GPU, each rendering its own frames.
     "FURY_WORKERS": str(GPU_COUNT),
     # Scene data (geometry, textures, sky) is content-addressed and shared by every visitor. Kept on
-    # the volume, a container starting cold already has it, instead of the browser re-uploading
-    # some 25 MB before the first view.
+    # the volume, a container starting cold already has what others uploaded before it started,
+    # instead of the browser re-uploading some 25 MB before the first view.
     "FURY_BLOB_DIR": "/fury-cache/blobs",
     # Finished spin frames, shared by every visitor who sees the same design from the same angle.
     "FURY_FRAME_DIR": "/fury-cache/frames",
@@ -67,6 +68,7 @@ app = modal.App(os.environ.get("FURY_APP_NAME", "fury-render"))
     memory=max(16384, 6144 * GPU_COUNT),
     volumes={"/fury-cache": cache},
     scaledown_window=IDLE_SECONDS,
+    # Per session: each value of `session` is a function of its own, with its own containers.
     max_containers=1,
     timeout=900,
     # FURY_DENOISE=cpu at deploy time skips GPU denoising (it falls back by itself if it fails).
@@ -75,6 +77,9 @@ app = modal.App(os.environ.get("FURY_APP_NAME", "fury-render"))
 # Frame requests wait in the renderer's own priority queue.
 @modal.concurrent(max_inputs=64)
 class Renderer:
+    # The visitor's render session: every session runs in containers of its own.
+    session: str = modal.parameter()
+
     @modal.enter()
     def start(self):
         # Set cache paths after volume mounting, not while the image is being built.
@@ -110,7 +115,10 @@ gateway_image = (
     timeout=240,
     secrets=[
         modal.Secret.from_dict(
-            {"FURY_ALLOWED_ORIGINS": os.environ.get("FURY_ALLOWED_ORIGINS", "(?!)")}
+            {
+                "FURY_ALLOWED_ORIGINS": os.environ.get("FURY_ALLOWED_ORIGINS", "(?!)"),
+                "FURY_MAX_SESSIONS": MAX_SESSIONS,
+            }
         ),
     ],
 )
@@ -121,9 +129,15 @@ def gateway():
     from fury_render.gateway import create_gateway
     from fury_render.rpc import answer_or_cancel
 
-    renderer = Renderer()
+    # One per session seen: binding a session to its GPU function happens once, on its first call.
+    renderers: dict[str, Renderer] = {}
 
-    async def dispatch(method, path, body, client):
+    async def dispatch(method, path, body, client, session):
+        renderer = renderers.get(session)
+        if renderer is None:
+            if len(renderers) > 1000:
+                renderers.clear()
+            renderer = renderers[session] = Renderer(session=session)
         # Spawned rather than called, so a request the gateway stops waiting for is cancelled
         # instead of left queued for the GPU.
         return await answer_or_cancel(renderer.request.spawn.aio(method, path, body, client))

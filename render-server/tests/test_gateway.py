@@ -14,8 +14,8 @@ from scene_kit import Kit, request
 def gateway():
     calls = []
 
-    async def dispatch(method, path, body, client):
-        calls.append((method, path, body, client))
+    async def dispatch(method, path, body, client, session):
+        calls.append((method, path, body, client, session))
         return 200, {"x-device": "test"}, b"result"
 
     app = create_gateway(dispatch, r"^https://test\.example$")
@@ -107,7 +107,7 @@ def test_cors(gateway):
             headers={
                 "Origin": origin,
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "content-type",
+                "Access-Control-Request-Headers": "content-type,x-render-session",
             },
         )
         assert response.status_code == expected
@@ -134,7 +134,7 @@ def test_images_stay_compressed_through_the_private_call():
     assert status == 200 and content == packed
     assert headers["content-encoding"] == "gzip" and "content-length" not in headers
 
-    async def dispatch(method, path, body, client):
+    async def dispatch(method, path, body, client, session):
         return await call_app(renderer, method, path, body, client)
 
     app = create_gateway(dispatch, r"^https://test\.example$")
@@ -188,3 +188,60 @@ def test_a_call_the_gateway_stops_waiting_for_is_cancelled():
 
     # Left queued, these calls would be rendered for no one once the GPU starts.
     assert asyncio.run(scenario()) == (False, True, True)
+
+
+def test_each_render_session_has_a_gpu_of_its_own(gateway):
+    client, calls = gateway
+    body = request(Kit().scene())
+    for session in ("visitor-one", "visitor-two"):
+        assert (
+            client.post("/render", json=body, headers={"x-render-session": session}).status_code
+            == 200
+        )
+    data = b"geometry"
+    key = hashlib.sha256(data).hexdigest()
+    client.put(f"/blobs/{key}", content=data, headers={"x-render-session": "visitor-two"})
+    assert [call[4] for call in calls] == ["visitor-one", "visitor-two", "visitor-two"]
+    # A page from before sessions shares one; a malformed session is refused.
+    client.post("/render", json=body)
+    assert calls[-1][4] == "shared-session"
+    count = len(calls)
+    assert client.post("/render", json=body, headers={"x-render-session": "a/b"}).status_code == 400
+    assert len(calls) == count
+
+
+def test_sessions_beyond_the_limit_render_on_their_own(monkeypatch):
+    import fury_render.gateway as gateway_module
+
+    calls = []
+
+    async def dispatch(method, path, body, client, session):
+        calls.append(session)
+        return 200, {}, b"frame"
+
+    clock = [1000.0]
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock[0])
+    app = create_gateway(dispatch, r"^https://test\.example$", max_sessions=2)
+    body = request(Kit().scene())
+
+    def post(session):
+        return client.post("/render", json=body, headers={"x-render-session": session})
+
+    with TestClient(app) as client:
+        # A malformed request takes no place.
+        bad = client.post("/render", content=b"[]", headers={"x-render-session": "session-zz"})
+        assert bad.status_code == 400
+        assert post("session-aa").status_code == 200
+        assert post("session-bb").status_code == 200
+        # Both GPUs are taken: a third session is told so, without starting a GPU.
+        full = post("session-cc")
+        assert full.status_code == 503 and full.json()["full"] is True
+        assert calls == ["session-aa", "session-bb"]
+        # A session that has its GPU keeps it.
+        clock[0] += 100
+        assert post("session-aa").status_code == 200
+        # Once the other has been idle for two minutes, its place goes to the waiting session.
+        clock[0] += 30
+        assert post("session-cc").status_code == 200
+        assert post("session-bb").json()["full"] is True
+    assert calls == ["session-aa", "session-bb", "session-aa", "session-cc"]
