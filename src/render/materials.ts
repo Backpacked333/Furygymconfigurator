@@ -391,6 +391,8 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     interiorMaterials.add(m)
     if (interiorEnvironment) m.envNode = interiorEnvironment
   }
+  // Kept so offline renderers (scripts/blender) can rebuild the same surface from its description.
+  m.userData.spec = spec
   materials.set(key, m)
   return m
 }
