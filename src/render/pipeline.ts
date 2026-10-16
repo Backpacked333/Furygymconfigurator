@@ -26,8 +26,10 @@ import {
   ivec2,
   log,
   luminance,
+  int,
   max,
   metalness,
+  min,
   mix,
   mrt,
   normalView,
@@ -59,6 +61,8 @@ import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
 import { ssr } from 'three/addons/tsl/display/SSRNode.js'
 import { sss } from 'three/addons/tsl/display/SSSNode.js'
 import { traa } from 'three/addons/tsl/display/TRAANode.js'
+import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js'
+import { BLUR_SAMPLES, MAX_STREAK } from './motionBlur'
 import type { Quality } from './renderer'
 
 export type Pipeline = {
@@ -68,6 +72,11 @@ export type Pipeline = {
   settleFrames: number
   /** The latest linear HDR frame, before finishing; it holds still while nothing renders. */
   hdr: Texture
+  /**
+   * The motion blur's shutter (motionBlur.ts): 0.5 while the camera moves, 0 at rest, where the
+   * frame is exactly the unblurred one. Null on Lite, which has no velocity buffer.
+   */
+  shutter: { value: number } | null
 }
 
 /** Display-referred finishing: filmic tone mapping, a soft lens vignette, and dither. */
@@ -126,6 +135,7 @@ export function createPipeline(
       },
       settleFrames: 1,
       hdr: scenePass.getTexture('output'),
+      shutter: null,
     }
   }
 
@@ -242,9 +252,27 @@ export function createPipeline(
 
   const resolved = traa(lit, preDepth, preVelocity, camera)
   disposables.push(resolved)
-  pipeline.outputNode = finish(resolved)
-  // `?debug=ao|normal|contact|reflections` shows the occlusion, normal, contact-shadow, or
-  // screen-space reflection buffer for tuning.
+  const resolvedTexture = (
+    resolved as unknown as { getTextureNode: () => Node<'vec4'> }
+  ).getTextureNode()
+  // Motion blur, after the temporal resolve, along each pixel's own motion. three's velocity is the
+  // offset in normalized device coordinates since the frame before (VelocityNode: current minus
+  // previous clip xy / w, across -1..1 with y up); a texture coordinate runs across 0..1 with y
+  // down, so a streak of the shutter's share of that motion is velocity × (0.5, -0.5) × shutter.
+  const shutter = uniform(0)
+  const motion = preVelocity.xy.mul(vec2(0.5, -0.5))
+  const streak = motion.mul(shutter)
+  const capped = streak.mul(min(float(1), float(MAX_STREAK).div(max(streak.length(), 1e-6))))
+  // three r186's motionBlur adds its `n` taps to the centre one and divides by `n`, which brightens
+  // the picture by 1/n while it moves; scaled back here (motionBlur.test.ts watches for a fix).
+  const blurred = motionBlur(resolvedTexture, capped, int(BLUR_SAMPLES)).mul(
+    BLUR_SAMPLES / (BLUR_SAMPLES + 1),
+  )
+  // At rest the shutter is exactly 0 and the frame is the resolved one untouched.
+  pipeline.outputNode = finish(shutter.greaterThan(0).select(blurred, resolved))
+  // `?debug=ao|normal|contact|reflections|motion` shows the occlusion, normal, contact-shadow,
+  // screen-space reflection, or velocity buffer for tuning (motion: grey at rest, red for motion
+  // to the right, green for motion up, full strength at a twentieth of the screen per frame).
   const debug = new URLSearchParams(window.location.search).get('debug')
   if (debug === 'ao')
     pipeline.outputNode = vec4(vec3(occlusion.getTextureNode().sample(screenUV).r), 1)
@@ -252,12 +280,15 @@ export function createPipeline(
     pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
   if (debug === 'contact' && contactDebug) pipeline.outputNode = vec4(vec3(contactDebug), 1)
   if (debug === 'reflections' && reflectionNode) pipeline.outputNode = finish(reflectionNode)
+  if (debug === 'motion')
+    pipeline.outputNode = vec4(motion.mul(vec2(10, -10)).add(0.5), float(0.5), 1)
   return {
     render: () => pipeline.render(),
     dispose: () => disposables.forEach((d) => d.dispose()),
     settleFrames: quality === 'ultra' ? 40 : 28,
     hdr: (resolved as unknown as { getTextureNode: () => { value: Texture } }).getTextureNode()
       .value,
+    shutter,
   }
 }
 

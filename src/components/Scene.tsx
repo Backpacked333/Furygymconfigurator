@@ -23,14 +23,7 @@ import { Atmosphere } from './Atmosphere'
 import { InteriorProbe, SiteProbe } from './InteriorProbe'
 import { deckFront, roofTop } from '../render/envelope'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
-import { cameraFraming } from '../render/framing'
-import {
-  aspectClassOf,
-  galleryAngle,
-  galleryCamera,
-  type AngleId,
-  type GalleryCamera,
-} from '../render/gallery'
+import { aspectClassOf, galleryCamera, type AngleId, type GalleryCamera } from '../render/gallery'
 import { DAMPING, motionPixels, settleGlide } from '../render/motion'
 import { ORBIT_LIMITS } from '../render/orbit'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
@@ -116,11 +109,14 @@ function CameraRig({
   /** The direction of the front three-quarter view: the build's own. */
   direction: [number, number, number]
   autoRotate: boolean
-  /** The gallery angle on the stage, or last on it: the 360° view opens from its direction. */
+  /**
+   * The gallery angle on the stage, or last on it: the 360° view opens at its pose, and Reset view
+   * returns there.
+   */
   angle: AngleId
   /**
    * In the gallery the camera stands exactly where the angle's still is rendered from
-   * (gallery.ts), and the controls rest; in the 360° view it moves freely.
+   * (gallery.ts), and the controls rest; in the 360° view it moves freely from there.
    */
   gallery: boolean
 }) {
@@ -133,8 +129,6 @@ function CameraRig({
   const yaw = useRef(-1.25),
     pitch = useRef(0)
   const [dx, dy, dz] = direction
-  // The 360° view frames the build from the exterior angle it was opened at.
-  const [lx, ly, lz] = galleryAngle(angle).direction ?? direction
   const live = !gallery
   // Framing depends only on what changes the build's silhouette, not on every edit.
   const framingKey = JSON.stringify([
@@ -148,12 +142,13 @@ function CameraRig({
     c.addons.deck ? deckFront(c) : 0,
     c.addons.roof || c.addons.stairs ? roofTop(c) : 0,
   ])
-  const framingConfig = useRef(c)
-  framingConfig.current = c
-  // The gallery's pose: a pure function of the design, the angle and the stage's shape.
+  // The angle's pose: a pure function of the design, the angle and the stage's shape. The gallery
+  // stands the camera there; the 360° view starts there and Reset view returns there.
   const aspect = aspectClassOf(size.width, size.height)
-  const pose = gallery ? galleryCamera(c, angle, aspect, [dx, dy, dz]) : null
-  const poseKey = pose ? JSON.stringify(pose) : ''
+  const home = galleryCamera(c, angle, aspect, [dx, dy, dz])
+  const homeRef = useRef(home)
+  homeRef.current = home
+  const poseKey = gallery ? JSON.stringify(home) : ''
   // Before the frame after the commit, so no frame of a new angle is drawn from the old pose.
   useLayoutEffect(() => {
     if (!poseKey) return
@@ -172,19 +167,26 @@ function CameraRig({
     pitch.current = Math.asin(forward.y)
     invalidate()
   }, [camera, poseKey, invalidate])
+  /** The 360° view has taken over the camera from the gallery's pose. */
+  const entered = useRef(false)
   useEffect(() => {
-    if (!live) return
+    if (!live) {
+      entered.current = false
+      return
+    }
+    // Entering, the camera already stands at the still's pose and stays there: the 360° view
+    // opens on exactly the picture the still showed.
+    if (!entered.current) {
+      entered.current = true
+      return
+    }
+    // Reset view, a view switch, or a new silhouette (not every edit): back to the angle's pose.
+    const { position, target, fov } = homeRef.current
     const p = camera as PerspectiveCamera
-    const framing = cameraFraming(
-      framingConfig.current,
-      view,
-      [lx, ly, lz],
-      size.width / size.height,
-    )
-    p.fov = framing.fov
+    p.fov = fov
     p.updateProjectionMatrix()
-    targetPosition.current.set(...framing.position)
-    targetLook.current.set(...framing.target)
+    targetPosition.current.set(...position)
+    targetLook.current.set(...target)
     if (view === 'interior') {
       const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
       yaw.current = Math.atan2(-direction.x, -direction.z)
@@ -193,7 +195,7 @@ function CameraRig({
     moving.current = true
     stalled.current = 0
     invalidate()
-  }, [camera, size.width, size.height, framingKey, view, reset, lx, ly, lz, invalidate, live])
+  }, [camera, framingKey, view, reset, invalidate, live])
   useEffect(() => {
     const el = gl.domElement
     // In the gallery the canvas is a picture: it takes no focus, and drags do nothing.

@@ -16,6 +16,8 @@ import {
   aspectClassOf,
   galleryCamera,
   inScenery,
+  nearestAngle,
+  siteCheck,
   type AspectClass,
 } from './gallery'
 
@@ -29,7 +31,7 @@ const designs: [string, Config][] = [
   ...SIGNATURES.map((s): [string, Config] => [s.id, s.config]),
 ]
 const length = (v: number[]) => Math.hypot(...v)
-const minus = (a: number[], b: number[]) => a.map((v, i) => v - b[i])
+const minus = (a: number[], b: number[]) => a.map((v, i) => v - b[i]) as [number, number, number]
 
 describe('gallery angles', () => {
   it('are six outside and three in the room, the front three-quarter view first', () => {
@@ -146,6 +148,82 @@ describe('gallery angles', () => {
     expect(courtyard.position[2]).toBeGreaterThan(-34)
     expect(courtyard.fov).toBeGreaterThan(open.fov)
     expect(open.position[2]).toBeLessThan(courtyard.position[2])
+  })
+
+  it('see the whole build past the trees and over the planters of every setting', () => {
+    for (const { id: environment } of ENVIRONMENTS)
+      for (const [name, base] of designs) {
+        const config = { ...base, environment }
+        for (const aspect of ASPECTS)
+          for (const { id, group } of GALLERY_ANGLES) {
+            if (group !== 'exterior') continue
+            const site = siteCheck(config, galleryCamera(config, id, aspect))
+            const what = `${environment} ${name} ${id} ${aspect}`
+            expect(site.inCrown, what).toBe(false)
+            expect(site.buried, what).toBe(0)
+            // At most a corner seen through foliage (the roof-deck build behind the garden's trees).
+            expect(site.hidden, what).toBeLessThanOrEqual(0.34)
+          }
+      }
+    // The default design, in its own courtyard: every angle entirely clear.
+    for (const aspect of ASPECTS)
+      for (const { id, group } of GALLERY_ANGLES) {
+        if (group !== 'exterior') continue
+        expect(siteCheck(DEFAULT_CONFIG, galleryCamera(DEFAULT_CONFIG, id, aspect))).toEqual({
+          hidden: 0,
+          buried: 0,
+          inCrown: false,
+        })
+      }
+  })
+
+  it('look over the planters from behind, rather than through them from low down', () => {
+    const rear = galleryCamera(DEFAULT_CONFIG, 'rear', 'wide')
+    const ray = minus(rear.position, rear.target)
+    const elevation = (Math.asin(ray[1] / length(ray)) * 180) / Math.PI
+    expect(elevation).toBeGreaterThan(20)
+    expect(rear.position[2]).toBeLessThan(-20)
+  })
+
+  it('return from the 360° view to the angle nearest its camera', () => {
+    for (const [name, config] of designs)
+      for (const aspect of ASPECTS)
+        for (const { id, group } of GALLERY_ANGLES) {
+          const c = galleryCamera(config, id, aspect)
+          const pose = { position: c.position, forward: minus(c.target, c.position) }
+          expect(nearestAngle(config, group, pose, aspect), `${name} ${id} ${aspect}`).toBe(id)
+        }
+    // Orbited a little way round from the rear: still the rear.
+    const rear = galleryCamera(DEFAULT_CONFIG, 'rear', 'wide')
+    const turn = 0.2
+    const [x, y, z] = minus(rear.position, rear.target)
+    const turned = [
+      rear.target[0] + x * Math.cos(turn) + z * Math.sin(turn),
+      rear.target[1] + y,
+      rear.target[2] - x * Math.sin(turn) + z * Math.cos(turn),
+    ] as [number, number, number]
+    const away = { position: turned, forward: minus(rear.target, turned) }
+    expect(nearestAngle(DEFAULT_CONFIG, 'exterior', away, 'wide')).toBe('rear')
+    // Straight above the build: the view from above.
+    const above = {
+      position: [0, 80, 1] as [number, number, number],
+      forward: [0, -1, 0] as [number, number, number],
+    }
+    expect(nearestAngle(DEFAULT_CONFIG, 'exterior', above, 'wide')).toBe('top')
+    // Inside, turned round from the entry to look back the other way: the back view.
+    const entry = galleryCamera(DEFAULT_CONFIG, 'entry', 'wide')
+    const back = { position: entry.position, forward: minus(entry.position, entry.target) }
+    expect(nearestAngle(DEFAULT_CONFIG, 'interior', back, 'wide')).toBe('back')
+  })
+
+  it('keep the same camera through edits that do not move it', () => {
+    const later = { ...DEFAULT_CONFIG, time: 20, finish: 'graphite' as const, lights: false }
+    for (const { id } of GALLERY_ANGLES)
+      expect(galleryCamera(later, id, 'wide')).toEqual(galleryCamera(DEFAULT_CONFIG, id, 'wide'))
+    // A camera handed out is the caller's own.
+    const a = galleryCamera(DEFAULT_CONFIG, 'front', 'wide')
+    a.position[0] = 999
+    expect(galleryCamera(DEFAULT_CONFIG, 'front', 'wide').position[0]).not.toBe(999)
   })
 
   it("key the hero angle by the build's direction only when it is not the default", () => {

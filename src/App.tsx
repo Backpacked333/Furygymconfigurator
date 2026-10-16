@@ -10,26 +10,19 @@ import {
   type RefObject,
 } from 'react'
 import {
-  ArrowDownToLine,
   ArrowRight,
   Bookmark,
-  Camera,
   Check,
   ChevronDown,
   CircleHelp,
   Expand,
   ExternalLink,
   Eye,
-  Leaf,
   Maximize,
   Minus,
-  Pause,
-  Play,
   Plus,
   Redo2,
-  Rotate3d,
   RotateCcw,
-  Ruler,
   Share2,
   SlidersHorizontal,
   Undo2,
@@ -42,8 +35,9 @@ import { SceneLoadBoundary } from './components/SceneLoadBoundary'
 import { SceneLoading } from './components/SceneLoading'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import { RenderStatus } from './components/RenderStatus'
+import { StageToolbar } from './components/StageToolbar'
 import { Filmstrip, StillLayers } from './components/StillStage'
-import { stillLabel, useStillStage } from './components/useStillStage'
+import { stillLabel, useReducedMotion, useStillStage } from './components/useStillStage'
 import {
   DEFAULT_CAMERA,
   DEFAULT_CONFIG,
@@ -52,7 +46,6 @@ import {
   area,
   decodeConfig,
   distance,
-  environmentName,
   estimate,
   money,
   productName,
@@ -76,9 +69,11 @@ import {
   INTERIOR_ANGLE,
   TALL_MEDIA,
   galleryAngle,
+  nearestAngle,
   type AngleId,
   type AspectClass,
 } from './render/gallery'
+import { freezeLiveView, settledRuns, useSettledRuns } from './render/liveView'
 import { setPendingChoice, useStills } from './render/stillStatus'
 import { warmCloud } from './render/renderSession'
 import { sceneProgress, textureProgress } from './render/progress'
@@ -88,6 +83,10 @@ const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
 /** `?bench=1`: read once, as the panel is for a page opened to measure it. */
 const BENCH = benchEnabled()
+/** The crossfade between a still and the 360° view, either way. */
+const LIVE_FADE_MS = 300
+/** The longest the 360° view waits for its first settled frame before it shows anyway. */
+const LIVE_WAIT_MS = 2500
 
 export default function App() {
   const { config, encoded, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
@@ -107,11 +106,23 @@ export default function App() {
     [toast, setToast] = useState(initialNotice),
     [reset, setReset] = useState(0)
   const [autoRotate, setAutoRotate] = useState(false),
-    [photoMode, setPhotoMode] = useState(false),
-    [mobilePanel, setMobilePanel] = useState(true)
+    [mobilePanel, setMobilePanel] = useState(true),
+    [downloading, setDownloading] = useState(false)
   const [camera, setCamera] = useState<[number, number, number]>(DEFAULT_CAMERA)
   // The gallery of path-traced stills (the default), or the live 360° view.
   const [mode, setMode] = useState<'gallery' | 'live'>('gallery')
+  /**
+   * Entering the 360° view, the still stays over the canvas until the live view has drawn a
+   * settled frame, then fades ('lifting'). Leaving it, the live view's last frame is held as an
+   * image ('hold') until the still of the nearest angle is on the stage under it, then fades.
+   */
+  const [curtain, setCurtain] = useState<'still' | 'lifting' | null>(null)
+  const [freeze, setFreeze] = useState<'hold' | 'fading' | null>(null)
+  const freezeCanvas = useRef<HTMLCanvasElement>(null)
+  /** The live view's settle runs at the last switch of mode: the next one is of the new view. */
+  const settledAt = useRef(0)
+  const settled = useSettledRuns(curtain === 'still' || freeze === 'hold')
+  const reduced = useReducedMotion()
   const [angle, setAngle] = useState<AngleId>(DEFAULT_ANGLE)
   /** Where each view switch lands in the gallery: the angle last picked in it. */
   const lastAngles = useRef<Record<'exterior' | 'interior', AngleId>>({
@@ -122,7 +133,14 @@ export default function App() {
   const design = useMemo(() => configKey(config), [config])
   const change = useChange(config)
   const stills = useStills()
-  const stage = useStillStage({ design, angle, aspect, snapshot: stills })
+  // Under a held frame of the 360° view the still swaps in at once: the frame's fade is the one.
+  const stage = useStillStage({
+    design,
+    angle,
+    aspect,
+    snapshot: stills,
+    instant: freeze === 'hold',
+  })
   const gallery = mode === 'gallery'
   // The stage waits for a still of the visitor's design at their angle, which something renders.
   const stagePending = gallery && stills.source !== null && !stage.current
@@ -140,17 +158,84 @@ export default function App() {
         : null,
     )
   }, [stagePending, change])
-  /** Puts an angle on the stage, in the gallery. */
-  const pickAngle = (next: AngleId) => {
-    const group = galleryAngle(next).group
+  // The still in the 360° view's way lifts once the live view shows a settled frame (or after a
+  // while, on a device too slow to settle promptly).
+  useEffect(() => {
+    if (mode !== 'live' || curtain !== 'still') return
+    if (settled > settledAt.current) {
+      setCurtain('lifting')
+      return
+    }
+    const timer = setTimeout(() => setCurtain('lifting'), LIVE_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [mode, curtain, settled])
+  useEffect(() => {
+    if (curtain !== 'lifting') return
+    const timer = setTimeout(() => setCurtain(null), reduced ? 0 : LIVE_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [curtain, reduced])
+  // The held frame fades once the still of the angle is whole on the stage under it (or, with no
+  // stills to wait for, once the live view under it has settled at the angle).
+  const angleShown =
+    stage.state.shown?.design === `${design}|${aspect}` &&
+    stage.state.shown.angle === angle &&
+    !stage.state.fading
+  useEffect(() => {
+    if (freeze !== 'hold') return
+    if (angleShown || (stills.source === null && settled > settledAt.current)) setFreeze('fading')
+  }, [freeze, angleShown, stills.source, settled])
+  useEffect(() => {
+    if (freeze !== 'fading') return
+    const timer = setTimeout(() => setFreeze(null), reduced ? 0 : LIVE_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [freeze, reduced])
+  /** Opens the 360° view at the still's own pose; the still stays until the view has settled. */
+  const enterLive = () => {
+    if (view === 'plan' || mode === 'live') return
+    settledAt.current = settledRuns()
+    setCurtain(stage.state.shown && !freeze ? 'still' : null)
+    setFreeze(null)
+    setMode('live')
+  }
+  const leaving = useRef(false)
+  /**
+   * Back to the gallery, at `to` or the angle nearest where the 360° view's camera ended up. The
+   * view's last frame is held over the stage until that angle's still is there, so nothing of
+   * another angle, or a lesser image, shows meanwhile.
+   */
+  const leaveLive = async (to?: AngleId) => {
+    if (mode !== 'live' || leaving.current) return
+    leaving.current = true
+    const pose = freezeCanvas.current ? await freezeLiveView(freezeCanvas.current) : null
+    leaving.current = false
+    const group = to ? galleryAngle(to).group : view === 'interior' ? 'interior' : 'exterior'
+    const next =
+      to ??
+      (pose ? nearestAngle(staged.config, group, pose, aspect, camera) : lastAngles.current[group])
+    settledAt.current = settledRuns()
+    setFreeze(pose ? 'hold' : null)
+    setCurtain(null)
     lastAngles.current[group] = next
     setAngle(next)
     setView(group)
     setAutoRotate(false)
     setMode('gallery')
   }
+  /** Puts an angle on the stage, in the gallery. */
+  const pickAngle = (next: AngleId) => {
+    if (mode === 'live') {
+      void leaveLive(next)
+      return
+    }
+    const group = galleryAngle(next).group
+    lastAngles.current[group] = next
+    setAngle(next)
+    setView(group)
+    setAutoRotate(false)
+  }
   const frame = useRef<HTMLDivElement>(null)
   const box = useFitBox(frame, ASPECT_RATIO[aspect])
+  const fullscreen = useFullscreen(frame)
   const captureRef = useRef<(() => Promise<string>) | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
@@ -223,7 +308,6 @@ export default function App() {
         if (e.shiftKey) redo()
         else undo()
       }
-      if (e.key === 'Escape') setPhotoMode(false)
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -244,10 +328,13 @@ export default function App() {
     setReset((r) => r + 1)
     notify(`${build.name} applied. Every option stays editable; the build still requires a quote.`)
   }
-  const photo = async () => {
+  const download = async () => {
+    if (downloading) return
+    setDownloading(true)
     if (gallery && stills.source !== null)
       notify('Rendering a full-resolution image of this view. It takes up to a minute.')
     const image = await capture()
+    setDownloading(false)
     if (!image) {
       notify('Your scene is still getting ready. Try again in a moment.')
       return
@@ -261,9 +348,7 @@ export default function App() {
   const startingPrice = estimate(config).startingPrice,
     finish = FINISHES.find((f) => f.id === config.finish)!
   return (
-    <div
-      className={`app ${photoMode ? 'photo-mode' : ''} ${mobilePanel ? 'panel-open' : 'panel-closed'}`}
-    >
+    <div className={`app ${mobilePanel ? 'panel-open' : 'panel-closed'}`}>
       <a className="skip-link" href="#configuration">
         Skip to configuration
       </a>
@@ -314,60 +399,16 @@ export default function App() {
           className={`stage is-${mode} ${view === 'plan' ? 'is-plan' : ''}`}
           aria-label="Gym visualization"
         >
-          <div className="stage-frame" ref={frame}>
-            <div
-              className={`still-stage is-${aspect}${covered ? ' is-covered' : ''}`}
-              style={box ?? undefined}
-            >
-              <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
-                <SceneLoadBoundary onFallback={openPlan}>
-                  <Suspense fallback={<SceneLoading phase="engine" />}>
-                    <Scene
-                      active={view !== 'plan'}
-                      config={staged.config}
-                      view={sceneView}
-                      dimensions={dimensions}
-                      unit={unit}
-                      reset={reset}
-                      camera={camera}
-                      autoRotate={autoRotate}
-                      quality={staged.quality}
-                      trace={trace}
-                      mode={mode}
-                      angle={angle}
-                      covered={covered}
-                      onCaptureReady={onCaptureReady}
-                      onFallback={openPlan}
-                      onBackend={setBackend}
-                      onSlow={onSlow}
-                    />
-                  </Suspense>
-                </SceneLoadBoundary>
-              </div>
-              {gallery && <StillLayers stage={stage} label={stillLabel(angle)} />}
-              {gallery && view !== 'plan' && (
-                <RenderStatus
-                  pending={stagePending}
-                  swaps={stage.state.swaps}
-                  what={what}
-                  progress={progress}
-                />
-              )}
-              {livePreview && view !== 'plan' && (
-                <span className="live-preview-label">Live preview</span>
-              )}
-              <div className="stage-heading">
-                <span className="eyebrow">
-                  <span className="small-line" />{' '}
-                  {config.family === 'studio' ? 'THE S-SERIES COLLECTION' : 'CONTAINER GYMS'}
-                </span>
+          <div className="stage-header">
+            <div className="stage-heading">
+              <span className="eyebrow">
+                <span className="small-line" />{' '}
+                {config.family === 'studio' ? 'THE S-SERIES COLLECTION' : 'CONTAINER GYMS'}
+              </span>
+              <div className="stage-title">
                 <h1>
                   {config.family === 'studio' ? 'S' : 'C'}-{config.length}
-                  <span>
-                    Space to
-                    <br />
-                    become more.
-                  </span>
+                  <span>Space to become more.</span>
                 </h1>
                 <div className="studio-meta">
                   {area(config.length * 8, unit)}
@@ -376,159 +417,174 @@ export default function App() {
                   <i />
                   {distance(productHeight(config), unit)} high
                 </div>
-                {config.studioLayout !== 'single' && (
-                  <p className="custom-preview-note">
-                    Custom project requested · Single reference unit shown
-                  </p>
-                )}
               </div>
-              <div className="view-switch" role="group" aria-label="Camera views">
-                {(['exterior', 'interior', 'plan'] as const).map((v, i) => {
-                  const icons = [Expand, Eye, Maximize],
-                    Icon = icons[i]
-                  return (
-                    <button
-                      key={v}
-                      aria-pressed={view === v}
-                      className={view === v ? 'active' : ''}
-                      onClick={() => {
-                        setView(v)
-                        setAutoRotate(false)
-                        if (v === 'plan') setStep(2)
-                        else if (gallery) setAngle(lastAngles.current[v])
-                      }}
-                    >
-                      <Icon size={14} />
-                      <span>{v === 'plan' ? 'Floor plan' : v[0].toUpperCase() + v.slice(1)}</span>
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="stage-tools" aria-label="Scene controls">
-                <button
-                  className={mode === 'live' ? 'active' : ''}
-                  aria-label={mode === 'live' ? 'Back to the stills' : '360° view'}
-                  aria-pressed={mode === 'live'}
-                  disabled={view === 'plan'}
-                  onClick={() => {
-                    if (mode === 'live') {
-                      // Back to the still of the angle the 360° view started from, in the view
-                      // the visitor is in now.
-                      const group = view === 'interior' ? 'interior' : 'exterior'
-                      if (galleryAngle(angle).group !== group) setAngle(lastAngles.current[group])
-                      setAutoRotate(false)
-                      setMode('gallery')
-                    } else setMode('live')
-                  }}
-                >
-                  <Rotate3d size={18} />
-                  <span>{mode === 'live' ? 'Back to stills' : '360° View'}</span>
-                </button>
-                <span className="tool-divider" />
-                <button
-                  className={dimensions ? 'active' : ''}
-                  aria-label="Show dimensions"
-                  aria-pressed={dimensions}
-                  onClick={() => setDimensions(!dimensions)}
-                  disabled={view === 'plan' || gallery}
-                >
-                  <Ruler size={18} />
-                  <span>Dimensions</span>
-                </button>
-                <button
-                  aria-label="Reset camera"
-                  onClick={() => setReset((r) => r + 1)}
-                  disabled={view === 'plan' || gallery}
-                >
-                  <RotateCcw size={17} />
-                  <span>Reset view</span>
-                </button>
-                <button
-                  className={autoRotate ? 'active' : ''}
-                  aria-label={autoRotate ? 'Pause rotation' : 'Rotate automatically'}
-                  aria-pressed={autoRotate}
-                  disabled={view !== 'exterior' || gallery}
-                  onClick={() => setAutoRotate(!autoRotate)}
-                >
-                  {autoRotate ? <Pause size={17} /> : <Play size={17} />}
-                  <span>Auto rotate</span>
-                </button>
-                <span className="tool-divider" />
-                <button
-                  aria-label="Enter photo mode"
-                  onClick={() => {
-                    if (view === 'plan') setView('exterior')
-                    setPhotoMode(true)
-                    setMobilePanel(false)
-                  }}
-                >
-                  <Camera size={18} />
-                  <span>Photo mode</span>
-                </button>
-              </div>
-              {photoMode && (
-                <div className="photo-controls">
-                  <span>
-                    PHOTO MODE <small>Concept rendering</small>
-                  </span>
-                  <button onClick={photo}>
-                    <ArrowDownToLine size={16} /> Save image
+              {config.studioLayout !== 'single' && (
+                <p className="custom-preview-note">
+                  Custom project requested · Single reference unit shown
+                </p>
+              )}
+            </div>
+            <div className="stage-header-tools">
+              <div className="stage-header-row">
+                <div className="view-switch" role="group" aria-label="Camera views">
+                  {(['exterior', 'interior', 'plan'] as const).map((v, i) => {
+                    const icons = [Expand, Eye, Maximize],
+                      Icon = icons[i]
+                    return (
+                      <button
+                        key={v}
+                        aria-pressed={view === v}
+                        className={view === v ? 'active' : ''}
+                        onClick={() => {
+                          setView(v)
+                          setAutoRotate(false)
+                          if (v === 'plan') setStep(2)
+                          // The angle last picked inside or outside: in the gallery its still, in
+                          // the 360° view where the camera glides to.
+                          else setAngle(lastAngles.current[v])
+                        }}
+                      >
+                        <Icon size={14} />
+                        <span>{v === 'plan' ? 'Floor plan' : v[0].toUpperCase() + v.slice(1)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="history-controls" role="group" aria-label="History">
+                  <button aria-label="Undo last change" disabled={!canUndo} onClick={undo}>
+                    <Undo2 size={16} />
                   </button>
-                  <button
-                    aria-label="Exit photo mode"
-                    onClick={() => {
-                      setPhotoMode(false)
+                  <button aria-label="Redo last change" disabled={!canRedo} onClick={redo}>
+                    <Redo2 size={16} />
+                  </button>
+                </div>
+              </div>
+              {view !== 'plan' && (
+                <div className="scene-status">
+                  <span className="status-dot" />
+                  <strong>
+                    {mode === 'live' ? 'LIVE 3D' : livePreview ? 'LIVE PREVIEW' : 'PATH TRACED'}
+                  </strong>
+                  {backend && (mode === 'live' || livePreview) && (
+                    <span className="render-backend">
+                      {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
+                    </span>
+                  )}
+                  {gallery && !livePreview && (
+                    <span className="render-backend">
+                      {stills.source === 'local' ? 'This device' : 'Cycles'} · 256 samples
+                    </span>
+                  )}
+                  <span className="scene-note">
+                    {mode === 'live'
+                      ? view === 'interior'
+                        ? 'Drag to look around'
+                        : 'Drag to orbit · Scroll to zoom'
+                      : 'Concept visualization · Not manufacturer CAD'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="stage-body">
+            <div className="stage-frame" ref={frame}>
+              <div
+                className={`still-stage is-${aspect}${covered ? ' is-covered' : ''}`}
+                style={box ?? undefined}
+              >
+                <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
+                  <SceneLoadBoundary onFallback={openPlan}>
+                    <Suspense fallback={<SceneLoading phase="engine" />}>
+                      <Scene
+                        active={view !== 'plan'}
+                        config={staged.config}
+                        view={sceneView}
+                        dimensions={dimensions && mode === 'live'}
+                        unit={unit}
+                        reset={reset}
+                        camera={camera}
+                        autoRotate={autoRotate}
+                        quality={staged.quality}
+                        trace={trace}
+                        mode={mode}
+                        angle={angle}
+                        covered={covered}
+                        onCaptureReady={onCaptureReady}
+                        onFallback={openPlan}
+                        onBackend={setBackend}
+                        onSlow={onSlow}
+                      />
+                    </Suspense>
+                  </SceneLoadBoundary>
+                </div>
+                {(gallery || curtain) && (
+                  <StillLayers
+                    stage={stage}
+                    label={stillLabel(angle)}
+                    lifting={curtain === 'lifting'}
+                  />
+                )}
+                <canvas
+                  ref={freezeCanvas}
+                  className={`live-freeze${freeze ? ` is-${freeze}` : ''}`}
+                  aria-hidden="true"
+                />
+                {gallery && view !== 'plan' && (
+                  <RenderStatus
+                    pending={stagePending}
+                    swaps={stage.state.swaps}
+                    what={what}
+                    progress={progress}
+                  />
+                )}
+                {livePreview && !freeze && view !== 'plan' && (
+                  <span className="live-preview-label">Live preview</span>
+                )}
+                {view !== 'plan' && (mode === 'live' || (livePreview && !stagePending)) && (
+                  <SceneActivity updating={staged.updating} />
+                )}
+                <div className="sr-only" role="status" aria-live="polite">
+                  {mode === 'live'
+                    ? view === 'interior'
+                      ? '360° View. Drag, or focus the view and use the arrow keys, to look around.'
+                      : '360° View. Drag, or focus the view and use the arrow keys, to orbit.'
+                    : ''}
+                </div>
+                {view !== 'plan' && (
+                  <StageToolbar
+                    live={mode === 'live'}
+                    interior={view === 'interior'}
+                    config={config}
+                    onChange={setConfig}
+                    onMoreSettings={() => {
+                      setStep(3)
                       setMobilePanel(true)
                     }}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              )}
-              {view !== 'plan' && (mode === 'live' || (livePreview && !stagePending)) && (
-                <SceneActivity updating={staged.updating} />
-              )}
-              {view !== 'plan' && (
-                <div className="stage-bottom">
-                  <div className="scene-status">
-                    <span className="status-dot" />
-                    <strong>
-                      {mode === 'live' ? 'LIVE 3D' : livePreview ? 'LIVE PREVIEW' : 'PATH TRACED'}
-                    </strong>
-                    {backend && (mode === 'live' || livePreview) && (
-                      <span className="render-backend">
-                        {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
-                      </span>
-                    )}
-                    {gallery && !livePreview && (
-                      <span className="render-backend">
-                        {stills.source === 'local' ? 'This device' : 'Cycles'} · 256 samples
-                      </span>
-                    )}
-                    <span>Concept visualization · Not manufacturer CAD</span>
-                  </div>
-                  {mode === 'live' && (
-                    <div className="scene-hint">
-                      {view === 'interior'
-                        ? 'Drag to look around'
-                        : 'Drag to orbit · Scroll to explore'}
-                    </div>
-                  )}
-                  <button className="environment-quick" onClick={() => setStep(3)}>
-                    <Leaf size={14} />
-                    {environmentName(config.environment)}
-                    <ChevronDown size={13} />
-                  </button>
-                </div>
-              )}
-              <div className="history-controls">
-                <button aria-label="Undo last change" disabled={!canUndo} onClick={undo}>
-                  <Undo2 size={16} />
-                </button>
-                <button aria-label="Redo last change" disabled={!canRedo} onClick={redo}>
-                  <Redo2 size={16} />
-                </button>
+                    onToggleLive={() => (mode === 'live' ? void leaveLive() : enterLive())}
+                    dimensions={dimensions}
+                    onDimensions={() => setDimensions(!dimensions)}
+                    autoRotate={autoRotate}
+                    onAutoRotate={() => setAutoRotate(!autoRotate)}
+                    onReset={() => setReset((r) => r + 1)}
+                    onDownload={download}
+                    downloading={downloading}
+                    fullscreen={fullscreen}
+                    onFullscreen={() => toggleFullscreen(frame.current)}
+                  />
+                )}
               </div>
+            </div>
+            {view !== 'plan' && (
+              <Filmstrip
+                design={design}
+                angle={angle}
+                aspect={aspect}
+                snapshot={stills}
+                stagePending={stagePending}
+                onPick={pickAngle}
+              />
+            )}
+            <div className="stage-mobile-row">
               <button
                 className="mobile-toggle"
                 onClick={() => setMobilePanel(!mobilePanel)}
@@ -540,20 +596,10 @@ export default function App() {
                 {mobilePanel ? <Minus size={14} /> : <Plus size={14} />}
               </button>
             </div>
+            {view === 'plan' && (
+              <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
+            )}
           </div>
-          {view !== 'plan' && (
-            <Filmstrip
-              design={design}
-              angle={angle}
-              aspect={aspect}
-              snapshot={stills}
-              stagePending={stagePending}
-              onPick={pickAngle}
-            />
-          )}
-          {view === 'plan' && (
-            <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
-          )}
         </section>
         <div id="configuration" className="panel-wrapper">
           <ConfigPanel
@@ -570,10 +616,7 @@ export default function App() {
             traceSupported={backend === 'webgpu'}
             cloud={cloudUrl() !== null}
             notify={notify}
-            onPlan={() => {
-              setView('plan')
-              setPhotoMode(false)
-            }}
+            onPlan={() => setView('plan')}
             onSignature={signature}
           />
         </div>
@@ -763,6 +806,25 @@ function useFitBox(frame: RefObject<HTMLDivElement | null>, ratio: number) {
     return () => observer.disconnect()
   }, [frame, ratio])
   return size
+}
+
+/**
+ * Whether `target` is shown full screen; null where the browser cannot (an iPhone, an embed that
+ * does not allow it), so the stage offers no button that would do nothing.
+ */
+function useFullscreen(target: RefObject<HTMLElement | null>) {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    const change = () => setOn(!!target.current && document.fullscreenElement === target.current)
+    document.addEventListener('fullscreenchange', change)
+    return () => document.removeEventListener('fullscreenchange', change)
+  }, [target])
+  return document.fullscreenEnabled ? on : null
+}
+
+function toggleFullscreen(target: HTMLElement | null) {
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+  else void target?.requestFullscreen().catch(() => {})
 }
 
 /**

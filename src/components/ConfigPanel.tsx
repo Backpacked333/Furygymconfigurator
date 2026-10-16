@@ -10,7 +10,6 @@ import {
   Home,
   Layers3,
   Leaf,
-  Moon,
   Plus,
   ScanLine,
   Sun,
@@ -58,6 +57,7 @@ import {
   productFamily,
 } from '../lib/products'
 import { Elevation } from './Elevation'
+import { TimeOfDay } from './TimeOfDay'
 
 const STEPS = ['Space', 'Exterior', 'Interior', 'Setting']
 
@@ -755,30 +755,11 @@ export default function ConfigPanel({
                 )
               })}
             </div>
-            <div className="section-label separated">
-              Chase the light{' '}
-              <span>
-                {Math.floor(c.time)}:{String(Math.round((c.time % 1) * 60)).padStart(2, '0')}
-              </span>
-            </div>
-            <input
-              className="time-slider"
-              type="range"
-              min="6"
-              max="21"
-              step="0.25"
-              value={c.time}
-              aria-label="Time of day"
-              onChange={(e) => onChange({ ...c, time: Number(e.target.value) })}
+            <TimeOfDay
+              label="Chase the light"
+              time={c.time}
+              onChange={(time) => onChange({ ...c, time })}
             />
-            <div className="time-labels">
-              <span>
-                <Sun size={13} /> Morning
-              </span>
-              <span>
-                <Moon size={13} /> After dark
-              </span>
-            </div>
             <Toggle
               label="Architectural lighting"
               detail="A warm welcome, any time of day."

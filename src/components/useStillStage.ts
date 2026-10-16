@@ -25,18 +25,21 @@ export function useReducedMotion() {
 /**
  * The gallery stage's state: which still is on screen, which one is decoding to replace it, and
  * whether the live canvas under them is covered. `design` is the visitor's (stillKey.ts
- * configKey), `snapshot` what the 3D view has rendered (stillStatus.ts).
+ * configKey), `snapshot` what the 3D view has rendered (stillStatus.ts). `instant` swaps without
+ * a crossfade: something else covers the stage and makes the one visible transition.
  */
 export function useStillStage({
   design,
   angle,
   aspect,
   snapshot,
+  instant = false,
 }: {
   design: string
   angle: AngleId
   aspect: AspectClass
   snapshot: StillsSnapshot
+  instant?: boolean
 }) {
   const [state, dispatch] = useReducer(stageReducer, EMPTY_STAGE)
   const reduced = useReducedMotion()
@@ -54,14 +57,15 @@ export function useStillStage({
       layer: { design: wanted, angle, tier: offeredTier, url: offeredUrl },
     })
   }, [offeredUrl, offeredTier, wanted, angle])
-  // One crossfade per swap; with reduced motion, a cut.
+  // One crossfade per swap; with reduced motion, or under something covering the stage, a cut.
+  const cut = reduced || instant
   useEffect(() => {
     if (!state.fading) return
     if (state.swaps === 1) bench.mark('firstStill')
     const swap = state.swaps
-    const timer = setTimeout(() => dispatch({ type: 'faded', swap }), reduced ? 0 : FADE_MS)
+    const timer = setTimeout(() => dispatch({ type: 'faded', swap }), cut ? 0 : FADE_MS)
     return () => clearTimeout(timer)
-  }, [state.fading, state.swaps, reduced])
+  }, [state.fading, state.swaps, cut])
   return {
     state,
     dispatch,

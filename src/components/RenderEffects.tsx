@@ -58,6 +58,8 @@ import { FRAME_BEGIN, backendOf, beginFrame } from '../render/renderer'
 import { invalidateShadows, refreshShadows } from '../render/shadows'
 import { measuredProgress, sceneProgress, textureProgress } from '../render/progress'
 import { setStills } from '../render/stillStatus'
+import { MotionShutter } from '../render/motionBlur'
+import { liveSettled, setFreezer, type LivePose } from '../render/liveView'
 
 /**
  * Camera motion below OrbitControls' own change threshold (squared distance and quaternion terms of
@@ -114,7 +116,8 @@ async function pngOf(blob: Blob) {
 /**
  * Drives the frame. In the 360° view (`mode` live) the TSL raster pipeline renders on demand and
  * keeps drawing for a short settle window after each change, so temporal anti-aliasing, AO and GI
- * accumulate; no tracer runs there.
+ * accumulate; no tracer runs there. While its camera moves, High and Ultra blur each frame along
+ * its motion (motionBlur.ts); the frame it settles on has no blur at all.
  *
  * In the gallery the stage shows path-traced stills (stills.ts) over this canvas, which stays
  * mounted, hidden, and draws only what the stills need: the raster frame the exposure meter reads,
@@ -184,6 +187,12 @@ export function RenderEffects({
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lookRef = useRef(look)
   const modeRef = useRef(mode)
+  /** The 360° view's motion blur, from the camera's motion frame to frame. */
+  const shutter = useRef(new MotionShutter()).current
+  /** Canvases waiting for the live view's next frame (liveView.ts freezeLiveView). */
+  const freezes = useRef<{ target: HTMLCanvasElement; resolve: (pose: LivePose | null) => void }[]>(
+    [],
+  )
   const bufferSize = useRef(new Vector2()).current
   const meterMatrix = useRef(new Matrix4()).current
   const meterScale = useRef(new Vector3()).current
@@ -354,11 +363,13 @@ export function RenderEffects({
     stills.current?.session.setLocalAvailable(tracer !== null)
   }, [tracer, stillsOn])
   // The 360° view stands the stills down: nothing new is asked for, and the canvas is redrawn.
+  // Its camera was placed there, not moved: no blur on its first frames.
   useEffect(() => {
     stills.current?.session.setActive(mode === 'gallery')
+    shutter.cut()
     changed.current = true
     invalidate()
-  }, [mode, stillsOn, invalidate])
+  }, [mode, stillsOn, invalidate, shutter])
 
   // Any edit to the design redraws the view, from the start of a settle run.
   useEffect(() => {
@@ -400,9 +411,11 @@ export function RenderEffects({
         !producer ||
         producer.session.snapshot().source === null
       ) {
+        const pipe = pipeline.current
+        if (pipe?.shutter) pipe.shutter.value = 0
         beginFrame(renderer)
         refreshShadows(scene)
-        pipeline.current?.render()
+        pipe?.render()
         return Promise.resolve(renderer.domElement.toDataURL('image/png'))
       }
       // The current angle's export once it is in; the still on the stage when the wait runs out.
@@ -418,6 +431,22 @@ export function RenderEffects({
     // A capture must never read the canvas of a renderer that is gone.
     return () => onCaptureReady(null)
   }, [renderer, scene, onCaptureReady, invalidate])
+
+  // Leaving the 360° view holds its last frame while the still it returns to is on its way.
+  useEffect(() => {
+    const waiting = freezes.current
+    setFreezer(
+      (target) =>
+        new Promise<LivePose | null>((resolve) => {
+          waiting.push({ target, resolve })
+          invalidate()
+        }),
+    )
+    return () => {
+      setFreezer(null)
+      waiting.splice(0).forEach(({ resolve }) => resolve(null))
+    }
+  }, [invalidate])
 
   useEffect(
     () => () => {
@@ -565,10 +594,13 @@ export function RenderEffects({
     if (job && usable && !local.current) local.current = { job, phase: 'settle', began: 0 }
 
     const last = lastView.current
-    const moved =
+    const travelled =
       last.position.distanceToSquared(camera.position) > STILL ||
-      8 * (1 - Math.abs(last.quaternion.dot(camera.quaternion))) > STILL ||
-      !lastProjection.current.equals(camera.projectionMatrix)
+      8 * (1 - Math.abs(last.quaternion.dot(camera.quaternion))) > STILL
+    const reframed = !lastProjection.current.equals(camera.projectionMatrix)
+    const moved = travelled || reframed
+    // A new lens or a resized canvas, with the camera where it was, is a cut, not motion.
+    if (reframed && !travelled) shutter.cut()
     if (moved || changed.current) {
       last.position.copy(camera.position)
       last.quaternion.copy(camera.quaternion)
@@ -582,6 +614,9 @@ export function RenderEffects({
         local.current.phase = 'settle'
       }
     }
+    // The 360° view's shutter: open on a frame the camera moved for, then let go. Never in the
+    // gallery, whose frames are the meter's and the tracer's starting points.
+    if (pipe.shutter) pipe.shutter.value = gallery ? 0 : shutter.frame(now, travelled)
 
     const tracing = local.current
     if (tracing && usable && producer) {
@@ -617,6 +652,31 @@ export function RenderEffects({
           pipe.render()
         }
         invalidate()
+      }
+    }
+
+    // The live view's next frame for the stage to hold, drawn sharp, with where the camera stands.
+    if (freezes.current.length) {
+      if (pipe.shutter) pipe.shutter.value = 0
+      beginFrame(renderer)
+      refreshShadows(scene)
+      pipe.render()
+      const canvas = renderer.domElement
+      const forward = camera.getWorldDirection(new Vector3())
+      const pose: LivePose = {
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        forward: [forward.x, forward.y, forward.z],
+      }
+      for (const { target, resolve } of freezes.current.splice(0)) {
+        target.width = canvas.width
+        target.height = canvas.height
+        const context = target.getContext('2d')
+        if (!context) {
+          resolve(null)
+          continue
+        }
+        context.drawImage(canvas, 0, 0)
+        resolve(pose)
       }
     }
 
@@ -658,9 +718,12 @@ export function RenderEffects({
     sceneProgress.drawn()
     bench.mark('firstRaster', now)
     settle.current--
+    // A frame still blurred is not the frame the view rests on: one more, until the blur is gone.
+    if (settle.current <= 0 && (pipe.shutter?.value ?? 0) > 0) settle.current = 1
     if (settle.current > 0) invalidate()
     else {
       fresh.current = true
+      liveSettled()
       // The local tracer starts from the settled view, on the next frame.
       if (local.current) invalidate()
     }

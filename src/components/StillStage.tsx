@@ -7,15 +7,18 @@ import type { useStillStage } from './useStillStage'
 /**
  * The stills on the stage: the one shown, the one it replaced fading out under it, and the next
  * one decoding out of sight. Each is one <img> from decoding to fading out (keyed by address), so
- * the swap paints an image the browser has already decoded.
+ * the swap paints an image the browser has already decoded. Entering the 360° view they stay over
+ * the live canvas until it has settled, then lift off it together (`lifting`).
  */
 export function StillLayers({
   stage,
   label,
+  lifting = false,
 }: {
   stage: ReturnType<typeof useStillStage>
   /** What the still shows, for its alternative text. */
   label: string
+  lifting?: boolean
 }) {
   const { state, dispatch } = stage
   const pending = state.pending
@@ -39,7 +42,7 @@ export function StillLayers({
   if (state.shown) layers.push([state.shown, state.fading ? 'is-shown is-entering' : 'is-shown'])
   if (pending) layers.push([pending, 'is-pending'])
   return (
-    <div className="still-layers">
+    <div className={`still-layers${lifting ? ' is-lifting' : ''}`}>
       {layers.map(([layer, role]) => (
         <img
           key={layer.url}
