@@ -22,6 +22,9 @@ export function motionPixels(
   fov: number,
   height: number,
 ) {
+  // Exactly zero for a camera that has not moved: a unit quaternion's dot with itself can round
+  // to just under 1, which would read as a never-ending sliver of motion.
+  if (fromPosition.equals(toPosition) && fromQuaternion.equals(toQuaternion)) return 0
   const rotation = 2 * Math.acos(Math.min(1, Math.abs(fromQuaternion.dot(toQuaternion))))
   const translation = fromPosition.distanceTo(toPosition) / Math.max(distance, 1e-3)
   return ((rotation + translation) * height) / ((fov * Math.PI) / 180)

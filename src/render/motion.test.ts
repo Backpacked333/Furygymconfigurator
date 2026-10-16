@@ -98,6 +98,22 @@ describe('camera rest after an orbit', () => {
     expect(motionPixels(p, q, p, q, 10, 32, HEIGHT)).toBe(0)
   })
 
+  it('reads a camera that has not moved as exactly still, whatever its orientation', () => {
+    // Orientations whose dot with themselves rounds to just under 1.
+    const camera = new PerspectiveCamera()
+    const target = new Vector3(0, 4, 0)
+    let roundsBelowOne = 0
+    for (let i = 0; i < 48; i++) {
+      camera.position.set(40 * Math.sin(i * 0.13 + 0.1), 12, 40 * Math.cos(i * 0.13 + 0.1))
+      camera.lookAt(target)
+      const q = camera.quaternion.clone()
+      if (q.dot(q) < 1) roundsBelowOne++
+      const p = camera.position.clone()
+      expect(motionPixels(p, q, p.clone(), q.clone(), 40, 34, HEIGHT)).toBe(0)
+    }
+    expect(roundsBelowOne).toBeGreaterThan(0)
+  })
+
   it('classifies glide, tail, and stop', () => {
     expect(glideStep(3)).toBe('glide')
     expect(glideStep(0.3)).toBe('tail')
