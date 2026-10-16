@@ -234,5 +234,5 @@ def validate_request(body: dict) -> dict:
         # "image": linear half floats for the browser to finish; "frame": a finished WebP.
         "output": output,
         "finish": {"exposure": exposure, "gain": gain, "glow": glow},
-        "priority": None if priority is None else max(0, min(9, priority)),
+        "priority": None if priority is None else max(0, min(31, priority)),
     }

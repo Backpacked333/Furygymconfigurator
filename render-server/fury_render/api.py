@@ -7,9 +7,12 @@
                           409 {"missing": [...]} when blobs must be uploaded first,
                           409 {"superseded": true} when the same session asked for a newer view
 
-One worker renders at a time. A session's queued requests are dropped once it asks for a newer
-view, so an orbiting visitor never waits behind views they have already left. Queued renders go
-by "kind": a quick preview first, then the visitor's view, then pre-rendered orbit views.
+One worker renders at a time. A session's queued requests are dropped the moment it asks for a
+newer view (they answer 409 without waiting for a worker, and give their queue places back at
+once), as is a request for an older view arriving after it, so an orbiting visitor never waits
+behind views they have already left and stale work never holds a queue place. Queued renders go
+by "kind": a quick preview first, then the visitor's view, then pre-rendered orbit views; or by an
+explicit "priority" (0-31, the browser's ring distance from the visitor's view).
 """
 
 from __future__ import annotations
@@ -226,15 +229,30 @@ class BlobStore:
             self.total -= size
 
 
-# Queue order by request kind (lower first); requests may also give a "priority" of 0-9.
+# Queue order by request kind (lower first). A request may give a "priority" of 0-31 instead: the
+# browser sends how many ring steps a spin frame is from the visitor's view (protocol.py clamps it).
 PRIORITY = {"preview": 0, "view": 1, "orbit": 5}
 
 
-def frame_digest(request: dict) -> str:
-    """Names a finished frame by everything that determines it."""
+def frame_version(info: dict) -> dict:
+    """What a stored frame depends on besides its request: the renderer and finishing that made it.
+
+    `info` is the worker's (worker.py). Without this, a frame finished by an older bloom, or
+    denoised on the other device, would come back from the cache as if it were current.
+    """
+    return {
+        "format": FRAME_FORMAT,
+        "blender": str(info.get("blender", "")),
+        "denoise": str(info.get("denoise", "")),
+        "finishing": finishing.FINISHING_VERSION,
+    }
+
+
+def frame_digest(request: dict, version: dict) -> str:
+    """Names a finished frame by everything that determines it, `frame_version` included."""
     keys = ("scene", "camera", "width", "height", "samples", "threshold", "time_limit", "finish")
     record = {k: request[k] for k in keys}
-    record["format"] = FRAME_FORMAT
+    record["version"] = version
     text = json.dumps(record, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -358,6 +376,9 @@ class Service:
         self.queue = RenderQueue(count)
         self.waiting = 0
         self.latest: dict[str, int] = {}
+        # Each session's requests waiting for a worker: the future a newer request completes to
+        # drop them (drop_superseded), with the seq each asked for.
+        self.pending: dict[str, dict[asyncio.Future, int]] = {}
         self.renders = Bucket(
             self.settings.renders_per_minute / 60, self.settings.renders_per_minute / 2
         )
@@ -374,6 +395,25 @@ class Service:
     def info(self) -> dict:
         return self.workers[0].info
 
+    @property
+    def version(self) -> dict:
+        """The frame cache's version record of the first worker, as it is running now."""
+        return frame_version(self.info)
+
+    @property
+    def versions(self) -> list[dict]:
+        """Every worker's version record, once each.
+
+        One, unless a worker has fallen back to CPU denoising by itself (Worker.crashed): then a
+        frame is named by the worker that made it, and one made by any of them is current.
+        """
+        records: list[dict] = []
+        for worker in self.workers:
+            record = frame_version(worker.info)
+            if record not in records:
+                records.append(record)
+        return records
+
     async def missing(self, scene: dict) -> list[str]:
         # Always upload from the browser; never fetch caller-supplied URLs on the server.
         return [key for key, _ in required_blobs(scene) if not self.store.has(key)]
@@ -389,9 +429,8 @@ class Service:
         if priority is None:
             priority = PRIORITY.get(kind, 1)
         frame = request["output"] == "frame"
-        key = frame_digest(request) if frame else None
-        if key:
-            cached = self.frames.read(key)
+        for version in self.versions if frame else []:
+            cached = self.frames.read(frame_digest(request, version))
             if cached is not None:
                 (key_light,) = FRAME_KEY.unpack_from(cached)
                 return self.frame_response(
@@ -403,6 +442,11 @@ class Service:
             if len(self.latest) > 10000:
                 self.latest.clear()
             self.latest[session] = max(seq, self.latest.get(session, seq))
+            self.drop_superseded(session)
+            if self.latest[session] > seq:
+                # Delivered after a newer view's request (the gateway's calls are not ordered):
+                # stale on arrival, it takes no place at all.
+                return JSONResponse({"superseded": True}, status_code=409)
         missing = await self.missing(request["scene"])
         if missing:
             return JSONResponse({"missing": missing}, status_code=409)
@@ -410,9 +454,17 @@ class Service:
             return JSONResponse({"error": "busy"}, status_code=503)
         queued = time.perf_counter()
         self.waiting += 1
+        superseded = asyncio.get_running_loop().create_future()
+        if session:
+            self.pending.setdefault(session, {})[superseded] = seq
         try:
             # Waiting for a worker can be given up: the request leaves the queue.
-            index = await self.queue.acquire(priority)
+            index = await self.turn_or_superseded(priority, superseded)
+            if index is None:
+                return JSONResponse({"superseded": True}, status_code=409)
+            # On a worker now: a newer view can only end it through on_worker's check, so that it
+            # is never dropped, and its place given back, twice.
+            self.forget(session, superseded)
 
             async def on_worker() -> Response:
                 out = os.path.join(tempfile.gettempdir(), f"fury-{uuid.uuid4().hex}.bin")
@@ -454,7 +506,10 @@ class Service:
                         data, key_light = await asyncio.get_running_loop().run_in_executor(
                             self.finisher, finish_frame, out, request["finish"]
                         )
-                        self.frames.put(key, FRAME_KEY.pack(key_light) + data)
+                        self.frames.put(
+                            frame_digest(request, frame_version(worker.info)),
+                            FRAME_KEY.pack(key_light) + data,
+                        )
                         return self.frame_response(
                             data,
                             request,
@@ -490,7 +545,58 @@ class Service:
             # whoever asks for it next, the browser's retry included.
             return await uninterrupted(on_worker())
         finally:
-            self.waiting -= 1
+            # A dropped request gave its place back as it was dropped.
+            if not superseded.done():
+                self.waiting -= 1
+                self.forget(session, superseded)
+
+    def forget(self, session: str, waiter: asyncio.Future):
+        """Takes a request off the session's waiting ones; nothing if it is not among them."""
+        waiters = self.pending.get(session)
+        if waiters is not None:
+            waiters.pop(waiter, None)
+            if not waiters:
+                del self.pending[session]
+
+    def drop_superseded(self, session: str):
+        """Releases the session's queued requests that its newest one has made stale.
+
+        They answer 409 at once instead of holding a queue place until a worker gets to them: a
+        Cycles render in progress cannot be interrupted, so that could be a while. Their places
+        are given back here, before the newer request asks for one, as they would otherwise
+        count toward max_queue until each has resumed.
+        """
+        latest = self.latest[session]
+        for waiter, waiter_seq in list(self.pending.get(session, {}).items()):
+            if waiter_seq < latest:
+                self.forget(session, waiter)
+                self.waiting -= 1
+                waiter.set_result(None)
+
+    async def turn_or_superseded(self, priority: int, superseded: asyncio.Future) -> int | None:
+        """Waits for a worker's turn, unless the session asks for a newer view first.
+
+        Returns the worker, or None once superseded. A turn still waited for is given up, and
+        RenderQueue passes it on; one granted in that same instant, or as the caller went away, is
+        released here.
+        """
+        acquire = asyncio.ensure_future(self.queue.acquire(priority))
+        try:
+            await asyncio.wait({acquire, superseded}, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            self.give_up(acquire)
+            raise
+        if acquire.done():
+            # Superseded in the same instant: on_worker's check answers 409 and releases the turn.
+            return acquire.result()
+        self.give_up(acquire)
+        return None
+
+    def give_up(self, acquire: asyncio.Future):
+        if not acquire.done():
+            acquire.cancel()
+        elif not acquire.cancelled() and acquire.exception() is None:
+            self.queue.release(acquire.result())
 
     @staticmethod
     def frame_response(data: bytes, request: dict, headers: dict) -> Response:
@@ -548,6 +654,7 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
             "device": info.get("device"),
             "gpus": info.get("gpus", []),
             "denoise": info.get("denoise"),
+            "blender": info.get("blender"),
             "workers": len(service.workers),
             "queue": service.waiting,
         }

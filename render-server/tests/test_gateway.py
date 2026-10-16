@@ -1,6 +1,8 @@
+import asyncio
 import gzip
 import hashlib
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -204,6 +206,8 @@ def test_each_render_session_has_a_gpu_of_its_own(gateway):
     assert calls[-1][4] == "shared-session"
     count = len(calls)
     assert client.post("/render", json=body, params={"session": "a/b"}).status_code == 400
+    # The renderer kept running is the gateway's to route through, not a page's to name.
+    assert client.post("/render", json=body, params={"session": "shared-warm"}).status_code == 400
     assert len(calls) == count
 
 
@@ -218,7 +222,8 @@ def test_sessions_beyond_the_limit_render_on_their_own(monkeypatch):
 
     clock = [1000.0]
     monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock[0])
-    app = create_gateway(dispatch, r"^https://test\.example$", max_sessions=2)
+    # A GPU's minute of idle tail, and a session's place for a minute longer.
+    app = create_gateway(dispatch, r"^https://test\.example$", max_sessions=2, idle_seconds=60)
     body = request(Kit().scene())
 
     def post(session):
@@ -242,3 +247,224 @@ def test_sessions_beyond_the_limit_render_on_their_own(monkeypatch):
         assert post("session-cc").status_code == 200
         assert post("session-bb").json()["full"] is True
     assert calls == ["session-aa", "session-bb", "session-aa", "session-cc"]
+
+
+def settled(calls, count):
+    """Waits for dispatches made in the background, after a response, on the test client's loop."""
+    for _ in range(400):
+        if len(calls) >= count:
+            break
+        time.sleep(0.005)
+    return len(calls)
+
+
+def test_warm_starts_the_session_s_gpu_without_waiting_for_it(gateway):
+    client, calls = gateway
+    response = client.get("/warm", params={"session": "visitor-one"})
+    assert response.status_code == 202
+    assert response.json() == {"warming": True, "renderer": "own"}
+    assert response.headers["cache-control"] == "no-store"
+    assert settled(calls, 1) == 1
+    assert calls[0] == ("GET", "/health", b"", "testclient", "visitor-one")
+    # Once its renderer has answered, asking again starts nothing more.
+    assert client.get("/warm", params={"session": "visitor-one"}).status_code == 202
+    # A malformed or reserved session never reaches a GPU, and the gateway's own health check never
+    # starts one.
+    assert client.get("/warm", params={"session": "a/b"}).status_code == 400
+    assert client.get("/warm", params={"session": "shared-warm"}).status_code == 400
+    assert client.get("/health").json() == {"ok": True, "service": "gateway"}
+    time.sleep(0.02)
+    assert len(calls) == 1
+    # The page asks from its own origin.
+    preflight = client.options(
+        "/warm",
+        headers={"Origin": "https://test.example", "Access-Control-Request-Method": "GET"},
+    )
+    assert preflight.status_code == 200
+    assert "GET" in preflight.headers["access-control-allow-methods"]
+
+
+def test_warm_is_rate_limited_and_takes_a_place_like_a_render(monkeypatch):
+    import fury_render.api as api
+    import fury_render.gateway as gateway_module
+
+    clock = [1000.0]
+    monkeypatch.setattr(api.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock[0])
+    calls = []
+
+    async def dispatch(method, path, body, client, session):
+        calls.append((method, path, session))
+        return 200, {}, b"{}"
+
+    app = create_gateway(dispatch, r"^https://test\.example$", max_sessions=1, idle_seconds=60)
+    body = request(Kit().scene())
+    with TestClient(app) as client:
+
+        def warm(session):
+            return client.get("/warm", params={"session": session})
+
+        def post(session):
+            return client.post("/render", json=body, params={"session": session})
+
+        assert warm("session-aa").status_code == 202
+        # The only place is taken: a second session is told so, and no GPU starts for it.
+        full = warm("session-bb")
+        assert full.status_code == 503 and full.json()["full"] is True
+        assert post("session-bb").json()["full"] is True
+        assert settled(calls, 1) == 1 and calls == [("GET", "/health", "session-aa")]
+        # Six a minute per client, whatever they were answered (the clock stands still).
+        for _ in range(4):
+            assert warm("session-aa").status_code == 202
+        assert warm("session-aa").status_code == 429
+        assert warm("session-cc").status_code == 429
+        # Warming refreshes the place, as a render would, and once the GPU's idle tail has
+        # passed it starts the container again.
+        clock[0] += 100
+        assert warm("session-aa").status_code == 202
+        assert settled(calls, 2) == 2
+        clock[0] += 30
+        assert post("session-bb").json()["full"] is True
+        assert post("session-aa").status_code == 200
+        # Once the place has been idle, it goes to the waiting session.
+        clock[0] += 130
+        assert post("session-bb").status_code == 200
+    assert calls == [
+        ("GET", "/health", "session-aa"),
+        ("GET", "/health", "session-aa"),
+        ("POST", "/render", "session-aa"),
+        ("POST", "/render", "session-bb"),
+    ]
+
+
+def test_a_warming_session_s_place_runs_from_its_renderer_s_answer(monkeypatch):
+    """The GPU's idle tail starts when its container is up, a cold start after the /warm call."""
+    import fury_render.gateway as gateway_module
+
+    clock = [1000.0]
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock[0])
+    calls, booted = [], [False]
+
+    async def dispatch(method, path, body, client, session):
+        while not booted[0]:
+            await asyncio.sleep(0.005)
+        calls.append((method, path, session))
+        return 200, {}, b"{}"
+
+    app = create_gateway(dispatch, r"^https://test\.example$", max_sessions=1, idle_seconds=60)
+    body = request(Kit().scene())
+    with TestClient(app) as client:
+        assert client.get("/warm", params={"session": "session-aa"}).status_code == 202
+        # A slow cold start: the container answers 100 s after the call.
+        clock[0] += 100
+        booted[0] = True
+        assert settled(calls, 1) == 1
+        time.sleep(0.02)
+        # 130 s after the call, 30 s after the answer: the GPU is on, so the place is held.
+        clock[0] += 30
+        full = client.post("/render", json=body, params={"session": "session-bb"})
+        assert full.status_code == 503 and full.json()["full"] is True
+        clock[0] += 100
+        assert (
+            client.post("/render", json=body, params={"session": "session-bb"}).status_code == 200
+        )
+    assert calls == [("GET", "/health", "session-aa"), ("POST", "/render", "session-bb")]
+
+
+def test_a_renderer_kept_running_answers_until_the_session_s_own_is_up():
+    calls, booted = [], [False]
+
+    async def dispatch(method, path, body, client, session):
+        if path == "/health":
+            # The session's own container is still starting.
+            while not booted[0]:
+                await asyncio.sleep(0.005)
+        calls.append((method, path, session))
+        return 200, {"x-cache": "miss"}, b"frame"
+
+    app = create_gateway(dispatch, r"^https://test\.example$", warm=True)
+    body = request(Kit().scene())
+    data = b"geometry"
+    key = hashlib.sha256(data).hexdigest()
+    with TestClient(app) as client:
+        first = client.post(
+            "/render",
+            json=body,
+            params={"session": "visitor-one"},
+            headers={"Origin": "https://test.example"},
+        )
+        assert first.status_code == 200 and first.content == b"frame"
+        assert first.headers["x-fury-renderer"] == "shared" and first.headers["x-cache"] == "miss"
+        # The browser's bench panel may read which renderer answered.
+        assert "x-fury-renderer" in first.headers["access-control-expose-headers"]
+        upload = client.put(f"/blobs/{key}", content=data, params={"session": "visitor-one"})
+        assert upload.headers["x-fury-renderer"] == "shared"
+        assert [call[2] for call in calls] == ["shared-warm", "shared-warm"]
+        booted[0] = True
+        assert settled(calls, 3) == 3 and calls[-1] == ("GET", "/health", "visitor-one")
+        later = client.post("/render", json=body, params={"session": "visitor-one"})
+        assert later.headers["x-fury-renderer"] == "own"
+        assert calls[-1] == ("POST", "/render", "visitor-one")
+        # Another session starts the same way.
+        other = client.post("/render", json=body, params={"session": "visitor-two"})
+        assert other.headers["x-fury-renderer"] == "shared"
+        assert ("POST", "/render", "shared-warm") in calls[-2:]
+
+
+def test_a_session_s_readiness_ends_before_its_gpu_s_idle_tail(monkeypatch):
+    """Its own renderer answers until it may be stopping; then the one kept running does again."""
+    import fury_render.gateway as gateway_module
+
+    clock = [1000.0]
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock[0])
+    calls = []
+
+    async def dispatch(method, path, body, client, session):
+        calls.append((method, path, session))
+        return 200, {}, b"frame"
+
+    # A minute of idle tail: ready for half of it, as that is more than a minute less.
+    app = create_gateway(dispatch, r"^https://test\.example$", warm=True, idle_seconds=60)
+    body = request(Kit().scene())
+    with TestClient(app) as client:
+
+        def post():
+            return client.post("/render", json=body, params={"session": "visitor-one"})
+
+        def warm():
+            return client.get("/warm", params={"session": "visitor-one"})
+
+        assert post().headers["x-fury-renderer"] == "shared"
+        assert settled(calls, 2) == 2 and ("GET", "/health", "visitor-one") in calls
+        assert post().headers["x-fury-renderer"] == "own"
+        clock[0] += 29
+        # Each answer of its own renderer renews its readiness.
+        assert post().headers["x-fury-renderer"] == "own"
+        clock[0] += 31
+        # The container may be switching off: the renderer kept running answers, and its own is
+        # asked for /health again.
+        assert post().headers["x-fury-renderer"] == "shared"
+        assert settled(calls, 6) == 6 and calls[-2:].count(("GET", "/health", "visitor-one")) == 1
+        assert post().headers["x-fury-renderer"] == "own"
+        # /warm after a break starts it again too, instead of trusting a stale readiness.
+        clock[0] += 31
+        assert warm().status_code == 202
+        assert settled(calls, 8) == 8 and calls[-1] == ("GET", "/health", "visitor-one")
+        assert post().headers["x-fury-renderer"] == "own"
+
+
+def test_without_a_renderer_kept_running_every_request_goes_to_the_session_s_own():
+    calls = []
+
+    async def dispatch(method, path, body, client, session):
+        calls.append((method, path, session))
+        return 200, {}, b"frame"
+
+    app = create_gateway(dispatch, r"^https://test\.example$", warm=False)
+    body = request(Kit().scene())
+    with TestClient(app) as client:
+        for _ in range(2):
+            response = client.post("/render", json=body, params={"session": "visitor-one"})
+            assert response.headers["x-fury-renderer"] == "own"
+        time.sleep(0.02)
+    assert calls == [("POST", "/render", "visitor-one")] * 2
