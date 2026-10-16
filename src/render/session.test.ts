@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { Scene, Texture, PerspectiveCamera } from 'three/webgpu'
+import { Scene, Texture, PerspectiveCamera, Vector3 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CloudSession } from './cloud'
 import type { PathTraceSession, TraceView } from './pathtrace'
@@ -23,10 +23,11 @@ function fakeLocal() {
   }
 }
 
-function fakeCloud(warm: boolean) {
+function fakeCloud(warm: boolean, cached = false) {
   const image = new Texture()
   const cloud = {
     client: { warm },
+    hasCached: vi.fn(() => cached),
     onArrive: null as (() => Texture | null) | null,
     arrived: false,
     failed: false,
@@ -98,6 +99,23 @@ describe('TraceSession', () => {
     expect(session.view().to).not.toBe(local.shown)
     expect(session.state).toBe('converged')
     expect(session.ready(384)).toBe(true)
+  })
+
+  it('shows a pre-rendered view without tracing locally, even once the GPU is off', () => {
+    const local = fakeLocal()
+    const cloud = fakeCloud(false, true)
+    const session = new TraceSession(
+      local as unknown as PathTraceSession,
+      cloud as unknown as CloudSession,
+    )
+    const orbit = { target: new Vector3(0, 4, 0) }
+    session.begin(...args(), 1024, orbit)
+    expect(cloud.begin).toHaveBeenCalledWith(...args().map(() => expect.anything()), orbit)
+    expect(local.begin).not.toHaveBeenCalled()
+    cloud.arrive()
+    session.step()
+    expect(local.begin).not.toHaveBeenCalled()
+    expect(session.source).toBe('cloud')
   })
 
   it('falls back to this device when the cloud render fails', () => {

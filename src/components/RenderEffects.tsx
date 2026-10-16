@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Matrix4, type WebGPURenderer } from 'three/webgpu'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import type { Config, View } from '../lib/config'
 import type { SkyLook } from '../lib/visuals'
 import {
@@ -21,7 +22,7 @@ import {
 import type { Quality } from '../render/quality'
 import { backendOf } from '../render/renderer'
 import { TraceSession } from '../render/session'
-import { setTraceStatus } from '../render/traceStatus'
+import { setPrerenderProgress, setTraceStatus } from '../render/traceStatus'
 
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
 const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
@@ -66,6 +67,8 @@ export function RenderEffects({
   onSlow?: () => void
 }) {
   const { gl, scene, camera, invalidate } = useThree()
+  // The exterior OrbitControls (CameraRig): their target is the centre of pre-rendered orbits.
+  const controls = useThree((state) => state.controls) as unknown as OrbitControlsImpl | null
   const renderer = gl as unknown as WebGPURenderer
   const webgpu = backendOf(renderer) === 'webgpu'
   const pipeline = useRef<Pipeline | null>(null)
@@ -129,6 +132,7 @@ export function RenderEffects({
         return
       }
       const cloud = cloudAvailable ? new CloudSession(renderer, remote!) : null
+      if (cloud) cloud.onProgress = setPrerenderProgress
       if (!tracer && !cloud) return
       created = new TraceSession(tracer, cloud)
       setSession(created)
@@ -142,6 +146,7 @@ export function RenderEffects({
       changed.current = true
       invalidate()
       setTraceStatus({ state: 'off', source: 'local', samples: 0, target: 0, exporting: false })
+      setPrerenderProgress(null)
     }
   }, [renderer, localAvailable, cloudAvailable, remote, invalidate])
 
@@ -256,7 +261,13 @@ export function RenderEffects({
     if (rested.current && tracer && fresh.current) {
       rested.current = false
       mode.current = 'trace'
-      tracer.begin(scene, camera, lookRef.current, active.hdr, REST_SAMPLES)
+      // Resting exterior views sit on the orbit grid (CameraRig snaps to it), so they can be
+      // pre-rendered; not while auto-rotating.
+      const orbit =
+        view === 'exterior' && controls && !controls.autoRotate
+          ? { target: controls.target.clone() }
+          : null
+      tracer.begin(scene, camera, lookRef.current, active.hdr, REST_SAMPLES, orbit)
       report(true)
       invalidate()
       return

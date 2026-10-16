@@ -84,12 +84,13 @@ def test_bad_inputs_and_render_throttle(gateway):
     headers = login(client)
     assert client.post("/render", headers=headers, content=b"[]").status_code == 400
     assert client.put("/blobs/" + "a" * 64, headers=headers, content=b"wrong").status_code == 400
-    for _ in range(2):
+    # The malformed request above took one of the burst of 8.
+    for _ in range(7):
         assert (
             client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 200
         )
     assert client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 429
-    assert len(calls) == 2
+    assert len(calls) == 7
 
 
 def test_bounded_gzip_and_concatenated_members():

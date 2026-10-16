@@ -3,6 +3,7 @@
     GET  /health          device and queue state
     PUT  /blobs/{sha256}  upload a blob (raw or gzip); stored by the hash of its raw content
     POST /render          render a view; 200 with a linear half-float image (protocol.py),
+                          gzip transfer-encoded, or a gzip file with "transfer": "file",
                           409 {"missing": [...]} when blobs must be uploaded first,
                           409 {"superseded": true} when the same session asked for a newer view
 
@@ -270,11 +271,14 @@ class Service:
         finally:
             self.waiting -= 1
         stats = result["stats"]
+        # As a gzip file the browser keeps the image compressed (it caches pre-rendered views);
+        # as gzip transfer encoding it arrives inflated.
+        as_file = body.get("transfer") == "file"
         return Response(
             image,
-            media_type="application/octet-stream",
+            media_type="application/gzip" if as_file else "application/octet-stream",
             headers={
-                "Content-Encoding": "gzip",
+                **({} if as_file else {"Content-Encoding": "gzip"}),
                 "X-Image-Format": IMAGE_FORMAT,
                 "X-Image-Width": str(stats["width"]),
                 "X-Image-Height": str(stats["height"]),

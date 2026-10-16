@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import tempfile
 
 import numpy as np
@@ -80,6 +81,23 @@ def test_new_view_reuses_the_scene(client):
     assert r.status_code == 200
     # nothing to rebuild: only the camera moved
     assert int(r.headers["x-prepare-ms"]) < 200
+
+
+def test_file_transfer_stays_compressed(client):
+    """Pre-rendered views are cached compressed, so they come as a gzip file, not inflated."""
+    kit = Kit()
+    scene = kit.scene()
+    upload_missing(client, kit, client.post("/render", json=request(scene)))
+    inflated = client.post("/render", json=request(scene, seq=2))
+    r = client.post("/render", json={**request(scene, seq=3), "transfer": "file"})
+    assert r.status_code == 200, r.text
+    assert "content-encoding" not in r.headers
+    assert r.headers["content-type"] == "application/gzip"
+    assert r.content[:2] == b"\x1f\x8b" and len(r.content) < len(inflated.content)
+    width = int(r.headers["x-image-width"])
+    height = int(r.headers["x-image-height"])
+    image = unpack_image(gzip.decompress(r.content), width, height)[..., :3]
+    assert np.isfinite(image).all() and image.mean() > 0.1
 
 
 def test_material_edit_changes_the_image(client):

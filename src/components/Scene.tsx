@@ -16,6 +16,15 @@ import { deckFront, roofTop } from '../render/addons'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { cameraFraming } from '../render/framing'
 import { DAMPING, motionPixels, settleGlide } from '../render/motion'
+import {
+  ORBIT_LIMITS,
+  blendPosition,
+  poseAt,
+  posePosition,
+  snapPose,
+  type GridPose,
+} from '../render/orbit'
+import { cloudUrl } from '../render/traceStatus'
 import { setMaxAnisotropy } from '../render/materials'
 
 class GraphicsBoundary extends Component<
@@ -73,24 +82,35 @@ function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
     </group>
   )
 }
+/** How long the camera takes to ease onto the orbit grid once it comes to rest. */
+const SNAP_MS = 280
+
 function CameraRig({
   config: c,
   view,
   reset,
   direction,
   autoRotate,
+  snap,
 }: {
   config: Config
   view: View
   reset: number
   direction: [number, number, number]
   autoRotate: boolean
+  /** Rest the exterior camera on the orbit grid, whose views the cloud pre-renders (orbit.ts). */
+  snap: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
   const controls = useRef<OrbitControlsImpl>(null)
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
     moving = useRef(false)
+  const snapRef = useRef(snap)
+  snapRef.current = snap && view === 'exterior'
+  /** The ease onto a grid pose in progress, and the pose the camera last rested on. */
+  const snapping = useRef<{ from: Vector3; pose: GridPose; start: number } | null>(null)
+  const lastPose = useRef<GridPose | null>(null)
   const yaw = useRef(-1.25),
     pitch = useRef(0)
   const [dx, dy, dz] = direction
@@ -120,6 +140,14 @@ function CameraRig({
     p.updateProjectionMatrix()
     targetPosition.current.set(...framing.position)
     targetLook.current.set(...framing.target)
+    snapping.current = null
+    lastPose.current = null
+    if (snapRef.current)
+      posePosition(
+        targetLook.current,
+        snapPose(targetPosition.current, targetLook.current, null),
+        targetPosition.current,
+      )
     if (view === 'interior') {
       const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
       yaw.current = Math.atan2(-direction.x, -direction.z)
@@ -156,6 +184,7 @@ function CameraRig({
         return
       e.preventDefault()
       moving.current = false
+      snapping.current = null
       if (view === 'interior') {
         yaw.current += e.key === 'ArrowLeft' ? 0.12 : e.key === 'ArrowRight' ? -0.12 : 0
         pitch.current = Math.max(
@@ -212,9 +241,43 @@ function CameraRig({
     )
     last.position.copy(camera.position)
     last.quaternion.copy(camera.quaternion)
-    if (!orbit?.enabled || pixels === 0 || last.dragging || moving.current || orbit.autoRotate)
+    if (!orbit?.enabled || last.dragging || moving.current || orbit.autoRotate || !snapRef.current)
+      snapping.current = null
+    if (!orbit?.enabled || last.dragging || moving.current || orbit.autoRotate) return
+    const easing = snapping.current
+    if (easing) {
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const t = reduced ? 1 : Math.min(1, (performance.now() - easing.start) / SNAP_MS)
+      if (t < 1)
+        camera.position.copy(
+          blendPosition(orbit.target, easing.from, easing.pose, 1 - (1 - t) ** 3),
+        )
+      else {
+        posePosition(orbit.target, easing.pose, camera.position)
+        snapping.current = null
+        lastPose.current = easing.pose
+      }
+      orbit.update()
+      invalidate()
       return
-    if (settleGlide(orbit, pixels)) invalidate()
+    }
+    if (pixels > 0) {
+      if (settleGlide(orbit, pixels)) invalidate()
+      return
+    }
+    // At rest: ease onto the nearest grid pose, whose view the cloud may have pre-rendered.
+    if (!snapRef.current) return
+    const pose = poseAt(camera.position, orbit.target)
+    if (pose) {
+      lastPose.current = pose
+      return
+    }
+    snapping.current = {
+      from: camera.position.clone(),
+      pose: snapPose(camera.position, orbit.target, lastPose.current),
+      start: performance.now(),
+    }
+    invalidate()
   })
   useFrame((_, delta) => {
     if (!moving.current) return
@@ -222,11 +285,19 @@ function CameraRig({
       ? 1
       : 1 - Math.exp(-delta * 5)
     camera.position.lerp(targetPosition.current, t)
-    if (controls.current && view !== 'interior') {
-      controls.current.target.lerp(targetLook.current, t)
-      controls.current.update()
-    } else camera.lookAt(targetLook.current)
-    if (camera.position.distanceTo(targetPosition.current) < 0.015) moving.current = false
+    const orbit = controls.current && view !== 'interior' ? controls.current : null
+    if (orbit) orbit.target.lerp(targetLook.current, t)
+    if (
+      camera.position.distanceTo(targetPosition.current) < 0.015 &&
+      (!orbit || orbit.target.distanceTo(targetLook.current) < 0.015)
+    ) {
+      // Land exactly, so the view is the same each time (and on the orbit grid when snapping).
+      camera.position.copy(targetPosition.current)
+      orbit?.target.copy(targetLook.current)
+      moving.current = false
+    }
+    if (orbit) orbit.update()
+    else camera.lookAt(targetLook.current)
     invalidate()
   })
   return (
@@ -235,15 +306,13 @@ function CameraRig({
       makeDefault
       enabled={view !== 'interior'}
       enablePan={false}
-      minDistance={12}
-      maxDistance={170}
-      minPolarAngle={0.1}
-      maxPolarAngle={Math.PI / 2 - 0.015}
+      {...ORBIT_LIMITS}
       autoRotate={autoRotate && view === 'exterior'}
       autoRotateSpeed={0.45}
       dampingFactor={DAMPING}
       onStart={() => {
         moving.current = false
+        snapping.current = null
         glide.current.dragging = true
         if (controls.current) controls.current.dampingFactor = DAMPING
       }}
@@ -287,6 +356,8 @@ export default function Scene({
     () => skyLook(config.environment, config.time),
     [config.environment, config.time],
   )
+  // Cloud renders can be pre-rendered around the orbit, if resting views sit on its grid.
+  const snap = useMemo(() => trace && cloudUrl() !== null, [trace])
   return (
     <GraphicsBoundary onFallback={onFallback}>
       <Canvas
@@ -312,6 +383,7 @@ export default function Scene({
           reset={reset}
           direction={camera}
           autoRotate={autoRotate}
+          snap={snap}
         />
         <InteriorProbe config={config} quality={quality} />
         <RenderEffects

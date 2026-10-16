@@ -66,7 +66,8 @@ def create_gateway(
         ],
     )
     login_limit = Bucket(10 / 60, 5)
-    render_limit = Bucket(12 / 60, 3)
+    # Enough for a visitor plus the orbit views pre-rendered around them (one GPU renders them).
+    render_limit = Bucket(40 / 60, 8)
     upload_limit = Bucket((1024 << 20) / 3600, MAX_BLOB_BYTES * 4)
 
     def signature(payload: str) -> str:

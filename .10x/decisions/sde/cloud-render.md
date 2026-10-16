@@ -116,3 +116,57 @@ Raised with the owner, not changed:
 - An expired session replaces the app with the PIN screen.
 - The global render limit is 12 a minute (burst 3), counting missing-blob retries.
 - A short PIN can be brute-forced at 10 attempts a minute.
+
+## Follow-up: orbit views without re-rendering
+
+Asked: "how can we reach maximum resolution when everything is traced and you move it around and
+it doesn't need to rerun and retrace everything every slight movement". A path-traced image is
+only valid from the exact camera pose it was rendered for, so the options were: (A) more GPUs per
+render, (B) pre-render the views around the resting one, or (C) reproject the traced image while
+moving. Owner chose **B**.
+
+1. **Resting views sit on a grid** (`src/render/orbit.ts`): 48 azimuths (7.5°), elevation steps
+   of 5°, and zoom steps of 6% between OrbitControls' limits. When the exterior camera comes to
+   rest it eases onto the nearest pose over 280 ms (at most 3.75° of azimuth, 2.5° of elevation,
+   or 3% of zoom). A small deliberate move (an arrow key, a short drag) always advances at least
+   one step instead of snapping back. Framing moves land exactly on a pose. Snapping applies only
+   with a cloud renderer, in the exterior view, and not while auto-rotating.
+2. **The ring around a resting view is pre-rendered** (`CloudSession` in `src/render/cloud.ts`).
+   - Once the visitor's view is on screen, the other 47 azimuths at the same elevation and zoom
+     render one at a time, nearest first, at the same resolution (full device pixels, up to
+     3200 px on the long edge).
+   - Pre-renders use their own server session, so a newer view from the visitor never supersedes
+     them and they never supersede it. The visitor's own view goes first: pre-rendering waits
+     while it is in flight, and a view that is being pre-rendered is joined, not rendered twice.
+   - Views are keyed by design signature, orbit target, elevation, zoom, field of view, and image
+     size. A design edit stops the ring, since its views would show the old design.
+   - Pre-rendering pauses while the tab is hidden or after 3 minutes without input, and stops
+     after three failures in a row.
+3. **Images stay compressed in the browser.** The client asks for `"transfer": "file"`: the server
+   returns the packed image as a gzip file instead of gzip transfer encoding, which the browser
+   would inflate (a 1920×1200 view is about 18 MB inflated). A memory cache of 320 MB keeps about
+   60 views; decoding one takes about 50 ms.
+4. **A cached view never starts the local tracer**, even after the GPU has switched off.
+5. The gateway's render limit went from 12 a minute (burst 3) to 40 (burst 8), so a visitor plus
+   their pre-renders fit.
+
+Rejected for now:
+
+- **A (several GPUs per container):** Cycles can split one image across devices, but the
+  scaling is sub-linear and it multiplies the hourly cost. It does not help movement at all.
+- **C (reprojection while moving):** warping the traced image to nearby poses with a depth
+  buffer shows disocclusion holes and wrong reflections, and the image still has to be
+  re-rendered when the camera stops.
+- **Pre-rendering every elevation and zoom:** 48 × 16 × 46 poses. One ring around where the
+  visitor actually is covers the common case (orbiting sideways).
+
+Cost: a full ring is 47 extra renders while the visitor is active, estimated at a few seconds
+each on the L40S; not yet measured there.
+
+Verification:
+
+- Vitest: grid round trips, nearest and nudged snapping, azimuth wrap-around, OrbitControls'
+  camera matrix, ring order, ring keys, LRU cache, gzip-file decoding, and that a cached view
+  never starts the local tracer.
+- pytest: the `"transfer": "file"` response is a gzip file without `Content-Encoding`, smaller
+  than the inflated one, and decodes to the same image; the gateway throttle at the new burst.

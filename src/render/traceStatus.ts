@@ -50,6 +50,30 @@ export function useTraceStatus() {
   return useSyncExternalStore(subscribe, traceStatus, traceStatus)
 }
 
+/** Orbit views pre-rendered in the cloud around the resting view; null when none are. */
+export type PrerenderProgress = { ready: number; total: number } | null
+let prerender: PrerenderProgress = null
+const prerenderListeners = new Set<() => void>()
+
+export function setPrerenderProgress(next: PrerenderProgress) {
+  if (next?.ready === prerender?.ready && next?.total === prerender?.total) return
+  prerender = next
+  prerenderListeners.forEach((listener) => listener())
+}
+
+function subscribePrerender(listener: () => void) {
+  prerenderListeners.add(listener)
+  return () => {
+    prerenderListeners.delete(listener)
+  }
+}
+
+const prerenderProgress = () => prerender
+
+export function usePrerenderProgress() {
+  return useSyncExternalStore(subscribePrerender, prerenderProgress, prerenderProgress)
+}
+
 /** `?trace=0` or `?trace=1` overrides the default, which follows the device's quality tier. */
 export function requestedTrace(search = window.location.search): boolean | null {
   const value = new URLSearchParams(search).get('trace')

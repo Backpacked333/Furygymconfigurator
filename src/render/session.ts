@@ -1,6 +1,6 @@
 import type { Camera, Scene, Texture } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
-import type { CloudSession } from './cloud'
+import type { CloudSession, OrbitContext } from './cloud'
 import { REST_SAMPLES, type PathTraceSession, type TraceView } from './pathtrace'
 import type { TraceSource, TraceState } from './traceStatus'
 
@@ -16,6 +16,7 @@ export const LOCAL_AFTER_MS = 6000
  * - Otherwise (it may be starting from cold, or failed) the local tracer starts at once and the
  *   cloud image crossfades over whatever it has reached.
  * - Once the cloud image is on screen the local tracer stops, keeping its samples for reuse.
+ * - A view the cloud has already rendered (orbit.ts) is shown without tracing locally at all.
  */
 export class TraceSession {
   readonly local: PathTraceSession | null
@@ -37,13 +38,22 @@ export class TraceSession {
     return this.local?.tracer.target ?? this.cloud!.view().to
   }
 
-  begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture, target = REST_SAMPLES) {
+  /** `orbit` is where the exterior camera orbits, for views pre-rendered in the cloud. */
+  begin(
+    scene: Scene,
+    camera: Camera,
+    look: SkyLook,
+    raster: Texture,
+    target = REST_SAMPLES,
+    orbit: OrbitContext = null,
+  ) {
     this.args = [scene, camera, look, raster, target]
     this.began = performance.now()
     this.localStarted = false
     this.localPaused = false
-    this.cloud?.begin(scene, camera, look, raster)
-    if (!this.cloud || !this.cloud.client.warm) this.startLocal()
+    const cached = this.cloud?.hasCached(scene, camera, look, orbit) ?? false
+    this.cloud?.begin(scene, camera, look, raster, orbit)
+    if (!this.cloud || (!this.cloud.client.warm && !cached)) this.startLocal()
   }
 
   private startLocal() {

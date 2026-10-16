@@ -8,11 +8,13 @@ import {
   InterleavedBufferAttribute,
   PerspectiveCamera,
 } from 'three/webgpu'
+import { gzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   cameraRecord,
   CloudClient,
   cloudUrl,
+  decodeFrame,
   encodeGeometry,
   encodeInstances,
   encodeSky,
@@ -138,6 +140,20 @@ describe('rendered images', () => {
 
   it('reject truncated data', () => {
     expect(() => unpackImage(new Uint8Array(10), 3, 2)).toThrow()
+  })
+
+  it('decode from the gzip file kept in the view cache, or already inflated', async () => {
+    const packed = Uint8Array.from(
+      atob('ADg8PED89AAW4BMAPj4+PPzCPQD0MrgAAAAAAAAAAABAGQAAAAAAAAAA7wBmZt4A'),
+      (c) => c.charCodeAt(0),
+    )
+    const expected = Array.from(unpackImage(packed, 3, 2))
+    const stats = { queueMs: 0, prepareMs: 0, renderMs: 0, totalMs: 0, device: '', denoise: '' }
+    for (const bytes of [new Uint8Array(gzipSync(packed)), packed]) {
+      const texture = await decodeFrame({ bytes, width: 3, height: 2, stats })
+      expect(Array.from(texture.image.data as Uint16Array)).toEqual(expected)
+      expect([texture.image.width, texture.image.height]).toEqual([3, 2])
+    }
   })
 })
 

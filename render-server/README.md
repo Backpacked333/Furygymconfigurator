@@ -68,8 +68,10 @@ replacing the in-memory limits with shared durable counters.
 
 - One GPU container, one active Blender render, max 15 seconds of Cycles sampling per render.
   Scene preparation, denoising, cold starts, packing and idle time are additional billable work.
-- Gateway: global 10 PIN attempts/minute (burst 5), 12 render requests/minute (burst 3),
-  1 GiB of uploads/hour (burst 512 MiB). Missing-blob retries count as render requests.
+- Gateway: global 10 PIN attempts/minute (burst 5), 40 render requests/minute (burst 8),
+  1 GiB of uploads/hour (burst 512 MiB). Missing-blob retries count as render requests. The
+  render limit leaves room for the orbit views the browser pre-renders around a resting view
+  (one at a time, on a session of its own, so the visitor's newer views never drop them).
 - These token buckets are in-process and reset when the gateway restarts/scales down. They reduce
   abuse but are **not durable quotas or a hard budget**. Use a strong access code for public use;
   a short shared PIN is guessable and is suitable only for a controlled preview.
@@ -77,7 +79,9 @@ replacing the in-memory limits with shared durable counters.
   Texture URLs are never fetched by the server, preventing redirects/private-network SSRF.
 - GPU failure falls back to local tracing where supported. WebGL retains the raster image.
 - Rendered images stay gzip-compressed from the GPU method through the gateway to the browser
-  (`fury_render/rpc.py`). At 1920×1200 that is about 4.9 MB instead of 18.4 MB raw.
+  (`fury_render/rpc.py`). At 1920×1200 that is about 4.9 MB instead of 18.4 MB raw. The browser
+  asks for `"transfer": "file"`, which sends the image as a gzip file rather than with
+  `Content-Encoding: gzip`, so it stays compressed in the browser's cache of orbit views too.
 - A tiny 640×480/128-sample scene passed through the deployed PIN gateway to L40S/OptiX:
   660 ms rendering, 1.85 s HTTP round trip with a warm worker after blob uploads. That run
   predates GPU denoising and compressed transfer. It is not a full configurator benchmark:

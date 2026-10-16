@@ -23,7 +23,22 @@ import {
   type WebGPURenderer,
 } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
-import { environmentTexture, lookKey, preparePathTraceScene, sunLight } from './pathtrace'
+import {
+  environmentTexture,
+  lookKey,
+  preparePathTraceScene,
+  sceneSignature,
+  sunLight,
+} from './pathtrace'
+import {
+  AZIMUTH_STEPS,
+  ViewCache,
+  poseAt,
+  poseMatrix,
+  ringKey,
+  ringOrder,
+  type GridPose,
+} from './orbit'
 import { createExposureMeter } from './pipeline'
 import { cloudUrl, type TraceState } from './traceStatus'
 import { cloudAuthorization, lockCloud } from './cloudAccess'
@@ -586,8 +601,11 @@ export function cameraRecord(camera: Camera): CloudCamera {
   return { matrix: Array.from(camera.matrixWorld.elements), fov, near: c.near, far: c.far }
 }
 
-export type CloudImage = {
-  texture: DataTexture
+/** A rendered view as the server sent it: gzip-compressed packed half floats (protocol.py). */
+export type CloudFrame = {
+  bytes: Uint8Array
+  width: number
+  height: number
   stats: {
     queueMs: number
     prepareMs: number
@@ -598,6 +616,26 @@ export type CloudImage = {
     denoise: string
   }
 }
+
+async function inflate(bytes: Uint8Array) {
+  // A server that sent the image with Content-Encoding arrives already inflated.
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes
+  const stream = new Response(bytes as BodyInit).body!.pipeThrough(new DecompressionStream('gzip'))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
+/** The texture of a rendered view: linear half floats, rows top down. */
+export async function decodeFrame(frame: CloudFrame) {
+  const data = unpackImage(await inflate(frame.bytes), frame.width, frame.height)
+  const texture = new DataTexture(data, frame.width, frame.height, RGBAFormat, HalfFloatType)
+  texture.minFilter = texture.magFilter = NearestFilter
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+  return texture
+}
+
+/** "view" renders what the visitor looks at; "orbit" pre-renders views around it. */
+export type RenderKind = 'view' | 'orbit'
 
 /** Client of one render server. */
 export class CloudClient {
@@ -639,24 +677,30 @@ export class CloudClient {
     await Promise.all(Array.from({ length: Math.min(UPLOADS, keys.length) }, worker))
   }
 
-  /** Renders a view, uploading whatever the server is missing. */
+  /**
+   * Renders a view, uploading whatever the server is missing. Pre-renders use a session of their
+   * own, so a newer view the visitor asked for never drops them, and they never drop it.
+   */
   async render(
     captured: CapturedScene,
     camera: CloudCamera,
     width: number,
     height: number,
     signal: AbortSignal,
-  ): Promise<CloudImage> {
+    kind: RenderKind = 'view',
+  ): Promise<CloudFrame> {
     const start = performance.now()
     const scale = Math.min(1, MAX_EDGE / Math.max(width, height))
     const body = JSON.stringify({
-      session: this.session,
+      session: kind === 'orbit' ? `${this.session}o` : this.session,
       seq: ++this.seq,
       scene: captured.scene,
       camera,
       width: Math.max(1, Math.round(width * scale)),
       height: Math.max(1, Math.round(height * scale)),
       quality: CLOUD_QUALITY,
+      // The image as a gzip file rather than gzip transfer encoding, so it can be kept compressed.
+      transfer: 'file',
     })
     const encoded = new TextEncoder().encode(body)
     const payload = encoded.byteLength > 32 * 1024 ? await gzip(encoded) : encoded
@@ -677,17 +721,13 @@ export class CloudClient {
       }
       if (response.status === 401) lockCloud()
       if (!response.ok) throw new Error(`cloud render failed (${response.status})`)
-      const w = Number(response.headers.get('x-image-width'))
-      const h = Number(response.headers.get('x-image-height'))
-      const data = unpackImage(new Uint8Array(await response.arrayBuffer()), w, h)
-      const texture = new DataTexture(data, w, h, RGBAFormat, HalfFloatType)
-      texture.minFilter = texture.magFilter = NearestFilter
-      texture.generateMipmaps = false
-      texture.needsUpdate = true
+      const bytes = new Uint8Array(await response.arrayBuffer())
       this.lastSuccess = performance.now()
       const header = (name: string) => Number(response.headers.get(name) ?? 0)
       return {
-        texture,
+        bytes,
+        width: header('x-image-width'),
+        height: header('x-image-height'),
         stats: {
           queueMs: header('x-queue-ms'),
           prepareMs: header('x-prepare-ms'),
@@ -707,9 +747,46 @@ export class CloudClient {
 /** What to put on screen: `from` (null for the frozen raster frame) blending into `to`. */
 export type CloudView = { from: Texture | null; to: Texture; t: number; gain: number }
 
+/** Where the camera orbits, for pre-rendered views; null outside the exterior orbit. */
+export type OrbitContext = { target: Vector3 } | null
+
+/** Rendered views kept in memory, compressed (a few MB each). */
+const VIEW_CACHE_BYTES = 320 << 20
+/** Pre-rendering pauses once the visitor has not touched the page for this long. */
+const IDLE_MS = 3 * 60 * 1000
+
+/** Where a resting camera sits in the orbit grid, and the key of its view. */
+type Spot = {
+  key: string
+  ring: string
+  pose: GridPose
+  sceneKey: string
+  size: Vector2
+  camera: CloudCamera
+}
+
+/** One ring of pre-rendered views around the orbit target. */
+type Ring = {
+  key: string
+  sceneKey: string
+  target: Vector3
+  /** Pre-rendering starts next to this pose and works outward. */
+  pose: GridPose
+  camera: CloudCamera
+  size: Vector2
+  abort: AbortController
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * One cloud render per resting view, crossfaded in over whatever is on screen. Mirrors the parts
  * of PathTraceSession the frame loop uses.
+ *
+ * In the exterior orbit the camera rests on a grid of poses (orbit.ts). Each view rendered there
+ * is kept, compressed, and the rest of its ring is pre-rendered in the background, nearest first,
+ * so orbiting lands on finished views. Pre-rendering yields to the visitor's own views, stops when
+ * the design changes, and pauses while the page is hidden or the visitor is idle.
  */
 export class CloudSession {
   readonly client: CloudClient
@@ -730,21 +807,63 @@ export class CloudSession {
   private start = 0
   private gain = 1
   private rasterKey: Promise<number> | null = null
+  private readonly views = new ViewCache<CloudFrame>(VIEW_CACHE_BYTES)
+  private ring: Ring | null = null
+  /** The pre-render in flight, which the visitor's own view joins if it is the same. */
+  private prerendering: { key: string; frame: Promise<CloudFrame> } | null = null
+  /** The visitor's own render in flight; pre-rendering waits for it. */
+  private interactive: Promise<unknown> | null = null
+  /** The last captured scene, reused while the design is unchanged. */
+  private capture: { key: string; scene: Promise<CapturedScene> } | null = null
+  private live: { scene: Scene; look: SkyLook } | null = null
+  private lastInput = performance.now()
+  private readonly onInput = () => {
+    this.lastInput = performance.now()
+  }
   /** Called when an image arrives, to learn what it should fade from. */
   onArrive: (() => Texture | null) | null = null
+  /** Called as orbit views are pre-rendered, and when pre-rendering starts or stops. */
+  onProgress: ((progress: { ready: number; total: number } | null) => void) | null = null
   state: TraceState = 'off'
   /** True when the last request failed; the local tracer takes over. */
   failed = false
-  stats: CloudImage['stats'] | null = null
+  stats: CloudFrame['stats'] | null = null
 
   constructor(renderer: WebGPURenderer, url: string) {
     this.renderer = renderer
     this.client = new CloudClient(url)
     this.meter = createExposureMeter(renderer, this.placeholder)
     this.placeholder.needsUpdate = true
+    for (const event of ['pointerdown', 'keydown', 'wheel'])
+      window.addEventListener(event, this.onInput, { passive: true })
   }
 
-  begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture) {
+  /** The grid spot the camera rests on, or null when it is between poses or not orbiting. */
+  private spot(scene: Scene, camera: Camera, look: SkyLook, orbit: OrbitContext): Spot | null {
+    if (!orbit) return null
+    const position = camera.getWorldPosition(new Vector3())
+    const pose = poseAt(position, orbit.target)
+    if (!pose) return null
+    const sceneKey = String(sceneSignature(scene, lookKey(look)))
+    const size = this.renderer.getDrawingBufferSize(new Vector2())
+    const record = cameraRecord(camera)
+    const ring = ringKey(sceneKey, orbit.target, pose, record.fov, `${size.x}x${size.y}`)
+    return { key: `${ring}|a${pose.azimuth}`, ring, pose, sceneKey, size, camera: record }
+  }
+
+  /** True when the view from this camera is already rendered: no need to trace it locally. */
+  hasCached(scene: Scene, camera: Camera, look: SkyLook, orbit: OrbitContext) {
+    const spot = this.spot(scene, camera, look, orbit)
+    return spot !== null && this.views.has(spot.key)
+  }
+
+  /** The captured scene for this design, captured now if it has not been yet. */
+  private captured(scene: Scene, look: SkyLook, key: string) {
+    if (this.capture?.key !== key) this.capture = { key, scene: captureScene(scene, look) }
+    return this.capture.scene
+  }
+
+  begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture, orbit: OrbitContext = null) {
     this.halt()
     const epoch = ++this.epoch
     const abort = new AbortController()
@@ -753,44 +872,73 @@ export class CloudSession {
     this.failed = false
     this.image = null
     this.from = null
+    this.live = { scene, look }
     this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
-    const size = this.renderer.getDrawingBufferSize(new Vector2())
+    const spot = this.spot(scene, camera, look, orbit)
+    // Looking at something else: stop pre-rendering the orbit.
+    if (!spot) this.stopRing()
+    const cached = spot ? this.views.get(spot.key) : undefined
+    const sceneKey = spot?.sceneKey ?? String(sceneSignature(scene, lookKey(look)))
+    const size = spot?.size ?? this.renderer.getDrawingBufferSize(new Vector2())
     const view = cameraRecord(camera)
-    captureScene(scene, look)
-      .then((captured) => {
+    const render = () =>
+      this.captured(scene, look, sceneKey).then((captured) => {
         if (epoch !== this.epoch) return null
         this.state = 'tracing'
-        return this.client.render(captured, view, size.x, size.y, abort.signal)
+        return this.client
+          .render(captured, view, size.x, size.y, abort.signal)
+          .then((frame) => ({ frame, cached: false }))
       })
+    // Landing on the view being pre-rendered: wait for it rather than render it twice.
+    const joined = spot && this.prerendering?.key === spot.key ? this.prerendering.frame : null
+    const work: Promise<{ frame: CloudFrame; cached: boolean } | null> = cached
+      ? Promise.resolve({ frame: cached, cached: true })
+      : joined
+        ? joined.then(
+            (frame) => ({ frame, cached: true }),
+            () => (epoch === this.epoch ? render() : null),
+          )
+        : render()
+    if (joined) this.state = 'tracing'
+    const shown: Promise<void> = work
       .then(async (result) => {
         if (!result) return
+        if (spot && !result.cached) {
+          this.views.set(spot.key, result.frame)
+          this.progress()
+        }
+        if (epoch !== this.epoch) return
+        const texture = await decodeFrame(result.frame)
         if (epoch !== this.epoch) {
-          result.texture.dispose()
+          texture.dispose()
           return
         }
         const [raster, traced] = await Promise.all([
           this.rasterKey,
-          this.meter.measure(result.texture, true).catch(() => NaN),
+          this.meter.measure(texture, true).catch(() => NaN),
         ])
         if (epoch !== this.epoch) {
-          result.texture.dispose()
+          texture.dispose()
           return
         }
         const ratio = Math.exp((raster ?? NaN) - traced)
         this.gain = Number.isFinite(ratio)
           ? Math.min(GAIN_RANGE[1], Math.max(GAIN_RANGE[0], ratio))
           : 1
-        this.stats = result.stats
+        this.stats = result.frame.stats
         this.from = this.onArrive?.() ?? null
-        this.image = result.texture
+        this.image = texture
         this.start = performance.now()
         if (TRACE_STATS) {
-          const s = result.stats
-          const { width, height } = result.texture.image
+          const s = result.frame.stats
+          const { width, height } = result.frame
           console.info(
-            `[cloud render] ${width}x${height} on ${s.device}, ${s.denoise} denoising: ${(s.totalMs / 1000).toFixed(1)} s total (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
+            result.cached
+              ? `[cloud render] ${width}x${height} pre-rendered view`
+              : `[cloud render] ${width}x${height} on ${s.device}, ${s.denoise} denoising: ${(s.totalMs / 1000).toFixed(1)} s total (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
           )
         }
+        if (spot && orbit) this.prerender(spot, orbit.target)
       })
       .catch((error) => {
         if (epoch !== this.epoch || error instanceof Superseded || abort.signal.aborted) return
@@ -798,6 +946,97 @@ export class CloudSession {
         this.failed = true
         this.state = 'off'
       })
+      .finally(() => {
+        if (this.interactive === shown) this.interactive = null
+      })
+    // Pre-rendering waits until this view is on screen.
+    this.interactive = shown
+  }
+
+  /** Pre-renders the ring around a resting view, or re-centers the ring already running. */
+  private prerender(spot: Spot, target: Vector3) {
+    if (this.ring?.key === spot.ring && !this.ring.abort.signal.aborted) {
+      this.ring.pose = spot.pose
+      return
+    }
+    this.stopRing()
+    const ring: Ring = {
+      key: spot.ring,
+      sceneKey: spot.sceneKey,
+      target: target.clone(),
+      pose: spot.pose,
+      camera: spot.camera,
+      size: spot.size.clone(),
+      abort: new AbortController(),
+    }
+    this.ring = ring
+    this.progress()
+    this.fill(ring)
+      .catch(() => {})
+      .finally(() => {
+        if (this.ring !== ring) return
+        this.ring = null
+        this.progress()
+      })
+  }
+
+  private stopRing() {
+    if (!this.ring) return
+    this.ring.abort.abort()
+    this.ring = null
+    this.progress()
+  }
+
+  private progress() {
+    this.onProgress?.(this.prerendered)
+  }
+
+  private async fill(ring: Ring) {
+    let failures = 0
+    while (!ring.abort.signal.aborted) {
+      const live = this.live
+      // The design changed: these views would show the old one.
+      if (!live || String(sceneSignature(live.scene, lookKey(live.look))) !== ring.sceneKey) return
+      if (document.hidden || performance.now() - this.lastInput > IDLE_MS) {
+        await sleep(1500)
+        continue
+      }
+      if (this.interactive) {
+        await this.interactive.catch(() => {})
+        continue
+      }
+      const azimuth = ringOrder(ring.pose.azimuth).find((a) => !this.views.has(`${ring.key}|a${a}`))
+      // The whole ring is rendered; it stays cached while the visitor orbits it.
+      if (azimuth === undefined) return
+      const key = `${ring.key}|a${azimuth}`
+      const pose = { ...ring.pose, azimuth }
+      const camera = { ...ring.camera, matrix: Array.from(poseMatrix(ring.target, pose).elements) }
+      const frame = this.captured(live.scene, live.look, ring.sceneKey).then((captured) =>
+        this.client.render(captured, camera, ring.size.x, ring.size.y, ring.abort.signal, 'orbit'),
+      )
+      this.prerendering = { key, frame }
+      try {
+        this.views.set(key, await frame)
+        failures = 0
+        this.progress()
+      } catch (error) {
+        if (ring.abort.signal.aborted) return
+        if (error instanceof Superseded) continue
+        if (++failures >= 3) return
+        await sleep(4000 * failures)
+      } finally {
+        if (this.prerendering?.frame === frame) this.prerendering = null
+      }
+    }
+  }
+
+  /** Views of the current ring rendered so far, while one is being pre-rendered. */
+  get prerendered(): { ready: number; total: number } | null {
+    const ring = this.ring
+    if (!ring) return null
+    let ready = 0
+    for (let a = 0; a < AZIMUTH_STEPS; a++) if (this.views.has(`${ring.key}|a${a}`)) ready++
+    return { ready, total: AZIMUTH_STEPS }
   }
 
   /** True once an image has arrived for the current view. */
@@ -820,6 +1059,7 @@ export class CloudSession {
     return { from: t < 1 ? this.from : null, to: this.image, t, gain: this.gain }
   }
 
+  /** Stops the visitor's view; pre-rendering carries on while the design is unchanged. */
   halt() {
     this.epoch++
     this.abort?.abort()
@@ -835,6 +1075,10 @@ export class CloudSession {
 
   dispose() {
     this.halt()
+    this.onProgress = null
+    this.stopRing()
+    for (const event of ['pointerdown', 'keydown', 'wheel'])
+      window.removeEventListener(event, this.onInput)
     this.retired?.dispose()
     this.placeholder.dispose()
     this.meter.dispose()

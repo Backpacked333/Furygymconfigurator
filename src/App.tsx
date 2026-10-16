@@ -56,7 +56,12 @@ import {
 import { useConfig } from './lib/useConfig'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
-import { cloudUrl, requestedTrace, useTraceStatus } from './render/traceStatus'
+import {
+  cloudUrl,
+  requestedTrace,
+  usePrerenderProgress,
+  useTraceStatus,
+} from './render/traceStatus'
 import { textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
@@ -556,10 +561,16 @@ export default function App() {
 /** Path-tracing progress for a resting view, or the export waiting on it. */
 function TraceBadge() {
   const status = useTraceStatus()
+  const orbit = usePrerenderProgress()
   if (status.state === 'off') return null
   const label =
     status.state === 'converged'
-      ? 'Path traced'
+      ? !orbit
+        ? 'Path traced'
+        : // Angles around this one render in the background, so orbiting shows them at once.
+          orbit.ready < orbit.total
+          ? `Path traced · ${orbit.ready}/${orbit.total} angles ready`
+          : 'Path traced · all angles ready'
       : status.source === 'cloud'
         ? 'Path tracing in the cloud'
         : status.state === 'preparing'
