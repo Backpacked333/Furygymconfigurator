@@ -68,6 +68,8 @@ class Settings:
         default_factory=lambda: float(os.environ.get("FURY_UPLOAD_MB_PER_HOUR", "2000"))
     )
     max_queue: int = field(default_factory=lambda: int(os.environ.get("FURY_MAX_QUEUE", "6")))
+    # "auto" denoises on the GPU when there is one; "cpu" forces the CPU.
+    denoise: str = field(default_factory=lambda: os.environ.get("FURY_DENOISE", "auto"))
 
 
 class WorkerDied(RuntimeError):
@@ -79,6 +81,7 @@ class Worker:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.denoise = settings.denoise
         self.process = None
         self.conn = None
         self.info: dict = {}
@@ -88,24 +91,41 @@ class Worker:
         with self.lock:
             if self.process is not None and self.process.is_alive():
                 return self.info
-            context = multiprocessing.get_context("spawn")
-            parent, child = context.Pipe()
-            process = context.Process(
-                target=worker_module.run,
-                args=(child, self.settings.blob_dir, self.settings.device),
-                daemon=True,
-            )
-            process.start()
-            child.close()
-            if not parent.poll(600):
-                process.kill()
-                raise WorkerDied("the renderer did not start")
             try:
-                self.info = parent.recv()
-            except EOFError as error:
-                raise WorkerDied("the renderer failed to start") from error
-            self.process, self.conn = process, parent
-            return self.info
+                return self._spawn()
+            except WorkerDied:
+                if self.denoise == "cpu":
+                    raise
+                # A GPU denoiser that takes the whole renderer down: keep rendering without it.
+                print("The renderer failed to start; retrying with CPU denoising.", flush=True)
+                self.denoise = "cpu"
+                return self._spawn()
+
+    def _spawn(self) -> dict:
+        context = multiprocessing.get_context("spawn")
+        parent, child = context.Pipe()
+        process = context.Process(
+            target=worker_module.run,
+            args=(child, self.settings.blob_dir, self.settings.device, self.denoise),
+            daemon=True,
+        )
+        process.start()
+        child.close()
+        if not parent.poll(600):
+            process.kill()
+            raise WorkerDied("the renderer did not start")
+        try:
+            self.info = parent.recv()
+        except EOFError as error:
+            raise WorkerDied("the renderer failed to start") from error
+        self.process, self.conn = process, parent
+        return self.info
+
+    def crashed(self):
+        """After the renderer died mid-render, restart it without GPU denoising if it used it."""
+        if self.info.get("denoise") == "gpu":
+            print("The renderer stopped while denoising on the GPU; using the CPU.", flush=True)
+            self.denoise = "cpu"
 
     def call(self, message: dict) -> dict:
         try:
@@ -234,6 +254,7 @@ class Service:
                             self.worker.call, {"op": "render", "request": request, "out": out}
                         )
                     except WorkerDied:
+                        self.worker.crashed()
                         await asyncio.to_thread(self.worker.start)
                         return JSONResponse({"error": "renderer restarted"}, status_code=503)
                     if not result.get("ok"):
@@ -262,6 +283,7 @@ class Service:
                 "X-Render-Ms": str(stats["renderMs"]),
                 "X-Pack-Ms": str(stats["packMs"]),
                 "X-Device": str(stats["device"]),
+                "X-Denoise": str(stats.get("denoise", "")),
                 "Cache-Control": "no-store",
             },
         )
@@ -292,6 +314,7 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
             "x-render-ms",
             "x-pack-ms",
             "x-device",
+            "x-denoise",
         ],
         max_age=3600,
     )
@@ -303,6 +326,7 @@ def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
             "ok": True,
             "device": info.get("device"),
             "gpus": info.get("gpus", []),
+            "denoise": info.get("denoise"),
             "queue": service.waiting,
         }
 

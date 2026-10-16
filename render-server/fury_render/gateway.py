@@ -53,8 +53,17 @@ def create_gateway(
         allow_origin_regex=origins or os.environ["FURY_ALLOWED_ORIGINS"],
         allow_methods=["GET", "POST", "PUT"],
         allow_headers=["content-type", "authorization"],
-        expose_headers=["x-image-format", "x-image-width", "x-image-height", "x-device",
-                        "x-queue-ms", "x-prepare-ms", "x-render-ms", "x-pack-ms"],
+        expose_headers=[
+            "x-image-format",
+            "x-image-width",
+            "x-image-height",
+            "x-device",
+            "x-denoise",
+            "x-queue-ms",
+            "x-prepare-ms",
+            "x-render-ms",
+            "x-pack-ms",
+        ],
     )
     login_limit = Bucket(10 / 60, 5)
     render_limit = Bucket(12 / 60, 3)

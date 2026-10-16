@@ -46,8 +46,14 @@ def test_unlock_and_forward(gateway):
     assert response.headers["cache-control"] == "no-store"
     assert len(calls) == 1
     data = b"geometry"
-    assert client.put("/blobs/" + hashlib.sha256(data).hexdigest(), headers=headers,
-                      content=gzip.compress(data)).status_code == 200
+    assert (
+        client.put(
+            "/blobs/" + hashlib.sha256(data).hexdigest(),
+            headers=headers,
+            content=gzip.compress(data),
+        ).status_code
+        == 200
+    )
     assert calls[-1][2] == data
 
 
@@ -79,7 +85,9 @@ def test_bad_inputs_and_render_throttle(gateway):
     assert client.post("/render", headers=headers, content=b"[]").status_code == 400
     assert client.put("/blobs/" + "a" * 64, headers=headers, content=b"wrong").status_code == 400
     for _ in range(2):
-        assert client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 200
+        assert (
+            client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 200
+        )
     assert client.post("/render", headers=headers, json=request(Kit().scene())).status_code == 429
     assert len(calls) == 2
 
@@ -100,7 +108,10 @@ def test_gzip_bomb_never_dispatches(gateway, monkeypatch):
     client, calls = gateway
     headers = login(client)
     monkeypatch.setattr(module, "MAX_SCENE_BYTES", 100)
-    assert client.post("/render", headers=headers, content=gzip.compress(b"x" * 1000)).status_code == 400
+    assert (
+        client.post("/render", headers=headers, content=gzip.compress(b"x" * 1000)).status_code
+        == 400
+    )
     assert calls == []
 
 
@@ -121,9 +132,45 @@ def test_texture_urls_are_never_fetched(tmp_path):
 def test_cors(gateway):
     client, calls = gateway
     for origin, expected in [("https://test.example", 200), ("https://evil.example", 400)]:
-        response = client.options("/render", headers={
-            "Origin": origin, "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "authorization,content-type",
-        })
+        response = client.options(
+            "/render",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
         assert response.status_code == expected
     assert calls == []
+
+
+def test_images_stay_compressed_through_the_private_call():
+    import asyncio
+
+    from fastapi import FastAPI
+    from fastapi.responses import Response
+
+    from fury_render.rpc import call_app
+
+    image = bytes(range(256)) * 4096
+    packed = gzip.compress(image, mtime=0)
+    renderer = FastAPI()
+
+    @renderer.post("/render")
+    async def render():
+        return Response(packed, headers={"Content-Encoding": "gzip", "X-Image-Width": "2"})
+
+    status, headers, content = asyncio.run(call_app(renderer, "POST", "/render", b"{}", "s"))
+    assert status == 200 and content == packed
+    assert headers["content-encoding"] == "gzip" and "content-length" not in headers
+
+    async def dispatch(method, path, body, client):
+        return await call_app(renderer, method, path, body, client)
+
+    app = create_gateway(dispatch, pin_hash("test-pin"), "k" * 64, r"^https://test\.example$")
+    with TestClient(app) as client:
+        response = client.post("/render", headers=login(client), json=request(Kit().scene()))
+    # The browser receives the compressed bytes and inflates them itself.
+    assert response.headers["content-encoding"] == "gzip"
+    assert int(response.headers["content-length"]) == len(packed)
+    assert response.content == image and response.headers["x-image-width"] == "2"

@@ -67,10 +67,31 @@ def configure_device(preference: str) -> dict:
     return {"device": "CPU", "gpus": []}
 
 
+def configure_denoiser(scene, device: str, mode: str = "auto") -> str:
+    """Open Image Denoise, on the GPU when rendering on one. Returns "gpu" or "cpu".
+
+    OptiX's own denoiser fails to start on Modal's runtime, but OIDN runs its own CUDA kernels,
+    independent of OptiX. On a GPU the albedo and normal guides are cleaned too (accurate
+    prefilter). On a CPU that triples a job that already takes seconds at 1920x1200, so the guides
+    are used as rendered (fast prefilter). `mode` "cpu" forces the CPU.
+    """
+    c = scene.cycles
+    c.use_denoising = True
+    c.denoiser = "OPENIMAGEDENOISE"
+    c.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+    gpu = mode != "cpu" and device != "CPU" and hasattr(c, "denoising_use_gpu")
+    if hasattr(c, "denoising_use_gpu"):
+        c.denoising_use_gpu = gpu
+    c.denoising_prefilter = "ACCURATE" if gpu else "FAST"
+    return "gpu" if gpu else "cpu"
+
+
 class Studio:
     """One persistent Blender scene, updated in place from successive descriptions."""
 
-    def __init__(self, blob_path: Callable[[str], str], device: str = "auto"):
+    def __init__(
+        self, blob_path: Callable[[str], str], device: str = "auto", denoise: str = "auto"
+    ):
         self.blob_path = blob_path
         bpy.ops.wm.read_factory_settings(use_empty=True)
         self.scene = bpy.context.scene
@@ -88,6 +109,10 @@ class Studio:
         self._setup_world()
         self._setup_camera()
         self._setup_render()
+        self.denoise = configure_denoiser(self.scene, self.device["device"], denoise)
+
+    def set_denoise(self, mode: str):
+        self.denoise = configure_denoiser(self.scene, self.device["device"], mode)
 
     # --- Setup -------------------------------------------------------------------------------
 
@@ -107,13 +132,6 @@ class Studio:
         s.view_settings.look = "None"
         c = s.cycles
         c.use_adaptive_sampling = True
-        c.use_denoising = True
-        # OptiX ray tracing works on Modal, but its denoiser fails at startup.
-        c.denoiser = "OPENIMAGEDENOISE"
-        c.denoising_input_passes = "RGB_ALBEDO_NORMAL"
-        c.denoising_prefilter = "ACCURATE"
-        if hasattr(c, "denoising_use_gpu"):
-            c.denoising_use_gpu = False
         # Matches the browser tracer: ten bounces, glossy filtering, no volumes.
         c.max_bounces = 10
         c.diffuse_bounces = 10
@@ -470,6 +488,7 @@ class Studio:
             "width": width,
             "height": height,
             "device": self.device["device"],
+            "denoise": self.denoise,
         }
 
 

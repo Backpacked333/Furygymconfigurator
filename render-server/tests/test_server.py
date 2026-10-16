@@ -44,7 +44,7 @@ def upload_missing(client, kit, response):
 
 def test_health(client):
     body = client.get("/health").json()
-    assert body["ok"] and body["device"] == "CPU"
+    assert body["ok"] and body["device"] == "CPU" and body["denoise"] == "cpu"
 
 
 def test_rejects_bad_hash_upload(client):

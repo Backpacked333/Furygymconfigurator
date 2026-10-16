@@ -10,24 +10,38 @@ from __future__ import annotations
 import os
 import tempfile
 import traceback
+from collections.abc import Callable
 from multiprocessing.connection import Connection
 
 
-def run(conn: Connection, blob_dir: str, device: str):
+def warm_with_fallback(studio, warm: Callable[[], None]):
+    """Warms the renderer up; if GPU denoising fails doing so, denoises on the CPU instead."""
+    try:
+        warm()
+    except Exception:  # noqa: BLE001 - any failure here means GPU denoising is unusable
+        if studio.denoise != "gpu":
+            raise
+        traceback.print_exc()
+        print("GPU denoising failed; denoising on the CPU instead.", flush=True)
+        studio.set_denoise("cpu")
+        warm()
+
+
+def run(conn: Connection, blob_dir: str, device: str, denoise: str = "auto"):
     from .blender import Studio, warm_up
     from .protocol import ProtocolError
 
     def blob_path(digest: str) -> str:
         return os.path.join(blob_dir, digest)
 
-    studio = Studio(blob_path, device)
+    studio = Studio(blob_path, device, denoise)
     warm = os.path.join(tempfile.gettempdir(), f"fury-warm-{os.getpid()}.exr")
     try:
-        warm_up(studio, warm)
+        warm_with_fallback(studio, lambda: warm_up(studio, warm))
     finally:
         if os.path.exists(warm):
             os.remove(warm)
-    conn.send({"ready": True, **studio.device})
+    conn.send({"ready": True, **studio.device, "denoise": studio.denoise})
     while True:
         try:
             message = conn.recv()

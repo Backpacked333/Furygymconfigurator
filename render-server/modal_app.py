@@ -53,6 +53,8 @@ app = modal.App(os.environ.get("FURY_APP_NAME", "fury-render"))
     scaledown_window=IDLE_SECONDS,
     max_containers=1,
     timeout=900,
+    # FURY_DENOISE=cpu at deploy time skips GPU denoising (it falls back by itself if it fails).
+    secrets=[modal.Secret.from_dict({"FURY_DENOISE": os.environ.get("FURY_DENOISE", "auto")})],
 )
 @modal.concurrent(max_inputs=16)
 class Renderer:
@@ -69,16 +71,10 @@ class Renderer:
 
     @modal.method()
     async def request(self, method: str, path: str, body: bytes, client: str):
-        import httpx
+        from fury_render.rpc import call_app
 
-        transport = httpx.ASGITransport(app=self.web_app, client=(client, 0))
-        async with httpx.AsyncClient(transport=transport, base_url="http://renderer") as session:
-            response = await session.request(method, path, content=body)
-            headers = {
-                k: v for k, v in response.headers.items()
-                if k not in ("content-encoding", "content-length")
-            }
-            return response.status_code, headers, response.content
+        # Images stay gzip-compressed all the way to the browser.
+        return await call_app(self.web_app, method, path, body, client)
 
 
 gateway_image = (
@@ -89,11 +85,17 @@ gateway_image = (
 
 
 @app.function(
-    image=gateway_image, cpu=0.25, memory=2048, max_containers=1,
-    scaledown_window=60, timeout=240,
+    image=gateway_image,
+    cpu=0.25,
+    memory=2048,
+    max_containers=1,
+    scaledown_window=60,
+    timeout=240,
     secrets=[
         modal.Secret.from_name(os.environ.get("FURY_AUTH_SECRET", "fury-render-auth")),
-        modal.Secret.from_dict({"FURY_ALLOWED_ORIGINS": os.environ.get("FURY_ALLOWED_ORIGINS", "(?!)")}),
+        modal.Secret.from_dict(
+            {"FURY_ALLOWED_ORIGINS": os.environ.get("FURY_ALLOWED_ORIGINS", "(?!)")}
+        ),
     ],
 )
 @modal.concurrent(max_inputs=8)

@@ -588,7 +588,15 @@ export function cameraRecord(camera: Camera): CloudCamera {
 
 export type CloudImage = {
   texture: DataTexture
-  stats: { queueMs: number; prepareMs: number; renderMs: number; totalMs: number; device: string }
+  stats: {
+    queueMs: number
+    prepareMs: number
+    renderMs: number
+    totalMs: number
+    device: string
+    /** Where the server denoised: "gpu" or "cpu". */
+    denoise: string
+  }
 }
 
 /** Client of one render server. */
@@ -686,6 +694,7 @@ export class CloudClient {
           renderMs: header('x-render-ms'),
           totalMs: performance.now() - start,
           device: response.headers.get('x-device') ?? '',
+          denoise: response.headers.get('x-denoise') ?? '',
         },
       }
     }
@@ -779,7 +788,7 @@ export class CloudSession {
           const s = result.stats
           const { width, height } = result.texture.image
           console.info(
-            `[cloud render] ${width}x${height} on ${s.device}: ${(s.totalMs / 1000).toFixed(1)} s total (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
+            `[cloud render] ${width}x${height} on ${s.device}, ${s.denoise} denoising: ${(s.totalMs / 1000).toFixed(1)} s total (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
           )
         }
       })
