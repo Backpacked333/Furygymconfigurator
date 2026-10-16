@@ -188,22 +188,23 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
     // Rebuild only when geometry-affecting inputs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L, on, linear, b.ceiling, b.back, c.family])
+  // Switched-off lights stay mounted at zero intensity: adding or removing lights changes every
+  // lit material's shader, so the switch would otherwise recompile the whole scene.
+  const level = on ? 1 : 0
   const spotIntensity = 46
   return (
     <>
       <Parts parts={fixtures} />
-      {on &&
-        (!linear || quality === 'lite') &&
+      {(!linear || quality === 'lite') &&
         columns.map((x, i) => (
           <Downlight
             key={x}
             position={[x + 0.12, b.ceiling - 0.08, 0.1]}
-            intensity={linear ? spotIntensity * 0.8 : spotIntensity}
+            intensity={(linear ? spotIntensity * 0.8 : spotIntensity) * level}
             shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
           />
         ))}
-      {on &&
-        linear &&
+      {linear &&
         quality !== 'lite' &&
         LINEAR_ROWS.map((z) => (
           <Wash
@@ -212,38 +213,38 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
             target={[0, FLOOR_Y, z]}
             width={channel}
             height={0.14}
-            intensity={52}
+            intensity={52 * level}
           />
         ))}
-      {on && quality !== 'lite' && (
+      {quality !== 'lite' && (
         <>
           <Wash
             position={[0, b.ceiling - 0.1, b.back + 0.12]}
             target={[0, FLOOR_Y + 3, b.back - 0.6]}
             width={L - 2.6}
             height={0.12}
-            intensity={26}
+            intensity={26 * level}
           />
           <Wash
             position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
             target={[0, b.ceiling, b.back - 0.4]}
             width={L - 1.6}
             height={0.06}
-            intensity={16}
+            intensity={16 * level}
           />
         </>
       )}
-      {on && c.family === 'container' && c.addons.canopy && <CanopyLights config={c} />}
+      {c.family === 'container' && c.addons.canopy && <CanopyLights config={c} level={level} />}
     </>
   )
 }
 
 /** Exterior downlights in the canopy soffit washing the deck or paving below. */
-function CanopyLights({ config }: { config: Config }) {
+function CanopyLights({ config, level }: { config: Config; level: number }) {
   return (
     <>
       {canopyLights(config).map(([x, y, z]) => (
-        <Downlight key={x} position={[x, y - 0.05, z]} intensity={38} shadow={false} />
+        <Downlight key={x} position={[x, y - 0.05, z]} intensity={38 * level} shadow={false} />
       ))}
     </>
   )

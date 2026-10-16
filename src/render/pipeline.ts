@@ -123,7 +123,11 @@ export function createPipeline(
     pipeline.outputNode = finish(scenePass)
     return {
       render: () => pipeline.render(),
-      dispose: () => pipeline.dispose(),
+      // Scene passes own full-resolution render targets that the pipeline does not release.
+      dispose: () => {
+        pipeline.dispose()
+        scenePass.dispose()
+      },
       settleFrames: 1,
       hdr: scenePass.getTexture('output'),
     }
@@ -131,6 +135,7 @@ export function createPipeline(
 
   // Opaque geometry only: glazing must not occlude the interior in AO, GI, or reprojection.
   const prePass = pass(scene, camera)
+  disposables.push(prePass)
   prePass.transparent = false
   const reflective = quality === 'ultra'
   prePass.setMRT(
@@ -196,6 +201,7 @@ export function createPipeline(
     })
   }
   const scenePass = pass(scene, camera)
+  disposables.push(scenePass)
   scenePass.contextNode = lighting
   scenePass.setMRT(
     mrt(quality === 'ultra' ? { output, emissive, diffuseColor } : { output, emissive }),

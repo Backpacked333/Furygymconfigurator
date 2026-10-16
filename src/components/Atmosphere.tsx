@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { useThree } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import {
   BackSide,
   Color,
@@ -41,6 +41,7 @@ import {
   type SkyLook,
 } from '../lib/visuals'
 import type { Quality } from '../render/quality'
+import { FRAME_ENVIRONMENT } from '../render/renderer'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
 
@@ -133,6 +134,14 @@ export function Atmosphere({
   }, [])
   const generator = useResource(() => new PMREMGenerator(renderer), [renderer])
   const target = useRef<RenderTarget | null>(null)
+  const environmentStale = useRef(true)
+  // One fog object, updated in place: a new one would give every material a new fog node.
+  const fog = useMemo(() => new Fog(new Color(), 70, 520), [])
+  // Built once, so a change in the studio backdrop does not hand the background a new shader.
+  const backdrop = useMemo(
+    () => mix(color('#a9a59c'), color('#e7e3db'), screenUV.y.oneMinus().pow(0.8)),
+    [],
+  )
   // A layout effect, declared before the capture below, so the previous generator's target is
   // released before (never after) the new one is captured.
   useLayoutEffect(
@@ -153,25 +162,39 @@ export function Atmosphere({
     ;(capture.ground.material as MeshBasicMaterial).color.setRGB(...look.ground)
     if (environment === 'studio') {
       scene.background = null
-      scene.backgroundNode = mix(color('#a9a59c'), color('#e7e3db'), screenUV.y.oneMinus().pow(0.8))
-      scene.fog = new Fog(new Color('#d6d2ca'), 90, 420)
+      scene.backgroundNode = backdrop
+      fog.color.set('#d6d2ca')
+      fog.near = 90
+      fog.far = 420
     } else {
       scene.backgroundNode = null
-      scene.fog = new Fog(new Color(...look.fog), 70, 520)
+      fog.color.setRGB(...look.fog)
+      fog.near = 70
+      fog.far = 520
     }
-    if (generator) {
-      target.current = generator.fromScene(
-        environment === 'studio' ? capture.studio : capture.envScene,
-        0,
-        0.5,
-        2000,
-        { size: quality === 'lite' ? 128 : 256, renderTarget: target.current ?? undefined },
-      )
-      scene.environment = target.current.texture
-    }
+    scene.fog = fog
     scene.environmentIntensity = environment === 'studio' ? 0.9 : 1
+    environmentStale.current = true
     invalidate()
-  }, [background, capture, environment, time, quality, generator, scene, invalidate])
+  }, [background, capture, environment, time, quality, generator, scene, fog, backdrop, invalidate])
+
+  // The image-based lighting is captured at the start of the next frame, for the latest settings,
+  // rather than on every change: a time-of-day drag can commit several changes between frames.
+  useFrame(() => {
+    if (!environmentStale.current || !generator) return
+    environmentStale.current = false
+    const size = quality === 'lite' ? 128 : 256
+    // A target is reused only at its own cube size; Lite and High/Ultra differ.
+    if (target.current && target.current.height !== 4 * size) {
+      target.current.dispose()
+      target.current = null
+    }
+    target.current = generator.fromScene(studio ? capture.studio : capture.envScene, 0, 0.5, 2000, {
+      size,
+      renderTarget: target.current ?? undefined,
+    })
+    scene.environment = target.current.texture
+  }, FRAME_ENVIRONMENT)
 
   // Eyes adapt after dark, and a camera inside meters for the dimmer room.
   useLayoutEffect(() => {
@@ -198,6 +221,10 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
   const distance = SHADOW_REACH
   const depth = SHADOW_REACH * 2
   const [x, y, z] = sunlight.direction
+  const [r, g, b] = sunlight.color
+  // A new Color on every render would read as a changed prop and restart the settle frames even
+  // when nothing visible changed (a panel tab, a toast).
+  const sunColor = useMemo(() => new Color(r, g, b), [r, g, b])
   return (
     <>
       <directionalLight
@@ -205,7 +232,7 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
         // finds it to add contact shadows.
         userData={{ pathTrace: false, sun: true }}
         position={[x * distance, Math.max(y, 0.02) * distance, z * distance]}
-        color={new Color(...sunlight.color)}
+        color={sunColor}
         intensity={SUN_INTENSITY * sunlight.intensity}
         castShadow
         shadow-mapSize={quality === 'lite' ? [2048, 2048] : [4096, 4096]}
@@ -220,14 +247,14 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
         shadow-normalBias={quality === 'lite' ? 0.05 : 0.03}
         shadow-radius={quality === 'lite' ? 2 : 4}
       />
-      {night > 0.01 && (
-        <directionalLight
-          position={[-30, 60, 40]}
-          color="#9db4ff"
-          intensity={0.18 * night}
-          castShadow={false}
-        />
-      )}
+      {/* Moonlight stays mounted (dark by day): adding or removing a light changes every lit
+          material's shader, so crossing dusk on the time slider would recompile the scene. */}
+      <directionalLight
+        position={[-30, 60, 40]}
+        color="#9db4ff"
+        intensity={night > 0.01 ? 0.18 * night : 0}
+        castShadow={false}
+      />
     </>
   )
 }

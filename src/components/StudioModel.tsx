@@ -14,7 +14,7 @@ import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
-import { Equipment } from './Equipment'
+import { Equipment, SaunaLights } from './Equipment'
 import { InteriorLights } from './InteriorLights'
 import { Mirror } from './Mirror'
 import { Parts } from './Parts'
@@ -126,6 +126,7 @@ export function StudioModel({
       {c.items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}
+      <SaunaLights items={c.items} />
     </group>
   )
 }

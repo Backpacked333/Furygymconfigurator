@@ -15,6 +15,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import { preparePathTraceScene, sceneParts, sceneSignature, thinGlass } from './pathtrace'
+import { palette } from './palette'
 
 const environment = { isTexture: true } as unknown as Texture
 
@@ -101,6 +102,25 @@ describe('path-traced scene capture', () => {
     expect(thin.color.r).toBeCloseTo(0.5, 6) // 0.25 ^ (0.1 / 0.2)
     expect(thin.color.g).toBeCloseTo(1, 6)
     expect(thinGlass(new MeshPhysicalNodeMaterial() as never)).toBe(null)
+  })
+
+  it('traces the clear glazing as a pane, not as its black raster albedo', () => {
+    // The raster pane is a black, transparent reflection blended over the room; the tracers get a
+    // clear thin pane instead, and the raster material comes back untouched.
+    const glass = palette.glass() as MeshPhysicalNodeMaterial
+    const scene = new Scene()
+    scene.add(new Mesh(new BoxGeometry(), glass))
+    const restore = preparePathTraceScene(scene, skyLook('courtyard', 12), environment)
+    expect(glass.transmission).toBe(1)
+    expect(glass.thickness).toBe(0)
+    expect(glass.attenuationDistance).toBe(Infinity)
+    expect(glass.color.getHex()).toBe(0xffffff)
+    expect(glass.transparent).toBe(false)
+    restore()
+    expect(glass.transmission).toBe(0)
+    expect(glass.transparent).toBe(true)
+    expect(glass.color.getHex()).toBe(0x000000)
+    expect(glass.userData.glass).toBe(true)
   })
 
   it('fingerprints exactly what the tracer captures', () => {

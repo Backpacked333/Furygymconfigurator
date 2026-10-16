@@ -11,20 +11,20 @@ import {
   Vector2,
 } from 'three/webgpu'
 import {
-  color,
   mix,
   mx_fractal_noise_float,
   mx_noise_float,
   normalMap,
   positionWorld,
   texture,
+  uniform,
   vec2,
   vec3,
 } from 'three/tsl'
 import type { Config } from '../lib/config'
 import { noise } from '../lib/visuals'
 import { box, cylinder, mergeGeometries, roundedBox } from '../render/geometry'
-import { material, textureMaps, type TextureSet } from '../render/materials'
+import { material, prefetchTextures, textureMaps, type TextureSet } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
@@ -41,24 +41,25 @@ import { Parts } from './Parts'
 import { DENSITY, agaveGeometry, boulderGeometry, limbParts } from '../render/scenery'
 import { Backyard, Campus, Residences } from './Surroundings'
 
+/** Module-level so the lawn's grass material is not rebuilt on every Landscape render. */
+const LAWN_COLORS: [string, string] = ['#3d5126', '#93a258']
+
 // --- Ground -----------------------------------------------------------------------------
 
 const GROUND_SIZE = 700
 
-/**
- * Scanned ground with anti-tiling: two scales of the same scan are blended by low-frequency noise
- * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
- */
-export function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
-  const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
-  useEffect(() => {
-    let active = true
-    let created: MeshStandardNodeMaterial | null = null
-    textureMaps(set).then((maps) => {
-      if (!active || !maps.albedo) return
+/** Built once per scan and tint and kept, like the material library, so switching back is free. */
+const groundMaterials = new Map<string, Promise<MeshStandardNodeMaterial>>()
+function loadGround(set: TextureSet, size: number, tint: string) {
+  const key = `${set}|${size}|${tint}`
+  let pending = groundMaterials.get(key)
+  if (!pending) {
+    pending = textureMaps(set).then((maps) => {
+      if (!maps.albedo) throw new Error(`${set} has no albedo map`)
+      // Scan scale and tint are uniforms so both biomes share one compiled ground shader.
       const p = positionWorld.xz
-      const uvA = p.div(size)
-      const uvB = p.div(size * 3.3).add(vec2(0.37, 0.71))
+      const uvA = p.div(uniform(size))
+      const uvB = p.div(uniform(size * 3.3)).add(vec2(0.37, 0.71))
       const blend = mx_noise_float(vec3(p.mul(0.04), 0))
         .mul(0.5)
         .add(0.5)
@@ -68,7 +69,7 @@ export function Ground({ set, size, tint }: { set: TextureSet; size: number; tin
         .add(1)
       const m = new MeshStandardNodeMaterial()
       m.colorNode = mix(texture(maps.albedo, uvA).rgb, texture(maps.albedo, uvB).rgb, blend)
-        .mul(color(tint))
+        .mul(uniform(new Color(tint)))
         .mul(macro)
       m.roughnessNode = mix(texture(maps.arm, uvA).g, texture(maps.arm, uvB).g, blend)
       m.normalNode = normalMap(texture(maps.normal, uvA), vec2(0.8, 0.8))
@@ -81,12 +82,33 @@ export function Ground({ set, size, tint }: { set: TextureSet; size: number; tin
         roughness: 1,
         normalScale: new Vector2(0.8, 0.8),
       }
-      created = m
-      setGroundMaterial(m)
+      return m
     })
+    // A failed scan keeps the untextured ground; a later request tries again.
+    pending.catch(() => groundMaterials.delete(key))
+    groundMaterials.set(key, pending)
+  }
+  return pending
+}
+
+/**
+ * Scanned ground with anti-tiling: two scales of the same scan are blended by low-frequency noise
+ * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
+ */
+export function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
+  // The previous ground stays until the next one is ready, as before, but is never disposed while
+  // still drawn (which made three rebuild it).
+  const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
+  useEffect(() => {
+    let active = true
+    loadGround(set, size, tint).then(
+      (m) => {
+        if (active) setGroundMaterial(m)
+      },
+      () => {},
+    )
     return () => {
       active = false
-      created?.dispose()
     }
   }, [set, size, tint])
   const fallback = useMemo(() => new MeshStandardMaterial({ color: tint, roughness: 1 }), [tint])
@@ -225,21 +247,17 @@ export const Tree = memo(function Tree({
   )
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial(biome, shape.crownHeight), [biome, shape.crownHeight])
-  useEffect(
-    () => () => {
-      card.dispose()
-      leaves.dispose()
-    },
-    [card, leaves],
-  )
+  useEffect(() => () => card.dispose(), [card])
   const mesh = useRef<InstancedMesh>(null)
+  // Also re-runs when new constructor args make R3F build a new InstancedMesh, whose instances
+  // would otherwise all sit at the origin.
   useLayoutEffect(() => {
     const m = mesh.current
     if (!m) return
     shape.leaves.forEach((matrix, i) => m.setMatrixAt(i, matrix))
     m.instanceMatrix.needsUpdate = true
     m.computeBoundingSphere()
-  }, [shape])
+  }, [shape, card, leaves])
   return (
     <group position={position} scale={scale}>
       <Parts parts={limbs} />
@@ -268,13 +286,7 @@ export const Hedge = memo(function Hedge({
   const count = Math.round(4200 * DENSITY[quality]) + 500
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial('courtyard', height / 2, true), [])
-  useEffect(
-    () => () => {
-      card.dispose()
-      leaves.dispose()
-    },
-    [card, leaves],
-  )
+  useEffect(() => () => card.dispose(), [card])
   const matrices = useMemo(() => {
     const object = new Object3D()
     const list: Matrix4[] = []
@@ -298,13 +310,14 @@ export const Hedge = memo(function Hedge({
     return list
   }, [count, length])
   const mesh = useRef<InstancedMesh>(null)
+  // Also re-runs when R3F builds a new InstancedMesh for new constructor args.
   useLayoutEffect(() => {
     const m = mesh.current
     if (!m) return
     matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
     m.instanceMatrix.needsUpdate = true
     m.computeBoundingSphere()
-  }, [matrices])
+  }, [matrices, card, leaves])
   const core = useMemo(
     () => [
       part(
@@ -365,13 +378,8 @@ export function Tufts({
   }, [blades, height, bend])
   const [base, tip] = colors
   const grass = useMemo(() => grassMaterial(base, tip), [base, tip])
-  useEffect(
-    () => () => {
-      geometry.dispose()
-      grass.dispose()
-    },
-    [geometry, grass],
-  )
+  // Grass materials are shared for the session; only the geometry belongs to this clump.
+  useEffect(() => () => geometry.dispose(), [geometry])
   const matrices = useMemo(() => {
     const object = new Object3D()
     const list: Matrix4[] = []
@@ -387,6 +395,7 @@ export function Tufts({
     return list
   }, [count, place, variant])
   const mesh = useRef<InstancedMesh>(null)
+  // Also re-runs when R3F builds a new InstancedMesh for new constructor args.
   useLayoutEffect(() => {
     const m = mesh.current
     if (!m) return
@@ -394,8 +403,7 @@ export function Tufts({
     m.count = matrices.length
     m.instanceMatrix.needsUpdate = true
     m.computeBoundingSphere()
-    // A rebuilt mesh (new geometry or material) starts with identity instances.
-  }, [matrices, geometry, grass])
+  }, [matrices, geometry, grass, count])
   return (
     <instancedMesh
       ref={mesh}
@@ -441,12 +449,11 @@ function desertAccents(L: number): Part[] {
 
 // --- Studio backdrop ---------------------------------------------------------------------
 
+let studioFloor: MeshStandardMaterial | null = null
 function StudioFloor() {
-  const floor = useMemo(
-    () => new MeshStandardMaterial({ color: new Color('#d8d5ce'), roughness: 0.62 }),
-    [],
-  )
-  useEffect(() => () => floor.dispose(), [floor])
+  // Kept for the session so switching back to the backdrop reuses its shader.
+  studioFloor ??= new MeshStandardMaterial({ color: new Color('#d8d5ce'), roughness: 0.62 })
+  const floor = studioFloor
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow material={floor}>
       <circleGeometry args={[220, 96]} />
@@ -469,6 +476,10 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
   const studio = c.environment === 'studio'
   const density = DENSITY[quality]
+  const groundSet: TextureSet = biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'
+  // The ground is the largest surface on screen: ask for its scan before the hardscape and the
+  // studio queue theirs (Ground itself only asks after it mounts). Requests are deduplicated.
+  if (!studio) prefetchTextures(groundSet)
   const hard = useMemo(() => hardscape(L, biome, c.lights), [L, biome, c.lights])
   const accents = useMemo(() => (biome === 'desert' ? desertAccents(L) : []), [L, biome])
   const palettes = grassPalette(biome)
@@ -496,7 +507,7 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   return (
     <group>
       <Ground
-        set={biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'}
+        set={groundSet}
         size={biome === 'desert' ? 13.1 : 6.56}
         tint={biome === 'desert' ? '#f4e6d2' : '#b9d49a'}
       />
@@ -523,7 +534,7 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
           height={0.42}
           bend={0.12}
           place={lawnPlace}
-          colors={['#3d5126', '#93a258']}
+          colors={LAWN_COLORS}
           shadow={false}
         />
       )}

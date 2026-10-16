@@ -35,6 +35,8 @@ import {
 import ConfigPanel from './components/ConfigPanel'
 import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
+import { SceneLoadBoundary } from './components/SceneLoadBoundary'
+import { SceneLoading } from './components/SceneLoading'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import {
   DEFAULT_CAMERA,
@@ -42,8 +44,8 @@ import {
   FINISHES,
   SIGNATURES,
   area,
+  decodeConfig,
   distance,
-  encodeConfig,
   environmentName,
   estimate,
   money,
@@ -54,6 +56,8 @@ import {
   type View,
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
+import { useShareFragment } from './lib/useShareFragment'
+import { useStagedScene } from './lib/useStagedScene'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
 import {
@@ -63,13 +67,13 @@ import {
   useSpinStatus,
   useTraceStatus,
 } from './render/traceStatus'
-import { textureProgress } from './render/progress'
+import { sceneProgress, textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
 
 export default function App() {
-  const { config, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
+  const { config, encoded, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
   const [step, setStep] = useState(0),
     [view, setView] = useState<View>('exterior'),
     [unit, setUnit] = useState<Unit>('ft')
@@ -108,9 +112,16 @@ export default function App() {
       `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
     )
   }, [quality, notify])
-  const onCaptureReady = useCallback((capture: () => Promise<string>) => {
+  const onCaptureReady = useCallback((capture: (() => Promise<string>) | null) => {
     captureRef.current = capture
   }, [])
+  const openPlan = useCallback(() => setView('plan'), [])
+  const staged = useStagedScene(config, quality)
+  // The 3D scene stays mounted, hidden and paused, under the floor plan, so returning keeps the
+  // renderer, its compiled shaders, and the camera rather than starting cold. It keeps the last
+  // 3D view meanwhile.
+  const [sceneView, setSceneView] = useState<View>('exterior')
+  if (view !== 'plan' && view !== sceneView) setSceneView(view)
   const capture = useCallback(async () => {
     if (view === 'plan' || !captureRef.current) return null
     try {
@@ -120,13 +131,20 @@ export default function App() {
     }
   }, [view])
   const close = () => setDialog(null)
-  useEffect(() => {
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${window.location.search}#c=${encodeConfig(config)}`,
-    )
-  }, [config])
+  const openShared = useCallback(
+    (value: string) => {
+      const shared = decodeConfig(value)
+      if (!shared) {
+        notify('This share link is invalid or unsupported. Your design is unchanged.')
+        return false
+      }
+      setConfig(shared)
+      notify('Shared design loaded. Undo returns to your previous design.')
+      return true
+    },
+    [setConfig, notify],
+  )
+  useShareFragment(encoded, openShared)
   useEffect(() => {
     if (initialNotice) timer.current = setTimeout(() => setToast(''), 6500)
     return () => {
@@ -231,33 +249,30 @@ export default function App() {
           className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
           aria-label="Gym visualization"
         >
-          {view === 'plan' ? (
+          <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
+            <SceneLoadBoundary onFallback={openPlan}>
+              <Suspense fallback={<SceneLoading phase="engine" />}>
+                <Scene
+                  active={view !== 'plan'}
+                  config={staged.config}
+                  view={sceneView}
+                  dimensions={dimensions}
+                  unit={unit}
+                  reset={reset}
+                  camera={camera}
+                  autoRotate={autoRotate}
+                  quality={staged.quality}
+                  trace={trace}
+                  onCaptureReady={onCaptureReady}
+                  onFallback={openPlan}
+                  onBackend={setBackend}
+                  onSlow={onSlow}
+                />
+              </Suspense>
+            </SceneLoadBoundary>
+          </div>
+          {view === 'plan' && (
             <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
-          ) : (
-            <Suspense
-              fallback={
-                <div className="scene-loading">
-                  <span className="loading-mark">F</span>
-                  <p>Making room for possibility.</p>
-                </div>
-              }
-            >
-              <Scene
-                config={config}
-                view={view}
-                dimensions={dimensions}
-                unit={unit}
-                reset={reset}
-                camera={camera}
-                autoRotate={autoRotate}
-                quality={quality}
-                trace={trace}
-                onCaptureReady={onCaptureReady}
-                onFallback={() => setView('plan')}
-                onBackend={setBackend}
-                onSlow={onSlow}
-              />
-            </Suspense>
           )}
           {view !== 'plan' && <SpinLoading />}
           <div className="stage-heading">
@@ -368,7 +383,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {view !== 'plan' && <MaterialProgress />}
+          {view !== 'plan' && <SceneActivity updating={staged.updating} />}
           {view !== 'plan' && (
             <div className="stage-bottom">
               <div className="scene-status">
@@ -657,14 +672,36 @@ function TraceBadge() {
   )
 }
 
-/** Shows progress while the photo-scanned material library streams in. */
-function MaterialProgress() {
+/**
+ * What the 3D view is busy with once it has a picture: applying a change that rebuilds the scene,
+ * or streaming the photo-scanned materials. Hidden while the start-up screen is showing.
+ */
+function SceneActivity({ updating }: { updating: boolean }) {
+  const phase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
   const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
+  if (phase !== 'ready') return null
+  if (updating)
+    return (
+      <div className="scene-activity is-updating" role="status">
+        <i className="activity-spinner" aria-hidden="true" />
+        Updating the 3D view…
+      </div>
+    )
   if (!requested || loaded >= requested) return null
+  const percent = Math.round((loaded / requested) * 100)
   return (
-    <div className="material-progress" role="status">
-      <span style={{ width: `${Math.round((loaded / requested) * 100)}%` }} />
-      Loading scanned materials · {Math.round((loaded / requested) * 100)}%
+    <div className="scene-activity" role="status">
+      <i className="activity-spinner" aria-hidden="true" />
+      Loading photo-scanned materials · {percent}%
+      <span
+        className="activity-bar"
+        role="progressbar"
+        aria-label="Materials loaded"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        style={{ transform: `scaleX(${loaded / requested})` }}
+      />
     </div>
   )
 }

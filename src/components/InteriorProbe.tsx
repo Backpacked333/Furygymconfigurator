@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   PMREMGenerator,
@@ -53,6 +53,15 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     position.current.set(...center)
     options.current = { size, exclude }
   })
+  const wake = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  /** Wakes the demand loop when a capture falls due, instead of drawing identical frames. */
+  const wakeAt = useCallback(
+    (due: number) => {
+      clearTimeout(wake.current)
+      wake.current = setTimeout(invalidate, Math.max(0, due - performance.now()))
+    },
+    [invalidate],
+  )
 
   useEffect(() => {
     state.current = {
@@ -63,6 +72,7 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
       due: 0,
     }
     return () => {
+      clearTimeout(wake.current)
       setProbeEnvironment(kind, null)
       state.current?.targets.forEach((t) => t?.dispose())
       state.current?.generator.dispose()
@@ -74,23 +84,24 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     if (!state.current) return
     state.current.passes = passes
     state.current.due = performance.now() + DEBOUNCE_MS
-    invalidate()
-  }, [config, quality, passes, invalidate])
+    wakeAt(state.current.due)
+  }, [config, quality, passes, wakeAt])
   useEffect(
     () =>
       onMaterialsChanged((change) => {
         if (change !== 'textures' || !state.current) return
         state.current.passes = passes
         state.current.due = performance.now() + DEBOUNCE_MS
+        wakeAt(state.current.due)
       }),
-    [passes],
+    [passes, wakeAt],
   )
 
   useFrame(() => {
     const probe = state.current
     if (!probe || probe.passes <= 0) return
     if (performance.now() < probe.due) {
-      invalidate()
+      wakeAt(probe.due)
       return
     }
     const next = 1 - probe.current
@@ -109,9 +120,10 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
         discs.push({ uniform: disc, value: disc.value })
         disc.value = 0
       }
-      const surface = (object as Mesh).material as { transmission?: number } | undefined
-      const leave =
-        object.userData.noProbe || (surface?.transmission ?? 0) > 0 || (skip?.(object) ?? false)
+      const surface = (object as Mesh).material as
+        { transmission?: number; userData?: { glass?: boolean } } | undefined
+      const glazing = (surface?.transmission ?? 0) > 0 || surface?.userData?.glass
+      const leave = object.userData.noProbe || glazing || (skip?.(object) ?? false)
       if (leave && object.visible) {
         object.visible = false
         hidden.push(object)
@@ -123,6 +135,11 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
         light.shadow.needsUpdate = true
       }
     })
+    // Reuse the idle target only at its own cube size; Lite and High/Ultra differ.
+    if (probe.targets[next] && probe.targets[next].height !== 4 * faceSize) {
+      probe.targets[next].dispose()
+      probe.targets[next] = null
+    }
     let target: RenderTarget
     try {
       target = probe.generator.fromScene(scene, 0, 0.05, 900, {

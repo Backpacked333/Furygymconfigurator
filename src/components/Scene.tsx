@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { Component, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html, OrbitControls } from '@react-three/drei'
 import { Euler, PerspectiveCamera, Quaternion, Vector3 } from 'three'
@@ -34,15 +34,26 @@ import {
   spinView,
   type SpinPose,
 } from '../render/spin'
-import { setMaxAnisotropy } from '../render/materials'
+import { restoreTextures, setMaxAnisotropy } from '../render/materials'
+import { sceneProgress } from '../render/progress'
+import { SceneLoadingStatus } from './SceneLoading'
+
+/** Renderer rebuilds after device loss before the scene gives up and offers the floor plan. */
+const MAX_RENDERER_REBUILDS = 3
+function DeviceUnstable(): never {
+  throw new Error('The graphics device keeps getting lost.')
+}
 
 class GraphicsBoundary extends Component<
-  { children: ReactNode; onFallback: () => void },
+  { children: ReactNode; onFallback: () => void; onFailure: () => void },
   { failed: boolean }
 > {
   state = { failed: false }
   static getDerivedStateFromError() {
     return { failed: true }
+  }
+  componentDidCatch() {
+    this.props.onFailure()
   }
   render() {
     if (this.state.failed)
@@ -124,7 +135,8 @@ function CameraRig({
   const proxy = useMemo(() => new PerspectiveCamera(), [])
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
-    moving = useRef(false)
+    moving = useRef(false),
+    stalled = useRef(0)
   const snapRef = useRef(snap)
   snapRef.current = snap && view === 'exterior'
   /** The ease onto a grid pose in progress, and the pose the camera last rested on. */
@@ -184,6 +196,7 @@ function CameraRig({
       pitch.current = Math.asin(direction.y)
     }
     moving.current = true
+    stalled.current = 0
     invalidate()
   }, [
     camera,
@@ -356,11 +369,13 @@ function CameraRig({
     }
     invalidate()
   })
+  const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)'), [])
   useFrame((_, delta) => {
     if (!moving.current || spinRef.current) return
-    const t = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      ? 1
-      : 1 - Math.exp(-delta * 5)
+    // R3F's first delta after an idle stretch is the whole idle time, which made a transition
+    // jump in one frame instead of easing; a frame never advances it more than 1/30 s.
+    const t = reducedMotion.matches ? 1 : 1 - Math.exp(-Math.min(delta, 1 / 30) * 5)
+    const before = camera.position.distanceTo(targetPosition.current)
     camera.position.lerp(targetPosition.current, t)
     const orbit = controls.current && view !== 'interior' ? controls.current : null
     if (orbit) orbit.target.lerp(targetLook.current, t)
@@ -375,6 +390,15 @@ function CameraRig({
     }
     if (orbit) orbit.update()
     else camera.lookAt(targetLook.current)
+    // Measured after the controls' update, which is what holds the camera at the orbit limits.
+    const after = camera.position.distanceTo(targetPosition.current)
+    // The orbit limits (a framing distance beyond them on a narrow screen) or auto-rotation can
+    // keep the camera from making the progress the easing asked for: stop instead of rendering
+    // forever. Sliding around the minimum-distance sphere is progress the straight-line measure
+    // undercounts, so it never counts as held.
+    const pinned = !!orbit && orbit.getDistance() <= orbit.minDistance + 1e-3
+    stalled.current = !pinned && after > before - 0.5 * t * before ? stalled.current + 1 : 0
+    if (stalled.current >= 8) moving.current = false
     invalidate()
   })
   return (
@@ -401,7 +425,12 @@ function CameraRig({
     />
   )
 }
-export default function Scene({
+/**
+ * Memoized: the app shell re-renders for panel tabs, toasts, and dialogs, which never change the
+ * scene; re-rendering it would still reconcile the whole 3D tree.
+ */
+export default memo(function Scene({
+  active,
   config,
   view,
   dimensions,
@@ -416,6 +445,8 @@ export default function Scene({
   onBackend,
   onSlow,
 }: {
+  /** False while hidden under the floor plan: nothing renders until the scene shows again. */
+  active: boolean
   config: Config
   view: View
   dimensions: boolean
@@ -426,7 +457,8 @@ export default function Scene({
   quality: Quality
   /** Refine resting views with the path tracer where WebGPU allows. */
   trace: boolean
-  onCaptureReady: (capture: Capture) => void
+  /** Called with null when the scene can no longer capture (it unmounted or lost its renderer). */
+  onCaptureReady: (capture: Capture | null) => void
   onFallback: () => void
   onBackend?: (backend: Backend) => void
   onSlow?: () => void
@@ -441,56 +473,110 @@ export default function Scene({
   const spinFailed = useSpinFailed()
   const spin = cloud && spinEnabled() && !spinFailed
   const snap = cloud && !spinEnabled()
+  // A lost GPU device (driver reset, GPU process crash, the OS reclaiming memory) would leave a
+  // frozen canvas. Rebuild the renderer instead, a few times per session at most.
+  const [generation, setGeneration] = useState(0)
+  // The scene stays mounted under the floor plan, so coming back from it would not remount a
+  // failed 3D view the way it once did. Coming back starts a fresh attempt instead.
+  const [attempt, setAttempt] = useState(0)
+  const [failed, setFailed] = useState(false)
+  const [shown, setShown] = useState(active)
+  if (active !== shown) {
+    setShown(active)
+    if (active && (failed || generation > MAX_RENDERER_REBUILDS)) {
+      setFailed(false)
+      setGeneration(0)
+      setAttempt(attempt + 1)
+    }
+  }
+  // The renderer that is mounted, or null while the scene is torn down.
+  const mounted = `${attempt}:${generation}`
+  const live = useRef<string | null>(null)
+  useEffect(() => {
+    live.current = mounted
+    return () => {
+      live.current = null
+    }
+  }, [mounted])
   return (
-    <GraphicsBoundary onFallback={onFallback}>
-      <Canvas
-        shadows="percentage"
-        // Temporal AA resolves edges, so screen-space GI need not pay for full Retina density.
-        dpr={quality === 'lite' ? 1 : [1, 1.5]}
-        frameloop="demand"
-        camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
-        gl={async ({ canvas }) => {
-          const renderer = await createRenderer(canvas as HTMLCanvasElement)
-          setMaxAnisotropy(renderer.getMaxAnisotropy())
-          return renderer
-        }}
-        onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
-      >
-        <Atmosphere config={config} quality={quality} view={view} />
-        <Landscape config={config} quality={quality} />
-        <StudioModel config={config} quality={quality} />
-        {dimensions && <Dimensions config={config} unit={unit} />}
-        <CameraRig
-          config={config}
-          view={view}
-          reset={reset}
-          direction={camera}
-          autoRotate={autoRotate}
-          snap={snap}
-          spin={spin}
-        />
-        <InteriorProbe config={config} quality={quality} />
-        <SiteProbe config={config} quality={quality} />
-        <RenderEffects
-          quality={quality}
-          trace={trace}
-          look={look}
-          config={config}
-          view={view}
-          dimensions={dimensions}
-          spin={spin}
-          onCaptureReady={onCaptureReady}
-          onSlow={onSlow}
-        />
-        <SceneRefresh
-          config={config}
-          view={view}
-          dimensions={dimensions}
-          unit={unit}
-          quality={quality}
-          autoRotate={autoRotate}
-        />
-      </Canvas>
+    <GraphicsBoundary key={attempt} onFallback={onFallback} onFailure={() => setFailed(true)}>
+      {generation > MAX_RENDERER_REBUILDS ? (
+        <DeviceUnstable />
+      ) : (
+        <Canvas
+          key={generation}
+          shadows="percentage"
+          // Temporal AA resolves edges, so screen-space GI need not pay for full Retina density.
+          dpr={quality === 'lite' ? 1 : [1, 1.5]}
+          frameloop={active ? 'demand' : 'never'}
+          camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
+          gl={async ({ canvas }) => {
+            // Scans uploaded by a previous renderer released their decoded pixels; R3F renders
+            // nothing until this factory resolves, so no frame can see a released map.
+            sceneProgress.set('renderer')
+            // Only the live renderer recovers, never one that is being torn down.
+            const rebuild = () => {
+              if (live.current === mounted) setGeneration(generation + 1)
+            }
+            const [renderer] = await Promise.all([
+              createRenderer(canvas as HTMLCanvasElement).then((renderer) => {
+                // Watch for loss as soon as the renderer exists, not after the scans are restored.
+                const report = renderer.onDeviceLost
+                renderer.onDeviceLost = (info) => {
+                  report.call(renderer, info)
+                  rebuild()
+                }
+                return renderer
+              }),
+              restoreTextures(),
+            ])
+            // Lost while it was still being set up, before anything listened.
+            if ((renderer as unknown as { _isDeviceLost?: boolean })._isDeviceLost) rebuild()
+            setMaxAnisotropy(renderer.getMaxAnisotropy())
+            // The first frame compiles every shader in view.
+            sceneProgress.set('shaders')
+            return renderer
+          }}
+          onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
+        >
+          <Atmosphere config={config} quality={quality} view={view} />
+          <Landscape config={config} quality={quality} />
+          <StudioModel config={config} quality={quality} />
+          {dimensions && <Dimensions config={config} unit={unit} />}
+          <CameraRig
+            config={config}
+            view={view}
+            reset={reset}
+            direction={camera}
+            autoRotate={autoRotate}
+            snap={snap}
+            spin={spin}
+          />
+          <InteriorProbe config={config} quality={quality} />
+          <SiteProbe config={config} quality={quality} />
+          <RenderEffects
+            quality={quality}
+            trace={trace}
+            look={look}
+            config={config}
+            view={view}
+            dimensions={dimensions}
+            spin={spin}
+            onCaptureReady={onCaptureReady}
+            onSlow={onSlow}
+          />
+          <SceneRefresh
+            active={active}
+            config={config}
+            view={view}
+            dimensions={dimensions}
+            unit={unit}
+            quality={quality}
+            autoRotate={autoRotate}
+          />
+        </Canvas>
+      )}
+      <SceneLoadingStatus />
     </GraphicsBoundary>
   )
-}
+})

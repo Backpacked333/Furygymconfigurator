@@ -103,16 +103,14 @@ export const palette = {
   stucco: (color: string) => m({ set: 'white_stucco', color, roughness: 1, normalScale: 0.6 }),
   brick: (color = '#ffffff') => m({ set: 'red_brick_03', color, roughness: 1 }),
   // Light and glass ---------------------------------------------------------------------------
+  /** Clear float glass: the room behind stays sharp; reflections follow Fresnel. */
   glass: () =>
     m({
-      color: '#ffffff',
-      transmission: 1,
-      roughness: 0.03,
+      color: '#000000',
+      roughness: 0,
       ior: 1.52,
-      thickness: 0.03,
-      attenuationColor: '#cfe6dc',
-      attenuationDistance: 1.2,
       specularIntensity: 1,
+      thinGlass: true,
       side: DoubleSide,
       site: true,
     }),

@@ -5,6 +5,7 @@ import {
   HalfFloatType,
   Matrix3,
   Matrix4,
+  Quaternion,
   RGBAFormat,
   Vector2,
   Vector3,
@@ -50,11 +51,19 @@ import {
   sceneSignature,
 } from '../render/pathtrace'
 import type { Quality } from '../render/quality'
-import { backendOf } from '../render/renderer'
+import { FRAME_BEGIN, backendOf, beginFrame } from '../render/renderer'
 import { TraceSession } from '../render/session'
-import { textureProgress } from '../render/progress'
+import { invalidateShadows, refreshShadows } from '../render/shadows'
+import { sceneProgress, textureProgress } from '../render/progress'
 import { setPrerenderProgress, setSpinStatus, setTraceStatus } from '../render/traceStatus'
 
+/**
+ * Camera motion below OrbitControls' own change threshold (squared distance and quaternion terms of
+ * 1e-6) is not motion: its damping keeps nudging the camera by such amounts for hundreds of frames
+ * after an orbit, and restarting the settle run (and the rest before tracing) for each nudge kept
+ * the GPU busy and delayed the converged image long after anything visibly moved.
+ */
+const STILL = 1e-6
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
 const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
 /**
@@ -101,7 +110,8 @@ export function RenderEffects({
   dimensions: boolean
   /** Show the cloud's path-traced spin and panorama (spin.ts). */
   spin: boolean
-  onCaptureReady: (capture: Capture) => void
+  /** Null once this scene is gone: a capture must never read the canvas of a renderer that is. */
+  onCaptureReady: (capture: Capture | null) => void
   /** Called once per tier when consecutive frames are consistently slow. */
   onSlow?: () => void
 }) {
@@ -118,7 +128,7 @@ export function RenderEffects({
   const settle = useRef(0)
   /** Raster frames drawn since the view last changed. */
   const still = useRef(0)
-  const lastView = useRef(new Matrix4())
+  const lastView = useRef({ position: new Vector3(Infinity, 0, 0), quaternion: new Quaternion() })
   const lastProjection = useRef(new Matrix4())
   const changed = useRef(true)
   /** Whether the raster frame on screen (and in `hdr`) shows the current view. */
@@ -133,7 +143,13 @@ export function RenderEffects({
   const meterEye = useRef(new Vector3()).current
   const meterTarget = useRef(new Vector3()).current
   const spinRotation = useRef(new Matrix3()).current
-  const timing = useRef({ last: 0, samples: [] as number[], frames: 0, reported: false })
+  const timing = useRef({
+    last: 0,
+    samples: [] as number[],
+    frames: 0,
+    reported: false,
+    eventful: false,
+  })
   useEffect(() => {
     lookRef.current = look
   }, [look])
@@ -147,10 +163,11 @@ export function RenderEffects({
     const created = createPipeline(renderer, scene, camera, quality)
     pipeline.current = created
     setRaster(created)
+    invalidateShadows(scene)
     settle.current = 0
     fresh.current = false
     mode.current = 'raster'
-    timing.current = { last: 0, samples: [], frames: 0, reported: false }
+    timing.current = { last: 0, samples: [], frames: 0, reported: false, eventful: false }
     invalidate()
     return () => {
       pipeline.current = null
@@ -264,9 +281,12 @@ export function RenderEffects({
     invalidate()
   }, [config, view, dimensions, invalidate])
 
+  // Streamed textures change surfaces, and each interior probe capture redraws shadow maps with
+  // foliage and glazing hidden, so both also refresh the shadows.
   useEffect(
     () =>
       onMaterialsChanged((change) => {
+        invalidateShadows(scene)
         settle.current = 0
         sceneDirty.current = true
         if (change === 'textures') {
@@ -275,7 +295,7 @@ export function RenderEffects({
         }
         invalidate()
       }),
-    [invalidate, session],
+    [scene, invalidate, session],
   )
 
   useEffect(() => {
@@ -292,6 +312,8 @@ export function RenderEffects({
           invalidate()
         })
       if (!session || !present.current) {
+        beginFrame(renderer)
+        refreshShadows(scene)
         pipeline.current?.render()
         return Promise.resolve(renderer.domElement.toDataURL('image/png'))
       }
@@ -306,7 +328,9 @@ export function RenderEffects({
         invalidate()
       })
     })
-  }, [renderer, session, onCaptureReady, invalidate])
+    // A capture must never read the canvas of a renderer that is gone.
+    return () => onCaptureReady(null)
+  }, [renderer, scene, session, onCaptureReady, invalidate])
 
   useEffect(
     () => () => {
@@ -318,6 +342,9 @@ export function RenderEffects({
     },
     [],
   )
+
+  // Before every other frame subscriber: camera controls, environment and probe captures, the pipeline.
+  useFrame(() => beginFrame(renderer), FRAME_BEGIN)
 
   useFrame(() => {
     const active = pipeline.current
@@ -338,6 +365,9 @@ export function RenderEffects({
     // Controls move the camera without refreshing its world matrix, and while tracing nothing
     // renders through it, so refresh it before checking for movement.
     camera.updateMatrixWorld()
+    // Shadow maps are redrawn on demand (shadows.ts), by the first scene render after a change,
+    // which marks that frame as eventful for the timing below.
+    let eventful = false
 
     // The path-traced spin and panorama.
     const spinning = spinner.current
@@ -406,6 +436,8 @@ export function RenderEffects({
         // visitor is outside: only the camera and exposure differ between views), rendered a few
         // times so its temporal effects settle, and measured. The camera is put back, and a
         // path-traced frame drawn below replaces the raster one before it is seen.
+        eventful = true
+        refreshShadows(scene)
         const position = cam.position.clone()
         const quaternion = cam.quaternion.clone()
         const fov = cam.fov
@@ -464,6 +496,7 @@ export function RenderEffects({
                 }
               : null,
         })
+        sceneProgress.drawn()
         spinning.session.hold(
           t < 1 && current.from ? [current.frame.texture, current.from] : [current.frame.texture],
         )
@@ -490,11 +523,14 @@ export function RenderEffects({
       })
       // Nothing path traced to show yet: the raster frame, which the exposure meter also reads.
     }
+    const last = lastView.current
     const moved =
-      !lastView.current.equals(camera.matrixWorld) ||
+      last.position.distanceToSquared(camera.position) > STILL ||
+      8 * (1 - Math.abs(last.quaternion.dot(camera.quaternion))) > STILL ||
       !lastProjection.current.equals(camera.projectionMatrix)
     if (moved || changed.current) {
-      lastView.current.copy(camera.matrixWorld)
+      last.position.copy(camera.position)
+      last.quaternion.copy(camera.quaternion)
       lastProjection.current.copy(camera.projectionMatrix)
       changed.current = false
       if (restTimer.current) clearTimeout(restTimer.current)
@@ -515,7 +551,10 @@ export function RenderEffects({
       const refining = tracer.step()
       const traced = tracer.view(now)
       // Until the first traced image is ready the canvas keeps the last raster frame.
-      if (traced.from || traced.t > 0) present.current!.render(traced)
+      if (traced.from || traced.t > 0) {
+        present.current!.render(traced)
+        sceneProgress.drawn()
+      }
       const capture = pending.current
       if (capture && (tracer.ready(EXPORT_SAMPLES) || now > capture.deadline))
         deliver(renderer.domElement.toDataURL('image/png'))
@@ -542,7 +581,11 @@ export function RenderEffects({
     // Raster rendering with a settle run after every change.
     const chained = settle.current > 0
     if (settle.current <= 0) settle.current = active.settleFrames
+    // A frame right after a change, a streamed texture, or a probe capture also compiles shaders,
+    // uploads textures, and redraws shadows: one-off work, not the cost of the tier.
+    if (refreshShadows(scene)) eventful = true
     active.render()
+    sceneProgress.drawn()
     fresh.current = true
     settle.current--
     still.current++
@@ -556,10 +599,13 @@ export function RenderEffects({
     } else if (settle.current <= 0 && pending.current)
       deliver(renderer.domElement.toDataURL('image/png'))
     // Back-to-back settle frames measure what this GPU can sustain at this tier. The first frames
-    // after a pipeline is built include shader compilation and are ignored.
+    // after a pipeline is built, and eventful frames with the one after them (whose interval
+    // still carries their GPU work), are ignored.
     const t = timing.current
     t.frames++
-    if (chained && t.last && t.frames > 8 && !t.reported) {
+    const steady = !eventful && !t.eventful
+    t.eventful = eventful
+    if (chained && steady && t.last && t.frames > 8 && !t.reported) {
       t.samples.push(now - t.last)
       if (t.samples.length >= 16) {
         const sorted = [...t.samples].sort((a, b) => a - b)

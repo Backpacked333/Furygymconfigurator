@@ -33,12 +33,17 @@ export function downloadFile(name: string, content: string | Blob, type = 'appli
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+/** The PDF library did not download: offline, or this tab predates a release that replaced it. */
+export class PdfToolUnavailable extends Error {}
+
 export async function createBrief(
   config: Config,
   image: string | null,
   project: { name: string; notes: string },
 ) {
-  const { jsPDF } = await import('jspdf')
+  const { jsPDF } = await import('jspdf').catch((cause: unknown) => {
+    throw new PdfToolUnavailable('The PDF library could not be loaded.', { cause })
+  })
   const doc = new jsPDF(),
     estimateData = estimate(config)
   let y = 0
