@@ -52,7 +52,10 @@ durable counters.
 
 ## Limits and caveats
 
+- Scene data (geometry, textures, sky) is stored on the `fury-render-cache` volume, shared by every
+  visitor and kept across cold starts, so the browser uploads a design's data only once.
 - One GPU container, one active Blender render, max 15 seconds of Cycles sampling per render.
+  Waiting renders go in order of kind: previews, then views, then orbit pre-renders.
   Scene preparation, denoising, cold starts, packing and idle time are additional billable work.
 - Gateway: global 40 render requests/minute (burst 8), 1 GiB of uploads/hour (burst 512 MiB). Missing-blob retries count as render requests. The
   render limit leaves room for the orbit views the browser pre-renders around a resting view

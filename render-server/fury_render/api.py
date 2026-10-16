@@ -8,12 +8,15 @@
                           409 {"superseded": true} when the same session asked for a newer view
 
 One worker renders at a time. A session's queued requests are dropped once it asks for a newer
-view, so an orbiting visitor never waits behind views they have already left.
+view, so an orbiting visitor never waits behind views they have already left. Queued renders go
+by "kind": a quick preview first, then the visitor's view, then pre-rendered orbit views.
 """
 
 from __future__ import annotations
 
 import asyncio
+import heapq
+import itertools
 import json
 import multiprocessing
 import os
@@ -138,12 +141,16 @@ class Worker:
 
 
 class BlobStore:
-    """Blobs as files named by their hash, pruned oldest first beyond a byte budget."""
+    """Blobs as files named by their hash, pruned oldest first beyond a byte budget.
+
+    The directory may be on a network volume, so it is listed only when the budget is exceeded.
+    """
 
     def __init__(self, directory: str, budget: int):
         self.directory = directory
         self.budget = budget
         os.makedirs(directory, exist_ok=True)
+        self.total = sum(size for _, size, _ in self._entries())
 
     def path(self, key: str) -> str:
         return os.path.join(self.directory, key)
@@ -160,22 +167,69 @@ class BlobStore:
         with open(temp, "wb") as f:
             f.write(data)
         os.replace(temp, self.path(key))
-        self.prune()
+        self.total += len(data)
+        if self.total > self.budget:
+            self.prune()
+
+    def _entries(self):
+        for name in os.listdir(self.directory):
+            if HASH.match(name):
+                stat = os.stat(self.path(name))
+                yield stat.st_mtime, stat.st_size, name
 
     def prune(self):
-        entries = []
-        total = 0
-        for name in os.listdir(self.directory):
-            if not HASH.match(name):
-                continue
-            stat = os.stat(self.path(name))
-            entries.append((stat.st_mtime, stat.st_size, name))
-            total += stat.st_size
-        for _, size, name in sorted(entries):
-            if total <= self.budget:
+        entries = sorted(self._entries())
+        self.total = sum(size for _, size, _ in entries)
+        for _, size, name in entries:
+            if self.total <= self.budget:
                 break
             os.remove(self.path(name))
-            total -= size
+            self.total -= size
+
+
+class RenderQueue:
+    """One render at a time, by priority, then in order of arrival.
+
+    A render in progress is never interrupted, but views the visitor is waiting for go ahead of
+    queued pre-renders.
+    """
+
+    PRIORITY = {"preview": 0, "view": 1, "orbit": 2}
+
+    def __init__(self):
+        self.busy = False
+        self.waiters: list[tuple[int, int, asyncio.Future]] = []
+        self.order = itertools.count()
+
+    async def acquire(self, kind: str):
+        if not self.busy and not self.waiters:
+            self.busy = True
+            return
+        turn = asyncio.get_running_loop().create_future()
+        heapq.heappush(self.waiters, (self.PRIORITY.get(kind, 1), next(self.order), turn))
+        try:
+            await turn
+        except asyncio.CancelledError:
+            # Granted just as the caller went away: pass the turn on.
+            if turn.done() and not turn.cancelled():
+                self.release()
+            raise
+
+    @asynccontextmanager
+    async def turn(self, kind: str):
+        await self.acquire(kind)
+        try:
+            yield
+        finally:
+            self.release()
+
+    def release(self):
+        while self.waiters:
+            _, _, turn = heapq.heappop(self.waiters)
+            if not turn.done():
+                turn.set_result(None)
+                return
+        self.busy = False
 
 
 class Bucket:
@@ -212,7 +266,7 @@ class Service:
         self.store = BlobStore(self.settings.blob_dir, self.settings.blob_budget)
         self.worker = Worker(self.settings)
         self.origins = re.compile(self.settings.origins)
-        self.lock = asyncio.Lock()
+        self.queue = RenderQueue()
         self.waiting = 0
         self.latest: dict[str, int] = {}
         self.renders = Bucket(
@@ -232,6 +286,8 @@ class Service:
         request = validate_request(body)
         session = str(body.get("session", ""))[:64]
         seq = int(body.get("seq", 0))
+        # "preview", "view" or "orbit" (a pre-render): sets the place in the queue.
+        kind = str(body.get("kind", "view"))
         if session:
             if len(self.latest) > 10000:
                 self.latest.clear()
@@ -244,7 +300,7 @@ class Service:
         queued = time.perf_counter()
         self.waiting += 1
         try:
-            async with self.lock:
+            async with self.queue.turn(kind):
                 if session and self.latest.get(session, seq) > seq:
                     return JSONResponse({"superseded": True}, status_code=409)
                 waited = time.perf_counter() - queued

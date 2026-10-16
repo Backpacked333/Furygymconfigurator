@@ -63,6 +63,11 @@ const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats'
 
 /** Render settings sent with each view: adaptive sampling stops well before the cap. */
 export const CLOUD_QUALITY = { samples: 1024, threshold: 0.01, timeLimit: 15 }
+/**
+ * A quick first image, shown while the full one renders: 64 samples, denoised. On an L40S it takes
+ * about 1.5 s at 1200x827 instead of 14 s, and at that size it is hard to tell from the final.
+ */
+export const PREVIEW_QUALITY = { samples: 64, threshold: 0, timeLimit: 4 }
 /** Longest edge of a cloud render, in device pixels. */
 const MAX_EDGE = 3200
 /** Crossfade into the cloud image, in milliseconds. */
@@ -568,7 +573,7 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
 // Transport ------------------------------------------------------------------------------------
 
 async function gzip(bytes: Uint8Array) {
-  const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'))
+  const stream = new Response(bytes as BodyInit).body!.pipeThrough(new CompressionStream('gzip'))
   return new Uint8Array(await new Response(stream).arrayBuffer())
 }
 
@@ -633,14 +638,19 @@ export async function decodeFrame(frame: CloudFrame) {
   return texture
 }
 
-/** "view" renders what the visitor looks at; "orbit" pre-renders views around it. */
-export type RenderKind = 'view' | 'orbit'
+/**
+ * "view" renders what the visitor looks at, "preview" a quick first version of it, and "orbit"
+ * pre-renders views around it. The server renders queued previews first and pre-renders last.
+ */
+export type RenderKind = 'view' | 'preview' | 'orbit'
 
 /** Client of one render server. */
 export class CloudClient {
   readonly url: string
   private readonly session = Math.random().toString(36).slice(2)
   private seq = 0
+  /** Uploads in flight, shared by renders that need the same blob (a preview and its view). */
+  private readonly uploading = new Map<string, Promise<void>>()
   /** When the server last answered with an image: a warm GPU answers within seconds. */
   lastSuccess: number | null = null
 
@@ -653,30 +663,48 @@ export class CloudClient {
     return this.lastSuccess !== null && performance.now() - this.lastSuccess < 4 * 60 * 1000
   }
 
+  private async put(key: string, blobs: Map<string, BlobSource>, signal: AbortSignal) {
+    const source = blobs.get(key)
+    if (!source) throw new Error(`server asked for an unknown blob ${key}`)
+    const raw = await source()
+    // Image files are compressed already.
+    const isImage = raw[0] === 0x89 || raw[0] === 0xff || raw[0] === 0x52
+    const body = isImage ? raw : await gzip(raw)
+    const response = await fetch(`${this.url}/blobs/${key}`, {
+      method: 'PUT',
+      body: body as BodyInit,
+      signal,
+    })
+    if (!response.ok) throw new Error(`upload failed (${response.status})`)
+  }
+
   private async upload(keys: string[], blobs: Map<string, BlobSource>, signal: AbortSignal) {
     const queue = [...keys]
     const worker = async () => {
       for (let key = queue.shift(); key; key = queue.shift()) {
-        const source = blobs.get(key)
-        if (!source) throw new Error(`server asked for an unknown blob ${key}`)
-        const raw = await source()
-        // Image files are compressed already.
-        const isImage = raw[0] === 0x89 || raw[0] === 0xff || raw[0] === 0x52
-        const body = isImage ? raw : await gzip(raw)
-        const response = await fetch(`${this.url}/blobs/${key}`, {
-          method: 'PUT',
-          body: body as BodyInit,
-          signal,
+        const shared = this.uploading.get(key)
+        if (shared) {
+          try {
+            await shared
+            continue
+          } catch {
+            // The other render gave up on it; upload it for this one.
+            signal.throwIfAborted()
+          }
+        }
+        const upload = this.put(key, blobs, signal).finally(() => {
+          if (this.uploading.get(key) === upload) this.uploading.delete(key)
         })
-        if (!response.ok) throw new Error(`upload failed (${response.status})`)
+        this.uploading.set(key, upload)
+        await upload
       }
     }
     await Promise.all(Array.from({ length: Math.min(UPLOADS, keys.length) }, worker))
   }
 
   /**
-   * Renders a view, uploading whatever the server is missing. Pre-renders use a session of their
-   * own, so a newer view the visitor asked for never drops them, and they never drop it.
+   * Renders a view, uploading whatever the server is missing. Previews and pre-renders use
+   * sessions of their own, so a newer view the visitor asked for never drops them, nor they it.
    */
   async render(
     captured: CapturedScene,
@@ -689,13 +717,15 @@ export class CloudClient {
     const start = performance.now()
     const scale = Math.min(1, MAX_EDGE / Math.max(width, height))
     const body = JSON.stringify({
-      session: kind === 'orbit' ? `${this.session}o` : this.session,
+      // A session of its own for each kind, so none supersedes another.
+      session: `${this.session}${kind === 'orbit' ? 'o' : kind === 'preview' ? 'p' : ''}`,
+      kind,
       seq: ++this.seq,
       scene: captured.scene,
       camera,
       width: Math.max(1, Math.round(width * scale)),
       height: Math.max(1, Math.round(height * scale)),
-      quality: CLOUD_QUALITY,
+      quality: kind === 'preview' ? PREVIEW_QUALITY : CLOUD_QUALITY,
       // The image as a gzip file rather than gzip transfer encoding, so it can be kept compressed.
       transfer: 'file',
     })
@@ -798,6 +828,8 @@ export class CloudSession {
   private abort: AbortController | null = null
   private epoch = 0
   private image: DataTexture | null = null
+  /** False while the image on screen is a preview. */
+  private final = false
   private retired: DataTexture | null = null
   private from: Texture | null = null
   private start = 0
@@ -868,6 +900,7 @@ export class CloudSession {
     this.state = 'preparing'
     this.failed = false
     this.image = null
+    this.final = false
     this.from = null
     this.live = { scene, look }
     this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
@@ -884,10 +917,61 @@ export class CloudSession {
     const sceneKey = spot?.sceneKey ?? String(sceneSignature(scene, lookKey(look)))
     const size = spot?.size ?? this.renderer.getDrawingBufferSize(new Vector2())
     const view = cameraRecord(camera)
+    /** Puts a rendered image on screen, fading from whatever is there now. */
+    let finalShown = false
+    const show = async (frame: CloudFrame, kind: 'preview' | 'view' | 'cached') => {
+      if (epoch !== this.epoch || finalShown) return
+      if (kind !== 'preview') finalShown = true
+      // A preview that comes after its final image is dropped.
+      const stale = () => epoch !== this.epoch || (kind === 'preview' && finalShown)
+      const decoding = performance.now()
+      const texture = await decodeFrame(frame)
+      const decoded = performance.now()
+      if (stale()) {
+        texture.dispose()
+        return
+      }
+      const [raster, traced] = await Promise.all([
+        this.rasterKey,
+        this.meter.measure(texture, true).catch(() => NaN),
+      ])
+      if (stale()) {
+        texture.dispose()
+        return
+      }
+      const ratio = Math.exp((raster ?? NaN) - traced)
+      this.gain = Number.isFinite(ratio)
+        ? Math.min(GAIN_RANGE[1], Math.max(GAIN_RANGE[0], ratio))
+        : 1
+      this.stats = frame.stats
+      if (this.image) {
+        // The final image fades in over the preview.
+        this.retired?.dispose()
+        this.retired = this.image
+        this.from = this.image
+      } else this.from = this.onArrive?.() ?? null
+      this.image = texture
+      this.final = kind !== 'preview'
+      this.start = performance.now()
+      if (TRACE_STATS) {
+        const s = frame.stats
+        const { width, height } = frame
+        console.info(
+          kind === 'cached'
+            ? `[cloud render] ${width}x${height} pre-rendered view: on screen ${Math.round(this.start - rested)} ms after rest (decode ${Math.round(decoded - decoding)} ms, exposure match ${Math.round(this.start - decoded)} ms)`
+            : `[cloud render] ${width}x${height} ${kind} on ${s.device}, ${s.denoise} denoising: on screen ${((this.start - rested) / 1000).toFixed(1)} s after rest (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
+        )
+      }
+    }
     const render = () =>
       this.captured(scene, look, sceneKey).then((captured) => {
         if (epoch !== this.epoch) return null
         this.state = 'tracing'
+        // A quick preview first; the server renders it ahead of the full view.
+        this.client
+          .render(captured, view, size.x, size.y, abort.signal, 'preview')
+          .then((frame) => show(frame, 'preview'))
+          .catch(() => {})
         return this.client
           .render(captured, view, size.x, size.y, abort.signal)
           .then((frame) => ({ frame, cached: false }))
@@ -910,43 +994,17 @@ export class CloudSession {
           this.views.set(spot.key, result.frame)
           this.progress()
         }
-        if (epoch !== this.epoch) return
-        const decoding = performance.now()
-        const texture = await decodeFrame(result.frame)
-        const decoded = performance.now()
-        if (epoch !== this.epoch) {
-          texture.dispose()
-          return
-        }
-        const [raster, traced] = await Promise.all([
-          this.rasterKey,
-          this.meter.measure(texture, true).catch(() => NaN),
-        ])
-        if (epoch !== this.epoch) {
-          texture.dispose()
-          return
-        }
-        const ratio = Math.exp((raster ?? NaN) - traced)
-        this.gain = Number.isFinite(ratio)
-          ? Math.min(GAIN_RANGE[1], Math.max(GAIN_RANGE[0], ratio))
-          : 1
-        this.stats = result.frame.stats
-        this.from = this.onArrive?.() ?? null
-        this.image = texture
-        this.start = performance.now()
-        if (TRACE_STATS) {
-          const s = result.frame.stats
-          const { width, height } = result.frame
-          console.info(
-            result.cached
-              ? `[cloud render] ${width}x${height} pre-rendered view: on screen ${Math.round(this.start - rested)} ms after rest (decode ${Math.round(decoded - decoding)} ms, exposure match ${Math.round(this.start - decoded)} ms)`
-              : `[cloud render] ${width}x${height} on ${s.device}, ${s.denoise} denoising: ${(s.totalMs / 1000).toFixed(1)} s total (queue ${s.queueMs} ms, scene ${s.prepareMs} ms, render ${s.renderMs} ms)`,
-          )
-        }
-        if (spot && orbit) this.prerender(spot, orbit.target)
+        await show(result.frame, result.cached ? 'cached' : 'view')
+        if (epoch === this.epoch && spot && orbit) this.prerender(spot, orbit.target)
       })
       .catch((error) => {
         if (epoch !== this.epoch || error instanceof Superseded || abort.signal.aborted) return
+        if (this.image) {
+          // The preview is on screen: keep it as this view's image.
+          console.warn('Cloud rendering failed; keeping the preview.', error)
+          this.final = true
+          return
+        }
         console.warn('Cloud rendering failed; tracing on this device instead.', error)
         this.failed = true
         this.state = 'off'
@@ -1051,9 +1109,9 @@ export class CloudSession {
 
   step() {
     if (this.image && this.view().t >= 1) {
-      this.state = 'converged'
       this.retired?.dispose()
       this.retired = null
+      if (this.final) this.state = 'converged'
     }
     return this.state === 'preparing' || this.state === 'tracing'
   }

@@ -198,3 +198,38 @@ the `fury-render-auth` Modal secret.
 - **Cost risk:** these limits are in-process, and a script that ignores CORS can still use them up.
   The Modal workspace spending limit is the hard cap.
 - **If the gateway can't be reached:** the browser traces on its own GPU, as it did before.
+
+## Follow-up: measured on the deployed L40S
+
+The owner asked for much faster renders at the same quality or better. Measured on the deployed
+L40S with the real default view (1200×827), replayed through the gateway:
+
+| Setting                                      | Cycles render | Error vs reference (RMSE/255) |
+| -------------------------------------------- | ------------- | ----------------------------- |
+| Current: ≤1024 samples, noise threshold 0.01 | 14.0 s        | 0.98                          |
+| Threshold 0.02                               | 7.4 s         | 1.74                          |
+| Threshold 0.05                               | 3.1 s         | 2.54                          |
+| 64 samples, no threshold                     | 1.5 s         | 2.41                          |
+| 256 samples, no threshold                    | 5.3 s         | 1.35                          |
+
+- The reference used 4096 samples at threshold 0.002 and hit the 15 s cap.
+- GPU denoising works on Modal (`X-Denoise: gpu`). Scene sync takes 2 ms when only the camera
+  moves. Packing takes about 0.3 s, and the trip back through the gateway about 1 s.
+- **A first visit uploads 24.5 MB of scene data, which took about 15 s.** The renderer kept it in
+  container-local `/tmp`, so every cold start uploaded it all again.
+- **Loosening the noise threshold costs quality measurably,** so it is not a way to go faster at
+  equal quality. At viewing size, the 64-sample denoised image is hard to tell from the final.
+
+Changes:
+
+1. **A quick preview, then the final image.** For each new view the browser also asks for a
+   64-sample preview. It shows that in about 2 s, then crossfades to the full image. Exports and
+   the "Path traced" badge wait for the final image. If the final render fails, the preview stays.
+2. **The visitor goes first.** The renderer's queue orders waiting renders by kind: preview, then
+   view, then orbit pre-render. A render already running is never interrupted.
+3. **Scene data persists.** Blobs live on the Modal volume (`/fury-cache/blobs`), which commits in
+   the background, so a container starting cold already has them. The store lists its directory
+   only when it is over budget, not on every upload, because a volume is a network filesystem.
+4. Concurrent renders share uploads, so a preview and its view never upload the same blob twice.
+
+More GPUs per container (`FURY_GPU=L40S:4`) would cut the 14 s roughly in proportion; not measured.

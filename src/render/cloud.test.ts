@@ -12,14 +12,81 @@ import { gzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   cameraRecord,
+  CLOUD_QUALITY,
   CloudClient,
   cloudUrl,
   decodeFrame,
   encodeGeometry,
   encodeInstances,
   encodeSky,
+  PREVIEW_QUALITY,
   unpackImage,
 } from './cloud'
+
+describe('cloud requests', () => {
+  const camera = { matrix: Array(16).fill(0), fov: 34, near: 0.1, far: 2000 }
+  const image = (status = 200) =>
+    new Response(new Uint8Array(16), {
+      status,
+      headers: { 'x-image-width': '1', 'x-image-height': '1' },
+    })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('ask for a quick preview on a session of its own, ahead of the full view', async () => {
+    const fetch = vi.fn().mockImplementation(() => Promise.resolve(image()))
+    vi.stubGlobal('fetch', fetch)
+    const client = new CloudClient('https://gpu.example')
+    const captured = { scene: {} as never, blobs: new Map() }
+    const signal = new AbortController().signal
+    await client.render(captured, camera, 100, 80, signal, 'preview')
+    await client.render(captured, camera, 100, 80, signal)
+    const [preview, view] = fetch.mock.calls.map((call) =>
+      JSON.parse(new TextDecoder().decode(call[1].body as Uint8Array)),
+    )
+    expect(preview.kind).toBe('preview')
+    expect(preview.quality).toEqual(PREVIEW_QUALITY)
+    expect(view.kind).toBe('view')
+    expect(view.quality).toEqual(CLOUD_QUALITY)
+    expect(preview.session).toBe(`${view.session}p`)
+  })
+
+  it('upload each missing blob once when a preview and its view both need it', async () => {
+    const puts: string[] = []
+    let rendered = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
+        if (init.method === 'PUT') {
+          puts.push(url)
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          return new Response(null, { status: 204 })
+        }
+        // The server lacks both blobs until they are uploaded.
+        if (puts.length < 2 && rendered++ < 2)
+          return new Response(JSON.stringify({ missing: ['a'.repeat(64), 'b'.repeat(64)] }), {
+            status: 409,
+          })
+        return image()
+      }),
+    )
+    const blob = () => Promise.resolve(new Uint8Array([1, 2, 3]))
+    const blobs = new Map([
+      ['a'.repeat(64), blob],
+      ['b'.repeat(64), blob],
+    ])
+    const client = new CloudClient('https://gpu.example')
+    const signal = new AbortController().signal
+    const captured = { scene: {} as never, blobs }
+    await Promise.all([
+      client.render(captured, camera, 100, 80, signal, 'preview'),
+      client.render(captured, camera, 100, 80, signal),
+    ])
+    expect(puts.sort()).toEqual([
+      `https://gpu.example/blobs/${'a'.repeat(64)}`,
+      `https://gpu.example/blobs/${'b'.repeat(64)}`,
+    ])
+  })
+})
 
 describe('cloud warmth', () => {
   it('does not treat a new client as a warm GPU', () => {

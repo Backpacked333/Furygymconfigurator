@@ -16,7 +16,10 @@ cache = modal.Volume.from_name("fury-render-cache", create_if_missing=True)
 
 environment = {
     "FURY_DEVICE": "auto",
-    "FURY_BLOB_DIR": "/tmp/fury-blobs",
+    # Scene data (geometry, textures, sky) is content-addressed and shared by every visitor. Kept on
+    # the volume, a container starting cold already has it, instead of the browser re-uploading
+    # some 25 MB before the first view.
+    "FURY_BLOB_DIR": "/fury-cache/blobs",
     # OptiX compiles its kernels on first use; keep them between containers.
     "OPTIX_CACHE_PATH": "/fury-cache/optix",
     "XDG_CACHE_HOME": "/fury-cache/xdg",

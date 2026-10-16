@@ -100,7 +100,8 @@ export class TraceSession {
 
   /** True once the image on screen is final enough for an export of `samples`. */
   ready(samples: number) {
-    if (this.cloud?.arrived) return this.cloud.view().t >= 1
+    // Not a cloud preview: its full image is on the way.
+    if (this.cloud?.arrived) return this.cloud.state === 'converged'
     return this.localRunning && this.local!.ready(samples)
   }
 
