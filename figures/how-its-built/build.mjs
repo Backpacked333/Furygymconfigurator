@@ -30,9 +30,6 @@ const FIGURES = [
 const css = `
 .cg-hole{fill:var(--anatomy-shade-0);stroke:var(--anatomy-lo);stroke-width:var(--anatomy-weight);vector-effect:non-scaling-stroke}
 .cg-glass{fill:var(--anatomy-hi);fill-opacity:.07;stroke:none}
-.iso{--cg-glow:#ffc978}
-.iso[data-theme="light"]{--cg-glow:#f2a541}
-.cg-glow{fill:var(--cg-glow);stroke:none}
 .cg-svg [data-s] .iso-edge{transition:stroke .35s ease}
 .cg-svg [data-s][data-on] .iso-edge{stroke:var(--anatomy-lit)}
 .cg-stage{outline:none;touch-action:pan-y;cursor:ew-resize}
@@ -48,8 +45,10 @@ const css = `
 
 /** One card: the SVG with each item in its stage's group, the step list under it. */
 function card(f) {
-  const body = f.items.map(({ stage, svg }) =>
-    stage < 0 ? svg : `<g data-s="${stage}">${svg}</g>`,
+  const body = f.items.map(({ stage, svg, k: at }) =>
+    stage < 0
+      ? svg
+      : `<g data-s="${stage}"${at == null ? '' : ` data-k="${at.toFixed(3)}"`}>${svg}</g>`,
   )
   const svg = k.figureSvg({
     width: f.width,
@@ -98,7 +97,7 @@ const still = matchMedia("(prefers-reduced-motion: reduce)");
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const smooth = (t) => t * t * (3 - 2 * t);
-const HOLD = 3.4, GAP = 0.6;
+const HOLD = 3, GAP = 0.5;
 
 function mount(cfg) {
   const root = document.querySelector('[data-fig="' + cfg.id + '"]');
@@ -110,7 +109,11 @@ function mount(cfg) {
   const N = STAGES.length;
   const CLEAR = 0.6 + (N - 1) * 0.07;
   const CYCLE = BUILT + HOLD + CLEAR + GAP;
-  const groups = STAGES.map((_, i) => [...svg.querySelectorAll('[data-s="' + i + '"]')]);
+  // Pieces with a data-k land one after another within their step: k = 0 first, k = 1 last.
+  const SPREAD = 0.62;
+  const groups = STAGES.map((_, i) =>
+    [...svg.querySelectorAll('[data-s="' + i + '"]')].map((el) => ({ el, k: el.dataset.k === undefined ? null : +el.dataset.k })),
+  );
   const leaves = doors ? [-1, 1].map((side) => ({ side, el: svg.querySelector('[data-leaf="' + side + '"]'), angle: -1 })) : [];
   const shutter = SHUT ? { el: svg.querySelector("[data-shutter]"), bottom: SHUT.rest } : null;
 
@@ -142,12 +145,12 @@ function mount(cfg) {
     out.forEach((p, i) => {
       if (shown[i] === p) return;
       shown[i] = p;
-      const lift = STAGES[i].drop * (1 - ease(p));
-      const alpha = smooth(clamp(p / 0.45));
-      for (const el of groups[i]) {
+      for (const { el, k } of groups[i]) {
+        const q = k === null ? p : clamp((p - k * SPREAD) / (1 - SPREAD));
+        const lift = STAGES[i].drop * (1 - ease(q));
         el.setAttribute("transform", translateAlong(P, [0, 0, lift]));
-        el.style.opacity = alpha.toFixed(3);
-        el.style.visibility = p <= 0 ? "hidden" : "";
+        el.style.opacity = smooth(clamp(q / 0.4)).toFixed(3);
+        el.style.visibility = q <= 0 ? "hidden" : "";
       }
     });
     const swinging = doors && angle > 0.001 && angle < doors.open - 0.001 && out[doors.stage] === 1;
@@ -155,7 +158,7 @@ function mount(cfg) {
       const on = (p > 0 && p < 1) || (doors && i === doors.stage && swinging);
       if (lit[i] === on) return;
       lit[i] = on;
-      for (const el of groups[i]) el.toggleAttribute("data-on", on);
+      for (const { el } of groups[i]) el.toggleAttribute("data-on", on);
     });
     for (const leaf of leaves) {
       if (Math.abs(leaf.angle - angle) < 1e-4) continue;

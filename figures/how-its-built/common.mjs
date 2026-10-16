@@ -94,8 +94,8 @@ export const ACROSS_Y = G.frameOf([0, 0, 0], [0, 1, 0], [1, 0, 0], [0, 0, 1])
 export const roundedSection = (x0, x1, z0, z1, r, steps = 10) =>
   k.roundedPlan({ x: x0, y: z0, w: x1 - x0, d: z1 - z0, r }, steps)
 
-/** Cuts a convex section to the band z0 ≤ v ≤ z1 (the second coordinate). */
-export function cutSection(ring, lo, hi) {
+/** Cuts a convex section to the band lo ≤ v ≤ hi (the second coordinate, or the first with axis 0). */
+export function cutSection(ring, lo, hi, axis = 1) {
   const clip = (points, keep, cross) => {
     const out = []
     for (let i = 0; i < points.length; i++) {
@@ -106,10 +106,17 @@ export function cutSection(ring, lo, hi) {
     }
     return out
   }
-  const at = (z) => (a, b) => [a[0] + ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]), z]
+  const o = 1 - axis
+  const at = (z) => (a, b) => {
+    const t = (z - a[axis]) / (b[axis] - a[axis])
+    const p = []
+    p[axis] = z
+    p[o] = a[o] + (b[o] - a[o]) * t
+    return p
+  }
   return clip(
-    clip(ring, (p) => p[1] >= lo, at(lo)),
-    (p) => p[1] <= hi,
+    clip(ring, (p) => p[axis] >= lo, at(lo)),
+    (p) => p[axis] <= hi,
     at(hi),
   )
 }
@@ -261,7 +268,9 @@ export function equipment(h, put, stage, P, shift = [0, 0, 0], { rack = true } =
   const { S, Ln, D, plan, box, at, onY, alongX, alongY } = h
   const FLOOR = 6.8
   const move = k.translateAlong(P, shift)
-  const add = (svg) => put(stage, `<g transform="${move}">${svg}</g>`)
+  // Pieces are carried in one after another: each gets its place in the stage's stagger.
+  const pieces = []
+  const add = (svg) => pieces.push(`<g transform="${move}">${svg}</g>`)
   // Mirror on the rear wall.
   add(
     S(box(-14, 34, -42.8, -42, 14, 92, 0.3), {
@@ -379,88 +388,7 @@ export function equipment(h, put, stage, P, shift = [0, 0, 0], { rack = true } =
       inner: Ln(onY(26, 100, 108, 24.2, 26.8), { tone: 'lo' }),
     }),
   )
-}
-
-// --- Site dressing: trees, planters, bollards, stepping stones ----------------------------------
-const byNear = (P) => (a, b) => k.depthOf(a, P) - k.depthOf(b, P)
-
-/** A tree: mulch ring, trunk, and a crown of overlapping balls drawn back to front. */
-export function treeSvg(h, P, x, y, size = 1, seed = 0) {
-  const { S } = h
-  const g = -8
-  const trunkH = 46 * size
-  const out = [
-    S(k.cylinder(x, y, 9 * size, g, 0.8, P, 28), { tone: 'lo' }),
-    S(k.cylinder(x, y, 2.1 * size, g + 0.8, trunkH, P, 14), { tone: 'lo' }),
-  ]
-  const balls = []
-  const n = 7
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + seed
-    const ring = i % 2 ? 9 : 6
-    balls.push([
-      x + Math.cos(a) * ring * size,
-      y + Math.sin(a) * ring * size,
-      g + trunkH + (6 + ((i * 7 + seed * 10) % 9)) * size,
-      (10 + ((i * 5) % 4)) * size,
-    ])
-  }
-  balls.push([x, y, g + trunkH + 16 * size, 12 * size])
-  balls.sort((a, b) => byNear(P)(a, b))
-  for (const [bx, by, bz, r] of balls)
-    out.push(S(G.sphereOf([bx, by, bz], r, P, { steps: 40 }), { tone: 'mid' }))
-  return out.join('')
-}
-
-/** A concrete planter with three clipped shrubs. */
-export function planterSvg(h, P, x, y, w = 30, d = 14) {
-  const { S, box } = h
-  const g = -8
-  const out = [S(box(x - w / 2, x + w / 2, y - d / 2, y + d / 2, g, g + 14, 0.5), { tone: 'lo' })]
-  out.push(
-    S(box(x - w / 2 + 1.4, x + w / 2 - 1.4, y - d / 2 + 1.4, y + d / 2 - 1.4, g + 13.2, g + 13.6), {
-      tone: 'lo',
-      crease: 'none',
-    }),
-  )
-  const shrubs = [-w / 3, 0, w / 3].map((dx, i) => [
-    x + dx,
-    y + (i === 1 ? -1 : 1),
-    g + 14 + 4.6,
-    5.6 + (i === 1 ? 1.2 : 0),
-  ])
-  shrubs.sort(byNear(P))
-  for (const [sx, sy, sz, r] of shrubs)
-    out.push(S(G.sphereOf([sx, sy, sz], r, P, { steps: 32 }), { tone: 'mid' }))
-  return out.join('')
-}
-
-/** A low path bollard; its lamp band is drawn separately so the lights can come on. */
-export function bollardSvg(h, P, x, y) {
-  const { S } = h
-  const g = -8
-  return (
-    S(k.cylinder(x, y, 2.6, g, 1, P, 18), { tone: 'lo' }) +
-    S(k.cylinder(x, y, 2, g + 1, 22, P, 18)) +
-    S(k.cylinder(x, y, 2.1, g + 23, 3, P, 18), { tone: 'hi', crease: 'lo' }) +
-    S(k.cylinder(x, y, 2.8, g + 26, 1.4, P, 18))
-  )
-}
-export const bollardLampSvg = (h, P, x, y) =>
-  `<g class="cg-lamp">${h.S(k.cylinder(x, y, 2.1, -8 + 23, 3, P, 18), { tone: 'hi', lit: true })}</g>`
-
-/** Stepping stones from a door out to the pad edge. */
-export function stonesSvg(h, P, x, y0, y1, step = 15) {
-  const { S, plan } = h
-  const out = []
-  let i = 0
-  for (let y = y0; y + 9 <= y1; y += step, i++) {
-    const dx = i % 2 ? 3 : -3
-    out.push(
-      S(k.slabOf(plan(x - 10 + dx, x + 10 + dx, y, y + 9, 2), -8, 0.9, P, 3, 0.3), { tone: 'lo' }),
-    )
-  }
-  return out.join('')
+  pieces.forEach((svg, i) => put(stage, svg, i / Math.max(1, pieces.length - 1)))
 }
 
 /** An outdoor condenser for the mini-split: louvred case, fan grille on top, line set to the wall. */
@@ -514,16 +442,4 @@ export function condenserSvg(h, P, x0, y0, wallX = null) {
     out.push(S(box(a, b, y0 + 7, y0 + 8.6, g + 10, g + 11.6, 0.2), { tone: 'lo' }))
   }
   return out.join('')
-}
-
-/** A warm wash of light on a plane (a window, a floor), faded with a gradient from `from` to `to`. */
-export function glowSvg(P, points, from = null, to = null, strength = 1) {
-  const ring = points.map((p) => k.iso(p, P))
-  const d = k.pathOf(ring, true)
-  if (!from)
-    return `<path class="cg-glow" style="opacity:${(0.2 * strength).toFixed(2)}" d="${d}"/>`
-  const [x1, y1] = k.iso(from, P)
-  const [x2, y2] = k.iso(to, P)
-  const id = `cg-g${Math.abs(Math.round(x1 * 31 + y1 * 17 + x2 * 13 + y2 * 7))}`
-  return `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"><stop offset="0" style="stop-color:var(--cg-glow);stop-opacity:${(0.26 * strength).toFixed(2)}"/><stop offset="1" style="stop-color:var(--cg-glow);stop-opacity:0"/></linearGradient></defs><path fill="url(#${id})" d="${d}"/>`
 }
