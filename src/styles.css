@@ -3082,16 +3082,6 @@ h3 {
   opacity: 0.6;
   cursor: wait;
 }
-/* The shared secondary button is styled for the dark panel. */
-.cloud-gate .secondary {
-  justify-content: center;
-  border-color: #a4ae99;
-  color: #2c3825;
-  font-size: 13px;
-}
-.cloud-gate .secondary:hover {
-  background: #e3e8d7;
-}
 .cloud-gate small {
   color: #626958;
 }

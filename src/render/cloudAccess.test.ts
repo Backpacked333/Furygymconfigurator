@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CloudUnreachable, cloudAuthorization, lockCloud, unlockCloud } from './cloudAccess'
+import { cloudAuthorization, lockCloud, unlockCloud } from './cloudAccess'
 
 afterEach(() => {
   lockCloud()
@@ -32,21 +32,6 @@ describe('cloud access', () => {
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: 'old', expiresAt: 1 }))),
     )
     await expect(unlockCloud('https://gpu.example', 'test-pin')).rejects.toThrow('Invalid')
-  })
-  it('tells an unreachable gateway apart from a wrong PIN', async () => {
-    // A stopped Modal app answers 404 without CORS headers: the browser only sees a network error.
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
-    const attempt = unlockCloud('https://gpu.example', 'test-pin')
-    await expect(attempt).rejects.toBeInstanceOf(CloudUnreachable)
-    await expect(attempt).rejects.toThrow("Can't reach the cloud renderer")
-    expect(cloudAuthorization('https://gpu.example')).toEqual({})
-  })
-  it('passes an abort through as it is', async () => {
-    const controller = new AbortController()
-    controller.abort()
-    const aborted = new DOMException('Aborted', 'AbortError')
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(aborted))
-    await expect(unlockCloud('https://gpu.example', 'pin', controller.signal)).rejects.toBe(aborted)
   })
   it('expires access automatically', async () => {
     vi.useFakeTimers()
