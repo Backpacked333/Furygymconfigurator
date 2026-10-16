@@ -76,6 +76,15 @@ const FADE_MS = 520
 const GAIN_RANGE = [0.5, 4] as const
 /** Uploads in flight at once. */
 const UPLOADS = 4
+/**
+ * This page's render session. The gateway gives each session a GPU of its own
+ * (render-server/modal_app.py), so every request from the page, render or upload, names it. A query
+ * parameter rather than a header: no CORS preflight depends on it, so a page works against a
+ * gateway from before sessions too.
+ */
+const RENDER_SESSION =
+  globalThis.crypto?.randomUUID?.().replaceAll('-', '') ??
+  `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 
 // --- Scene description ----------------------------------------------------------------------
 
@@ -599,6 +608,8 @@ export class Superseded extends Error {}
 export class Busy extends Error {}
 /** The server answered a frame request with a view's raw image: it predates the spin. */
 export class Outdated extends Error {}
+/** Every cloud GPU is in use by other visitors: this page renders on its own device. */
+export class Full extends Error {}
 
 export type CloudCamera = { matrix: number[]; fov: number; near: number; far: number }
 
@@ -674,7 +685,7 @@ export class CloudClient {
     // Image files are compressed already.
     const isImage = raw[0] === 0x89 || raw[0] === 0xff || raw[0] === 0x52
     const body = isImage ? raw : await gzip(raw)
-    const response = await fetch(`${this.url}/blobs/${key}`, {
+    const response = await fetch(`${this.url}/blobs/${key}?session=${RENDER_SESSION}`, {
       method: 'PUT',
       body: body as BodyInit,
       signal,
@@ -808,7 +819,7 @@ export class CloudClient {
     const encoded = new TextEncoder().encode(JSON.stringify({ ...fields, scene: captured.scene }))
     const payload = encoded.byteLength > 32 * 1024 ? await gzip(encoded) : encoded
     for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await fetch(`${this.url}/render`, {
+      const response = await fetch(`${this.url}/render?session=${RENDER_SESSION}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: payload as BodyInit,
@@ -821,6 +832,10 @@ export class CloudClient {
           await this.upload(answer.missing, captured.blobs, signal)
           continue
         }
+      }
+      if (response.status === 503) {
+        const answer = (await response.json().catch(() => null)) as { full?: boolean } | null
+        if (answer?.full) throw new Full('every cloud GPU is in use')
       }
       if (response.status === 429 || response.status === 503)
         throw new Busy(`cloud renderer busy (${response.status})`)

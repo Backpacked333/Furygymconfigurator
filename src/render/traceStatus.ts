@@ -86,6 +86,9 @@ export type SpinStatus = {
   ready: number
   total: number
   final: number
+  /** What the loading screen waits for, and how much of it is ready (spin.ts SpinProgress). */
+  waitReady: number
+  waitTotal: number
   failed: boolean
   /** The interior's 360° panorama, rather than the exterior spin. */
   panorama: boolean
@@ -98,6 +101,8 @@ const SPIN_OFF: SpinStatus = {
   ready: 0,
   total: 0,
   final: 0,
+  waitReady: 0,
+  waitTotal: 0,
   failed: false,
   panorama: false,
   showing: false,

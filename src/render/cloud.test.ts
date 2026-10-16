@@ -19,6 +19,8 @@ import {
   encodeGeometry,
   encodeInstances,
   encodeSky,
+  Full,
+  Busy,
   Outdated,
   PREVIEW_QUALITY,
   unpackImage,
@@ -58,7 +60,7 @@ describe('cloud requests', () => {
       'fetch',
       vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
         if (init.method === 'PUT') {
-          puts.push(url)
+          puts.push(url.split('?')[0])
           await new Promise((resolve) => setTimeout(resolve, 5))
           return new Response(null, { status: 204 })
         }
@@ -119,6 +121,49 @@ describe('cloud requests', () => {
     await expect(
       new CloudClient('https://gpu.example').frame(captured, request, signal),
     ).rejects.toBeInstanceOf(Outdated)
+  })
+})
+
+describe('render sessions', () => {
+  const camera = { matrix: Array(16).fill(0), fov: 34, near: 0.1, far: 2000 }
+  const signal = new AbortController().signal
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('name one session for the whole page, on renders and uploads alike', async () => {
+    const fetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      if (init.method === 'PUT') return new Response(null, { status: 204 })
+      if (fetch.mock.calls.length === 1)
+        return new Response(JSON.stringify({ missing: ['a'.repeat(64)] }), { status: 409 })
+      return new Response(new Uint8Array(16), {
+        headers: { 'x-image-width': '1', 'x-image-height': '1' },
+      })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const blobs = new Map([['a'.repeat(64), () => Promise.resolve(new Uint8Array([1]))]])
+    const captured = { scene: {} as never, blobs }
+    await new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal)
+    // A second client on the page (the spin's, say) is the same session: the same GPU.
+    await new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal)
+    const sessions = fetch.mock.calls.map((call) =>
+      new URL(call[0] as string).searchParams.get('session'),
+    )
+    expect(fetch.mock.calls.map((call) => call[1].method)).toEqual(['POST', 'PUT', 'POST', 'POST'])
+    expect(new Set(sessions).size).toBe(1)
+    expect(sessions[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
+  })
+
+  it('tell every GPU in use from a busy one', async () => {
+    const captured = { scene: {} as never, blobs: new Map() }
+    const answer = (body: object) =>
+      vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 503 }))
+    vi.stubGlobal('fetch', answer({ error: 'Every cloud GPU is in use', full: true }))
+    await expect(
+      new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal),
+    ).rejects.toBeInstanceOf(Full)
+    vi.stubGlobal('fetch', answer({ detail: 'Cloud renderer unavailable; try again shortly' }))
+    await expect(
+      new CloudClient('https://gpu.example').render(captured, camera, 100, 80, signal),
+    ).rejects.toBeInstanceOf(Busy)
   })
 })
 

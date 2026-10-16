@@ -10,7 +10,9 @@ import {
 import type { SkyLook } from '../lib/visuals'
 import {
   Busy,
+  Full,
   Outdated,
+  Superseded,
   captureScene,
   type CapturedScene,
   type CloudCamera,
@@ -25,10 +27,12 @@ import { lookKey } from './pathtrace'
  * 5°) at three distances, like a 360° product spin. The interior is one 360° panorama, so looking
  * around it stays path traced at any angle.
  *
- * The GPU renders what the visitor sees first, then the rest of its ring nearest first, each frame
- * first as a quick preview and then at full quality, then the other distances. The server
- * finishes frames (exposure, bloom, tone mapping) and keeps them, so a design someone has viewed
- * before comes back from its cache.
+ * Each visitor has one GPU of their own. It renders what the visitor sees first, as a quick
+ * preview and then at full quality, then the angles either side of it, which the loading screen
+ * waits for, then the rest of the ring nearest first, and then the other distances. The plan
+ * follows the visitor: wherever they turn to is rendered next. The server finishes frames
+ * (exposure, bloom, tone mapping) and keeps them, so a design someone has viewed before comes back
+ * from its cache.
  */
 
 export const SPIN_STEPS = 72
@@ -50,14 +54,25 @@ const FINAL = { samples: 1024, threshold: 0.01, timeLimit: 15 }
 const PANORAMA_FINAL = { samples: 1024, threshold: 0.01, timeLimit: 60 }
 /** Longest edge of a spin frame; larger canvases scale it up. */
 const MAX_EDGE = 3200
-/** Requests kept open at once: enough for every GPU of the server, and the next ones queued. */
-const IN_FLIGHT = 12
+/**
+ * Requests kept open at once, besides those for what the visitor looks at, which go out at once.
+ * The visitor's GPU renders one frame at a time; two more queued keep it busy across round trips.
+ */
+const IN_FLIGHT = 3
+/**
+ * Angles on each side of the visitor's that the loading screen waits for, as previews (about 1.5 s
+ * each), so turning a few steps either way shows a path-traced frame at once.
+ */
+export const NEAR = 4
 /** A busy server is asked again after this long, without counting as a failure. */
 const BUSY_MS = 2000
 /** Decoded frames kept as textures: the current one and its neighbours. */
 const DECODED = 12
-/** The loading screen gives up waiting after this long and shows what is ready. */
-export const LOADING_TIMEOUT_MS = 60_000
+/**
+ * The loading screen gives up waiting after this long and shows what is ready. About 30 s of
+ * rendering, and the visitor's own GPU may be starting cold.
+ */
+export const LOADING_TIMEOUT_MS = 90_000
 
 /** `?traceStats=1` logs the exposure match and each frame's timing. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
@@ -180,6 +195,12 @@ export type SpinProgress = {
   total: number
   /** Of those, at full quality. */
   final: number
+  /**
+   * What the loading screen waits for (the view at full quality, the angles near it), and how much
+   * of it is ready.
+   */
+  waitReady: number
+  waitTotal: number
   failed: boolean
 }
 
@@ -194,6 +215,11 @@ type Job = {
   quality: { samples: number; threshold: number; timeLimit: number }
   exposure: number
   inside: boolean
+  /**
+   * The frame the visitor looks at: asked for at once, on a channel of its own, so the server drops
+   * what is still queued for an angle they have since turned past.
+   */
+  focus: boolean
 }
 /** A decoded frame: which frame of which design, and whether it is the full-quality one. */
 export type Decoded = { texture: Texture; final: boolean; key: string; design: string }
@@ -207,6 +233,9 @@ export class SpinSession {
   private readonly client: CloudClient
   private readonly onChange: () => void
   private generation = 0
+  /** The angle the visitor looks at, and its requests' sequence number, which rises with each turn. */
+  private focused = ''
+  private focusSeq = 0
   /** Cancels frame requests no longer wanted (the view or design changed). */
   private abort = new AbortController()
   /** Cancels metering, which outlives view changes, when the session closes. */
@@ -234,7 +263,15 @@ export class SpinSession {
   private started = performance.now()
   private watching = ''
   private timeout: ReturnType<typeof setTimeout> | undefined
-  progress: SpinProgress = { loading: true, ready: 0, total: SPIN_STEPS, final: 0, failed: false }
+  progress: SpinProgress = {
+    loading: true,
+    ready: 0,
+    total: SPIN_STEPS,
+    final: 0,
+    waitReady: 0,
+    waitTotal: 1 + 2 * NEAR,
+    failed: false,
+  }
 
   constructor(client: CloudClient, onChange: () => void) {
     this.client = client
@@ -290,6 +327,7 @@ export class SpinSession {
     }
     // Queued requests are for frames no longer wanted: drop them, here and on the server.
     this.generation++
+    this.focused = ''
     this.abort.abort()
     this.abort = new AbortController()
     this.inFlight = new Set()
@@ -333,7 +371,7 @@ export class SpinSession {
       this.pump()
     }
     this.meterViews(rasterKey).then(settle, (error) => {
-      if (error instanceof Outdated) return this.fail(error)
+      if (error instanceof Outdated || error instanceof Full) return this.fail(error)
       if (this.metering === design && !this.closed.signal.aborted)
         console.warn('The path-traced exposure could not be metered.', error)
       // Not kept: the next design with this look meters again.
@@ -403,13 +441,13 @@ export class SpinSession {
   private jobs(): Job[] {
     const state = this.state
     if (!state) return []
-    const outside: Job[][] = [[], [], [], []]
+    const outside: Job[][] = [[], [], [], [], [], [], []]
     const ext = state.exterior
     if (ext) {
       const scale = Math.min(1, MAX_EDGE / Math.max(ext.width, ext.height))
       const width = Math.max(1, Math.round(ext.width * scale))
       const height = Math.max(1, Math.round(ext.height * scale))
-      const job = (pose: SpinPose, final: boolean): Job => ({
+      const job = (pose: SpinPose, final: boolean, focus = false): Job => ({
         key: this.exteriorKey(pose),
         final,
         priority: 0,
@@ -419,20 +457,26 @@ export class SpinSession {
         quality: final ? FINAL : PREVIEW,
         exposure: state.exposure.exterior,
         inside: false,
+        focus,
       })
+      // Around wherever the visitor has turned to, so that is what renders next.
       const focus = ext.pose
       const ring = (level: number) =>
         ringOrder(focus.azimuth).map((azimuth) => ({ level, azimuth }))
+      const around = ring(focus.level)
+      const near = around.slice(1, 1 + 2 * NEAR)
+      const rest = around.slice(1 + 2 * NEAR)
       const others = SPIN_LEVELS.map((_, l) => l).filter((l) => l !== focus.level)
-      // The visitor's frame, its ring as previews, the other distances as previews, then the
-      // same again at full quality.
-      outside[0] = [job(focus, false), job(focus, true)]
-      outside[1] = [
-        ...ring(focus.level).map((p) => job(p, false)),
-        ...others.flatMap((l) => ring(l).map((p) => job(p, false))),
-      ]
-      outside[2] = ring(focus.level).map((p) => job(p, true))
-      outside[3] = others.flatMap((l) => ring(l).map((p) => job(p, true)))
+      // The visitor's frame; the angles near it, which the loading screen waits for, then at full
+      // quality; the rest of the ring the same way; then the other distances.
+      const looking = state.active === 'exterior'
+      outside[0] = [job(focus, false, looking), job(focus, true, looking)]
+      outside[1] = near.map((p) => job(p, false))
+      outside[2] = near.map((p) => job(p, true))
+      outside[3] = rest.map((p) => job(p, false))
+      outside[4] = rest.map((p) => job(p, true))
+      outside[5] = others.flatMap((l) => ring(l).map((p) => job(p, false)))
+      outside[6] = others.flatMap((l) => ring(l).map((p) => job(p, true)))
     }
     const int = state.interior
     const width = Math.round(int.width / 16) * 16
@@ -450,32 +494,45 @@ export class SpinSession {
       quality: final ? PANORAMA_FINAL : PREVIEW,
       exposure: state.exposure.interior,
       inside: true,
+      focus: false,
     })
+    // Outside, the panorama's preview comes once the loading screen's frames are done, so stepping
+    // inside soon shows a path-traced view too.
     const groups =
       state.active === 'interior'
         ? [[panorama(false), panorama(true)], ...outside]
-        : [outside[0], outside[1], [panorama(false)], outside[2], outside[3], [panorama(true)]]
+        : [outside[0], outside[1], [panorama(false)], ...outside.slice(2), [panorama(true)]]
     return groups.flatMap((group, priority) => group.map((job) => ({ ...job, priority })))
   }
 
-  /** Keeps up to IN_FLIGHT frame requests open, in order of the job list. */
+  /**
+   * Asks for what the visitor looks at at once, and keeps up to IN_FLIGHT other frame requests
+   * open, in order of the job list.
+   */
   private pump() {
     if (this.gain === null || !this.captured || this.failures >= 3) return
     if (this.closed.signal.aborted || document.hidden) return
     if (performance.now() < this.busyUntil) return
-    if (this.inFlight.size >= IN_FLIGHT) return
+    const ext = this.state?.active === 'exterior' ? this.state.exterior : null
+    const focused = ext ? this.exteriorKey(ext.pose) : ''
+    if (focused !== this.focused) {
+      // Turned: what is still queued for the angle before is dropped once this one is asked for.
+      this.focused = focused
+      this.focusSeq++
+    }
     for (const job of this.jobs()) {
-      if (this.inFlight.size >= IN_FLIGHT) break
       const stored = this.frames.get(job.key)
       if (job.final ? stored?.final : stored?.preview || stored?.final) continue
       const id = `${job.key}|${job.final}`
       if (this.inFlight.has(id)) continue
+      if (!job.focus && this.inFlight.size >= IN_FLIGHT) break
       this.request(job, id)
     }
   }
 
   private request(job: Job, id: string) {
     const generation = this.generation
+    const sequence = job.focus ? { generation: this.focusSeq, channel: 'f' } : { generation }
     const inFlight = this.inFlight
     const finish = {
       exposure: job.exposure,
@@ -492,7 +549,7 @@ export class SpinSession {
           quality: job.quality,
           priority: job.priority,
           finish,
-          generation,
+          ...sequence,
         },
         this.abort.signal,
       ),
@@ -519,13 +576,17 @@ export class SpinSession {
       })
       .catch((error) => {
         if (generation !== this.generation || this.abort.signal.aborted) return
+        // The visitor turned past it before it rendered; whatever is wanted now is asked for next.
+        if (error instanceof Superseded) return
         if (error instanceof Busy) {
           this.busyUntil = performance.now() + BUSY_MS
           setTimeout(() => this.pump(), BUSY_MS)
           return
         }
-        // A server that cannot render frames will not start to: no point asking twice more.
-        if (error instanceof Outdated || ++this.failures >= 3) this.fail(error)
+        // A server that cannot render frames will not start to, nor will GPUs others are using
+        // free up soon: no point asking twice more.
+        if (error instanceof Outdated || error instanceof Full || ++this.failures >= 3)
+          this.fail(error)
       })
       .finally(() => {
         inFlight.delete(id)
@@ -577,27 +638,38 @@ export class SpinSession {
     let ready = 0,
       final = 0,
       total = 1,
-      focusFinal = false
+      waitReady = 0,
+      waitTotal = 1
     if (state.active === 'interior') {
       const p = this.frames.get(this.interiorKey())
       ready = p ? 1 : 0
-      final = p?.final ? 1 : 0
-      focusFinal = !!p?.final
+      final = waitReady = p?.final ? 1 : 0
     } else if (state.exterior) {
       total = SPIN_STEPS
-      const level = state.exterior.pose.level
+      const { level, azimuth: center } = state.exterior.pose
       for (let azimuth = 0; azimuth < SPIN_STEPS; azimuth++) {
         const f = this.frames.get(this.exteriorKey({ level, azimuth }))
         if (f) ready++
         if (f?.final) final++
       }
-      focusFinal = !!this.frames.get(this.exteriorKey(state.exterior.pose))?.final
+      // The visitor's own view at full quality, and the angles near it at least as previews.
+      const [focus, ...near] = ringOrder(center).slice(0, 1 + 2 * NEAR)
+      waitTotal = 1 + near.length
+      if (this.frames.get(this.exteriorKey({ level, azimuth: focus }))?.final) waitReady++
+      for (const azimuth of near)
+        if (this.frames.has(this.exteriorKey({ level, azimuth }))) waitReady++
     }
-    // Ready: the visitor's own view at full quality and its whole ring at least as previews, or
-    // the loading screen has waited long enough.
-    const loading =
-      !(focusFinal && ready >= total) && performance.now() - this.started < LOADING_TIMEOUT_MS
-    this.progress = { loading, ready, total, final, failed: this.progress.failed }
+    // Ready once all of that is, or the loading screen has waited long enough.
+    const loading = waitReady < waitTotal && performance.now() - this.started < LOADING_TIMEOUT_MS
+    this.progress = {
+      loading,
+      ready,
+      total,
+      final,
+      waitReady,
+      waitTotal,
+      failed: this.progress.failed,
+    }
   }
 
   /**
@@ -616,12 +688,24 @@ export class SpinSession {
       return shown
     }
     if (!state.exterior || !outside) return null
-    const shown = this.decode(outside)
     const { level, azimuth } = state.exterior.pose
+    // Turned onto an angle not rendered yet: the nearest one that is, until it arrives.
+    const near = ringOrder(azimuth)
+      .map((a) => this.exteriorKey({ level, azimuth: a }))
+      .find((key) => this.frames.has(key))
+    const shown = this.decode(near ?? outside)
     for (const d of [1, -1, 2, -2])
       this.decode(this.exteriorKey({ level, azimuth: wrap(azimuth + d) }))
     this.decode(this.interiorKey())
     return shown
+  }
+
+  /** Whether a frame is the one for what the visitor looks at, not the nearest stand-in for it. */
+  isFocus(frame: Decoded) {
+    const state = this.state
+    if (!state) return false
+    if (state.active === 'interior') return frame.key === this.interiorKey()
+    return !!state.exterior && frame.key === this.exteriorKey(state.exterior.pose)
   }
 
   private decode(key: string): Decoded | null {

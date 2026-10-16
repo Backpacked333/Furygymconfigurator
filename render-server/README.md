@@ -19,9 +19,20 @@ and blob requests, then invokes a private Modal method. `/health` checks only th
 starts a GPU. There is no PIN: browsers on the allowed origins render directly. Anyone who can
 reach the gateway URL can request renders, so the Modal spending limit is the real cost cap.
 
+**One GPU per render session.** Each page names its render session in a `session` query
+parameter on every render and upload (one id per page load, `src/render/cloud.ts`). A query
+parameter needs no CORS preflight, so pages and gateways from before sessions keep working with
+each other in either order of deployment. The renderer is a
+parametrized Modal class, `Renderer(session=...)`: each session is a Modal function of its own,
+with its own container holding one L40S, its own Blender process and its own queue. At most
+`FURY_MAX_SESSIONS` sessions (default 3) hold a GPU at once; a session keeps its place until two
+minutes after its last request, a little longer than its GPU stays on. A new session beyond the
+limit gets `503 {"full": true}` without starting a GPU, and its page traces on the visitor's own
+device. A page that names no session (one older than sessions) shares one.
+
 1. Create a Modal account, add billing, and configure the workspace spending controls. Pricing
-   is approximately $1.95 per L40S GPU-hour, so about $3.90 an hour for the two-GPU container
-   while it runs, **plus CPU/RAM and idle time**. Scale-to-zero and rate limits do not enforce a
+   is approximately $1.95 per L40S GPU-hour for each visitor's container while it runs, so up to
+   about $5.85 an hour with three visitors at once, **plus CPU/RAM and idle time**. Scale-to-zero and rate limits do not enforce a
    dollar budget. Do not leave a test deployment running without approval.
 2. Install `modal==1.1.4` with Python 3.11 and authenticate using `modal setup` or the
    `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` environment variables.
@@ -45,35 +56,37 @@ Settings read during deployment:
 | ---------------------- | ------------- | ------------------------------------------------- |
 | `FURY_APP_NAME`        | `fury-render` | Use a separate name for preview/test deployments  |
 | `FURY_ALLOWED_ORIGINS` | No origins    | Fully anchored regex for approved browser origins |
-| `FURY_GPU`             | `L40S:2`      | GPU type and count; one renderer per GPU          |
+| `FURY_GPU`             | `L40S`        | GPUs per session; one renderer per GPU            |
+| `FURY_MAX_SESSIONS`    | `3`           | Render sessions holding a GPU at once             |
 | `FURY_IDLE_SECONDS`    | `60`          | GPU idle tail before scale-to-zero; billed time   |
 | `FURY_DENOISE`         | `auto`        | `cpu` skips GPU denoising (it falls back anyway)  |
 
 Stop a test with `modal app stop <app-name>` and confirm zero tasks with `modal app list`.
-Never raise gateway `max_containers` above 1 without replacing the in-memory limits with shared
-durable counters.
+Never raise gateway `max_containers` above 1 without replacing the in-memory limits and the
+session registry with shared durable counters.
 
 ## Limits and caveats
 
 - Scene data (geometry, textures, sky) is stored on the `fury-render-cache` volume, shared by every
   visitor and kept across cold starts, so the browser uploads a design's data only once.
-- One GPU container with two GPUs. Each GPU has its own Blender process (`FURY_WORKERS`) and
-  renders whole frames side by side: a spin's frames are independent, and splitting each
-  1-megapixel frame across GPUs would leave most of them idle. A container's GPUs are on one
-  machine, and Modal warns that more than two per container usually means longer waits: an
-  eight-L40S container stayed "scheduling" for over ten minutes. Several containers cannot simply
-  share the work, as each sees others' uploads on the volume only after a reload, which fails
-  while files are open. Max 15
-  seconds of Cycles sampling per view, 60 for a 360° panorama. Waiting renders go by priority:
-  the visitor's frame, then previews, then full frames; with `?spin=0`, previews, then views, then
-  orbit pre-renders. Scene preparation (on each GPU's process), denoising, cold starts, finishing
-  and idle time are additional billable work.
+- One container with one L40S for each render session. A container's GPUs are on one machine,
+  and Modal warns that more than two per container usually means longer waits: an eight-L40S
+  container stayed "scheduling" for over ten minutes, while a single L40S schedules in seconds.
+  `FURY_GPU=L40S:2` gives each session two, with a Blender process on each (`FURY_WORKERS`)
+  rendering whole frames side by side. A session's container reads the blobs and frames other
+  sessions had committed to the volume when it started; whatever its own visitor still lacks they
+  upload to it (the 409 protocol), so no volume reload is needed. Each visitor's first request
+  starts their container cold. Max 15 seconds of Cycles sampling per view, 60 for a 360°
+  panorama. Waiting renders go by priority: the visitor's frame, then the angles near it, then
+  the rest; with `?spin=0`, previews, then views, then orbit pre-renders. Scene preparation,
+  denoising, cold starts, finishing and idle time are additional billable work.
 - Finished spin frames are kept on the volume (`/fury-cache/frames`, 4 GB, oldest pruned first)
   with their exposure reading, named by the SHA-256 of the scene, camera, size, quality and
   finish. A design anyone has seen from that angle comes back without a render.
 - Gateway: global 600 render requests/minute (burst 240), 1 GiB of uploads/hour (burst 512 MiB).
-  Missing-blob retries count as render requests. The render limit leaves room for a visitor's
-  spin: twelve frame requests open at a time, a few hundred per design. A busy answer (429 or 503) makes the browser wait two seconds and ask again.
+  Missing-blob retries count as render requests. The render limit leaves room for each visitor's
+  spin: about five frame requests open at a time, a few hundred per design. A busy answer (429 or 503) makes the browser wait two seconds and ask again; a full one (`"full": true`) makes it
+  render on its own device.
 - The gateway waits up to 180 seconds for the GPU, then answers 503 and **cancels** the Modal
   call (`fury_render/rpc.py`). A plain `.remote()` call would stay queued: while the GPU
   container was still "scheduling", calls the gateway had given up on minutes earlier were still
@@ -115,7 +128,8 @@ reuse and material edits. They do not replace deployed GPU or browser tests.
 
 ## Code map
 
-- `fury_render/gateway.py`: CORS, request validation and pre-GPU request limits.
+- `fury_render/gateway.py`: CORS, request validation, pre-GPU request limits and the render
+  sessions with a GPU.
 - `modal_app.py`: CPU ASGI endpoint and private GPU RPC, persistent OptiX cache.
 - `fury_render/rpc.py`: the private call, with compressed images kept compressed and abandoned
   calls cancelled.
