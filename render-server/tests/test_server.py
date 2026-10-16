@@ -142,13 +142,19 @@ def test_a_frame_cancelled_midway_is_still_finished_and_cached(client):
     kit = Kit()
     scene = kit.scene(wall_color=(0.2, 0.5, 0.3))
     upload_missing(client, kit, client.post("/render", json=request(scene)))
-    body = {**request(scene), "output": "frame", "finish": {"exposure": 1, "gain": 1.25}}
+    # Enough samples that the render is still running when the caller goes away: 16 samples
+    # finish in about 40 ms on a CI runner, before the cancellation lands.
+    body = {
+        **request(scene, samples=512),
+        "output": "frame",
+        "finish": {"exposure": 1, "gain": 1.25},
+    }
+    body["quality"]["threshold"] = 0
 
     async def scenario():
         render = asyncio.create_task(service.render(body))
         while not service.queue.busy:
-            await asyncio.sleep(0.005)
-        await asyncio.sleep(0.05)
+            await asyncio.sleep(0.001)
         render.cancel()
         with pytest.raises(asyncio.CancelledError):
             await render
