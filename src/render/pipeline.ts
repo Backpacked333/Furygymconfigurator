@@ -37,6 +37,11 @@ import type { Quality } from './renderer'
 
 export type Pipeline = {
   render: () => void
+  /**
+   * Compiles every shader the next frame needs without blocking the main thread. A first frame
+   * otherwise links each program synchronously: seconds of frozen UI on integrated graphics.
+   */
+  warm: () => Promise<void>
   dispose: () => void
   /** Frames to keep rendering after a change so temporal AA, AO, and GI converge. */
   settleFrames: number
@@ -51,6 +56,27 @@ function finish(hdr: Node<'vec4'>) {
     .sub(0.5)
     .mul(1 / 255)
   return vec4(display.rgb.mul(vignette).add(dither), 1)
+}
+
+/**
+ * Runs the pipeline once with each scene render swapped for `compileAsync`. Passes set their render
+ * target, MRT, and context before calling `render`, so each compile sees the exact state (and
+ * cache keys) of the frame it prepares. Nothing is drawn.
+ */
+async function warmPipeline(renderer: WebGPURenderer, pipeline: RenderPipeline) {
+  const render = renderer.render
+  const compiles: Promise<unknown>[] = []
+  renderer.render = ((scene: Scene, camera: Camera) => {
+    compiles.push(renderer.compileAsync(scene, camera))
+  }) as typeof renderer.render
+  try {
+    pipeline.render()
+  } catch {
+    // A pass that cannot be compiled ahead simply compiles on its first frame.
+  } finally {
+    renderer.render = render
+  }
+  await Promise.allSettled(compiles)
 }
 
 /**
@@ -76,6 +102,7 @@ export function createPipeline(
     pipeline.outputNode = finish(scenePass)
     return {
       render: () => pipeline.render(),
+      warm: () => warmPipeline(renderer, pipeline),
       // Scene passes own full-resolution render targets that the pipeline does not release.
       dispose: () => {
         pipeline.dispose()
@@ -139,6 +166,7 @@ export function createPipeline(
     pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
   return {
     render: () => pipeline.render(),
+    warm: () => warmPipeline(renderer, pipeline),
     dispose: () => disposables.forEach((d) => d.dispose()),
     settleFrames: quality === 'ultra' ? 40 : 28,
   }

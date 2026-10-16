@@ -315,8 +315,8 @@ export default memo(function Scene({
         <Canvas
           key={generation}
           shadows="percentage"
-          // Temporal AA resolves edges, so screen-space GI need not pay for full Retina density.
-          dpr={quality === 'lite' ? 1 : [1, 1.5]}
+          // Temporal AA resolves edges, so only Ultra pays for more than one sample per CSS pixel.
+          dpr={quality === 'ultra' ? [1, 1.5] : 1}
           frameloop={active ? 'demand' : 'never'}
           camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
           gl={async ({ canvas }) => {

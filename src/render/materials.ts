@@ -131,12 +131,36 @@ const decodeOffThread = (() => {
  * Decoded already upright, so the texture keeps flipY false (as three's in-shader flip for bitmaps
  * requires), and without premultiplication or color conversion: the same texels an <img> uploads.
  */
-const decode = (blob: Blob) =>
-  createImageBitmap(blob, {
+/**
+ * Phones, tablets, and machines with under 8 GB of memory get scans of at most 1024 px. A 2048 px
+ * map takes about 21 MB of GPU memory with mipmaps; a dozen of them on top of shadow maps and
+ * post-processing buffers is what made shared-memory GPUs drop the device (a black view).
+ */
+const MAX_SCAN_SIZE = (() => {
+  if (typeof navigator === 'undefined') return 2048
+  const memory = (navigator as { deviceMemory?: number }).deviceMemory
+  const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+  return touch || (memory !== undefined && memory < 8) ? 1024 : 2048
+})()
+
+async function decode(blob: Blob) {
+  const bitmap = await createImageBitmap(blob, {
     imageOrientation: 'flipY',
     premultiplyAlpha: 'none',
     colorSpaceConversion: 'none',
   })
+  if (bitmap.width <= MAX_SCAN_SIZE && bitmap.height <= MAX_SCAN_SIZE) return bitmap
+  const scale = MAX_SCAN_SIZE / Math.max(bitmap.width, bitmap.height)
+  const smaller = await createImageBitmap(bitmap, {
+    resizeWidth: Math.round(bitmap.width * scale),
+    resizeHeight: Math.round(bitmap.height * scale),
+    resizeQuality: 'high',
+    premultiplyAlpha: 'none',
+    colorSpaceConversion: 'none',
+  })
+  bitmap.close()
+  return smaller
+}
 
 /** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
 const releasable = new Set<Texture>()

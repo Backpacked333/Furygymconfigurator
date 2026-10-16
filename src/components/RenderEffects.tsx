@@ -17,7 +17,7 @@ import { invalidateShadows, refreshShadows } from '../render/shadows'
 const STILL = 1e-6
 
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
-const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
+const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 34, high: 40, lite: Infinity }
 
 /**
  * Drives the TSL pipeline. Rendering stays on demand, but after any change it keeps drawing for a
@@ -48,12 +48,18 @@ export function RenderEffects({
 
   useEffect(() => {
     const created = createPipeline(renderer, scene, camera, quality)
-    pipeline.current = created
+    let disposed = false
     invalidateShadows(scene)
     settle.current = 0
     timing.current = { last: 0, samples: [], frames: 0, reported: false, eventful: false }
-    invalidate()
+    // Draw only once the shaders are ready, so the page stays responsive while they compile.
+    created.warm().finally(() => {
+      if (disposed) return
+      pipeline.current = created
+      invalidate()
+    })
     return () => {
+      disposed = true
       pipeline.current = null
       created.dispose()
     }

@@ -254,7 +254,9 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
         color={sunColor}
         intensity={SUN_INTENSITY * sunlight.intensity}
         castShadow
-        shadow-mapSize={quality === 'lite' ? [1024, 1024] : [4096, 4096]}
+        shadow-mapSize={
+          quality === 'lite' ? [1024, 1024] : quality === 'high' ? [2048, 2048] : [4096, 4096]
+        }
         shadow-camera-left={-extent}
         shadow-camera-right={extent}
         shadow-camera-top={extent}
