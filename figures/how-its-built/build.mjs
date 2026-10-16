@@ -7,7 +7,7 @@
 //
 // Each figure page takes URL options, so the same file serves a gallery card, a landing page
 // hero or a loading screen:
-//   theme=dark|light|tint   colours (default light)
+//   theme=dark|light|tint|color   colours (default light); color draws each part in its material
 //   frame=card|none         the framed card with title, readout and steps, or just the build
 //   site=0                  hide the concrete pad and ruler and crop to the unit
 //   interactive=0           no hover, click or keys (for loading screens)
@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as k from '../kit/iso-kit.mjs'
 import { containerFigure } from './container.mjs'
+import { excusesFigure } from './excuses.mjs'
 import { leafSvg, shutterSvg } from './moving.mjs'
 import { studioFigure } from './studio.mjs'
 
@@ -43,6 +44,7 @@ const FIGURES = [
   studioFigure('roof', 'Fig 10'),
   studioFigure('full', 'Fig 11'),
   studioFigure('stacked', 'Fig 12'),
+  excusesFigure('Fig 13'),
 ]
 
 // A third theme: light, with a quiet sage tint through the paper, faces and lines.
@@ -57,6 +59,88 @@ const TINT = `
   --anatomy-lift:inset 0 1px 0 0 #ffffff,0 0 0 1px #1d3a2a12,0 1px 1px -.5px #1d3a2a0a,0 3px 3px -1.5px #1d3a2a0a,0 6px 6px -3px #1d3a2a0a;
 }
 body[data-theme="tint"]{color-scheme:light}
+`
+
+// A fourth theme: each part in its own material. Every item carries an m-<material> class and
+// each material sets the fill and line tones for everything inside it, so this costs a few
+// kilobytes of CSS and no extra geometry.
+const MATERIALS = {
+  concrete: '#bab6ad',
+  paint: '#303335',
+  shell: '#373b3d',
+  galv: '#a7acae',
+  blacksteel: '#2a2c2d',
+  chrome: '#d3d8db',
+  rubber: '#2e3130',
+  iron: '#2c2e2d',
+  vinyl: '#24262a',
+  teak: '#a8734a',
+  oak: '#c69c69',
+  ply: '#d6ba8c',
+  pine: '#dcbf8a',
+  foam: '#e8d38c',
+  lining: '#f3f1ec',
+  mirror: '#c4d4db',
+  screen: '#18191b',
+  mat: '#4e6258',
+  lens: '#fff4d6',
+  brick: '#b4553d',
+}
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+const mix = (hex, to, share) => {
+  const a = rgbOf(hex)
+  const b = rgbOf(to)
+  return `#${a
+    .map((v, i) =>
+      Math.round(v + (b[i] - v) * share)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`
+}
+const lightness = (hex) => {
+  const [r, g, b] = rgbOf(hex).map((v) => v / 255)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+const materialCss = (name, c) => {
+  // Faces darken away from the light; lines go darker on pale materials and lighter on dark ones.
+  const ink = lightness(c) > 0.35 ? '#1a1a1a' : '#ffffff'
+  const line = lightness(c) > 0.35 ? [0.68, 0.44, 0.3, 0.16] : [0.5, 0.32, 0.22, 0.13]
+  const vars = {
+    paper: c,
+    face: c,
+    top: mix(c, '#ffffff', 0.14),
+    'lit-top': mix(c, '#ffffff', 0.22),
+    'lit-shade': mix(c, '#000000', 0.06),
+    'shade-0': mix(c, '#000000', 0.24),
+    'shade-1': mix(c, '#000000', 0.16),
+    'shade-2': mix(c, '#000000', 0.08),
+    'shade-3': mix(c, '#000000', 0.02),
+    hi: mix(c, ink, line[0]),
+    mid: mix(c, ink, line[1]),
+    lo: mix(c, ink, line[2]),
+    faint: mix(c, ink, line[3]),
+    dot: mix(c, ink, line[0]),
+  }
+  return `.iso[data-theme="color"] .m-${name}{${Object.entries(vars)
+    .map(([key, v]) => `--anatomy-${key}:${v}`)
+    .join(';')}}`
+}
+const COLOR = `
+.iso[data-theme="color"]{
+  --anatomy-page:#f2f1ed;--anatomy-card:#fbfaf8;--anatomy-text:#57575a;--anatomy-strong:#18181a;--anatomy-muted:#8c8c90;
+  --anatomy-paper:#fbfaf8;--anatomy-face:#ffffff;--anatomy-top:#ffffff;
+  --anatomy-shade-0:#dcdcd9;--anatomy-shade-1:#e5e5e2;--anatomy-shade-2:#ededea;--anatomy-shade-3:#f4f4f1;
+  --anatomy-lit-top:#ffffff;--anatomy-lit-shade:#eeeeeb;
+  --anatomy-hi:#26262a;--anatomy-mid:#8a8a8f;--anatomy-lo:#b4b4b8;--anatomy-faint:#d4d4d6;--anatomy-lit:#c2410c;
+  --anatomy-halo:#8a8a80;--anatomy-halo-opacity:.32;--anatomy-dot:#3a3a3e;
+  --anatomy-lift:inset 0 1px 0 0 #ffffff,0 0 0 1px #0000000f,0 1px 1px -.5px #0000000a,0 3px 3px -1.5px #0000000a,0 6px 6px -3px #0000000a;
+}
+body[data-theme="color"]{color-scheme:light}
+.iso[data-theme="color"] .cg-glass{fill:#8cc4dc;fill-opacity:.3}
+${Object.entries(MATERIALS)
+  .map(([name, c]) => materialCss(name, c))
+  .join('\n')}
 `
 
 const FIGURE_CSS = `
@@ -89,17 +173,18 @@ body.cg-bare{background:transparent}
 
 /** One figure: the SVG with each item in its stage's group, inside the card markup. */
 function figureHtml(f) {
-  const body = f.items.map(({ stage, svg, k: at }) =>
-    stage < 0
-      ? `<g class="cg-site">${svg}</g>`
-      : `<g data-s="${stage}"${at == null ? '' : ` data-k="${at.toFixed(3)}"`}>${svg}</g>`,
-  )
+  const body = f.items.map(({ stage, svg, k: at, mat }) => {
+    const m = mat ? ` m-${mat}` : ''
+    return stage < 0
+      ? `<g class="cg-site${m}">${svg}</g>`
+      : `<g${m ? ` class="${m.slice(1)}"` : ''} data-s="${stage}"${at == null ? '' : ` data-k="${at.toFixed(3)}"`}>${svg}</g>`
+  })
   const svg = k.figureSvg({
     width: f.width,
     height: f.height,
     className: 'cg-svg',
     label: f.label,
-    body,
+    body: f.overlay ? [...body, f.overlay] : body,
   })
   const count = f.stages.length
   const steps = `<ol class="cg-steps">${f.stages.map((s, i) => `<li>${String(i + 1).padStart(2, '0')} ${s.name}</li>`).join('')}</ol>`
@@ -107,7 +192,7 @@ function figureHtml(f) {
     fig: f.fig,
     title: f.title,
     hint: 'Hover to scrub · click to replay',
-    readout: 'site ready',
+    readout: f.idle || 'site ready',
     keys: f.keys,
     caption: f.caption,
     body: `<div class="cg-stage" tabindex="0" role="slider" aria-label="${f.title}: build sequence. Arrow keys step through the ${count} stages, Home and End jump to the start and the finished build, Enter replays." aria-valuemin="0" aria-valuemax="${count}" aria-valuenow="0">${svg}</div>`,
@@ -117,7 +202,8 @@ function figureHtml(f) {
 
 /** What the page needs to run a figure: its camera, timeline and any parts redrawn live. */
 function runtimeOf(f) {
-  const timeline = f.stages.map((s, i) => ({ ...s, start: f.first + i * f.spacing, dur: f.dur }))
+  const timeline =
+    f.timeline || f.stages.map((s, i) => ({ ...s, start: f.first + i * f.spacing, dur: f.dur }))
   const last = timeline[timeline.length - 1]
   const doors = f.doors ? timeline[f.doors.stage] : null
   const built = Math.max(last.start + last.dur, doors ? doors.start + doors.dur + f.doors.swing : 0)
@@ -129,6 +215,9 @@ function runtimeOf(f) {
     done: f.done,
     doors: f.doors || null,
     shutter: f.shutter || null,
+    excuses: f.excuses || null,
+    idle: f.idle || 'site ready',
+    clearing: f.clearing || 'clearing the pad',
   }
 }
 
@@ -138,7 +227,7 @@ ${leafSvg.toString()}
 ${shutterSvg.toString()}
 const K = { towardViewer, extrude, solidSvg, cylinder, slabOf, segment, lineSvg };
 const Q = new URLSearchParams(location.search);
-const THEMES = ["dark", "light", "tint"];
+const THEMES = ["dark", "light", "tint", "color"];
 const OPT = {
   theme: THEMES.includes(Q.get("theme")) ? Q.get("theme") : "light",
   card: Q.get("frame") === "card",
@@ -167,6 +256,70 @@ const ease = (t) => 1 - Math.pow(1 - t, 3);
 const smooth = (t) => t * t * (3 - 2 * t);
 const HOLD = 3, GAP = 0.5;
 
+// "No excuses": the blocks of the word, which fall into a heap and then fly into the build.
+// Each part of the Studio, in the order it lands, takes the nearest block still on the heap.
+function blocksOf(X, svg, groups, STAGES, SPREAD) {
+  const els = [...svg.querySelectorAll("[data-c]")];
+  const targets = [];
+  for (const s of X.targets)
+    for (const { el, k } of groups[s]) {
+      const b = el.getBBox();
+      if (!b.width && !b.height) continue;
+      const st = STAGES[s];
+      targets.push({ x: b.x + b.width / 2, y: b.y + b.height / 2, t: st.start + ((k === null ? 0 : k * SPREAD) + 0.15) * st.dur });
+    }
+  targets.sort((a, b) => a.t - b.t);
+  const heap = X.cubes.map((c, i) => ({ ...c, el: els[i], hidden: false }));
+  const out = [];
+  for (let j = 0; heap.length; j++) {
+    const to = targets[Math.floor((j * targets.length) / X.cubes.length)];
+    let best = 0, near = Infinity;
+    heap.forEach((c, i) => {
+      const d = (c.rest[0] - to.x) ** 2 + (c.rest[1] - to.y) ** 2;
+      if (d < near) { near = d; best = i; }
+    });
+    const c = heap.splice(best, 1)[0];
+    c.to = [to.x, to.y];
+    c.land = to.t;
+    c.lift = Math.max(X.T.settle, c.land - 0.62);
+    out.push(c);
+  }
+  return out;
+}
+function placeBlock(c, t, T, end) {
+  let x = c.at[0], y = c.at[1], s = 1, o = 1;
+  if (t >= end || t >= c.land || t < c.col * 0.35) {
+    if (!c.hidden) { c.hidden = true; c.el.style.display = "none"; }
+    return;
+  }
+  if (t < T.hold) {
+    // The word drops in, left to right.
+    const q = clamp((t - c.col * 0.35) / 0.35);
+    y -= 40 * (1 - ease(q));
+    o = smooth(clamp(q / 0.5));
+  } else if (t < T.fall + c.fall) {
+    if (t > T.shake) x += 1.1 * Math.sin(t * 71 + c.col * 40);
+  } else if (t < c.lift) {
+    // Falls under gravity to its place on the heap, with one small bounce.
+    const u = (t - T.fall - c.fall) / 0.62;
+    const p = clamp(u);
+    x += (c.rest[0] - c.at[0]) * p;
+    y += (c.rest[1] - c.at[1]) * p * p;
+    if (u > 1) y -= 4 * Math.sin(Math.PI * clamp((u - 1) * 2.5));
+  } else {
+    // Lifts off the heap and arcs into the part it becomes, shrinking into it as it arrives.
+    const f = clamp((t - c.lift) / (c.land - c.lift));
+    const e = smooth(f);
+    x = c.rest[0] + (c.to[0] - c.rest[0]) * e;
+    y = c.rest[1] + (c.to[1] - c.rest[1]) * e - 46 * Math.sin(Math.PI * f);
+    s = 1 - 0.65 * f;
+    o = f < 0.7 ? 1 : 1 - (f - 0.7) / 0.3;
+  }
+  if (c.hidden) { c.hidden = false; c.el.style.display = ""; }
+  c.el.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ") scale(" + s.toFixed(3) + ") translate(" + -c.at[0] + " " + -c.at[1] + ")");
+  c.el.style.opacity = o.toFixed(3);
+}
+
 function mount(cfg) {
   const root = document.querySelector('[data-fig="' + cfg.id + '"]');
   const stage = root.querySelector(".cg-stage");
@@ -184,6 +337,7 @@ function mount(cfg) {
   );
   const leaves = doors ? [-1, 1].map((side) => ({ side, el: svg.querySelector('[data-leaf="' + side + '"]'), angle: -1 })) : [];
   const shutter = SHUT ? { el: svg.querySelector("[data-shutter]"), bottom: SHUT.rest } : null;
+  const blocks = cfg.excuses ? blocksOf(cfg.excuses, svg, groups, STAGES, SPREAD) : null;
 
   // Where every stage is at time t of the loop: its progress (0 → 1), the door angle and the shutter.
   function poseAt(t) {
@@ -233,6 +387,7 @@ function mount(cfg) {
       leaf.angle = angle;
       leaf.el.innerHTML = leafSvg(K, P, leaf.side, angle, { ...doors.leaf, pivot: [doors.pivotX, leaf.side * doors.pivotY] });
     }
+    if (blocks) for (const b of blocks) placeBlock(b, t, cfg.excuses.T, BUILT + HOLD);
     if (shutter && Math.abs(shutter.bottom - bottom) > 0.01) {
       shutter.bottom = bottom;
       shutter.el.innerHTML = shutterSvg(K, P, bottom, SHUT.sh);
@@ -241,9 +396,9 @@ function mount(cfg) {
     const started = out.reduce((last, p, i) => (p > 0 ? i : last), -1);
     const building = t < BUILT + HOLD;
     let text;
-    if (!building) text = "clearing the pad";
+    if (!building) text = cfg.clearing;
     else if (t >= BUILT) text = cfg.done;
-    else if (started < 0) text = "site ready";
+    else if (started < 0) text = cfg.idle;
     else text = String(started + 1).padStart(2, "0") + "/" + String(N).padStart(2, "0") + " · " + STAGES[started].name;
     if (readout.textContent !== text) readout.textContent = text;
     steps.forEach((li, i) => {
@@ -334,7 +489,7 @@ mkdirSync(DIR, { recursive: true })
 let bytes = 0
 for (const f of FIGURES) {
   const script = KIT + `\nconst FIG = ${JSON.stringify(runtimeOf(f))};\n` + runtime
-  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(f.title.replace(' · build', ''))} · how it's built</title><style>${k.ISO_CSS}${TINT}${FIGURE_CSS}${EMBED_CSS}</style></head><body class="iso cg-bare" data-theme="light"><main class="cg-embed">${figureHtml(f)}</main><script type="module">${script.replace(/<\/(script)/gi, '<\\/$1')}</script></body></html>`
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(f.title.replace(' · build', ''))} · how it's built</title><style>${k.ISO_CSS}${TINT}${COLOR}${FIGURE_CSS}${EMBED_CSS}</style></head><body class="iso cg-bare" data-theme="light"><main class="cg-embed">${figureHtml(f)}</main><script type="module">${script.replace(/<\/(script)/gi, '<\\/$1')}</script></body></html>`
   writeFileSync(join(DIR, `${f.id}.html`), page)
   bytes += page.length
 }
@@ -343,7 +498,7 @@ for (const f of FIGURES) {
 const GALLERY_CSS = `
 *{box-sizing:border-box}
 html{color-scheme:dark}
-body[data-theme="light"],body[data-theme="tint"]{color-scheme:light}
+body[data-theme="light"],body[data-theme="tint"],body[data-theme="color"]{color-scheme:light}
 body{margin:0;background:var(--anatomy-page);color:var(--anatomy-text);font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;transition:background .3s ease}
 .cg-page{width:min(760px,100% - 32px);margin:56px auto 96px}
 .cg-head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px;margin-bottom:24px}
@@ -366,6 +521,7 @@ body{margin:0;background:var(--anatomy-page);color:var(--anatomy-text);font:14px
 const groups = [
   ['Container Gym', FIGURES.filter((f) => f.id.startsWith('container'))],
   ['S-Series Studio', FIGURES.filter((f) => f.id.startsWith('studio'))],
+  ['No excuses', FIGURES.filter((f) => f.id === 'no-excuses')],
 ]
 const frames = groups
   .map(
@@ -380,7 +536,10 @@ const frames = groups
   )
   .join('')
 const options = [
-  ['theme=dark|light|tint', 'Dark, white, or white with a light sage tint. Light is the default.'],
+  [
+    'theme=dark|light|tint|color',
+    'Dark, white, white with a light sage tint, or color: every part in its real material (steel, plywood, oak, teak, rubber, glass). Light is the default.',
+  ],
   [
     'frame=card',
     'The framed card with title, live readout, legend and steps. Without it you get just the build.',
@@ -394,9 +553,9 @@ const options = [
   ['speed=1.5', 'Playback speed, from 0.1 to 4.'],
   ['still=1', 'Show the finished unit only, with no motion.'],
 ]
-const gallery = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>How a Fury gym is built</title><style>${k.ISO_CSS}${TINT}${GALLERY_CSS}</style></head><body class="iso" data-theme="dark"><main class="cg-page">
+const gallery = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>How a Fury gym is built</title><style>${k.ISO_CSS}${TINT}${COLOR}${GALLERY_CSS}</style></head><body class="iso" data-theme="dark"><main class="cg-page">
 <header class="cg-head"><div><h1>How a Fury gym is built</h1><p>Every unit and option Fury offers, assembled piece by piece. Sizes follow Fury's published specs; part geometry is illustrative, not manufacturer CAD.</p></div>
-<div class="cg-themes" role="group" aria-label="Theme"><button type="button" data-theme="dark" aria-pressed="true">Dark</button><button type="button" data-theme="light" aria-pressed="false">White</button><button type="button" data-theme="tint" aria-pressed="false">Tint</button></div></header>
+<div class="cg-themes" role="group" aria-label="Theme"><button type="button" data-theme="dark" aria-pressed="true">Dark</button><button type="button" data-theme="light" aria-pressed="false">White</button><button type="button" data-theme="tint" aria-pressed="false">Tint</button><button type="button" data-theme="color" aria-pressed="false">Color</button></div></header>
 ${frames}
 <section class="cg-embed-doc"><h2>Use a build on its own</h2><p>Every figure is its own page under <code>/how-its-built/</code>. Embed one in an iframe for a landing page or a loading screen. With no options it shows just the build on a transparent background.</p>
 <pre>&lt;iframe src="/how-its-built/studio-single.html?theme=light&amp;site=0&amp;interactive=0"
@@ -426,7 +585,7 @@ addEventListener("message", (event) => {
   if (frame && event.data && event.data.cg === "height") frame.style.height = Math.ceil(event.data.height) + "px";
 });
 const start = new URLSearchParams(location.search).get("theme");
-if (["light", "tint"].includes(start)) apply(start);
+if (["light", "tint", "color"].includes(start)) apply(start);
 </script></body></html>`
 writeFileSync(join(OUT, 'how-its-built.html'), gallery)
 rmSync(join(OUT, 'how-its-built-light.html'), { force: true })

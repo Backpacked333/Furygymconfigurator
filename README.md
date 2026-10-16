@@ -70,18 +70,18 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 
 ## How it's built figures
 
-`public/how-its-built.html` is a gallery of isometric figures, one per unit and option Fury offers, each building itself piece by piece and looping. There are five Container Gyms (the 10′ roll-up door, a center opening, a partial open side, a full open side, and 40′) and seven Studios (single, 40′, double-wide, front deck and gazebo, rooftop deck and stairs, every add-on, and stacked). A switch in the gallery header chooses between three themes: dark, white, and a light sage tint.
+`public/how-its-built.html` is a gallery of isometric figures, one per unit and option Fury offers, each building itself piece by piece and looping. There are five Container Gyms (the 10′ roll-up door, a center opening, a partial open side, a full open side, and 40′) and seven Studios (single, 40′, double-wide, front deck and gazebo, rooftop deck and stairs, every add-on, and stacked). A thirteenth, `no-excuses.html`, stands the word EXCUSES on the pad in block letters, lets it fall apart into a heap, and flies the blocks one by one into a Studio with every add-on. A switch in the gallery header chooses between four themes: dark, white, a light sage tint, and color, which draws every part in its own material (painted steel, galvanised framing, plywood, oak, teak, rubber, glass, chrome) from one small block of CSS, with no extra geometry.
 
 Each figure is also a standalone page under `public/how-its-built/` (`container.html`, `studio-single.html` and so on) for landing pages and loading screens. With no options it shows just the build on a transparent background. URL options:
 
-| Option                    | Effect                                                     |
-| ------------------------- | ---------------------------------------------------------- |
-| `theme=dark\|light\|tint` | Colours; light is the default                              |
-| `frame=card`              | The framed card with title, live readout, legend and steps |
-| `site=0`                  | Hide the concrete pad and ruler and crop to the unit       |
-| `interactive=0`           | No hover, click or keys                                    |
-| `paper=<colour>`          | Fill colour for the solids; match it to the page behind    |
-| `speed=<n>` / `still=1`   | Playback speed, or the finished unit only                  |
+| Option                           | Effect                                                     |
+| -------------------------------- | ---------------------------------------------------------- |
+| `theme=dark\|light\|tint\|color` | Colours; light is the default; color uses real materials   |
+| `frame=card`                     | The framed card with title, live readout, legend and steps |
+| `site=0`                         | Hide the concrete pad and ruler and crop to the unit       |
+| `interactive=0`                  | No hover, click or keys                                    |
+| `paper=<colour>`                 | Fill colour for the solids; match it to the page behind    |
+| `speed=<n>` / `still=1`          | Playback speed, or the finished unit only                  |
 
 For example: `<iframe src="/how-its-built/studio-single.html?theme=light&site=0&interactive=0" style="border:0;width:100%;aspect-ratio:16/10"></iframe>`. A host page can switch themes live by posting `{ cg: "theme", theme }` to the frame, and each frame posts `{ cg: "height", height }` to its parent.
 

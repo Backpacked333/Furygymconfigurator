@@ -133,10 +133,12 @@ export function studioFigure(variant, fig) {
   const h = helpers(P)
   const { at, S, Ln, D, box, depth } = h
   const items = []
-  const put = (stage, svg, k = null) => items.push({ stage, svg, k })
+  // Each item is drawn in one material for the colour theme; MAT is the one in hand.
+  let MAT = 'shell'
+  const put = (stage, svg, k = null, mat = MAT) => items.push({ stage, svg, k, mat })
   /** Puts a list of pieces into one stage, staggered in the order given. */
-  const putEach = (stage, list) =>
-    list.forEach((svg, i) => put(stage, svg, i / Math.max(1, list.length - 1)))
+  const putEach = (stage, list, mat = MAT) =>
+    list.forEach((svg, i) => put(stage, svg, i / Math.max(1, list.length - 1), mat))
   const plain = (paths, tone = 'mid', extra = {}) => S(paths, { tone, ...extra })
   const prismY = (poly, y0, y1) => G.prismOf(ACROSS_Y, poly, y0, y1, P)
   const glassFace = (points) =>
@@ -189,6 +191,7 @@ export function studioFigure(variant, fig) {
             plain(k.cylinder(x, y, 3, z0 - 6.8, 6.8, P, 20), 'lo') +
             D([at([x - 2, y, z0]), at([x + 2, y, z0])], { size: 0.4 }),
         ),
+        'galv',
       )
       put(
         st.plinth,
@@ -201,6 +204,7 @@ export function studioFigure(variant, fig) {
           ),
         }),
         1,
+        'blacksteel',
       )
     }
     if (step)
@@ -209,6 +213,7 @@ export function studioFigure(variant, fig) {
         plain(box(-26, 26, SY1 - 1, 60, -8, 3.4, 0.4), 'lo') +
           Ln(k.lineOnTop([-26, 54], [26, 54], 3.4, P), { tone: 'faint' }),
         1,
+        'concrete',
       )
     put(st.skin, plain(shell.inner, 'mid', { crease: 'faint' }))
 
@@ -242,7 +247,8 @@ export function studioFigure(variant, fig) {
       plain(box(X1 - WALL, X1 - 0.6, SY0 + 1, SY1 - 1, z0 + 30, z0 + 33, 0.3)),
       plain(box(X1 - WALL, X1 - 0.6, SY0 + 1, SY1 - 1, z0 + 76, z0 + 79, 0.3)),
     ]
-    putEach(st.frame, [...ribs, ...purlins, ...rails])
+    putEach(st.frame, [...ribs, ...purlins, ...rails], 'galv')
+    MAT = 'lining'
 
     // Lining: painted panels on the back and the end wall.
     const lineBack = roundedSection(-ix + 1, ix - 1, iz0 + 1, zTop - WALL - 1, RADIUS - WALL - 1)
@@ -260,6 +266,7 @@ export function studioFigure(variant, fig) {
           { tone: 'hi', crease: 'lo' },
         )
       }),
+      'lining',
     )
     // The cavity lined all round, over the ribs: walls, ceiling and the rounded corners.
     const LINED = roundedSection(-ix + 1, ix - 1, iz0 + 1, zTop - WALL - 1, RADIUS - WALL - 1)
@@ -277,8 +284,9 @@ export function studioFigure(variant, fig) {
       along(-X1 + 24, X1 - 24, 24).map((x) =>
         plain(box(x - 1.2, x + 1.2, BACK, SY1 - 0.4, iz0, floorTop - 1.4, 0.2), 'lo'),
       ),
+      'galv',
     )
-    put(st.floor, plain(prismY(cassette, BACK, SY1 - 0.4), 'lo'), 1)
+    put(st.floor, plain(prismY(cassette, BACK, SY1 - 0.4), 'lo'), 1, 'ply')
 
     // Services: LED cove, mini-split, room controller, outlets.
     put(
@@ -324,7 +332,8 @@ export function studioFigure(variant, fig) {
         .join('')
       strips.push(S(prismY(finish, y0, y1), { tone: 'lo', inner: Ln(joints, { tone: 'faint' }) }))
     }
-    putEach(st.finish, strips)
+    putEach(st.finish, strips, 'oak')
+    MAT = 'shell'
 
     // Fit-out: a wall screen beside the rack, then the equipment piece by piece.
     if (gear) {
@@ -336,6 +345,7 @@ export function studioFigure(variant, fig) {
           }) +
           D([at([-X1 + 39.6, BACK + 2.4, z0 + 68.4])], { size: 0.35, tone: 'hi' }),
         0,
+        'screen',
       )
       for (const dx of X1 > 120 ? [-120, 118] : [0])
         // In a double-wide the gear stands out on the open floor, where the glazing shows it.
@@ -356,6 +366,7 @@ export function studioFigure(variant, fig) {
     const frame = shellOf(ACROSS_Y, INNER, GH, GLASS[0], GLASS[1], P)
     const zb = iz0 + 1.9
     const zt = zTop - WALL - 1.9
+    MAT = 'blacksteel'
     put(st.glazing, plain(frame.inner, 'mid'), 0)
     const edges = [-ix + 1.9, ...MULLIONS, ix - 1.9]
     const panes = edges.slice(0, -1).map((x0, i) => {
@@ -391,7 +402,9 @@ export function studioFigure(variant, fig) {
         plain(box(DOOR[1] - 8.2, DOOR[1] - 7, GLASS[1], GLASS[1] + 1.6, z0 + 68, z0 + 69.4)) +
         plain(k.cylinder(DOOR[1] - 7.6, GLASS[1] + 2.2, 0.7, z0 + 46, 28, P, 12), 'hi'),
       1,
+      'chrome',
     )
+    MAT = 'shell'
 
     // The outside of the shell over everything inside it, with its standing seams across the roof
     // and along the end wall, FURY engraved small in the front face, gutter outlet and downpipe.
@@ -437,7 +450,11 @@ export function studioFigure(variant, fig) {
       st.skin,
       plain(box(X1 - 2, X1 + 3.2, SY0 + 2.2, SY0 + 6.2, zTop - 6, zTop - 2.4, 0.3)) +
         plain(k.cylinder(X1 + 1.6, SY0 + 4.2, 1.3, foot, zTop - 6 - foot, P, 14)) +
-        (z0 ? '' : plain(box(X1 - 2, X1 + 6, SY0 - 0.8, SY0 + 9.2, -8, -7, 0.3), 'lo')),
+        (z0
+          ? ''
+          : plain(box(X1 - 2, X1 + 6, SY0 - 0.8, SY0 + 9.2, -8, -7, 0.3), 'lo', {
+              mat: 'concrete',
+            })),
     )
   }
 
@@ -494,9 +511,10 @@ export function studioFigure(variant, fig) {
     const total = list.reduce((n, r) => n + r.panes.length, 0)
     let n = 0
     for (const r of list) {
-      put(st, r.shoe, 0)
-      for (const pane of r.panes) put(st, pane, 0.15 + (0.7 * n++) / Math.max(1, total - 1))
-      put(st, r.rail, 1)
+      put(st, r.shoe, 0, 'blacksteel')
+      for (const pane of r.panes)
+        put(st, pane, 0.15 + (0.7 * n++) / Math.max(1, total - 1), 'chrome')
+      put(st, r.rail, 1, 'chrome')
     }
   }
 
@@ -513,7 +531,7 @@ export function studioFigure(variant, fig) {
           ),
       )
     }
-    putEach(st, list)
+    putEach(st, list, 'teak')
   }
 
   /**
@@ -547,6 +565,7 @@ export function studioFigure(variant, fig) {
       st,
       plain(box(x0 - 20, x0 + 20, yStart - dir * 30 - 10, yStart - dir * 30 + 10, -8, -6.8), 'lo'),
       0,
+      'concrete',
     )
     put(st, plain(stringer(x0 - 21), 'mid'), 0)
     const order = [...treads].sort((p, q) => depth(0, p.y, p.z) - depth(0, q.y, q.z))
@@ -557,6 +576,7 @@ export function studioFigure(variant, fig) {
           crease: 'lo',
         }) + D([at([x0 - 18.6, p.y, p.z]), at([x0 + 18.6, p.y, p.z])], { size: 0.3, tone: 'lo' }),
         0.15 + (0.85 * p.i) / (risers - 1),
+        'teak',
       )
     put(st, plain(stringer(x0 + 21), 'mid'), 0)
     const rail = (x) => {
@@ -570,12 +590,12 @@ export function studioFigure(variant, fig) {
         })
       return posts.join('') + plain(G.disc(2, len - 2, 0.8, F, P), 'hi')
     }
-    put(railSt, rail(x0 - 21.8), 0.6)
-    put(railSt, rail(x0 + 21.8), 1)
+    put(railSt, rail(x0 - 21.8), 0.6, 'chrome')
+    put(railSt, rail(x0 + 21.8), 1, 'chrome')
   }
 
   /** The unit's services outside: the condenser by the end wall, with its line set. */
-  const outside = (st) => put(st, condenserSvg(h, P, X1 + 6, SY0 + 7, X1), 1)
+  const outside = (st) => put(st, condenserSvg(h, P, X1 + 6, SY0 + 7, X1), 1, 'galv')
 
   const studioStages = (prefix = '') => ({
     plinth: stage(`${prefix}ground screws + steel plinth`, 26),
@@ -599,7 +619,7 @@ export function studioFigure(variant, fig) {
       const portal = stage('gazebo portal frame', 56)
       const louvers = stage('gazebo beams + teak louvers', 36)
       const footings = [-112, 0, 112].map((x) =>
-        plain(box(x - 6, x + 6, 130, 142, -8, 0, 0.4), 'lo'),
+        plain(box(x - 6, x + 6, 130, 142, -8, 0, 0.4), 'lo', { mat: 'concrete' }),
       )
       const joists = []
       for (let x = -96; x <= 96; x += 24)
@@ -614,9 +634,10 @@ export function studioFigure(variant, fig) {
       boardsOn(deckBoards, -X1, X1, SY1 + 0.6, 144, 8.6)
       put(
         deckBoards,
-        plain(box(-72, 72, 144, 156, -8, 2, 0.3)) +
+        plain(box(-72, 72, 144, 156, -8, 2, 0.3), 'mid', { mat: 'concrete' }) +
           plain(box(-71, 71, 145, 155, 2, 3.2, 0.2), 'hi', { crease: 'lo' }),
         1,
+        'teak',
       )
       const zt = BASE + HT
       put(louvers, plain(box(-X1, -X1 + 4.2, SY1, 136, zt - 4.2, zt, 0.3)), 0)
@@ -633,7 +654,7 @@ export function studioFigure(variant, fig) {
       const fins = []
       for (let x = -110; x <= 110; x += 7.44)
         fins.push(plain(prismY(tilted(x), SY1 + 1, 136), 'hi', { crease: 'lo' }))
-      fins.forEach((svg, i) => put(louvers, svg, 0.1 + (0.9 * i) / (fins.length - 1)))
+      fins.forEach((svg, i) => put(louvers, svg, 0.1 + (0.9 * i) / (fins.length - 1), 'teak'))
       put(louvers, plain(box(X1 - 4.2, X1, SY1, 136, zt - 4.2, zt, 0.3)), 0)
       const RING = shellOf(
         ACROSS_Y,
@@ -667,7 +688,10 @@ export function studioFigure(variant, fig) {
       put(
         rails,
         plain(box(109.2, 164.4, -43.9, -16.3, zt - 4.6, zt, 0.3)) +
-          plain(box(109.6, 164, -43.5, -16.7, zt, zt + 1.4, 0.2), 'hi', { crease: 'lo' }),
+          plain(box(109.6, 164, -43.5, -16.7, zt, zt + 1.4, 0.2), 'hi', {
+            crease: 'lo',
+            mat: 'teak',
+          }),
         0,
       )
       balustrades(glass, [

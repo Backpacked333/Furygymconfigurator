@@ -12,7 +12,7 @@ export function leafSvg(k, P, side, angle, D) {
   const at = (a, b) => [D.pivot[0] + u[0] * a + n[0] * b, D.pivot[1] + u[1] * a + n[1] * b]
   const box = (a0, a1, b0, b1, z0, z1, bevel = 0) =>
     k.extrude([at(a0, b0), at(a1, b0), at(a1, b1), at(a0, b1)], z0, z1 - z0, P, { bevel })
-  const S = (paths, tone = 'mid') => k.solidSvg(paths, { tone })
+  const S = (paths, tone = 'mid', className) => k.solidSvg(paths, { tone, className })
   const W = D.width
   const faceOut = n[0] * vx + n[1] * vy > 0
 
@@ -23,11 +23,13 @@ export function leafSvg(k, P, side, angle, D) {
     const [x, y] = at(W * share, 1.6)
     for (const z of [D.z0 + 1.2, D.z1 - 4.2])
       details.push(S(box(W * share - 1.7, W * share + 1.7, 0, 2.6, z, z + 3), 'mid'))
-    details.push(S(k.cylinder(x, y, 0.75, D.z0 - 0.6, D.z1 - D.z0 + 1.2, P, 12), 'hi'))
+    details.push(S(k.cylinder(x, y, 0.75, D.z0 - 0.6, D.z1 - D.z0 + 1.2, P, 12), 'hi', 'm-galv'))
     details.push(
       S(box(W * share - 1.2, W * share + 1.2, 0, 2.3, D.handle - 1, D.handle + 1), 'mid'),
     )
-    details.push(S(box(W * share, W * share + 8.6, 1.6, 2.6, D.handle - 0.7, D.handle + 0.5), 'hi'))
+    details.push(
+      S(box(W * share, W * share + 8.6, 1.6, 2.6, D.handle - 0.7, D.handle + 0.5), 'hi', 'm-galv'),
+    )
   }
   const hinges = D.hinges.map((z) => {
     const [x, y] = at(-0.4, 0.4)

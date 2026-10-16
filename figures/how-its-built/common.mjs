@@ -8,7 +8,9 @@ export const FT = 12
 /** Helpers bound to one projection. */
 export function helpers(P) {
   const at = (point) => k.iso(point, P)
-  const S = (paths, style = {}) => k.solidSvg(paths, { tone: 'mid', ...style })
+  // `mat` names the part's material for the colour theme (see build.mjs).
+  const S = (paths, { mat, ...style } = {}) =>
+    k.solidSvg(paths, { tone: 'mid', ...style, className: mat ? `m-${mat}` : style.className })
   const Ln = (d, style) => k.lineSvg(d, style)
   const D = (points, style) => k.dotsSvg(points, style)
   const plan = (x0, x1, y0, y1, r = 0.3) => ({ x: x0, y: y0, w: x1 - x0, d: y1 - y0, r })
@@ -235,10 +237,10 @@ export function sitePad(h, put, P, { x0, x1, y0, y1, ruler }) {
   const { S, Ln, D, plan, at } = h
   const PAD = plan(x0, x1, y0, y1, 3)
   put(-1, `<path class="iso-halo" d="${k.haloOf(PAD, -16, 8, P)}"/>`)
-  put(-1, S(k.slabOf(PAD, -16, 8, P, 4, 1.2), { tone: 'lo' }))
+  put(-1, S(k.slabOf(PAD, -16, 8, P, 4, 1.2), { tone: 'lo', mat: 'concrete' }))
   const [rx0, rx1, ry] = ruler
   const strip = plan(rx0, rx1, ry, ry + 6, 0.6)
-  put(-1, S(k.slabOf(strip, -8, 0.6, P, 3), { tone: 'lo', crease: 'none' }))
+  put(-1, S(k.slabOf(strip, -8, 0.6, P, 3), { tone: 'lo', crease: 'none', mat: 'galv' }))
   const ticks = k.topTicks(rx0, rx1, FT, 5, ry, -7.4, [2.2, 4], P)
   put(-1, Ln(ticks.minor, { tone: 'lo' }) + Ln(ticks.major, { tone: 'mid' }))
   put(-1, D([at([rx0 + 1.5, ry + 4.5, -7.4]), at([rx1 - 1.5, ry + 4.5, -7.4])], { size: 0.45 }))
@@ -247,7 +249,7 @@ export function sitePad(h, put, P, { x0, x1, y0, y1, ruler }) {
   const label = plan(lx, lx + 34, ly, ly + 10, 0.8)
   put(
     -1,
-    S(k.slabOf(label, -8, 0.8, P, 3), { tone: 'lo' }) +
+    S(k.slabOf(label, -8, 0.8, P, 3), { tone: 'lo', mat: 'galv' }) +
       Ln(k.planOutline(k.insetPlan(label, 1.4), -7.2, P, 3), { tone: 'faint' }),
   )
   put(
@@ -277,7 +279,8 @@ export function equipment(
   const move = k.translateAlong(P, shift)
   // Pieces are carried in one after another: each gets its place in the stage's stagger.
   const pieces = []
-  const add = (svg) => pieces.push(`<g transform="${move}">${svg}</g>`)
+  const add = (svg, mat = 'blacksteel') =>
+    pieces.push(`<g class="m-${mat}" transform="${move}">${svg}</g>`)
   // Mirror on the rear wall.
   if (mirror)
     add(
@@ -289,6 +292,7 @@ export function equipment(
           { tone: 'faint' },
         ),
       }),
+      'mirror',
     )
   if (rack) {
     // Power rack: two feet, four uprights with hole rows, crossbars, J-hooks, safeties, pull-up bar.
@@ -307,26 +311,26 @@ export function equipment(
       )
     }
     add(S(box(-67, -27, -21, -18, 92, 95, 0.3)))
-    add(S(G.disc(-71, -24, 0.8, alongX([0, -19.5, 95.8]), P)))
+    add(S(G.disc(-71, -24, 0.8, alongX([0, -19.5, 95.8]), P)), 'chrome')
     // Barbell racked on the J-hooks: shaft, sleeves, collars and two bumper plates a side.
     const BAR = alongX([0, -16.2, 55.6])
-    add(S(G.disc(-91, -6, 0.6, BAR, P), { tone: 'hi' }))
+    add(S(G.disc(-91, -6, 0.6, BAR, P), { tone: 'hi' }), 'chrome')
     for (const [a, b] of [
       [-91, -76],
       [-21, -6],
     ])
-      add(S(G.disc(a, b, 1, BAR, P), { tone: 'hi' }))
+      add(S(G.disc(a, b, 1, BAR, P), { tone: 'hi' }), 'chrome')
     const plate = (a, b) =>
       S(G.disc(a, b, 8.8, BAR, P), {
         tone: 'hi',
         inner: Ln(G.circleOf(BAR, b, 2.4, P) + G.circleOf(BAR, b, 7.6, P), { tone: 'faint' }),
       })
-    add(S(G.disc(-74.8, -74, 1.5, BAR, P)))
-    add(plate(-77.6, -74.8))
-    add(plate(-80.4, -77.6))
-    add(S(G.disc(-23, -22, 1.5, BAR, P)))
-    add(plate(-22, -19.2))
-    add(plate(-19.2, -16.4))
+    add(S(G.disc(-74.8, -74, 1.5, BAR, P)), 'chrome')
+    add(plate(-77.6, -74.8), 'rubber')
+    add(plate(-80.4, -77.6), 'rubber')
+    add(S(G.disc(-23, -22, 1.5, BAR, P)), 'chrome')
+    add(plate(-22, -19.2), 'rubber')
+    add(plate(-19.2, -16.4), 'rubber')
   } else {
     // Mats for mobility and recovery, rolled flat in front of the mirror.
     for (const x of [-70, -40])
@@ -335,6 +339,7 @@ export function equipment(
           tone: 'hi',
           crease: 'lo',
         }),
+        'mat',
       )
   }
   // Dumbbell rack with two tiers of five pairs.
@@ -351,9 +356,10 @@ export function equipment(
       const x = 46 + i * 11.6
       const F = alongY([x, 0, z + 1.6 + r])
       add(
-        S(G.disc(-41.4, -37.6, r, F, P)) +
-          S(G.disc(-37.6, -31.4, 0.7, F, P), { tone: 'hi' }) +
+        S(G.disc(-41.4, -37.6, r, F, P), { mat: 'rubber' }) +
+          S(G.disc(-37.6, -31.4, 0.7, F, P), { tone: 'hi', mat: 'chrome' }) +
           S(G.disc(-31.4, -27.6, r, F, P), {
+            mat: 'rubber',
             inner: Ln(G.circleOf(F, -27.6, r * 0.45, P), { tone: 'faint' }),
           }),
       )
@@ -371,6 +377,7 @@ export function equipment(
       S(k.slabOf(plan(-51.6, -42.4, -8, 32, 1.6), 15.5, 4, P, 4, 0.6), {
         tone: 'hi',
         crease: 'lo',
+        mat: 'vinyl',
       }),
     )
   }
@@ -388,6 +395,7 @@ export function equipment(
         S(G.sphereOf([x, y, zc], r, P), { tone: 'hi' }) +
         horn(r * 0.55) +
         S(G.disc(-r * 0.55 - 0.7, r * 0.55 + 0.7, 0.75, alongX([x, y, zc + r * 1.3 + 2.4]), P)),
+      'iron',
     )
   }
   // Plyometric box with a hand slot.
@@ -395,6 +403,7 @@ export function equipment(
     S(box(96, 112, 8, 26, FLOOR, 30, 0.5), {
       inner: Ln(onY(26, 100, 108, 24.2, 26.8), { tone: 'lo' }),
     }),
+    'ply',
   )
   pieces.forEach((svg, i) => put(stage, svg, i / Math.max(1, pieces.length - 1)))
 }
@@ -446,8 +455,8 @@ export function condenserSvg(h, P, x0, y0, wallX = null) {
   if (wallX !== null) {
     // Insulated line set and a power whip running to the wall.
     const [a, b] = wallX < x0 ? [wallX, x0] : [x1, wallX]
-    out.push(S(box(a, b, y0 + 3, y0 + 5.4, g + 14, g + 16.4, 0.3), { tone: 'lo' }))
-    out.push(S(box(a, b, y0 + 7, y0 + 8.6, g + 10, g + 11.6, 0.2), { tone: 'lo' }))
+    out.push(S(box(a, b, y0 + 3, y0 + 5.4, g + 14, g + 16.4, 0.3), { tone: 'lo', mat: 'vinyl' }))
+    out.push(S(box(a, b, y0 + 7, y0 + 8.6, g + 10, g + 11.6, 0.2), { tone: 'lo', mat: 'vinyl' }))
   }
   return out.join('')
 }

@@ -102,7 +102,9 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
   // The body is a list of items in painter's order. Each item belongs to one build stage, and may
   // carry its place in that stage's stagger (k: 0 first, 1 last).
   const items = []
-  const put = (stage, svg, k = null) => items.push({ stage, svg, k })
+  // Each item is drawn in one material for the colour theme; MAT is the one in hand.
+  let MAT = 'paint'
+  const put = (stage, svg, k = null, mat = MAT) => items.push({ stage, svg, k, mat })
   const byDepth = (list) => [...list].sort((a, b) => a.depth - b.depth)
   const span = (from, to, step) => {
     const out = []
@@ -112,13 +114,14 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
   sitePad(h, put, P, { ...pad, ruler: [-X1, X1, 74] })
   const LINING = ST['studs, spray foam, lining + power']
   // The condenser and power pedestal at the blind end.
-  put(LINING, condenserSvg(h, P, -X1 - 40, -6, -X1), 1)
+  put(LINING, condenserSvg(h, P, -X1 - 40, -6, -X1), 1, 'galv')
   put(
     LINING,
     S(box(-X1 - 24, -X1 - 16, 30, 38, -8, 34, 0.4)) +
       Ln(onY(38, -X1 - 22.6, -X1 - 17.4, 18, 30), { tone: 'faint' }) +
       D([at([-X1 - 20, 38, 26])], { size: 0.45, tone: 'hi' }),
     0.9,
+    'galv',
   )
   // --- Concrete piers under the corner castings and every 10′ between ---------------------------
   const pierX = span(-X1 + 4, X1 - 4, (L - 8) / (long ? 4 : 2))
@@ -135,6 +138,7 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
       S(k.slabOf(pl, -8, 8, P, 3, 0.6), { tone: 'lo' }) +
         D([at([p.x - 4.5, p.y, 0]), at([p.x + 4.5, p.y, 0])], { size: 0.45 }),
       i / (PIERS.length - 1),
+      'concrete',
     )
   })
 
@@ -191,6 +195,8 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
         tone: 'lo',
         inner: Ln(seams, { tone: 'faint' }),
       }) + D(screws, { size: 0.35, tone: 'lo' }),
+      null,
+      'ply',
     )
   }
 
@@ -214,17 +220,20 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
       S(box(-IN, IN, -45.6, -44.6, FLOOR, 107.4), { tone: 'lo', crease: 'none' }) +
         D(foam, { size: 0.35, tone: 'faint' }),
       0.2,
+      'foam',
     )
     put(
       LINING,
       S(box(-X1 + 3, -X1 + 4, -42.4, 42.4, FLOOR, 107.4), { tone: 'lo', crease: 'none' }),
       0.2,
+      'foam',
     )
     // Furring studs at 16″ centres, set left to right.
     const studs = span(-X1 + 8, X1 - 8, 16).map((x) =>
       S(box(x - 0.75, x + 0.75, -45, -44.2, FLOOR, 107.4), { tone: 'mid' }),
     )
-    studs.forEach((svg, i) => put(LINING, svg, (0.15 * i) / (studs.length - 1)))
+    studs.forEach((svg, i) => put(LINING, svg, (0.15 * i) / (studs.length - 1), 'pine'))
+    MAT = 'lining'
     // Lining in 4′-8″ panels, then the end wall.
     const count = Math.round((2 * IN) / 57)
     const edges = Array.from({ length: count + 1 }, (_, i) => -IN + (2 * IN * i) / count)
@@ -256,8 +265,8 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
         0.95,
       )
     // Conduit from the panel up the end wall and along to the LED channel.
-    put(LINING, S(box(-IN, -IN + 1.2, 27.4, 28.6, 70, 100), { tone: 'lo' }), 0.8)
-    put(LINING, S(box(-IN, -IN + 1.2, -41.2, 28.6, 100, 101.2), { tone: 'lo' }), 0.8)
+    put(LINING, S(box(-IN, -IN + 1.2, 27.4, 28.6, 70, 100), { tone: 'lo' }), 0.8, 'galv')
+    put(LINING, S(box(-IN, -IN + 1.2, -41.2, 28.6, 100, 101.2), { tone: 'lo' }), 0.8, 'galv')
     put(LINING, S(box(-IN, X1 - 10, -42.8, -41.2, 101.4, 103), { tone: 'hi', crease: 'lo' }), 0.85)
     put(
       LINING,
@@ -265,6 +274,7 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
         Ln(onX(-IN + 3, 23.2, 32.8, 53.2, 68.8), { tone: 'faint' }) +
         D([at([-IN + 3, 31.6, 61])], { size: 0.45, tone: 'hi' }),
       0.75,
+      'galv',
     )
     // Wall-mounted mini-splits high on the rear wall, with their discharge slots.
     for (const x of long ? [-100, 140] : [70])
@@ -275,6 +285,7 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
           D([at([x + 14.8, -36.6, 92.6])], { size: 0.4, tone: 'hi' }),
         1,
       )
+    MAT = 'paint'
   }
 
   // --- Rubber floor laid tile by tile, 2′ squares in a sweep from the back corner ---------------
@@ -296,6 +307,7 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
         ST['rubber floor, tile by tile'],
         S(box(t.x + 0.15, t.xb - 0.15, t.y + 0.15, t.yb - 0.15, RAIL, FLOOR, 0.2), { tone: 'lo' }),
         ((t.x - x0) / (x1 - x0) + (t.y - y0) / (y1 - y0)) / 2,
+        'rubber',
       )
   }
 
@@ -307,6 +319,7 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
   const SH = { x0: OL + 1, x1: OR - 1, y0: 41.6, y1: 42.6, top: 88, slat: 2.8 }
   const SHUTTER_REST = 85
   if (rollUp) {
+    MAT = 'galv'
     for (const x of [OL - 1.6, OR - 1]) put(ROLL, S(box(x, x + 2.6, 40.6, 43.8, FLOOR, 88, 0.3)), 0)
     put(ROLL, `<g data-shutter>${shutterSvg(k, P, SHUTTER_REST, SH)}</g>`)
     put(
@@ -316,6 +329,7 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
       }),
       0.4,
     )
+    MAT = 'paint'
   }
 
   // --- Roof panel with transverse pressings -----------------------------------------------------
@@ -383,8 +397,9 @@ export function containerFigure({ length = 20, opening = 'roll-up', fig = 'Fig 1
       put(
         FRONT,
         S(box(x - 4, x + 4, 47.6, 51, 88, 94, 0.4)) +
-          S(box(x - 3.2, x + 3.2, 49.6, 51.6, 86.6, 88, 0.2), { tone: 'hi' }),
+          S(box(x - 3.2, x + 3.2, 49.6, 51.6, 86.6, 88, 0.2), { tone: 'hi', mat: 'lens' }),
         1,
+        'blacksteel',
       )
     }
 
