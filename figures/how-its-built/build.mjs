@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as k from '../kit/iso-kit.mjs'
 import * as G from '../kit/lathe.mjs'
-import { hookSvg, leafSvg, shutterSvg, workerSvg } from './moving.mjs'
+import { leafSvg, shutterSvg } from './moving.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '..', '..', 'public')
@@ -507,145 +507,6 @@ put(1, casting(X1 - CAST.x, Y1 - CAST.y, 0, 'xy'))
 put(2, S(box(X1 - POST, X1, Y1 - POST, Y1, RAIL, TOP0, 0.4)))
 put(2, casting(X1 - CAST.x, Y1 - CAST.y, TOP0, 'xy'))
 
-// --- Crane lifting gear, one rig per craned assembly (drawn over the box, under the crew) -------
-const HOOKS = [
-  null,
-  { at: [0, 0, 6], span: 96, axis: 'x' },
-  { at: [0, 0, H], span: 116, axis: 'x' },
-  { at: [0, 0, 6], span: 96, axis: 'x' },
-  { at: [0, -46, H], span: 96, axis: 'x' },
-  { at: [0, -43.5, 107.4], span: 90, axis: 'x' },
-  { at: [0, 0, FLOOR], span: 96, axis: 'x' },
-  { at: [-48, -30, 96], span: 21.5, axis: 'x' },
-  { at: [0, 39, 98], span: 55, axis: 'x' },
-  { at: [0, 46.5, H], span: 96, axis: 'x' },
-  { at: [0, 0, 113.2], span: 96, axis: 'x' },
-  { at: [140, 0, 107], span: 40, axis: 'y' },
-]
-HOOKS.forEach((h, i) => {
-  if (h)
-    items.push({
-      stage: -1,
-      svg: `<g data-hook="${i}" style="visibility:hidden">${hookSvg(k, P, h)}</g>`,
-    })
-})
-
-// --- The crew: a banksman signalling the crane, two riggers who guide each load in and weld it,
-// and two hands. They stand on the pad in front of the box, at their true 5′9″.
-const GROUND = -8
-const CREW_START = [
-  [-128, 66],
-  [-112, 57],
-  [-98, 63],
-  [-84, 72],
-  [-68, 60],
-]
-const CREW_END = [
-  [-128, 66],
-  [-100, 57],
-  [-82, 72],
-  [76, 59],
-  [100, 70],
-]
-const CREW_PLAN = [
-  [
-    [-104, 57],
-    [-12, 57],
-    [-80, 72],
-    [14, 74],
-  ],
-  [
-    [-70, 57],
-    [70, 57],
-    [-40, 74],
-    [30, 72],
-  ],
-  [
-    [-104, 57],
-    [100, 57],
-    [-60, 74],
-    [60, 74],
-  ],
-  [
-    [-60, 57],
-    [60, 57],
-    [-20, 72],
-    [86, 72],
-  ],
-  [
-    [-70, 57],
-    [70, 57],
-    [-36, 74],
-    [36, 74],
-  ],
-  [
-    [-40, 57],
-    [40, 57],
-    [-80, 72],
-    [80, 72],
-  ],
-  [
-    [-84, 57],
-    [30, 57],
-    [-50, 74],
-    [64, 72],
-  ],
-  [
-    [-62, 57],
-    [-30, 57],
-    [-92, 72],
-    [20, 72],
-  ],
-  [
-    [-46, 57],
-    [46, 57],
-    [-80, 74],
-    [80, 74],
-  ],
-  [
-    [-90, 57],
-    [90, 57],
-    [-50, 72],
-    [50, 72],
-  ],
-  [
-    [-70, 57],
-    [70, 57],
-    [-30, 74],
-    [30, 74],
-  ],
-  [
-    [84, 57],
-    [104, 57],
-    [40, 74],
-    [60, 70],
-  ],
-]
-const HANDS = {
-  idle: [
-    [-8.6, 0.6, 32.5],
-    [8.6, 0.6, 32.5],
-  ],
-  guide: [
-    [-9, -7, 78],
-    [9, -7, 78],
-  ],
-  signal: [
-    [-8.6, 0.6, 32.5],
-    [11, -1, 80],
-  ],
-  weld: [
-    [-4.5, -15, 40],
-    [4.5, -15, 40],
-  ],
-}
-const WELDED = [1, 2, 4, 9, 10]
-const crewAtRest = CREW_START.map(([x, y]) => ({ x, y, g: GROUND, swing: 0, hands: HANDS.idle }))
-  .sort((a, b) => depth(a.x, a.y) - depth(b.x, b.y))
-  .map((w) => workerSvg(k, G, P, w))
-  .join('')
-items.push({ stage: -1, svg: `<g data-crew>${crewAtRest}</g>` })
-
 // --- Page ---------------------------------------------------------------------------------------
 const body = items.map(({ stage, svg }) => (stage < 0 ? svg : `<g data-s="${stage}">${svg}</g>`))
 const svg = k.figureSvg({
@@ -653,7 +514,7 @@ const svg = k.figureSvg({
   height: HEIGHT,
   className: 'cg-svg',
   label:
-    'A 20-foot Fury container gym being built on a concrete pad by a crew of five, with each assembly lowered on a crane hook: piers, the steel base frame, end frames with corner posts, a plywood floor, the corrugated rear wall, an insulated lining with lights and power, a rubber floor, a power rack, bench, dumbbells and kettlebells, the roll-up door, the front wall with its 10-foot opening, the roof, and finally the cargo doors swinging shut.',
+    'A 20-foot Fury container gym assembling itself on a concrete pad: piers, the steel base frame, end frames with corner posts, a plywood floor, the corrugated rear wall, an insulated lining with lights and power, a rubber floor, a power rack, bench, dumbbells and kettlebells, the roll-up door, the front wall with its 10-foot opening, the roof, and finally the cargo doors swinging shut.',
   body,
 })
 
@@ -668,7 +529,6 @@ const css = `
 .cg-steps li{transition:color .3s ease}
 .cg-steps li[data-on]{color:var(--anatomy-strong)}
 .cg-steps li[data-done]{color:var(--anatomy-text)}
-.cg-spark{fill:var(--anatomy-lit);stroke:none}
 `
 
 const timeline = STAGES.map((stage, i) => ({ ...stage, start: FIRST + i * SPACING, dur: DUR }))
@@ -676,17 +536,7 @@ const BUILT = timeline[11].start + DUR + SWING
 const live = `
 ${leafSvg.toString()}
 ${shutterSvg.toString()}
-${workerSvg.toString()}
-const G = (() => {
-${readFileSync(join(HERE, '..', 'kit', 'lathe.mjs'), 'utf8')
-  .replace(/^import .*$/m, '')
-  .replace(/^export /gm, '')}
-return { frameAlong, frameOf, disc, sphereOf, solidOf };
-})();
-const K = { towardViewer, extrude, solidSvg, cylinder, slabOf, segment, lineSvg, sideSeam, translateAlong };
-const HOOKS = ${JSON.stringify(HOOKS)};
-const CREW_START = ${JSON.stringify(CREW_START)}, CREW_END = ${JSON.stringify(CREW_END)}, CREW_PLAN = ${JSON.stringify(CREW_PLAN)};
-const HANDS = ${JSON.stringify(HANDS)}, WELDED = ${JSON.stringify(WELDED)}, GROUND = ${GROUND};
+const K = { towardViewer, extrude, solidSvg, cylinder, slabOf, segment, lineSvg };
 const P = ${JSON.stringify(P)};
 const STAGES = ${JSON.stringify(timeline)};
 const LEAF = ${JSON.stringify(LEAF)};
@@ -701,10 +551,6 @@ const steps = [...document.querySelectorAll(".cg-steps li")];
 const groups = STAGES.map((_, i) => [...svg.querySelectorAll('[data-s="' + i + '"]')]);
 const leaves = [-1, 1].map((side) => ({ side, el: svg.querySelector('[data-leaf="' + side + '"]'), angle: -1 }));
 const shutter = { el: svg.querySelector("[data-shutter]"), bottom: SHUTTER_REST };
-const hooks = HOOKS.map((h, i) => (h ? { el: svg.querySelector('[data-hook="' + i + '"]'), key: "" } : null));
-const crewEl = svg.querySelector("[data-crew]");
-const crew = CREW_START.map(([x, y]) => ({ x, y, phase: 0, swing: 0, hands: HANDS.idle.map((h) => [...h]) }));
-let crewKey = "";
 const still = matchMedia("(prefers-reduced-motion: reduce)");
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const ease = (t) => 1 - Math.pow(1 - t, 3);
@@ -762,22 +608,6 @@ function draw(t) {
   // Readout and the step list come from the same pose.
   const started = out.reduce((last, p, i) => (p > 0 ? i : last), -1);
   const building = t < BUILT + HOLD;
-  // Each hook comes down with its load, then lets go and rises out of the frame.
-  hooks.forEach((hook, i) => {
-    if (!hook) return;
-    const p = out[i];
-    const q = building ? clamp((t - STAGES[i].start - STAGES[i].dur) / 0.24) : 1;
-    const shown = building && p > 0 && q < 1;
-    const lift = STAGES[i].drop * (1 - ease(p)) + 90 * ease(q);
-    const key = shown ? lift.toFixed(2) + "/" + q.toFixed(3) : "off";
-    if (hook.key === key) return;
-    hook.key = key;
-    hook.el.style.visibility = shown ? "" : "hidden";
-    if (!shown) return;
-    hook.el.setAttribute("transform", translateAlong(P, [0, 0, lift]));
-    hook.el.style.opacity = (smooth(clamp(p / 0.45)) * (1 - smooth(q))).toFixed(3);
-  });
-  plan = crewPlan(t, out, started, building);
   let text;
   if (!building) text = "clearing the pad";
   else if (t >= BUILT) text = "built · 20′ × 8′ × 9′6″ · 160 sq ft";
@@ -790,62 +620,6 @@ function draw(t) {
     li.toggleAttribute("data-done", building && out[i] >= 1 && !active);
   });
   return started;
-}
-
-// Where each of the five should be, and what they are doing, at this point of the build.
-let plan = null;
-function crewPlan(t, out, s, building) {
-  if (!building || t >= BUILT) return CREW_END.map(([x, y]) => ({ to: [x, y], pose: "idle" }));
-  if (s < 0) return CREW_START.map(([x, y]) => ({ to: [x, y], pose: "idle" }));
-  const hookUp = HOOKS[s] && t < STAGES[s].start + STAGES[s].dur + 0.24;
-  const landed = t - STAGES[s].start - STAGES[s].dur;
-  const riggers = out[s] < 1 ? "guide" : WELDED.includes(s) && landed < 0.42 ? "weld" : "idle";
-  const [a, b, c, d] = CREW_PLAN[s];
-  return [
-    { to: CREW_START[0], pose: hookUp ? "signal" : "idle" },
-    { to: a, pose: riggers },
-    { to: b, pose: riggers },
-    { to: c, pose: "idle" },
-    { to: d, pose: "idle" },
-  ];
-}
-// Walk, stride and reach: positions move at a brisk walking pace, hands ease between poses.
-function stepCrew(dt, calm) {
-  if (!plan) return;
-  let key = "";
-  crew.forEach((w, i) => {
-    const { to, pose } = plan[i];
-    const dx = to[0] - w.x, dy = to[1] - w.y, dist = Math.hypot(dx, dy);
-    const step = calm ? dist : Math.min(dist, 150 * dt);
-    if (dist > 0.01) { w.x += (dx / dist) * step; w.y += (dy / dist) * step; w.phase += step * 0.11; }
-    const walking = dist > 0.6 && !calm;
-    const stride = walking ? Math.sin(w.phase) * 7 : 0;
-    w.swing = calm ? 0 : w.swing + (stride - w.swing) * (1 - Math.exp(-dt / 0.05));
-    const want = HANDS[walking ? "idle" : pose];
-    w.hands.forEach((h, side) => h.forEach((v, j) => {
-      const goal = want[side][j] + (walking && j === 0 ? -w.swing * 0.5 * (side ? 1 : -1) : 0);
-      h[j] = calm ? goal : v + (goal - v) * (1 - Math.exp(-dt / 0.12));
-    }));
-    w.welding = pose === "weld" && !walking && !calm;
-    key += w.x.toFixed(1) + w.y.toFixed(1) + w.swing.toFixed(1) + w.hands.flat().map((v) => v.toFixed(1)).join("") + (w.welding ? "w" : "");
-  });
-  const sparks = crew.some((w) => w.welding);
-  if (key === crewKey && !sparks) return;
-  crewKey = key;
-  const [vx, vy] = towardViewer(P);
-  const order = [...crew].sort((a, b) => (a.x * vx + a.y * vy) - (b.x * vx + b.y * vy));
-  crewEl.innerHTML = order.map((w) => {
-    let out = workerSvg(K, G, P, { x: w.x, y: w.y, g: GROUND, swing: w.swing, hands: w.hands });
-    if (w.welding) {
-      const dots = [];
-      for (let n = 0; n < 7; n++) {
-        const [sx, sy] = iso([w.x + (Math.random() - 0.5) * 8, w.y - 17 - Math.random() * 3, GROUND + 38 + Math.random() * 9], P);
-        dots.push('<circle cx="' + sx.toFixed(1) + '" cy="' + sy.toFixed(1) + '" r="' + (0.35 + Math.random() * 0.5).toFixed(2) + '"/>');
-      }
-      out = '<g class="cg-spark">' + dots.join("") + "</g>" + out;
-    }
-    return out;
-  }).join("");
 }
 
 let t = 0, target = 0, clock = 0, last = 0, frame = 0, visible = false, touring = !still.matches, idle = 0, said = -2;
@@ -866,11 +640,9 @@ function tick(now) {
     if (Math.abs(target - t) < 0.002) t = target;
   }
   describe(draw(t));
-  stepCrew(dt, still.matches);
-  const settled = !touring && t === target && !crewMoving();
+  const settled = !touring && t === target;
   frame = visible && !settled ? requestAnimationFrame(tick) : 0;
 }
-const crewMoving = () => plan && crew.some((w, i) => Math.hypot(plan[i].to[0] - w.x, plan[i].to[1] - w.y) > 0.01 || w.welding || Math.abs(w.swing) > 0.05 || w.hands.some((h, s) => h.some((v, j) => Math.abs(v - HANDS[plan[i].pose][s][j]) > 0.05)));
 const run = () => { if (!frame && visible) { last = 0; frame = requestAnimationFrame(tick); } };
 const resume = (delay) => {
   clearTimeout(idle);
@@ -904,7 +676,6 @@ stage.addEventListener("keydown", (event) => {
 });
 if (still.matches) { touring = false; t = target = BUILT; }
 describe(draw(still.matches ? BUILT : 0));
-stepCrew(1, true);
 `
 
 const stepsHtml = `<ol class="cg-steps">${STAGES.map((s, i) => `<li>${String(i + 1).padStart(2, '0')} ${s.name}</li>`).join('')}</ol>`
@@ -917,10 +688,9 @@ const plate = k.plateHtml({
     { mark: 'lit', label: 'The assembly being set now' },
     { mark: 'raised', label: 'Steel frame and corrugated shell' },
     { mark: 'flat', label: 'Floor build-up: plywood under rubber' },
-    { mark: 'raised', label: 'Crew and crane rigging' },
   ],
   caption:
-    "How a 20-foot Fury Container Gym goes together, in about seven seconds: the base frame and end frames are set on piers, each corrugated side wall is welded in with its own top rail, the inside is lined, wired and floored, the gym is fitted out, and the roof and cargo doors close it up. A crew of five works it: a banksman signals the crane, two riggers guide each load down and weld it in, and two hands stand by. Nominal 20′ × 8′ × 9′6″, 160 sq ft, with the featured 10′ roll-up door. Sizes follow Fury's published specs; part geometry is illustrative, not manufacturer CAD.",
+    "How a 20-foot Fury Container Gym goes together, in about seven seconds: the base frame and end frames are set on piers, each corrugated side wall is welded in with its own top rail, the inside is lined, wired and floored, the gym is fitted out, and the roof and cargo doors close it up. Nominal 20′ × 8′ × 9′6″, 160 sq ft, with the featured 10′ roll-up door. Sizes follow Fury's published specs; part geometry is illustrative, not manufacturer CAD.",
   body: `<div class="cg-stage" tabindex="0" role="slider" aria-label="Container gym build sequence. Arrow keys step through the twelve stages, Home and End jump to the start and the finished gym, Enter replays." aria-valuemin="0" aria-valuemax="12" aria-valuenow="0">${svg}</div>`,
 })
 const page = k.pageHtml({
