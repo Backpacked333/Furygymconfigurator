@@ -58,7 +58,31 @@ Headless Chromium here can run WebGPU compute but loses the device when presenti
 so traced output is verified with a local offscreen harness (`dev-trace.html`, git-excluded) that
 renders the real scene through the real pipelines into render targets and reads them back.
 
-## Stage 2 (next)
+## Stage 2: real-time uplift
 
-Real-time realism uplift: higher-resolution scans, richer vegetation and facades, depth of field,
-contact shadows, and the user's GLB assets per the interior asset brief.
+1. **Textures and site shadows.** 2K scans for close or large surfaces; the sun's shadow camera
+   covers the surroundings (64 ft extent, 420 ft reach) so buildings and trees shade the site.
+2. **Contact shadows (High, Ultra): three's `SSSNode`** marching from the prepass depth toward the
+   sun, merged into the scene pass's shadow context alongside the AO context. They resolve the
+   fine occlusion the shadow map cannot: feet on the floor, plates on racks, pads on frames. Faded
+   out between 20 and 45 ft and capped at 85% strength, since at a distance the march resolves
+   nothing the shadow map does not and only adds speckle. Temporal filtering is left to TRAA.
+3. **Site reflections: a second radiance probe** captured just in front of the glazing with the
+   unit hidden. Glazing and the shell use it as their environment, so they reflect the actual
+   buildings, trees, and paving instead of only the open sky. Interior surfaces keep the interior
+   probe. One capture per change, debounced like the interior probe.
+4. **SSR on Ultra, metals only.** Mirror-mode `SSRNode` from the prepass (normal, metalness,
+   roughness via MRT), added to the lit image before TRAA. Dielectrics keep probe reflections,
+   which already carry their Fresnel; adding SSR to them double-counts.
+
+### Rejected (stage 2)
+
+- Planar reflectors per facade pane: one extra scene render per pane per frame.
+- SSR on glass: most of what the glazing reflects is behind the camera, outside screen space; the
+  site probe covers it.
+- Contact shadows on Lite: Lite has no depth prepass to march, and adding one breaks its budget.
+
+### Next
+
+Richer vegetation and facades, depth of field, and the client's GLB assets per the interior asset
+brief (upgraded with per-asset realism, wear, calibration, and acceptance tests).

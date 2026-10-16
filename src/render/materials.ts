@@ -61,6 +61,11 @@ export type MaterialSpec = {
   envIntensity?: number
   /** Lit by the captured interior radiance probe instead of the open sky. */
   interior?: boolean
+  /**
+   * Reflects the surroundings captured at the unit (buildings, trees, paving) instead of the open
+   * sky: glazing and glossy exterior finishes.
+   */
+  site?: boolean
   clearcoat?: number
   clearcoatRoughness?: number
   sheen?: number
@@ -128,13 +133,21 @@ function load(set: TextureSet): Promise<Maps> {
 // --- Material library ----------------------------------------------------------
 
 const materials = new Map<string, MeshStandardNodeMaterial>()
-const interiorMaterials = new Set<MeshStandardNodeMaterial>()
 /**
- * One environment node shared by every interior material. Node materials resolve `envMap` into a
- * fixed texture when their shader is built, so swapping probe captures through `envMap` would be
- * ignored; updating this node's value rebinds every interior material without recompiling.
+ * One environment node per radiance probe, shared by every material it lights. Node materials
+ * resolve `envMap` into a fixed texture when their shader is built, so swapping probe captures
+ * through `envMap` would be ignored; updating the node's value rebinds every material without
+ * recompiling.
  */
-let interiorEnvironment: ReturnType<typeof pmremTexture> | null = null
+type Probe = {
+  node: ReturnType<typeof pmremTexture> | null
+  materials: Set<MeshStandardNodeMaterial>
+}
+export type ProbeKind = 'interior' | 'site'
+const probes: Record<ProbeKind, Probe> = {
+  interior: { node: null, materials: new Set() },
+  site: { node: null, materials: new Set() },
+}
 export type MaterialChange = 'textures' | 'probe'
 const changeListeners = new Set<(change: MaterialChange) => void>()
 
@@ -205,27 +218,34 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
         changed('textures')
       })
   }
-  if (spec.interior) {
-    interiorMaterials.add(m)
-    if (interiorEnvironment) m.envNode = interiorEnvironment
+  const kind: ProbeKind | null = spec.interior ? 'interior' : spec.site ? 'site' : null
+  if (kind) {
+    probes[kind].materials.add(m)
+    if (probes[kind].node) m.envNode = probes[kind].node
   }
   materials.set(key, m)
   return m
 }
 
-/** Point every interior material at the latest captured interior radiance probe. */
-export function setInteriorEnvironment(texture: Texture | null) {
-  if (texture && interiorEnvironment) {
-    interiorEnvironment.value = texture
-  } else if (texture !== null || interiorEnvironment !== null) {
+/** Point every material a probe lights at its latest capture. */
+export function setProbeEnvironment(kind: ProbeKind, texture: Texture | null) {
+  const probe = probes[kind]
+  if (texture && probe.node) {
+    probe.node.value = texture
+  } else if (texture !== null || probe.node !== null) {
     // Adding or removing the probe changes the shader: rebuild once.
-    interiorEnvironment = texture ? pmremTexture(texture) : null
-    interiorMaterials.forEach((m) => {
-      m.envNode = interiorEnvironment
+    probe.node = texture ? pmremTexture(texture) : null
+    probe.materials.forEach((m) => {
+      m.envNode = probe.node
       m.needsUpdate = true
     })
   }
   changed('probe')
+}
+
+/** Point every interior material at the latest captured interior radiance probe. */
+export function setInteriorEnvironment(texture: Texture | null) {
+  setProbeEnvironment('interior', texture)
 }
 
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */

@@ -44,7 +44,7 @@ npm run dev
 
 Open the URL printed by Vite. If you do not use nvm, install Node 24 and run the npm commands directly. No environment variables, API keys, database, or third-party accounts are required. Fonts, models, textures, and scripts are bundled or generated locally; there are no remote model, texture, or font requests at runtime. The one optional service is the cloud renderer: set `VITE_CLOUD_RENDER_URL` to its address and resting views are rendered on a cloud GPU (see [Cloud rendering](#cloud-rendering) and `render-server/README.md`).
 
-Optional URL parameters help when comparing devices or debugging: `?renderer=webgl` forces the WebGL 2 backend, `?quality=ultra|high|lite` fixes the render tier (and disables the automatic step-down), `?trace=1|0` turns path-traced stills on or off, `?cloud=0` keeps tracing on this device even when a cloud renderer is configured, `?cloud=http://127.0.0.1:8787` uses a local render server, `?spin=0` shows resting views traced one at a time instead of the cloud's path-traced spin, `?denoise=0` shows the raw path-traced accumulation, and `?debug=ao` or `?debug=normal` shows the ambient-occlusion or normal buffer on High and Ultra.
+Optional URL parameters help when comparing devices or debugging: `?renderer=webgl` forces the WebGL 2 backend, `?quality=ultra|high|lite` fixes the render tier (and disables the automatic step-down), `?trace=1|0` turns path-traced stills on or off, `?cloud=0` keeps tracing on this device even when a cloud renderer is configured, `?cloud=http://127.0.0.1:8787` uses a local render server, `?spin=0` shows resting views traced one at a time instead of the cloud's path-traced spin, `?denoise=0` shows the raw path-traced accumulation, and `?debug=ao`, `?debug=normal`, `?debug=contact`, or `?debug=reflections` shows the ambient-occlusion, normal, contact-shadow, or screen-space reflection buffer on High and Ultra.
 
 ```sh
 npm run typecheck
@@ -166,11 +166,11 @@ PDF generation loads jsPDF only when needed. Scene capture is omitted in floor-p
 
 The scene renders with three.js r186's `WebGPURenderer`. It runs natively on WebGPU and falls back to its WebGL 2 backend automatically, so every material and post effect is written once in TSL (three's shading language) and works on both. React Three Fiber creates the renderer asynchronously. The renderer badge in the scene status line shows the active backend and tier.
 
-| Tier  | Pipeline                                                                                                                                        |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ultra | High plus screen-space global illumination (one diffuse bounce of on-screen light)                                                              |
-| High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, emissive bloom, temporal reprojection anti-aliasing, 4096-pixel sun shadows |
-| Lite  | One 4× MSAA pass, 2048-pixel sun shadows, probe-lit mirror                                                                                      |
+| Tier  | Pipeline                                                                                                                                                             |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ultra | High plus screen-space global illumination (one diffuse bounce of on-screen light) and screen-space reflections on metals and coated facade glass                    |
+| High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, sun contact shadows, emissive bloom, temporal reprojection anti-aliasing, 4096-pixel sun shadows |
+| Lite  | One 4× MSAA pass, 2048-pixel sun shadows, probe-lit mirror                                                                                                           |
 
 Laptop-width screens start on Ultra, tablets on High, and phones on Lite. If back-to-back frames stay slow, the app steps down one tier and says so, unless a tier was chosen explicitly. Rendering is on demand: after any change it keeps drawing for a short settle window (about 28–40 frames) so temporal anti-aliasing, AO, and GI converge into a clean still, then stops.
 
@@ -216,6 +216,8 @@ Lighting:
 
 - **Sun shadows:** the sun's shadow map covers at least 128 × 128 ft around the unit and gathers casters up to about 400 ft toward the sun, so surrounding buildings, trees, and palms shade the site at low sun, as they do in the path-traced image.
 - **Sky and sun:** a Preetham daylight sky with clouds is both the visible background and the image-based lighting (captured into a PMREM cube). Sun color comes from atmospheric extinction along the sun path. A multiple-scattering fill keeps the zenith-to-horizon ratio near measured clear skies. Fog matches the horizon. After dark, exposure adapts, moonlight takes over, and airglow keeps the sky deep blue. The sun follows an artistic summer path (sunrise 06:00, sunset 20:30, 60° at noon), not a location-based study.
+- **Contact shadows (High, Ultra):** a short screen-space march toward the sun adds the fine shadows a site-wide shadow map cannot resolve: equipment feet on the floor, bench legs on paving, the pod's skirt where it meets the ground. They darken only the sun's light, so lamps and sky light are unaffected.
+- **Reflections:** a second radiance probe is captured just in front of the unit with the unit itself hidden. Glazing and the glossy exterior finish reflect it, so they show the actual buildings, trees, and paving around them instead of only the open sky, on every tier. On Ultra, screen-space reflections add what is on screen to chrome, brushed steel, and the coated glass of neighboring office facades. Both probes leave the sky's sun disc out of their captures, since the sun light already lights every surface and the disc would only add fireflies.
 - **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. It is captured twice per change to approximate a second bounce. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
 - **Mirror:** High and Ultra render a true planar reflection; Lite uses a probe-lit polished surface.
 - **Interior finishes:** gallery and birch interiors use two continuous linear LED channels (area lights on High and Ultra, spot lights on Lite); slatted and cedar interiors use recessed downlights. The Container canopy carries real downlights that wash the ground at night.

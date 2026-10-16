@@ -11,8 +11,12 @@
 - [x] Offscreen-harness verification: Courtyard pod exterior (noon and dusk) and interior traced,
       denoised, exposure-matched, converged
 - [x] Stage 2 (part): 2K scans for close/large surfaces; sun shadows from surroundings
-- [ ] Stage 2 (next): screen-space contact shadows (`SSSNode`), SSR on Ultra for facade glass,
-      denser lawns/planting, facade detail, the client's GLB assets per the interior asset brief
+- [x] Stage 2 (part): sun contact shadows on High and Ultra (`SSSNode`, distance-faded)
+- [x] Stage 2 (part): site radiance probe for glazing and shell; SSR for metals on Ultra
+- [x] Interior asset brief upgraded: per-asset realism specs, wear layer, material calibration,
+      acceptance tests (same artifact link)
+- [ ] Stage 2 (next): denser lawns/planting, facade detail, depth of field, the client's GLB
+      assets per the interior asset brief
 - [ ] Real-GPU check of the live canvas crossfade and time to first denoised image (Vercel preview)
 - [x] Tracing starts promptly after an orbit (glide tail ended; 6 still frames + 150 ms)
 - [x] Camera moves keep samples: new views are seeded from the last traced view (reprojection)

@@ -201,8 +201,9 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
   return (
     <>
       <directionalLight
-        // The path tracer replaces it with a sun disc of true angular size.
-        userData={{ pathTrace: false }}
+        // The path tracer replaces it with a sun disc of true angular size; the raster pipeline
+        // finds it to add contact shadows.
+        userData={{ pathTrace: false, sun: true }}
         position={[x * distance, Math.max(y, 0.02) * distance, z * distance]}
         color={new Color(...sunlight.color)}
         intensity={SUN_INTENSITY * sunlight.intensity}

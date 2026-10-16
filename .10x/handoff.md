@@ -29,5 +29,12 @@ CPU-emulated: 320×200 reaches 16 spp in ~25–35 min.
 - Any new TSL-only material needs `material.userData.pathTrace = { ...plain PBR fields }` or it
   will be traced with its default (white) properties.
 
+**Stage 2 so far.** Contact shadows and SSR live in `createPipeline` (`src/render/pipeline.ts`);
+`?debug=contact` and `?debug=reflections` show each buffer. The site probe is `SiteProbe` in
+`src/components/InteriorProbe.tsx`; materials opt in with `site: true` in `palette.ts`, and the
+unit's root group carries `userData.unit` so the capture can hide it. The sun light carries
+`userData.sun` so the pipeline can find it. The contact debug view bypasses TRAA, so it shows the
+march's per-frame noise; the final image is resolved.
+
 **Next.** Stage 2 items in `.10x/status.md`; check the live crossfade on a real GPU via the Vercel
 preview.
