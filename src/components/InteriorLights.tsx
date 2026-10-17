@@ -1,5 +1,7 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { RectAreaLight, SpotLight } from 'three'
+import { Vector3 } from 'three/webgpu'
+import { Fn, color, uniform } from 'three/tsl'
 import type { Config } from '../lib/config'
 import { canopyLights } from '../render/addons'
 import { FLOOR_Y, interiorBounds } from '../render/architecture'
@@ -7,21 +9,53 @@ import { cylinder, lathe, box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
+import { roomMask, roomReach } from '../render/roomLight'
 import { Parts } from './Parts'
 
 /** 2700 K warm-white architectural LEDs. */
 const WARM = '#ffd9ad'
 
+type Room = ReturnType<typeof roomMask>
+
+/**
+ * A light whose color (with its intensity) is masked to the room, set before the light is first
+ * drawn. Its `intensity` stays as it is for the path tracers, which stop it at the walls.
+ */
+function useRoomLight(
+  ref: RefObject<SpotLight | RectAreaLight | null>,
+  intensity: number,
+  room: Room | undefined,
+) {
+  const level = useMemo(() => uniform(0), [])
+  useLayoutEffect(() => {
+    const light = ref.current as (SpotLight | RectAreaLight) & { colorNode?: unknown }
+    if (!light || !room) return
+    // three r186's SpotLightNode calls a spot light's colorNode as a projection, with the point's
+    // coordinates in the light's frustum, and multiplies its own colour and intensity by what it
+    // returns (inside the frustum, which holds the whole cone). A node there failed the lighting
+    // shader (the view went black); a TSL function, callable and a node both, returns the mask.
+    if ((light as SpotLight).isSpotLight) light.colorNode = Fn(() => room)
+    else light.colorNode = color(WARM).mul(level).mul(room)
+  }, [ref, room, level])
+  useLayoutEffect(() => {
+    level.value = intensity
+  }, [level, intensity])
+}
+
 function Downlight({
   position,
   intensity,
   shadow,
+  room,
 }: {
   position: [number, number, number]
   intensity: number
   shadow: boolean
+  /** Inside the room: its light stays there. */
+  room?: Room
 }) {
   const light = useRef<SpotLight>(null)
+  useRoomLight(light, intensity, room)
   useLayoutEffect(() => {
     const spot = light.current
     if (!spot) return
@@ -56,14 +90,17 @@ function Wash({
   width,
   height,
   intensity,
+  room,
 }: {
   position: [number, number, number]
   target: [number, number, number]
   width: number
   height: number
   intensity: number
+  room: Room
 }) {
   const light = useRef<RectAreaLight>(null)
+  useRoomLight(light, intensity, room)
   useLayoutEffect(() => {
     light.current?.lookAt(...target)
   }, [target])
@@ -188,62 +225,86 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
     // Rebuild only when geometry-affecting inputs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L, on, linear, b.ceiling, b.back, c.family])
+  // Switched-off lights stay mounted at zero intensity: adding or removing lights changes every
+  // lit material's shader, so the switch would otherwise recompile the whole scene.
+  const level = on ? 1 : 0
   const spotIntensity = 46
+  // The room's box, kept current as the design changes: the lights' masks read it.
+  const corners = useMemo(
+    () => ({ low: uniform(new Vector3()), high: uniform(new Vector3()), front: uniform(0) }),
+    [],
+  )
+  const room = useMemo(() => roomMask(corners.low, corners.high, corners.front), [corners])
+  const reach = roomReach(c)
+  const reachKey = JSON.stringify(reach)
+  useLayoutEffect(() => {
+    const { low, high, front } = JSON.parse(reachKey) as typeof reach
+    corners.low.value.set(...low)
+    corners.high.value.set(high[0], high[1], 0)
+    corners.front.value = front
+  }, [corners, reachKey])
   return (
     <>
-      <Parts parts={fixtures} />
-      {on &&
-        (!linear || quality === 'lite') &&
-        columns.map((x, i) => (
-          <Downlight
-            key={x}
-            position={[x + 0.12, b.ceiling - 0.08, 0.1]}
-            intensity={linear ? spotIntensity * 0.8 : spotIntensity}
-            shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
-          />
-        ))}
-      {on &&
-        linear &&
-        quality !== 'lite' &&
-        LINEAR_ROWS.map((z) => (
-          <Wash
-            key={z}
-            position={[0, b.ceiling - 0.03, z]}
-            target={[0, FLOOR_Y, z]}
-            width={channel}
-            height={0.14}
-            intensity={52}
-          />
-        ))}
-      {on && quality !== 'lite' && (
-        <>
-          <Wash
-            position={[0, b.ceiling - 0.1, b.back + 0.12]}
-            target={[0, FLOOR_Y + 3, b.back - 0.6]}
-            width={L - 2.6}
-            height={0.12}
-            intensity={26}
-          />
-          <Wash
-            position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
-            target={[0, b.ceiling, b.back - 0.4]}
-            width={L - 1.6}
-            height={0.06}
-            intensity={16}
-          />
-        </>
-      )}
-      {on && c.family === 'container' && c.addons.canopy && <CanopyLights config={c} />}
+      {/* The room's lights and fixtures are inside it: a change there costs the spin only its
+          panorama (pathtrace.ts sceneSignature). The canopy's downlights wash the ground outside
+          and stay with the exterior. */}
+      <group userData={{ interior: true }}>
+        <Parts parts={fixtures} />
+        {(!linear || quality === 'lite') &&
+          columns.map((x, i) => (
+            <Downlight
+              key={x}
+              position={[x + 0.12, b.ceiling - 0.08, 0.1]}
+              intensity={(linear ? spotIntensity * 0.8 : spotIntensity) * level}
+              shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
+              room={room}
+            />
+          ))}
+        {linear &&
+          quality !== 'lite' &&
+          LINEAR_ROWS.map((z) => (
+            <Wash
+              key={z}
+              position={[0, b.ceiling - 0.03, z]}
+              target={[0, FLOOR_Y, z]}
+              width={channel}
+              height={0.14}
+              intensity={52 * level}
+              room={room}
+            />
+          ))}
+        {quality !== 'lite' && (
+          <>
+            <Wash
+              position={[0, b.ceiling - 0.1, b.back + 0.12]}
+              target={[0, FLOOR_Y + 3, b.back - 0.6]}
+              width={L - 2.6}
+              height={0.12}
+              intensity={26 * level}
+              room={room}
+            />
+            <Wash
+              position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
+              target={[0, b.ceiling, b.back - 0.4]}
+              width={L - 1.6}
+              height={0.06}
+              intensity={16 * level}
+              room={room}
+            />
+          </>
+        )}
+      </group>
+      {c.family === 'container' && c.addons.canopy && <CanopyLights config={c} level={level} />}
     </>
   )
 }
 
 /** Exterior downlights in the canopy soffit washing the deck or paving below. */
-function CanopyLights({ config }: { config: Config }) {
+function CanopyLights({ config, level }: { config: Config; level: number }) {
   return (
     <>
       {canopyLights(config).map(([x, y, z]) => (
-        <Downlight key={x} position={[x, y - 0.05, z]} intensity={38} shadow={false} />
+        <Downlight key={x} position={[x, y - 0.05, z]} intensity={38 * level} shadow={false} />
       ))}
     </>
   )

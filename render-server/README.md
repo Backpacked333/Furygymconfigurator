@@ -25,14 +25,46 @@ parameter needs no CORS preflight, so pages and gateways from before sessions ke
 each other in either order of deployment. The renderer is a
 parametrized Modal class, `Renderer(session=...)`: each session is a Modal function of its own,
 with its own container holding one L40S, its own Blender process and its own queue. At most
-`FURY_MAX_SESSIONS` sessions (default 3) hold a GPU at once; a session keeps its place until two
-minutes after its last request, a little longer than its GPU stays on. A new session beyond the
+`FURY_MAX_SESSIONS` sessions (default 3) hold a GPU at once; a session keeps its place until a
+minute after its GPU would have gone idle and off (`FURY_IDLE_SECONDS` + 60 s after its renderer
+last answered), so no more GPUs than places are ever on. The places live in the gateway
+container's memory, so it stays up that long after its last request too (`modal_app.py`): a
+gateway starting afresh would admit new sessions beside GPUs still on. A new session beyond the
 limit gets `503 {"full": true}` without starting a GPU, and its page traces on the visitor's own
 device. A page that names no session (one older than sessions) shares one.
 
+**Warm starts.** A container starting cold takes 30 to 90 seconds (importing bpy, the OptiX
+kernel cache, OIDN warm-up), most of a visitor's wait, and at the old one-minute idle tail most
+visits were cold. Three things shorten it:
+
+- Each session's GPU stays on for `FURY_IDLE_SECONDS` (default 600) after its last request, so a
+  visitor who reloads or comes back within ten minutes starts warm. Idle time is billed.
+- `GET /warm?session=<id>` takes the session's place under the cap exactly as a render would
+  (`503 {"full": true}` when every place is taken; a place it already has is refreshed) and asks
+  its own renderer for `/health` in the background, which starts the container while the page is
+  still loading textures; the place then runs from the renderer's answer, as the GPU's idle tail
+  does. It answers `202 {"warming": true, "renderer": "own"}` at once, without waiting for the
+  container, and is limited to 6 calls a minute per client. A container whose idle tail has
+  passed is started again the same way. The gateway's own `/health` still never starts a GPU.
+- `FURY_WARM=1` at deploy time keeps one extra renderer running at all times (`WarmRenderer`:
+  one L40S billed around the clock, so off by default). A session's render and blob requests go
+  there until its own renderer has answered (the `/warm` health call, or its first request
+  without one), then to its own. That readiness lasts until a minute before its GPU's idle tail
+  ends (`FURY_IDLE_SECONDS` − 60 s after its own renderer last answered): past that its
+  container may be stopping, so requests go to the renderer kept running again while `/health`
+  starts its own. At the handover a session's own renderer reloads the volume once, so the blobs
+  its visitor uploaded to the renderer kept running meanwhile are there too (a blob not yet
+  committed by then is asked for again, the 409 protocol). Every dispatched response says which
+  answered in `X-Fury-Renderer: shared|own`, for the browser's bench panel. Without `FURY_WARM`
+  the class scales to zero like any other, and every request goes to the session's own renderer;
+  either way only the gateway's routing reaches it, as a request naming the session
+  `shared-warm` is refused.
+
 1. Create a Modal account, add billing, and configure the workspace spending controls. Pricing
    is approximately $1.95 per L40S GPU-hour for each visitor's container while it runs, so up to
-   about $5.85 an hour with three visitors at once, **plus CPU/RAM and idle time**. Scale-to-zero and rate limits do not enforce a
+   about $5.85 an hour with three visitors at once, **plus CPU/RAM and idle time**: each
+   session's GPU stays on for `FURY_IDLE_SECONDS` (ten minutes) after its last request, and
+   `FURY_WARM` adds one L40S around the clock. Scale-to-zero and rate limits do not enforce a
    dollar budget. Do not leave a test deployment running without approval.
 2. Install `modal==1.1.4` with Python 3.11 and authenticate using `modal setup` or the
    `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` environment variables.
@@ -58,8 +90,15 @@ Settings read during deployment:
 | `FURY_ALLOWED_ORIGINS` | No origins    | Fully anchored regex for approved browser origins |
 | `FURY_GPU`             | `L40S`        | GPUs per session; one renderer per GPU            |
 | `FURY_MAX_SESSIONS`    | `3`           | Render sessions holding a GPU at once             |
-| `FURY_IDLE_SECONDS`    | `60`          | GPU idle tail before scale-to-zero; billed time   |
+| `FURY_IDLE_SECONDS`    | `600`         | GPU idle tail before scale-to-zero; billed time   |
+| `FURY_WARM`            | `0`           | `1` keeps one renderer running (one L40S, always) |
 | `FURY_DENOISE`         | `auto`        | `cpu` skips GPU denoising (it falls back anyway)  |
+| `FURY_BAKE_TOKEN`      | None          | Lets `npm run bake` render up to a minute a still |
+
+`FURY_BAKE_TOKEN` is a secret of your choosing. The gateway cuts every view at 15 seconds of
+sampling; a request carrying the token in `X-Fury-Bake` may take a minute, as the baked stills'
+export tier needs (1024 samples at 2400 px). `scripts/bake-stills.mjs` sends it from its own proxy
+when `FURY_BAKE_TOKEN` is set where it runs; browsers never see it.
 
 Stop a test with `modal app stop <app-name>` and confirm zero tasks with `modal app list`.
 Never raise gateway `max_containers` above 1 without replacing the in-memory limits and the
@@ -75,16 +114,27 @@ session registry with shared durable counters.
   `FURY_GPU=L40S:2` gives each session two, with a Blender process on each (`FURY_WORKERS`)
   rendering whole frames side by side. A session's container reads the blobs and frames other
   sessions had committed to the volume when it started; whatever its own visitor still lacks they
-  upload to it (the 409 protocol), so no volume reload is needed. Each visitor's first request
-  starts their container cold. Max 15 seconds of Cycles sampling per view, 60 for a 360°
-  panorama. Waiting renders go by priority: the visitor's frame, then the angles near it, then
-  the rest; with `?spin=0`, previews, then views, then orbit pre-renders. Scene preparation,
-  denoising, cold starts, finishing and idle time are additional billable work.
+  upload to it (the 409 protocol), so no volume reload is needed except at a `FURY_WARM`
+  handover (above). Each visitor's first request starts their container cold (see warm starts
+  above). Max 15 seconds of Cycles sampling per view, 60 for a 360° panorama. Waiting renders go
+  by priority: the visitor's frame, then the angles near it, then the rest; with `?spin=0`,
+  previews, then views, then orbit pre-renders. A request may give an explicit `priority` of
+  0–31 (lower first; the browser sends a frame's ring distance from the visitor's view). A
+  session's queued request is dropped the moment the same session asks for a newer `seq`: it
+  answers `409 {"superseded": true}` at once, without waiting for a worker, and its queue place
+  is free again before the newer request asks for one, since a Cycles render in progress cannot
+  be interrupted and stale work would otherwise hold a queue place until one is free. A request
+  for an older `seq` arriving after the newer one is answered the same way and takes no place.
+  Scene preparation, denoising, cold starts, finishing and idle time are additional billable
+  work: finishing a frame (bloom, tone mapping, WebP) takes a few seconds of CPU at the
+  panorama's 8192 × 4096, and frames being finished count toward the renderer's queue limit.
 - Finished spin frames are kept on the volume (`/fury-cache/frames`, 4 GB, oldest pruned first)
   with their exposure reading, named by the SHA-256 of the scene, camera, size, quality and
-  finish. A design anyone has seen from that angle comes back without a render.
-- Gateway: global 600 render requests/minute (burst 240), 1 GiB of uploads/hour (burst 512 MiB).
-  Missing-blob retries count as render requests. The render limit leaves room for each visitor's
+  finish, plus the Blender version, denoiser (GPU or CPU) and `FINISHING_VERSION` that made
+  them, so a change to any of those renders again instead of serving old frames. A design anyone
+  has seen from that angle comes back without a render.
+- Gateway: global 600 render requests/minute (burst 240), 1 GiB of uploads/hour (burst 512 MiB),
+  6 `/warm` calls a minute per client. Missing-blob retries count as render requests. The render limit leaves room for each visitor's
   spin: about five frame requests open at a time, a few hundred per design. A busy answer (429 or 503) makes the browser wait two seconds and ask again; a full one (`"full": true`) makes it
   render on its own device.
 - The gateway waits up to 180 seconds for the GPU, then answers 503 and **cancels** the Modal
@@ -93,9 +143,12 @@ session registry with shared durable counters.
   pending, waiting to be rendered for no one. A call cancelled mid-render still finishes on its
   GPU (Blender can't be interrupted), and the worker stays taken until it does. A finished spin
   frame still goes into the frame cache, so asking again gets it without another render.
-- These token buckets are in-process and reset when the gateway restarts/scales down. They reduce
-  abuse but are **not durable quotas or a hard budget**. With no PIN, a script that ignores CORS
-  could keep the GPU busy up to these limits; the Modal workspace spending limit caps the cost.
+- These token buckets and the session places are in-process and reset when the gateway restarts
+  or scales down. The gateway scales down only `FURY_IDLE_SECONDS` + 60 s after its last request,
+  so every GPU it admitted is off by then and the session cap holds across its restarts; a
+  redeploy or a crash still starts it with no places taken. The buckets reduce abuse but are
+  **not durable quotas or a hard budget**. With no PIN, a script that ignores CORS could keep the
+  GPU busy up to these limits; the Modal workspace spending limit caps the cost.
 - Wire and expanded bodies are bounded: 32 MiB for scenes, 128 MiB for individual blobs.
   Texture URLs are never fetched by the server, preventing redirects/private-network SSRF.
 - GPU failure falls back to local tracing where supported. WebGL retains the raster image. The
@@ -128,13 +181,14 @@ reuse and material edits. They do not replace deployed GPU or browser tests.
 
 ## Code map
 
-- `fury_render/gateway.py`: CORS, request validation, pre-GPU request limits and the render
-  sessions with a GPU.
-- `modal_app.py`: CPU ASGI endpoint and private GPU RPC, persistent OptiX cache.
+- `fury_render/gateway.py`: CORS, request validation, pre-GPU request limits, the render
+  sessions with a GPU, `/warm` and the routing through the renderer kept running.
+- `modal_app.py`: CPU ASGI endpoint and private GPU RPC (a renderer per session and the one
+  kept running), persistent OptiX cache.
 - `fury_render/rpc.py`: the private call, with compressed images kept compressed and abandoned
   calls cancelled.
 - `fury_render/api.py`: missing-blob protocol, frame cache, priority queue over the workers and
-  superseded-view handling.
+  the early drop of superseded views.
 - `fury_render/worker.py`: isolated Blender process, one per GPU; one render at a time each.
 - `fury_render/finishing.py`: spin frames' exposure, bloom, AgX tone mapping, dither and WebP.
 - `fury_render/blender.py`: geometry/material/light conversion and Cycles/OIDN rendering.

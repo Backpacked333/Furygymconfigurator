@@ -71,12 +71,7 @@
   border-radius: 6px;
   width: 100%;
 }
-.custom-preview-note {
-  margin-top: 10px;
-  font-size: 10px;
-  color: #4a543e;
-  max-width: 210px;
-}
+
 .inquiry-link {
   text-decoration: none;
   margin-bottom: 12px;
@@ -255,11 +250,56 @@ h3 {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  background: #c7ccc2;
+  display: flex;
+  flex-direction: column;
+  background: #191c18;
   color: #323c2c;
 }
-.stage > div:first-child:not(.floor-plan):not(.graphics-fallback) {
+/* The stage's picture keeps one shape (App.tsx useFitBox sizes it to fit this frame). */
+.stage-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px 10px;
+}
+.still-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  max-height: 100%;
+  flex: none;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #c7ccc2;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.06),
+    0 18px 50px rgb(0 0 0 / 0.35);
+}
+.still-stage.is-tall {
+  aspect-ratio: 4 / 5;
+  width: auto;
   height: 100%;
+}
+.scene-layer {
+  position: absolute;
+  inset: 0;
+}
+.scene-layer > div {
+  height: 100%;
+}
+/* Under the floor plan the paused scene keeps its size (no resize work) but leaves the tab order;
+   under a still it is hidden too, and takes no pointer. */
+.scene-layer.is-hidden,
+.still-stage.is-covered .scene-layer {
+  visibility: hidden;
+}
+.is-gallery .scene-layer {
+  pointer-events: none;
+}
+.stage.is-gallery canvas {
+  cursor: default;
 }
 .stage canvas {
   touch-action: none;
@@ -268,12 +308,7 @@ h3 {
 .stage canvas:active {
   cursor: grabbing;
 }
-.stage-heading {
-  pointer-events: none;
-  position: absolute;
-  left: 34px;
-  top: 30px;
-}
+
 .eyebrow {
   font-size: 8px;
   letter-spacing: 0.19em;
@@ -281,197 +316,7 @@ h3 {
   font-weight: 600;
   display: block;
 }
-.stage-heading > .eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #526049;
-}
-.small-line {
-  width: 16px;
-  height: 1px;
-  background: #64705b;
-}
-.stage-heading h1 {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  font-size: 62px;
-  letter-spacing: -0.07em;
-  line-height: 1.2;
-  font-weight: 500;
-  margin-top: 8px;
-}
-.stage-heading h1 > span {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
-  letter-spacing: 0;
-  line-height: 1.45;
-  font-weight: 400;
-  padding-left: 17px;
-  border-left: 1px solid #97a08b;
-}
-.studio-meta {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  margin-top: 10px;
-  font-size: 9px;
-  color: #59664e;
-}
-.studio-meta i {
-  width: 2px;
-  height: 2px;
-  background: #68725e;
-  border-radius: 50%;
-}
-.view-switch {
-  position: absolute;
-  top: 28px;
-  right: 25px;
-  display: flex;
-  gap: 2px;
-  background: #edf0e2d9;
-  border: 1px solid #a5b09980;
-  padding: 4px;
-  border-radius: 7px;
-  box-shadow: 0 4px 15px #303b2810;
-  backdrop-filter: blur(10px);
-}
-.view-switch button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 9px;
-  padding: 8px 11px;
-  border-radius: 4px;
-  color: #67745a;
-}
-.view-switch button.active {
-  background: #33402c;
-  color: #edf3dd;
-  box-shadow: 0 2px 4px #28322421;
-}
-.view-switch button:hover:not(.active) {
-  background: #dce2cf;
-}
-.stage-tools {
-  position: absolute;
-  right: 25px;
-  top: 98px;
-  display: flex;
-  flex-direction: column;
-  background: #ecf0e0d9;
-  border: 1px solid #a5b09970;
-  padding: 5px;
-  border-radius: 7px;
-  backdrop-filter: blur(8px);
-}
-.stage-tools button {
-  width: 34px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  color: #526349;
-  position: relative;
-  border-radius: 4px;
-}
-.stage-tools button:hover,
-.stage-tools button.active {
-  background: #d3debf;
-  color: #293d1e;
-}
-.stage-tools button span {
-  position: absolute;
-  right: 44px;
-  white-space: nowrap;
-  background: #2e3928;
-  color: #edf3e0;
-  padding: 8px 12px;
-  font-size: 10px;
-  border-radius: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(4px);
-  transition: all 0.2s;
-}
-.stage-tools button:hover span,
-.stage-tools button:focus-visible span {
-  opacity: 1;
-  transform: none;
-}
-.tool-divider {
-  height: 1px;
-  background: #c2cbb5;
-  margin: 3px 6px;
-}
-.stage-bottom {
-  position: absolute;
-  bottom: 24px;
-  left: 30px;
-  right: 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-.scene-status {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 8px;
-  color: #59664f;
-}
-.scene-status .status-dot {
-  background: #536b40;
-}
-.scene-status strong {
-  font-weight: 600;
-  font-size: 7px;
-  letter-spacing: 0.12em;
-}
-.scene-status > span:last-child {
-  border-left: 1px solid #a6b095;
-  padding-left: 8px;
-  margin-left: 2px;
-}
-.scene-hint {
-  font-size: 8px;
-  color: #66705e;
-  opacity: 0.85;
-}
-.environment-quick {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  font-size: 9px;
-  padding: 9px 10px;
-  border-radius: 5px;
-  border: 1px solid #acb69c;
-  background: #ecf0e2b3;
-  color: #45583a;
-}
-.history-controls {
-  position: absolute;
-  left: 30px;
-  bottom: 65px;
-  background: #eef2e5bf;
-  display: flex;
-  border: 1px solid #b4bfa3;
-  border-radius: 5px;
-  padding: 3px;
-}
-.history-controls button {
-  width: 29px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 3px;
-  color: #596a4b;
-}
-.history-controls button:hover:not(:disabled) {
-  background: #d3ddc4;
-}
+
 .panel-wrapper {
   width: 370px;
   flex-shrink: 0;
@@ -1312,8 +1157,9 @@ h3 {
   padding: 40px;
   color: #4c5e3d;
 }
-.scene-loading > p {
-  font-size: 12px;
+.scene-loading {
+  z-index: 2;
+  background: #c7ccc2;
 }
 .loading-mark {
   font-family: var(--display);
@@ -1779,10 +1625,7 @@ h3 {
   flex-direction: column;
   padding: 85px 25px 70px;
 }
-.is-plan .stage-heading,
-.is-plan .stage-tools {
-  display: none;
-}
+
 .plan-heading {
   width: 100%;
   padding-left: 8px;
@@ -1857,58 +1700,7 @@ h3 {
   max-width: 480px;
   flex-shrink: 0;
 }
-.is-plan .history-controls {
-  bottom: 23px;
-}
-.is-plan .view-switch {
-  left: 33px;
-  right: auto;
-}
-.photo-controls {
-  position: absolute;
-  left: 30px;
-  right: 30px;
-  bottom: 30px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  background: #20301fd9;
-  color: #e5f1d4;
-  padding: 14px 20px;
-  border-radius: 7px;
-  backdrop-filter: blur(10px);
-}
-.photo-controls > span {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  flex: 1;
-}
-.photo-controls small {
-  display: block;
-  font-size: 8px;
-  color: #a4bd8c;
-  letter-spacing: 0;
-  margin-top: 4px;
-}
-.photo-controls > button {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  padding: 8px;
-  font-size: 11px;
-}
-.photo-mode .panel-wrapper,
-.photo-mode .summary-bar,
-.photo-mode .stage-tools,
-.photo-mode .history-controls,
-.photo-mode .view-switch,
-.photo-mode .stage-bottom,
-.photo-mode .mobile-toggle {
-  display: none;
-}
-.mobile-toggle {
-  display: none;
-}
+
 @keyframes panel-in {
   from {
     opacity: 0.2;
@@ -1937,21 +1729,7 @@ h3 {
   .header {
     height: 84px;
   }
-  .stage-heading {
-    left: 45px;
-    top: 39px;
-  }
-  .stage-heading h1 {
-    font-size: 74px;
-  }
-  .view-switch {
-    top: 35px;
-    right: 34px;
-  }
-  .stage-tools {
-    right: 34px;
-    top: 106px;
-  }
+
   .section-label {
     font-size: 12px;
   }
@@ -1993,39 +1771,7 @@ h3 {
   .header-center {
     display: none;
   }
-  .stage-heading {
-    left: 25px;
-    top: 27px;
-  }
-  .stage-heading h1 {
-    font-size: 48px;
-  }
-  .stage-heading h1 > span {
-    font-size: 10px;
-    padding-left: 12px;
-  }
-  .stage-heading > .eyebrow {
-    font-size: 7px;
-  }
-  .view-switch {
-    top: 155px;
-    left: 24px;
-    right: auto;
-  }
-  .stage-tools {
-    right: 19px;
-    top: 29px;
-  }
-  .stage-bottom {
-    left: 24px;
-    right: 18px;
-  }
-  .scene-hint {
-    display: none;
-  }
-  .scene-status > span:last-child {
-    display: none;
-  }
+
   .summary-bar {
     gap: 18px;
     padding: 16px 24px;
@@ -2043,10 +1789,7 @@ h3 {
   .panel-title h2 {
     font-size: 25px;
   }
-  .is-plan .view-switch {
-    top: 22px;
-    left: 25px;
-  }
+
   .plan-heading h2 {
     font-size: 22px;
   }
@@ -2192,110 +1935,14 @@ h3 {
   .brief-cta small {
     font-size: 7px;
   }
-  .stage-heading {
-    left: 22px;
-    top: 20px;
-  }
-  .stage-heading h1 {
-    font-size: 38px;
-    gap: 13px;
-    margin-top: 4px;
-  }
-  .stage-heading h1 > span {
-    font-size: 9px;
-    line-height: 1.4;
-    border-color: #929f82;
-  }
-  .stage-heading > .eyebrow {
-    font-size: 6px;
-    letter-spacing: 0.14em;
-  }
-  .studio-meta {
-    font-size: 7px;
-    margin-top: 5px;
-  }
-  .studio-meta > i:last-of-type,
-  .studio-meta {
-    gap: 5px;
-  }
-  .stage-tools {
-    right: 15px;
-    top: 17px;
-    padding: 3px;
-  }
-  .stage-tools button {
-    height: 28px;
-    width: 28px;
-  }
-  .stage-tools button > svg {
-    width: 15px;
-  }
-  .stage-tools button span {
-    display: none;
-  }
-  .stage-tools .tool-divider {
-    margin: 3px;
-  }
-  .view-switch {
-    top: auto;
-    bottom: 18px;
-    left: 20px;
-    padding: 3px;
-    gap: 0;
-  }
-  .view-switch button {
-    padding: 6px 8px;
-    font-size: 8px;
-    gap: 5px;
-  }
-  .view-switch svg {
-    width: 12px;
-  }
-  .stage-bottom {
-    display: none;
-  }
-  .history-controls {
-    left: auto;
-    right: 16px;
-    bottom: 56px;
-    padding: 2px;
-  }
-  .history-controls button {
-    height: 22px;
-    width: 25px;
-  }
-  .history-controls button svg {
-    width: 13px;
-  }
-  .mobile-toggle {
-    position: absolute;
-    right: 16px;
-    bottom: 18px;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 8px;
-    border-radius: 5px;
-    background: #edf2e0d9;
-    border: 1px solid #aabb94;
-    color: #405932;
-    font-size: 8px;
-  }
-  .mobile-toggle > svg {
-    width: 12px;
-  }
+
   .panel-closed .stage {
     flex: 1;
   }
   .panel-closed .panel-wrapper {
     display: none;
   }
-  .photo-mode .stage {
-    flex: 1;
-  }
-  .photo-mode .summary-bar {
-    display: none;
-  }
+
   .toast {
     bottom: 93px;
     left: 16px;
@@ -2331,14 +1978,7 @@ h3 {
     max-height: 100%;
     padding-bottom: 20px;
   }
-  .is-plan .view-switch {
-    top: auto;
-    left: 20px;
-    bottom: 17px;
-  }
-  .is-plan .history-controls {
-    bottom: 56px;
-  }
+
   .modal-content {
     padding: 24px;
   }
@@ -2347,18 +1987,6 @@ h3 {
   }
   .saved-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-  .photo-controls {
-    left: 20px;
-    right: 20px;
-    bottom: 20px;
-    padding: 10px 14px;
-  }
-  .photo-controls > span {
-    font-size: 9px;
-  }
-  .photo-controls > button {
-    font-size: 10px;
   }
 }
 @media (max-width: 390px) {
@@ -2390,21 +2018,7 @@ h3 {
   .panel-scroll {
     padding: 20px;
   }
-  .view-switch {
-    left: 13px;
-  }
-  .view-switch button {
-    padding: 6px;
-  }
-  .view-switch svg {
-    display: none;
-  }
-  .mobile-toggle {
-    right: 12px;
-  }
-  .stage-heading {
-    left: 17px;
-  }
+
   .save-row {
     align-items: stretch;
     flex-direction: column;
@@ -2437,7 +2051,6 @@ h3 {
 }
 @media print {
   .header-actions,
-  .stage-tools,
   .panel-wrapper,
   .summary-bar,
   .modal-header > .icon-button {
@@ -2553,57 +2166,7 @@ h3 {
   .panel-next > button {
     font-size: 11px;
   }
-  .stage-heading {
-    top: 25px;
-    left: 30px;
-  }
-  .stage-heading > .eyebrow {
-    font-size: 9px;
-  }
-  .stage-heading h1 {
-    font-size: clamp(52px, 4.4vw, 72px);
-  }
-  .stage-heading h1 > span {
-    font-size: 12px;
-  }
-  .studio-meta {
-    font-size: 10px;
-  }
-  .view-switch {
-    top: 25px;
-    right: 23px;
-    left: auto;
-    bottom: auto;
-  }
-  .view-switch button {
-    font-size: 11px;
-    padding: 9px 12px;
-  }
-  .stage-tools {
-    top: 97px;
-    right: 23px;
-  }
-  .stage-tools button {
-    height: 38px;
-    width: 35px;
-  }
-  .scene-hint {
-    display: block;
-    font-size: 10px;
-  }
-  .scene-status {
-    font-size: 10px;
-  }
-  .scene-status strong {
-    font-size: 9px;
-  }
-  .environment-quick {
-    font-size: 10px;
-  }
-  .history-controls button {
-    height: 29px;
-    width: 32px;
-  }
+
   .summary-bar {
     min-height: 98px;
     padding: 17px 28px;
@@ -2712,11 +2275,7 @@ h3 {
   .plan-disclaimer {
     font-size: 10px;
   }
-  .is-plan .view-switch {
-    left: auto;
-    right: 23px;
-    top: 25px;
-  }
+
   .modal {
     max-width: 610px;
   }
@@ -2759,98 +2318,159 @@ h3 {
     font-size: 12px;
   }
 }
-@media screen and (min-width: 821px) and (max-width: 1250px) {
-  .view-switch {
-    top: 156px;
-    left: 29px;
-    right: auto;
-  }
-  .stage-tools {
-    top: 25px;
-  }
-  .scene-hint {
-    display: none;
-  }
-}
 
 /* Renderer badge and material streaming indicator */
-.scene-status .render-backend {
-  border-left: 1px solid #a6b095;
-  padding-left: 8px;
-  margin-left: 2px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 7px;
-  font-weight: 600;
-  color: #4d5a43;
-}
-.material-progress {
+
+.scene-activity {
   position: absolute;
   left: 50%;
   top: 22px;
   transform: translateX(-50%);
   overflow: hidden;
-  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 9px;
   border-radius: 999px;
-  background: rgb(240 238 229 / 0.86);
+  background: rgb(240 238 229 / 0.92);
   border: 1px solid #c9cdbd;
-  color: #4a5541;
-  font-size: 8px;
-  letter-spacing: 0.06em;
-  backdrop-filter: blur(8px);
+  color: #3f4a37;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgb(40 48 34 / 0.12);
   pointer-events: none;
   z-index: 3;
 }
-.material-progress > span {
+/* Quick changes finish before this fades in, so it never flashes. */
+.scene-activity.is-updating {
+  animation: activity-in 0.2s ease 0.25s both;
+}
+.activity-bar {
   position: absolute;
   inset: auto 0 0 0;
-  height: 2px;
+  height: 3px;
   background: #627a4c;
-  transition: width 0.3s ease;
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+/* Transform-only motion keeps animating on the compositor while the main thread is busy. */
+.activity-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid #c3cbb5;
+  border-top-color: #4f6a3a;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes activity-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.scene-loading-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  color: #323c2c;
+}
+.loading-bar {
+  position: relative;
+  width: min(320px, 80%);
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgb(98 122 76 / 0.18);
+}
+.loading-bar > span {
+  position: absolute;
+  inset: 0;
+  background: #627a4c;
+  transform-origin: left;
+  transition: transform 0.6s ease;
+}
+.loading-bar > i {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.loading-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  font-size: 12px;
+  color: #8a9480;
+}
+.loading-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.loading-steps li::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+.loading-steps li.is-done {
+  color: #4c5e3d;
+}
+.loading-steps li.is-done::before {
+  background: #627a4c;
+  border-color: #627a4c;
+}
+.loading-steps li.is-active {
+  color: #323c2c;
+  font-weight: 600;
+}
+.loading-steps li.is-active::before {
+  border-color: #c3cbb5;
+  border-top-color: #4f6a3a;
+  animation: spin 0.8s linear infinite;
+}
+.scene-loading-note {
+  font-size: 11px;
+  color: #7a846f;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar > i,
+  .activity-spinner,
+  .loading-steps li.is-active::before {
+    animation-duration: 2.4s;
+  }
 }
 .quality-detail {
   margin-top: 6px;
 }
 
-/* Photographic scenes are busier than the old flat backdrop: soft scrims keep overlays legible. */
-.stage:not(.is-plan)::before,
-.stage:not(.is-plan)::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  z-index: 1;
+/* The floor plan takes the stage under its header. */
+.floor-plan {
+  z-index: 4;
 }
-.stage:not(.is-plan)::before {
-  left: 0;
-  top: 0;
-  width: min(520px, 60%);
-  height: 240px;
-  background: radial-gradient(
-    ellipse at 0 0,
-    rgb(238 236 228 / 0.82) 0%,
-    rgb(238 236 228 / 0.5) 42%,
-    transparent 72%
-  );
-}
-.stage:not(.is-plan)::after {
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 90px;
-  background: linear-gradient(to top, rgb(238 236 228 / 0.7), transparent);
-}
-.stage-heading,
-.stage-bottom,
-.view-switch,
-.stage-tools,
-.photo-controls,
-.history-controls,
-.mobile-toggle {
-  z-index: 2;
-}
-.photo-mode .stage::after {
-  display: none;
-}
+
 /* Signature builds, portfolio choices, interior finishes ---------------------------------- */
 .signature-list {
   display: flex;
@@ -3023,110 +2643,912 @@ h3 {
   }
 }
 
-/* Covers the scene while the cloud path traces the spin (App.tsx SpinLoading). */
-.spin-loading {
+/* Rendering benchmarks over the stage (`?bench=1`, App.tsx BenchPanel): plain text, out of the
+   way of the controls, never in the way of a click. */
+.bench-panel {
+  position: fixed;
+  top: 88px;
+  left: 16px;
+  z-index: 6;
+  border-collapse: collapse;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgb(32 35 31 / 0.88);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.bench-panel th {
+  padding: 0 12px 0 0;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bench-panel td {
+  white-space: nowrap;
+}
+
+/* The gallery (StillStage.tsx, RenderStatus.tsx) ---------------------------------------------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Stills over the canvas: the new one fades in once over the one it replaces, which stays whole
+   underneath until it is gone, so the picture never dips. */
+.still-layers {
   position: absolute;
   inset: 0;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 40px 16px;
-  text-align: center;
-  background: #c7ccc2;
-  color: #323c2c;
+  z-index: 2;
+  pointer-events: none;
 }
-/* Later waits (a view's first visit) appear only if the frame takes a moment to arrive. */
-.spin-loading.later {
-  animation: spin-loading-in 0.25s ease 0.2s both;
+.still-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
 }
-@keyframes spin-loading-in {
+/* Decoding out of sight: the still that replaces the one shown, or the page's first, baked. */
+.still-layer.is-pending,
+.still-layer.is-loading {
+  opacity: 0;
+}
+.still-layer.is-entering {
+  animation: still-in 450ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes still-in {
   from {
     opacity: 0;
   }
-}
-.spin-loading .loading-mark {
-  margin-bottom: 8px;
-}
-.spin-loading strong {
-  font-family: var(--display);
-  font-size: 15px;
-  font-weight: 700;
-}
-.spin-loading p {
-  font-size: 12px;
-  color: #4c5e3d;
-  font-variant-numeric: tabular-nums;
-}
-.spin-progress {
-  position: relative;
-  overflow: hidden;
-  width: min(240px, 70%);
-  height: 3px;
-  margin-top: 6px;
-  border-radius: 2px;
-  background: #aeb6a3;
-}
-.spin-progress > span {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0;
-  background: #536b40;
-  transition: width 0.3s ease;
-}
-.spin-progress.indeterminate > span {
-  width: 35%;
-  animation: spin-progress-sweep 1.4s ease-in-out infinite;
-}
-@keyframes spin-progress-sweep {
-  from {
-    left: -35%;
-  }
   to {
-    left: 100%;
+    opacity: 1;
   }
+}
+/* The page's first still, slow to arrive: a soft light passes over the empty stage, and a quiet
+   line says what is coming, under the still that fades in over them once it has decoded. */
+.still-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 64px;
+  background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.22) 50%, transparent 70%)
+    #c7ccc2;
+  background-size: 250% 100%;
+  animation: film-shimmer 1.8s ease-in-out infinite;
+}
+.still-loading span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(32 34 31 / 0.6);
 }
 @media (prefers-reduced-motion: reduce) {
-  .spin-loading .loading-mark,
-  .spin-progress.indeterminate > span {
+  .still-loading {
     animation: none;
+  }
+}
+.stage.is-live .still-layers {
+  display: none;
+}
+/* The status of a still on its way: a glass pill with a hairline ring running round it. */
+@property --pill-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.render-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 15px 8px 11px;
+  border-radius: 999px;
+  background: rgb(248 248 244 / 0.62);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow:
+    0 8px 24px rgb(28 34 24 / 0.16),
+    inset 0 0 0 1px rgb(255 255 255 / 0.5);
+  color: #263021;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  transform: translate(-50%, 6px);
+  opacity: 0;
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+.render-pill.is-rendering,
+.render-pill.is-done {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.render-pill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--pill-angle),
+    rgb(83 107 64 / 0) 0deg,
+    rgb(83 107 64 / 0) 250deg,
+    rgb(83 107 64 / 0.85) 330deg,
+    rgb(83 107 64 / 0) 360deg
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  animation: pill-ring 1.8s linear infinite;
+}
+.render-pill.is-done::before {
+  animation: none;
+  background: rgb(83 107 64 / 0.6);
+}
+.render-pill.is-still::before {
+  animation: none;
+  background: rgb(83 107 64 / 0.45);
+}
+@keyframes pill-ring {
+  to {
+    --pill-angle: 360deg;
+  }
+}
+.pill-mark {
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: #3f5a2e;
+}
+.pill-mark > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #536b40;
+  animation: breathe 1.4s ease infinite;
+}
+.pill-time {
+  color: #5d6a52;
+}
+/* The determinate line along the stage's bottom edge. */
+.render-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.render-line.is-rendering,
+.render-line.is-done {
+  opacity: 1;
+}
+.render-line.is-done {
+  transition-delay: 0.6s;
+}
+.render-line > span {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #6f8b55, #c9e08f);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.render-line.is-done > span {
+  transform: scaleX(1);
+  transition: transform 0.3s ease;
+}
+/* Said plainly when the stage shows the live view rather than a path-traced still. */
+.live-preview-label {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgb(32 38 28 / 0.62);
+  backdrop-filter: blur(8px);
+  color: #eef3e2;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+/* The filmstrip of the nine angles under the stage. */
+.filmstrip {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 2px 20px 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* Centred while the strip fits, scrolled from its start when it does not. */
+.filmstrip > :first-child {
+  margin-left: auto;
+}
+.filmstrip > :last-child {
+  margin-right: auto;
+}
+.film-tile {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 3px;
+  border-radius: 9px;
+  color: #a8ad9e;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+.film-tile.starts-group {
+  margin-left: 12px;
+}
+.film-thumb {
+  position: relative;
+  display: block;
+  width: 84px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #2b2f27;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.06);
+  transition: box-shadow 0.2s ease;
+}
+.filmstrip.is-tall .film-thumb {
+  width: 46px;
+}
+.film-thumb > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.film-tile:hover .film-thumb {
+  box-shadow: 0 0 0 1px rgb(213 233 156 / 0.5);
+}
+.film-tile.is-current {
+  color: var(--text);
+}
+.film-tile.is-current .film-thumb {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* A thumbnail waiting for its new still keeps the last one, with a soft light passing over it. */
+.film-tile.is-pending .film-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.28) 50%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  animation: film-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes film-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+/* The option whose still is on its way: a hairline ring runs round its swatch. */
+.swatch-rendering {
+  position: relative;
+}
+.finish-swatch.swatch-rendering::after,
+.interior-swatch.swatch-rendering::after,
+.floor-options span.swatch-rendering::after,
+.environment-card.swatch-rendering::after,
+.package-options > button.swatch-rendering::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--pill-angle),
+    rgb(213 233 156 / 0) 0deg,
+    rgb(213 233 156 / 0) 200deg,
+    rgb(213 233 156 / 0.95) 330deg,
+    rgb(213 233 156 / 0) 360deg
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  animation: pill-ring 1.4s linear infinite;
+  pointer-events: none;
+}
+.finish-swatch.swatch-rendering::after {
+  border-color: rgb(213 233 156 / 0.25);
+  border-radius: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .finish-swatch.swatch-rendering::after,
+  .interior-swatch.swatch-rendering::after,
+  .floor-options span.swatch-rendering::after,
+  .environment-card.swatch-rendering::after,
+  .package-options > button.swatch-rendering::after {
+    background: rgb(213 233 156 / 0.8);
+  }
+}
+@media (max-width: 1250px) {
+  .film-thumb {
+    width: 68px;
+  }
+}
+@media (max-width: 820px) {
+  .stage {
+    height: 64%;
+  }
+  .stage-frame {
+    padding: 8px 12px 6px;
+  }
+  .still-stage {
+    border-radius: 10px;
+  }
+  .filmstrip {
+    padding: 0 12px 8px;
+    gap: 5px;
+  }
+  .filmstrip.is-tall .film-thumb {
+    width: 38px;
+  }
+  /* The thumbnails say which angle they are; their names are read out (aria-label). */
+  .film-label {
+    display: none;
+  }
+  .film-tile {
+    padding: 2px;
+  }
+  .film-tile.starts-group {
+    margin-left: 6px;
+  }
+  .render-pill {
+    bottom: 84px;
+    font-size: 11px;
+  }
+  .live-preview-label {
+    bottom: 54px;
   }
 }
 
-/* Path-tracing progress beside the live renderer label. */
-.scene-status .trace-badge {
-  display: inline-flex;
+/* The stage, like a car configurator's: the title above the picture, the picture clean, one
+   toolbar over its bottom edge, the filmstrip under it (App.tsx, StageToolbar.tsx) ------------ */
+.stage-header {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 24px;
+  padding: 14px 24px 0;
+  color: var(--text);
+}
+.stage-heading {
+  min-width: 0;
+}
+.stage-heading > .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #98a18c;
+  font-size: 9px;
+}
+.small-line {
+  width: 16px;
+  height: 1px;
+  background: #6f7a63;
+}
+.stage-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 5px;
+}
+.stage-heading h1 {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0;
+  font-size: clamp(30px, 2.5vw, 40px);
+  letter-spacing: -0.05em;
+  line-height: 1;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.stage-heading h1 > span {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: #c3c8b8;
+  padding-left: 14px;
+  border-left: 1px solid #555d4b;
+}
+.studio-meta {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 11px;
+  color: #a3aa96;
+  white-space: nowrap;
+}
+.studio-meta i {
+  width: 2px;
+  height: 2px;
+  background: #7b8470;
+  border-radius: 50%;
+}
+.custom-preview-note {
+  margin: 6px 0 0;
+  font-size: 10px;
+  color: #a3aa96;
+}
+.stage-header-tools {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.stage-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.view-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #262a23;
+  border: 1px solid #3a4034;
+}
+.view-switch button {
+  display: flex;
   align-items: center;
   gap: 6px;
-  border-left: 1px solid #a6b095;
-  padding-left: 8px;
-  margin-left: 2px;
+  padding: 7px 11px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: #b4baa8;
+}
+.view-switch button.active {
+  background: #e9eedd;
+  color: #253020;
+}
+.view-switch button:hover:not(.active) {
+  background: #30362b;
+  color: var(--text);
+}
+.history-controls {
+  display: flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: #262a23;
+  border: 1px solid #3a4034;
+}
+.history-controls button {
+  width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: #c3c8b8;
+}
+.history-controls button:hover:not(:disabled) {
+  background: #30362b;
+  color: var(--text);
+}
+/* What the stage shows and how it was made, said beside the picture rather than on it. */
+.scene-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: #98a18c;
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
-.trace-meter {
-  --progress: 0;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: conic-gradient(#536b40 calc(var(--progress) * 1turn), #c9cfbe 0);
-  flex: none;
+.scene-status .status-dot {
+  background: var(--accent);
 }
-.trace-badge.converged .trace-meter {
-  background: #536b40;
+.stage.is-live .scene-status .status-dot {
+  animation: breathe 2s ease infinite;
 }
-.trace-badge.preparing .trace-meter {
-  animation: trace-pulse 1.2s ease-in-out infinite;
+.scene-status strong {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #d9dece;
 }
-@keyframes trace-pulse {
-  50% {
-    opacity: 0.35;
+.scene-status .render-backend,
+.scene-status .scene-note {
+  padding-left: 8px;
+  border-left: 1px solid #454c3c;
+}
+.scene-status .render-backend {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.stage-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stage-frame {
+  padding: 10px 20px 10px;
+}
+/* Full screen: the picture alone, as large as the screen allows, its toolbar still on it. */
+.stage-frame:fullscreen {
+  padding: 0;
+  background: #0e100d;
+}
+.stage-frame:fullscreen .still-stage {
+  border-radius: 0;
+  box-shadow: none;
+}
+.stage-mobile-row {
+  display: none;
+}
+/* The floor plan takes the stage under its header. */
+.floor-plan {
+  padding: 18px 25px 24px;
+}
+
+/* The toolbar: a glass pill on the picture's bottom edge. On a narrow picture it names only the
+   360° View, and narrower still nothing: every tool says what it is when read out. */
+.still-stage {
+  container: stage / inline-size;
+}
+@container stage (max-width: 620px) {
+  .stage-toolbar button.tool-labelled:first-child > span {
+    display: none;
+  }
+  .stage-toolbar button.tool-labelled {
+    padding: 0 9px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .trace-badge.preparing .trace-meter {
-    animation: none;
+@container stage (max-width: 520px) {
+  .stage.is-live .stage-toolbar button.tool-labelled > span {
+    display: none;
+  }
+}
+@container stage (max-width: 250px) {
+  .stage-toolbar button.tool-labelled > span {
+    display: none;
+  }
+}
+.stage-toolbar-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 4;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: calc(100% - 24px);
+}
+.stage-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgb(22 25 20 / 0.52);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow:
+    0 10px 30px rgb(10 12 9 / 0.28),
+    inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  color: #f3f5ec;
+}
+.stage-toolbar button {
+  height: 34px;
+  min-width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: inherit;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.stage-toolbar button.tool-labelled {
+  padding: 0 13px 0 11px;
+}
+.stage-toolbar button:hover:not(:disabled),
+.stage-toolbar button.is-open {
+  background: rgb(255 255 255 / 0.14);
+}
+.stage-toolbar button.is-on {
+  background: #f1f4e8;
+  color: #1f281b;
+}
+.stage-toolbar button:focus-visible {
+  outline-offset: 1px;
+}
+.stage-toolbar button.is-busy > svg {
+  animation: breathe 1.2s ease infinite;
+}
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgb(255 255 255 / 0.2);
+}
+/* Adjust scene: the setting and the time of day, above the toolbar (placed by StageToolbar). */
+.scene-popover {
+  position: fixed;
+  z-index: 30;
+  overflow-y: auto;
+  padding: 14px 16px 12px;
+  border-radius: 14px;
+  background: rgb(31 35 28 / 0.9);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow:
+    0 18px 40px rgb(8 10 7 / 0.4),
+    inset 0 0 0 1px rgb(255 255 255 / 0.1);
+  color: var(--text);
+}
+.scene-popover .section-label {
+  margin-top: 0;
+}
+.scene-popover .section-label.separated {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: 0;
+}
+.scene-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+.scene-settings button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid #3f4638;
+  background: #272c23;
+  font-size: 11px;
+  text-align: left;
+}
+.scene-settings button.selected {
+  border-color: var(--accent);
+  background: #36412e;
+}
+.scene-settings button:hover:not(.selected) {
+  background: #30362b;
+}
+.scene-popover .time-slider {
+  margin: 8px 0 8px;
+}
+.popover-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* The 360° view's crossfades: the still lifts off the settled live view, and the held last frame
+   of the live view fades off the still that replaces it. */
+.still-layers.is-lifting {
+  animation: still-out 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.stage.is-live .still-layers {
+  display: block;
+}
+@keyframes still-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.live-freeze {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  visibility: hidden;
+}
+.live-freeze.is-hold,
+.live-freeze.is-fading {
+  visibility: visible;
+}
+.live-freeze.is-fading {
+  animation: still-out 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.render-pill {
+  bottom: 66px;
+}
+.render-pill,
+.render-line,
+.live-preview-label {
+  z-index: 3;
+}
+/* In a corner, clear of the activity pill at the top and the toolbar at the bottom. */
+.live-preview-label {
+  top: 12px;
+  left: 12px;
+  bottom: auto;
+  transform: none;
+}
+.scene-activity {
+  top: 14px;
+}
+
+@media (max-width: 1150px) {
+  .stage-header {
+    padding: 12px 18px 0;
+  }
+  .stage-header .scene-note {
+    display: none;
+  }
+  .stage-title {
+    gap: 4px 14px;
+  }
+}
+@media (max-width: 820px) {
+  .stage-header {
+    align-items: center;
+    padding: 8px 12px 0;
+  }
+  .stage-heading > .eyebrow,
+  .stage-title .studio-meta,
+  .stage-heading h1 > span,
+  .custom-preview-note,
+  .stage-header .scene-status {
+    display: none;
+  }
+  .stage-title {
+    margin-top: 0;
+  }
+  .stage-heading h1 {
+    font-size: 24px;
+  }
+  .stage-header-row {
+    gap: 6px;
+  }
+  .view-switch button {
+    padding: 6px 8px;
+    font-size: 10px;
+    gap: 5px;
+  }
+  .view-switch svg {
+    width: 12px;
+  }
+  .history-controls button {
+    width: 26px;
+    height: 26px;
+  }
+  .history-controls button svg {
+    width: 14px;
+  }
+  .stage-frame {
+    padding: 6px 12px;
+  }
+  .stage {
+    height: 68%;
+  }
+  .stage-mobile-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 12px 6px;
+  }
+  .mobile-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 7px;
+    background: #262a23;
+    border: 1px solid #3a4034;
+    color: #dfe4d3;
+    font-size: 11px;
+  }
+  .mobile-toggle > svg {
+    width: 13px;
+  }
+  .floor-plan {
+    padding: 12px 14px 16px;
+  }
+  .plan-toolbar {
+    bottom: 16px;
+    left: 14px;
+  }
+  .stage-toolbar-wrap {
+    bottom: 10px;
+  }
+  .stage-toolbar {
+    padding: 3px;
+    gap: 0;
+  }
+  .stage-toolbar button {
+    height: 32px;
+    min-width: 32px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+  .stage-toolbar button.tool-labelled {
+    padding: 0 8px;
+  }
+  .toolbar-divider {
+    margin: 0 1px;
+  }
+  .render-pill {
+    bottom: 54px;
+  }
+}
+@media (max-width: 390px) {
+  .view-switch button {
+    padding: 6px 7px;
+  }
+  .view-switch svg {
+    display: none;
+  }
+}
+@media (min-width: 1600px) {
+  .stage-header {
+    padding: 18px 30px 0;
+  }
+}
+@media print {
+  .stage-toolbar-wrap,
+  .stage-header-tools {
+    display: none;
   }
 }

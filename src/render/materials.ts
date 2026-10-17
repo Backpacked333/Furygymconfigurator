@@ -1,17 +1,30 @@
 import {
   Color,
+  CustomBlending,
+  DataTexture,
+  DataUtils,
   FrontSide,
+  HalfFloatType,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   NoColorSpace,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
+  RGBAFormat,
   RepeatWrapping,
   SRGBColorSpace,
+  Texture,
   TextureLoader,
+  UnsignedByteType,
   Vector2,
+  Vector3,
   type ColorRepresentation,
+  type ColorSpace,
   type Side,
-  type Texture,
 } from 'three'
-import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
-import { pmremTexture } from 'three/tsl'
+import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type Node } from 'three/webgpu'
+import { float, normalView, pmremTexture, positionViewDirection, select, uniform } from 'three/tsl'
+import { parallaxProbe } from './parallax'
 import { textureProgress } from './progress'
 
 /**
@@ -57,8 +70,6 @@ export type MaterialSpec = {
   roughness?: number
   metalness?: number
   normalScale?: number
-  aoIntensity?: number
-  envIntensity?: number
   /** Lit by the captured interior radiance probe instead of the open sky. */
   interior?: boolean
   /**
@@ -77,6 +88,11 @@ export type MaterialSpec = {
   attenuationColor?: ColorRepresentation
   attenuationDistance?: number
   specularIntensity?: number
+  /**
+   * Clear glazing drawn over the scene behind it rather than through a filtered copy of it:
+   * sharp at any distance, reflecting and dimming by Fresnel's law like a real pane.
+   */
+  thinGlass?: boolean
   emissive?: ColorRepresentation
   emissiveIntensity?: number
   transparent?: boolean
@@ -108,22 +124,232 @@ function configure(texture: Texture, size: number, color: boolean) {
   return texture
 }
 
-function load(set: TextureSet): Promise<Maps> {
+/**
+ * Scans decode off the main thread where createImageBitmap takes its options (Safari 17+, Firefox
+ * 98+, the gate three's GLTFLoader uses). An <img> would instead be decoded synchronously by the
+ * first GPU upload, stalling a frame for every arriving map.
+ */
+const decodeOffThread = (() => {
+  if (typeof createImageBitmap === 'undefined' || typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  const safari = /^((?!chrome|android).)*safari/i.test(ua)
+  const safariVersion = Number(ua.match(/Version\/(\d+)/)?.[1] ?? -1)
+  const firefoxVersion = Number(ua.match(/Firefox\/(\d+)\./)?.[1] ?? -1)
+  return !(safari && safariVersion < 17) && !(ua.includes('Firefox') && firefoxVersion < 98)
+})()
+
+/**
+ * Decoded already upright, so the texture keeps flipY false (as three's in-shader flip for bitmaps
+ * requires), and without premultiplication or color conversion: the same texels an <img> uploads.
+ */
+const decode = (blob: Blob) =>
+  createImageBitmap(blob, {
+    imageOrientation: 'flipY',
+    premultiplyAlpha: 'none',
+    colorSpaceConversion: 'none',
+  })
+
+/** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
+const releasable = new Set<Texture>()
+/**
+ * The local path tracer packs every map into a texture array of its own from the decoded pixels,
+ * so while one exists they are kept: a released map would trace black (the ground, the brick),
+ * and the exposure match would then brighten the whole view to make up for it.
+ */
+let keepDecoded = false
+
+/** Keeps scans decoded (and decodes the released ones again) while a local tracer needs them. */
+export function keepDecodedTextures(keep: boolean) {
+  keepDecoded = keep
+  return keep ? restoreTextures() : Promise.resolve([])
+}
+
+async function fetchBitmapTexture(url: string) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`${response.status} for ${url}`)
+  const blob = await response.blob()
+  const texture = new Texture(await decode(blob))
+  texture.flipY = false
+  texture.userData.scan = blob
+  // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map).
+  texture.onUpdate = () => {
+    if (!keepDecoded) (texture.image as ImageBitmap).close()
+  }
+  return texture
+}
+
+/**
+ * Decodes released maps again. A new renderer uploads every texture afresh, so the canvas's gl
+ * factory awaits this before the renderer draws anything.
+ */
+export function restoreTextures() {
+  return Promise.all(
+    [...releasable]
+      .filter((texture) => (texture.image as ImageBitmap).width === 0)
+      .map(async (texture) => {
+        texture.image = await decode(texture.userData.scan as Blob)
+        texture.needsUpdate = true
+      }),
+  )
+}
+
+/** Retries a dropped request twice (after 1 s, then 2 s) before giving up on a map. */
+function fetchTexture(url: string, attempt = 0): Promise<Texture> {
+  const request = decodeOffThread ? fetchBitmapTexture(url) : loader.loadAsync(url)
+  return request.catch((error: unknown) => {
+    if (attempt >= 2) throw error
+    return new Promise<void>((resolve) => setTimeout(resolve, 1000 * 2 ** attempt)).then(() =>
+      fetchTexture(url, attempt + 1),
+    )
+  })
+}
+
+/** A failed set is requested again after this pause, doubling each round up to five minutes. */
+const RETRY_SET_AFTER_MS = 30_000
+const RETRY_SET_MAX_MS = 300_000
+const failedRounds = new Map<TextureSet, number>()
+/** Surfaces built while their set was failing, given its scans when a later round lands. */
+const waiting = new Map<TextureSet, ((maps: Maps) => void)[]>()
+
+// --- Unseen surfaces -------------------------------------------------------------
+//
+// The stills' prefetch (siblings.ts) builds a design the visitor has not chosen, to learn which
+// surfaces it would change. Its new surfaces and their scans are nothing the page shows: their
+// downloads are left out of the load progress (which the stills wait on, and which the live view
+// shows as "Loading photo-scanned materials") until a surface on screen asks for them, and their
+// arrival redraws nothing.
+
+/** `quietly` calls running: what they build is not on screen. */
+let quiet = 0
+/** Sets downloading for unseen surfaces alone, and how many of their maps are still to come. */
+const unseenSets = new Map<TextureSet, { outstanding: number }>()
+/** Surfaces built quietly that nothing on screen has asked for since. */
+const unseen = new WeakSet<MeshStandardNodeMaterial>()
+/** The set each surface is made from. */
+const setOf = new WeakMap<MeshStandardNodeMaterial, TextureSet>()
+
+/**
+ * Builds something the page does not show (a design the visitor might choose next): the surfaces
+ * it makes, and the scans they download, stay out of the page's load progress and redraw nothing
+ * until a surface on screen asks for them.
+ */
+export function quietly<T>(build: () => T): T {
+  quiet++
+  try {
+    return build()
+  } finally {
+    quiet--
+  }
+}
+
+/** A set downloading quietly is now wanted on screen: its maps still to come are counted. */
+function counted(set: TextureSet) {
+  const still = unseenSets.get(set)
+  if (!still) return
+  unseenSets.delete(set)
+  textureProgress.update(still.outstanding, 0)
+}
+
+/** A map of a set has arrived (or given up): counted, unless its set downloads quietly. */
+function arrived(set: TextureSet) {
+  const still = unseenSets.get(set)
+  if (still) still.outstanding--
+  else textureProgress.update(0, 1)
+}
+
+/** Whether a surface has its scans in (or needs none): the cloud may capture it as it is. */
+export function materialLoaded(material: MeshStandardNodeMaterial) {
+  const set = setOf.get(material)
+  if (!set) return true
+  const maps = ready.get(set)
+  return !!maps && material.normalMap === maps.normal
+}
+
+/**
+ * Downloads a surface's scans quietly if they are not on their way: true once it has them, false
+ * as soon as a round of its set fails. Unlike the surface's own wait, this one does not wait
+ * through failed rounds, which may go on for minutes, and asks for none.
+ */
+export function whenMaterialLoaded(material: MeshStandardNodeMaterial): Promise<boolean> {
+  const set = setOf.get(material)
+  if (!set || materialLoaded(material)) return Promise.resolve(true)
+  // The surface's own wait was set up when it was made, ahead of this one: it has its maps first.
+  return quietly(() => load(set)).then(
+    () => true,
+    () => false,
+  )
+}
+
+/**
+ * A set's scans, waiting through failed rounds: a dropped connection that recovers still textures
+ * every surface that asked during the outage.
+ */
+function whenLoaded(set: TextureSet): Promise<Maps> {
+  return load(set).catch(
+    () =>
+      new Promise<Maps>((resolve) => {
+        let list = waiting.get(set)
+        if (!list) waiting.set(set, (list = []))
+        list.push(resolve)
+      }),
+  )
+}
+
+function load(set: TextureSet, shown = quiet === 0): Promise<Maps> {
   let pending = sets.get(set)
-  if (pending) return pending
+  if (pending) {
+    if (shown) counted(set)
+    return pending
+  }
   const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
   const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
-  textureProgress.update(names.length, 0)
-  pending = Promise.all(
+  if (shown) textureProgress.update(names.length, 0)
+  else unseenSets.set(set, { outstanding: names.length })
+  pending = Promise.allSettled(
     names.map((name) =>
-      loader.loadAsync(`${base}${set}/${name}.webp`).then((texture) => {
-        textureProgress.update(0, 1)
-        return [name, configure(texture, info.size, name === 'albedo')] as const
-      }),
+      fetchTexture(`${base}${set}/${name}.webp`)
+        // A map that never arrives still counts as settled, so the progress bar always finishes.
+        .finally(() => arrived(set))
+        .then((texture) => [name, configure(texture, info.size, name === 'albedo')] as const),
     ),
-  ).then((entries) => {
+  ).then((results) => {
+    const entries = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    )
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    )
+    if (failure) {
+      // The maps that did arrive are dropped with the set: free their decoded pixels now.
+      entries.forEach(([, texture]) => (texture.image as Partial<ImageBitmap>).close?.())
+      // Surfaces keep their neutral look; after a pause the set tries again for those waiting.
+      // Its maps counted as loaded above, so nothing waits on the progress for them.
+      const rounds = (failedRounds.get(set) ?? 0) + 1
+      if (rounds === 1)
+        console.warn(
+          `The ${set} scans could not be loaded; its surfaces stay plain.`,
+          failure.reason,
+        )
+      failedRounds.set(set, rounds)
+      setTimeout(
+        () => {
+          if (sets.get(set) === pending) sets.delete(set)
+          // Another round, as quiet as this one if nothing on screen has asked for it since.
+          if (waiting.get(set)?.length) load(set, !unseenSets.has(set)).catch(() => {})
+        },
+        Math.min(RETRY_SET_MAX_MS, RETRY_SET_AFTER_MS * 2 ** (rounds - 1)),
+      )
+      throw failure.reason
+    }
+    entries.forEach(([, texture]) => {
+      if (texture.userData.scan) releasable.add(texture)
+    })
     const maps = Object.fromEntries(entries) as Maps
     ready.set(set, maps)
+    unseenSets.delete(set)
+    failedRounds.delete(set)
+    waiting.get(set)?.forEach((resolve) => resolve(maps))
+    waiting.delete(set)
     return maps
   })
   sets.set(set, pending)
@@ -141,12 +367,24 @@ const materials = new Map<string, MeshStandardNodeMaterial>()
  */
 type Probe = {
   node: ReturnType<typeof pmremTexture> | null
+  /** What its materials use: the probe, or for the site's, the probe from where they are. */
+  env: Node | null
   materials: Set<MeshStandardNodeMaterial>
 }
 export type ProbeKind = 'interior' | 'site'
 const probes: Record<ProbeKind, Probe> = {
-  interior: { node: null, materials: new Set() },
-  site: { node: null, materials: new Set() },
+  interior: { node: null, env: null, materials: new Set() },
+  site: { node: null, env: null, materials: new Set() },
+}
+/**
+ * Where the site probe is captured (InteriorProbe.tsx SiteProbe), and the size of the court its
+ * look-ups are corrected for (parallax.ts): about the distance to the buildings round it.
+ */
+const SITE_REACH = 45
+const siteCenter = new Vector3(0, 4.5, 6)
+/** The site probe's capture point, as SiteProbe places it. */
+export function setSiteProbeCenter(x: number, y: number, z: number) {
+  siteCenter.set(x, y, z)
 }
 export type MaterialChange = 'textures' | 'probe'
 const changeListeners = new Set<(change: MaterialChange) => void>()
@@ -162,20 +400,69 @@ function changed(change: MaterialChange) {
   changeListeners.forEach((listener) => listener(change))
 }
 
+/**
+ * Neutral 1x1 stand-ins bound until a set's scans arrive: white albedo, a flat normal (half float,
+ * so it decodes to exactly 0,0,1), and full AO, roughness, and metalness factors. They look exactly
+ * like no maps at all, but the material's shader already has its final shape, so arriving scans
+ * are swapped in without recompiling every textured material a second time. Sampler state matches
+ * the scans because WebGPU pipelines are keyed on it.
+ */
+function neutral(
+  texel: number[],
+  type: typeof UnsignedByteType | typeof HalfFloatType,
+  space: ColorSpace,
+) {
+  const data =
+    type === HalfFloatType
+      ? new Uint16Array(texel.map((v) => DataUtils.toHalfFloat(v)))
+      : new Uint8Array(texel.map((v) => v * 255))
+  const t = new DataTexture(data, 1, 1, RGBAFormat, type)
+  t.colorSpace = space
+  t.wrapS = t.wrapT = RepeatWrapping
+  t.magFilter = LinearFilter
+  t.minFilter = LinearMipmapLinearFilter
+  t.needsUpdate = true
+  return t
+}
+let stand: { albedo: Texture; normal: Texture; arm: Texture } | null = null
+function standIns() {
+  stand ??= {
+    albedo: neutral([1, 1, 1, 1], UnsignedByteType, SRGBColorSpace),
+    normal: neutral([0.5, 0.5, 1, 1], HalfFloatType, NoColorSpace),
+    arm: neutral([1, 1, 1, 1], UnsignedByteType, NoColorSpace),
+  }
+  return stand
+}
+
+/**
+ * The neutral stand-ins, for a custom node material that binds a set's maps itself (Landscape's
+ * ground): bound until the scans arrive, it too keeps its shader, and its identity, through them.
+ */
+export function standInMaps(): Required<Maps> {
+  return standIns()
+}
+
 function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps: Maps) {
   const info = TEXTURE_SETS[spec.set!] as { metallic?: boolean }
   if (maps.albedo) material.map = maps.albedo
   material.normalMap = maps.normal
   material.roughnessMap = maps.arm
-  material.aoMap = maps.arm
+  // No baked occlusion map: the traced stills take occlusion from the geometry alone and never
+  // see one (cloud.ts sends none), and on the ambient light it darkened grout and seams twice.
   if (info.metallic) material.metalnessMap = maps.arm
-  material.needsUpdate = true
 }
 
 export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
   const key = JSON.stringify(spec)
   const existing = materials.get(key)
-  if (existing) return existing
+  if (existing) {
+    // Built quietly before, and now for the page: its scans count from here on.
+    if (!quiet && unseen.has(existing)) {
+      unseen.delete(existing)
+      if (spec.set) counted(spec.set)
+    }
+    return existing
+  }
   const physical =
     spec.clearcoat !== undefined ||
     spec.sheen !== undefined ||
@@ -186,8 +473,6 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
   m.roughness = spec.roughness ?? (spec.set ? 1 : 0.6)
   m.metalness = spec.metalness ?? 0
   m.normalScale = new Vector2(spec.normalScale ?? 1, spec.normalScale ?? 1)
-  m.aoMapIntensity = spec.aoIntensity ?? 1
-  m.envMapIntensity = spec.envIntensity ?? 1
   m.side = spec.side ?? FrontSide
   m.transparent = spec.transparent ?? false
   m.opacity = spec.opacity ?? 1
@@ -209,19 +494,57 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     m.attenuationDistance = spec.attenuationDistance ?? Infinity
     m.specularIntensity = spec.specularIntensity ?? 1
   }
+  if (spec.thinGlass) {
+    // The lit color is the pane's reflection alone (its albedo is black). Blending adds it to what
+    // lies behind, dimmed by the share the pane reflects: Schlick's Fresnel for a 1.5 surface,
+    // combined for the pane's two faces.
+    const grazing = normalView.dot(positionViewDirection).abs().oneMinus().pow(5)
+    const surface = float(0.04).add(grazing.mul(0.96))
+    m.opacityNode = surface.mul(2).div(surface.add(1))
+    m.transparent = true
+    m.depthWrite = false
+    m.blending = CustomBlending
+    m.blendSrc = m.blendSrcAlpha = OneFactor
+    m.blendDst = m.blendDstAlpha = OneMinusSrcAlphaFactor
+    // What lies behind is already fogged; fogging the reflection's sum would veil the pane.
+    m.fog = false
+    m.userData.glass = true
+    // The path tracers get real thin glass instead: a clear pane (preparePathTraceScene turns
+    // transmission into thin-walled glass; the cloud renderer reads the swapped material). Without
+    // this they would trace the black, opaque albedo and show every window as a dark mirror.
+    m.userData.pathTrace = {
+      color: new Color('#ffffff'),
+      transmission: 1,
+      thickness: 0,
+      attenuationDistance: Infinity,
+      roughness: 0,
+      transparent: false,
+    }
+  }
+  if (quiet) unseen.add(m)
   if (spec.set) {
+    setOf.set(m, spec.set)
     const maps = ready.get(spec.set)
     if (maps) applyMaps(m, spec, maps)
-    else
-      load(spec.set).then((loaded) => {
-        applyMaps(m, spec, loaded)
-        changed('textures')
+    else {
+      const info = TEXTURE_SETS[spec.set] as { detailOnly?: boolean }
+      const neutralMaps = standIns()
+      applyMaps(m, spec, {
+        ...neutralMaps,
+        albedo: info.detailOnly ? undefined : neutralMaps.albedo,
       })
+      // Neutral maps until the scans arrive, however many rounds that takes. A surface nothing
+      // shows yet redraws nothing.
+      void whenLoaded(spec.set).then((loaded) => {
+        applyMaps(m, spec, loaded)
+        if (!unseen.has(m)) changed('textures')
+      })
+    }
   }
   const kind: ProbeKind | null = spec.interior ? 'interior' : spec.site ? 'site' : null
   if (kind) {
     probes[kind].materials.add(m)
-    if (probes[kind].node) m.envNode = probes[kind].node
+    if (probes[kind].env) m.envNode = probes[kind].env
   }
   materials.set(key, m)
   return m
@@ -235,12 +558,39 @@ export function setProbeEnvironment(kind: ProbeKind, texture: Texture | null) {
   } else if (texture !== null || probe.node !== null) {
     // Adding or removing the probe changes the shader: rebuild once.
     probe.node = texture ? pmremTexture(texture) : null
+    probe.env = probe.node
+    if (kind === 'site') siteEnvironment()
+    else if (probes.site.node) siteEnvironment()
     probe.materials.forEach((m) => {
-      m.envNode = probe.node
+      m.envNode = probe.env
       m.needsUpdate = true
     })
   }
   changed('probe')
+}
+
+/** 1 while the camera is in the room (the interior view), 0 outside. */
+const insideView = uniform(0)
+/** Whether the camera is in the room: the glazing then reflects the room, not the site. */
+export function setInsideView(inside: boolean) {
+  insideView.value = inside ? 1 : 0
+}
+
+/**
+ * The site probe's materials' light: the site from where each surface stands (parallax.ts), and,
+ * seen from inside the room, the room's own probe, as the glazing reflects the room to someone in
+ * it (the traced stills find the same).
+ */
+function siteEnvironment() {
+  const site = probes.site
+  if (!site.node) return
+  const outside = parallaxProbe(site.node, siteCenter, SITE_REACH).node
+  const room = probes.interior.node
+  site.env = room ? select(insideView.greaterThan(0.5), room, outside) : outside
+  site.materials.forEach((m) => {
+    m.envNode = site.env
+    m.needsUpdate = true
+  })
 }
 
 /** Point every interior material at the latest captured interior radiance probe. */
@@ -250,5 +600,23 @@ export function setInteriorEnvironment(texture: Texture | null) {
 
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */
 export function textureMaps(set: TextureSet) {
-  return load(set)
+  return whenLoaded(set)
+}
+
+/** A set's maps when they are in already, else undefined (`textureMaps` brings them). */
+export function loadedMaps(set: TextureSet): Maps | undefined {
+  return ready.get(set)
+}
+
+/**
+ * Told by a custom material that bound a set's scans itself (Landscape's ground), as the library
+ * tells of its own: the scene redraws with them, and the spin renders its frames again.
+ */
+export function texturesArrived() {
+  changed('textures')
+}
+
+/** Starts (or joins) a set's download without waiting on it. */
+export function prefetchTextures(set: TextureSet) {
+  load(set).catch(() => {})
 }

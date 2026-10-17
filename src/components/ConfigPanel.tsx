@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
   ArrowRight,
   Building2,
@@ -10,7 +11,6 @@ import {
   Home,
   Layers3,
   Leaf,
-  Moon,
   Plus,
   ScanLine,
   Sun,
@@ -46,6 +46,8 @@ import {
   type Unit,
 } from '../lib/config'
 import { QUALITY_DETAILS, type Quality } from '../render/quality'
+import { usePendingChoice } from '../render/stillStatus'
+import { boostOption, focusSection, showSections, type PrefetchField } from '../render/prefetch'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
@@ -57,8 +59,38 @@ import {
   productFamily,
 } from '../lib/products'
 import { Elevation } from './Elevation'
+import { TimeOfDay } from './TimeOfDay'
 
 const STEPS = ['Space', 'Exterior', 'Interior', 'Setting']
+
+/**
+ * The option sections each step shows, top to bottom, for the stills' prefetch (prefetch.ts): while
+ * one is open, its other options' stills are rendered ahead at the current angle.
+ */
+function stepSections(step: number, c: Config): PrefetchField[] {
+  if (step === 1)
+    return c.family === 'studio'
+      ? ['studioDoor', 'finish']
+      : [
+          'containerOpening',
+          ...(c.containerOpening === 'roll-up' ? [] : ['openingInfill' as const]),
+          'finish',
+        ]
+  if (step === 2) return ['interiorStyle', 'flooring']
+  if (step === 3) return ['environment']
+  return []
+}
+
+/** A section's options: pointing at or focusing any of them opens its siblings to prefetch. */
+const section = (field: PrefetchField) => ({
+  onPointerEnter: () => focusSection(field),
+  onFocus: () => focusSection(field),
+})
+/** An option: pointing at or focusing it prefetches its still first. */
+const option = (field: PrefetchField, value: string) => ({
+  onPointerEnter: () => boostOption(field, value),
+  onFocus: () => boostOption(field, value),
+})
 
 function Toggle({
   label,
@@ -126,6 +158,7 @@ export default function ConfigPanel({
   trace,
   setTrace,
   traceSupported,
+  cloud,
   notify,
   onPlan,
   onSignature,
@@ -140,14 +173,26 @@ export default function ConfigPanel({
   setQuality: (q: Quality) => void
   trace: boolean
   setTrace: (trace: boolean) => void
-  /** Path tracing needs WebGPU compute. */
+  /** Path tracing on this device needs WebGPU compute. */
   traceSupported: boolean
+  /** A cloud renderer is configured: it path traces resting views for any device. */
+  cloud: boolean
   notify: (message: string) => void
   onPlan: () => void
   onSignature: (id: SignatureId) => void
 }) {
   const product = productFamily(c.family)
   const container = c.family === 'container'
+  // The option whose still is on its way gets a ring that runs round it until the still swaps in.
+  const pending = usePendingChoice()
+  const rendering = (field: string, value: string) =>
+    pending?.field === field && pending.value === value ? ' swatch-rendering' : ''
+  // The step's option sections, for the stills' prefetch.
+  const sections = stepSections(step, c).join()
+  useEffect(
+    () => showSections(sections ? (sections.split(',') as PrefetchField[]) : []),
+    [sections],
+  )
   /** Applies a change unless it would obstruct the planned entry. */
   const guarded = (next: Config, message: string) => {
     if (layoutIssues(next).length) {
@@ -394,10 +439,16 @@ export default function ConfigPanel({
             {container ? (
               <>
                 <div className="section-label">Access + openings</div>
-                <div className="opening-options" role="group" aria-label="Container opening">
+                <div
+                  className="opening-options"
+                  role="group"
+                  aria-label="Container opening"
+                  {...section('containerOpening')}
+                >
                   {CONTAINER_OPENINGS.map((opening) => (
                     <button
                       key={opening.id}
+                      {...option('containerOpening', opening.id)}
                       aria-pressed={c.containerOpening === opening.id}
                       className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
                       onClick={() =>
@@ -426,10 +477,16 @@ export default function ConfigPanel({
                     <div className="section-label">
                       Fill the opening <span>Portfolio</span>
                     </div>
-                    <div className="choice-list" role="group" aria-label="Opening infill">
+                    <div
+                      className="choice-list"
+                      role="group"
+                      aria-label="Opening infill"
+                      {...section('openingInfill')}
+                    >
                       {OPENING_INFILLS.map((infill) => (
                         <button
                           key={infill.id}
+                          {...option('openingInfill', infill.id)}
                           aria-pressed={c.openingInfill === infill.id}
                           className={`choice-card ${c.openingInfill === infill.id ? 'selected' : ''}`}
                           onClick={() => onChange({ ...c, openingInfill: infill.id })}
@@ -459,10 +516,16 @@ export default function ConfigPanel({
                 <div className="section-label">
                   Glazed front <span>Portfolio</span>
                 </div>
-                <div className="choice-list" role="group" aria-label="Studio door">
+                <div
+                  className="choice-list"
+                  role="group"
+                  aria-label="Studio door"
+                  {...section('studioDoor')}
+                >
                   {STUDIO_DOORS.map((door) => (
                     <button
                       key={door.id}
+                      {...option('studioDoor', door.id)}
                       aria-pressed={c.studioDoor === door.id}
                       className={`choice-card ${c.studioDoor === door.id ? 'selected' : ''}`}
                       onClick={() =>
@@ -498,15 +561,24 @@ export default function ConfigPanel({
             <p className="muted small">
               Visualization palette only—not Fury’s approved finish names or availability.
             </p>
-            <div className="finish-options">
+            <div
+              className="finish-options"
+              role="group"
+              aria-label="Exterior finish"
+              {...section('finish')}
+            >
               {FINISHES.map((f) => (
                 <button
                   key={f.id}
+                  {...option('finish', f.id)}
                   className={c.finish === f.id ? 'selected' : ''}
                   aria-pressed={c.finish === f.id}
                   onClick={() => onChange({ ...c, finish: f.id })}
                 >
-                  <span className="finish-swatch" style={{ background: f.color }}>
+                  <span
+                    className={`finish-swatch${rendering('finish', f.id)}`}
+                    style={{ background: f.color }}
+                  >
                     {c.finish === f.id && (
                       <Check
                         size={18}
@@ -606,7 +678,7 @@ export default function ConfigPanel({
                 return (
                   <button
                     key={p.id}
-                    className={c.package === p.id ? 'selected' : ''}
+                    className={`${c.package === p.id ? 'selected' : ''}${rendering('package', p.id)}`}
                     aria-pressed={c.package === p.id}
                     onClick={() => applyPackage(p.id)}
                   >
@@ -629,16 +701,22 @@ export default function ConfigPanel({
             <div className="section-label separated">
               Interior finish <span>Concept</span>
             </div>
-            <div className="interior-options" role="group" aria-label="Interior finish">
+            <div
+              className="interior-options"
+              role="group"
+              aria-label="Interior finish"
+              {...section('interiorStyle')}
+            >
               {INTERIORS.map((style) => (
                 <button
                   key={style.id}
+                  {...option('interiorStyle', style.id)}
                   aria-pressed={c.interiorStyle === style.id}
                   className={c.interiorStyle === style.id ? 'selected' : ''}
                   onClick={() => onChange({ ...c, interiorStyle: style.id })}
                 >
                   <span
-                    className="interior-swatch"
+                    className={`interior-swatch${rendering('interiorStyle', style.id)}`}
                     style={{ background: interiorSwatch[style.id] }}
                   />
                   <strong>{style.name}</strong>
@@ -651,15 +729,24 @@ export default function ConfigPanel({
               Fury lists performance flooring. These looks and materials are not confirmed
               purchasable options.
             </p>
-            <div className="floor-options">
+            <div
+              className="floor-options"
+              role="group"
+              aria-label="Floor appearance"
+              {...section('flooring')}
+            >
               {FLOORS.map((f) => (
                 <button
                   key={f.id}
+                  {...option('flooring', f.id)}
                   aria-pressed={c.flooring === f.id}
                   className={c.flooring === f.id ? 'selected' : ''}
                   onClick={() => onChange({ ...c, flooring: f.id })}
                 >
-                  <span style={{ background: f.color }} />
+                  <span
+                    className={rendering('flooring', f.id).trim() || undefined}
+                    style={{ background: f.color }}
+                  />
                   {f.name}
                   {c.flooring === f.id && <Check size={13} />}
                 </button>
@@ -724,13 +811,19 @@ export default function ConfigPanel({
             <div className="section-label">
               Surroundings <span>Concept settings</span>
             </div>
-            <div className="environment-options">
+            <div
+              className="environment-options"
+              role="group"
+              aria-label="Surroundings"
+              {...section('environment')}
+            >
               {ENVIRONMENTS.map((env) => {
                 const Icon = environmentIcons[env.id]
                 return (
                   <button
                     key={env.id}
-                    className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}`}
+                    {...option('environment', env.id)}
+                    className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}${rendering('environment', env.id)}`}
                     aria-pressed={c.environment === env.id}
                     onClick={() => onChange({ ...c, environment: env.id })}
                   >
@@ -741,30 +834,11 @@ export default function ConfigPanel({
                 )
               })}
             </div>
-            <div className="section-label separated">
-              Chase the light{' '}
-              <span>
-                {Math.floor(c.time)}:{String(Math.round((c.time % 1) * 60)).padStart(2, '0')}
-              </span>
-            </div>
-            <input
-              className="time-slider"
-              type="range"
-              min="6"
-              max="21"
-              step="0.25"
-              value={c.time}
-              aria-label="Time of day"
-              onChange={(e) => onChange({ ...c, time: Number(e.target.value) })}
+            <TimeOfDay
+              label="Chase the light"
+              time={c.time}
+              onChange={(time) => onChange({ ...c, time })}
             />
-            <div className="time-labels">
-              <span>
-                <Sun size={13} /> Morning
-              </span>
-              <span>
-                <Moon size={13} /> After dark
-              </span>
-            </div>
             <Toggle
               label="Architectural lighting"
               detail="A warm welcome, any time of day."
@@ -809,12 +883,12 @@ export default function ConfigPanel({
             <Toggle
               label="Path-traced stills"
               detail={
-                traceSupported
-                  ? 'When the view rests, it refines into a ray-traced image with true bounce light, soft shadows, and real reflections.'
-                  : 'Needs a browser with WebGPU. Real-time rendering stays available.'
+                traceSupported || cloud
+                  ? `The gallery shows ray-traced stills with true bounce light, soft shadows, and real reflections, traced ${cloud ? 'in the cloud' : 'on this device'}. The 360° view is always live.`
+                  : 'Needs a browser with WebGPU or a cloud renderer. Real-time rendering stays available.'
               }
-              checked={trace && traceSupported}
-              onChange={() => traceSupported && setTrace(!trace)}
+              checked={trace && (traceSupported || cloud)}
+              onChange={() => (traceSupported || cloud) && setTrace(!trace)}
             />
             <div className="nature-note">
               <Leaf size={22} />

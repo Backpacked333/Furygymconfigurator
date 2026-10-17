@@ -9,6 +9,7 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { cylinder } from './geometry'
+import { fingerprint } from './hash'
 
 const cylinderGeometry = (radius: number, length: number, radial: number) =>
   cylinder(radius, radius, length, radial)
@@ -54,39 +55,73 @@ export function place(parts: Part[], position?: V3, rotation?: V3, scale?: V3): 
 }
 
 export type Batch = { geometry: BufferGeometry; material: Material; shadow: boolean }
+/** A batch as `batch` would make it, without its merged geometry: its key and its material. */
+export type BatchKey = { key: string; material: Material; shadow: boolean }
 
-/**
- * Static batching: parts sharing a material (and shadow flag) are baked into one geometry, so a
- * detailed model costs a handful of draw calls. Mirrored transforms flip winding, which is
- * corrected per part so faces stay front-facing.
- */
-export function batch(parts: Part[]): Batch[] {
-  const groups = new Map<string, { material: Material; shadow: boolean; items: BufferGeometry[] }>()
+/** Parts by the batch they merge into: one per material and shadow flag, in order met. */
+function groupParts(parts: Part[]) {
+  const groups = new Map<string, { material: Material; shadow: boolean; parts: Part[] }>()
   for (const p of parts) {
     const key = `${p.material.uuid}:${p.shadow}`
     let group = groups.get(key)
     if (!group) {
-      group = { material: p.material, shadow: p.shadow, items: [] }
+      group = { material: p.material, shadow: p.shadow, parts: [] }
       groups.set(key, group)
     }
-    const g = p.geometry.index ? p.geometry.toNonIndexed() : p.geometry.clone()
-    for (const name of Object.keys(g.attributes))
-      if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name)
-    if (!g.getAttribute('uv'))
-      g.setAttribute(
-        'uv',
-        new BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2),
-      )
-    g.applyMatrix4(p.matrix)
-    if (p.matrix.determinant() < 0) flipWinding(g)
-    g.clearGroups()
-    group.items.push(g)
+    group.parts.push(p)
   }
-  return [...groups.values()].map(({ material, shadow, items }) => {
+  return [...groups.values()]
+}
+
+/** A batch's geometry key: its parts' geometry keys and placements, so not its material. */
+function batchKey(parts: Part[]) {
+  const keys = parts.map((p) => {
+    const source = (p.geometry.userData as { key?: unknown }).key
+    return `${typeof source === 'string' ? source : p.geometry.uuid}@${p.matrix.elements.map((e) => e.toFixed(4)).join(',')}`
+  })
+  return `batch:${fingerprint(keys.join(';'))}`
+}
+
+/**
+ * The batches `batch` makes of a part list, named as it names their geometry, without merging
+ * anything: cheap enough to compare two builds of a model (siblings.ts).
+ */
+export function batchKeys(parts: Part[]): BatchKey[] {
+  return groupParts(parts).map(({ material, shadow, parts: grouped }) => ({
+    key: batchKey(grouped),
+    material,
+    shadow,
+  }))
+}
+
+/**
+ * Static batching: parts sharing a material (and shadow flag) are baked into one geometry, so a
+ * detailed model costs a handful of draw calls. Mirrored transforms flip winding, which is
+ * corrected per part so faces stay front-facing. Each merged geometry is named by its content
+ * (`userData.key`: the parts' geometry keys and placements), so a model rebuilt from the same
+ * parts reads as the same shape to the scene fingerprints (pathtrace.ts sceneParts).
+ */
+export function batch(parts: Part[]): Batch[] {
+  return groupParts(parts).map(({ material, shadow, parts: grouped }) => {
+    const items = grouped.map((p) => {
+      const g = p.geometry.index ? p.geometry.toNonIndexed() : p.geometry.clone()
+      for (const name of Object.keys(g.attributes))
+        if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name)
+      if (!g.getAttribute('uv'))
+        g.setAttribute(
+          'uv',
+          new BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2),
+        )
+      g.applyMatrix4(p.matrix)
+      if (p.matrix.determinant() < 0) flipWinding(g)
+      g.clearGroups()
+      return g
+    })
     const geometry = mergeGeometries(items, false)
     items.forEach((g) => g.dispose())
     geometry.computeBoundingSphere()
     geometry.computeBoundingBox()
+    geometry.userData.key = batchKey(grouped)
     return { geometry, material, shadow }
   })
 }

@@ -12,6 +12,8 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "bake": "node scripts/bake-stills.mjs",
+    "bake:quick": "node scripts/bake-stills.mjs --quick",
     "postinstall": "patch-package"
   },
   "dependencies": {

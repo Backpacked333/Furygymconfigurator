@@ -1,6 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import { useThree } from '@react-three/fiber'
-import { InstancedMesh, type Matrix4 } from 'three/webgpu'
+import type { Material } from 'three/webgpu'
 import type { Config } from '../lib/config'
 import { noise, smoothstep } from '../lib/visuals'
 import { box, cylinder } from '../render/geometry'
@@ -28,14 +28,55 @@ import {
   shrubShape,
 } from '../render/vegetation'
 import { Ground, Hedge, Tree, Tufts } from './Landscape'
-import { DENSITY, agaveGeometry, boulderGeometry, limbParts } from '../render/scenery'
+import { useInstances } from './useInstances'
+import { thinned } from '../render/instances'
+import { agaveGeometry, boulderGeometry, limbParts } from '../render/landscapeParts'
+import {
+  LAMP_POST,
+  sceneryLayout,
+  type BuildingSpot,
+  type PlanterSpot,
+  type PostSpot,
+  type SceneryLayout,
+} from '../render/scenery'
 import { Parts } from './Parts'
 
 /**
  * The three settings of Fury's portfolio photography: a residential courtyard framed by apartment
  * blocks, a corporate campus of glass and precast offices with palms and agaves, and a private
- * backyard beside a modern house. Background architecture is batched per material.
+ * backyard beside a modern house. Background architecture is batched per material. Where the
+ * buildings, trees, palms, lamp posts, planters, hedges and shrubs stand is scenery.ts's layout,
+ * which the gallery's cameras keep clear of.
  */
+
+/** A building of the layout, as its generator builds it, where it stands. */
+function buildingParts(b: BuildingSpot): Part[] {
+  const parts =
+    b.kind === 'apartment'
+      ? apartmentBlock({ length: b.length, style: b.style, seed: b.seed })
+      : b.kind === 'house'
+        ? modernHouse()
+        : (b.kind === 'precast' ? precastOffice : curtainWallOffice)({
+            length: b.length,
+            floors: b.floors,
+            depth: b.depth,
+          })
+  return place(parts, [b.x, 0, b.z], [0, b.turn, 0])
+}
+
+/** A raised planter of the layout. */
+const planterParts = (p: PlanterSpot) =>
+  place(planter(p.width, p.depth, p.height), [p.x, 0, p.z], [0, p.turn, 0])
+
+/** A courtyard pole light: the pole, its head, and the lamp in it (lit by night). */
+function postParts({ x, z }: PostSpot, pole: Material, lamp: Material): Part[] {
+  const { height, head } = LAMP_POST
+  return [
+    part(cylinder(0.12, 0.16, height, 16), pole, [x, height / 2, z]),
+    part(box(head.width, head.height, head.width), pole, [x, head.y, z]),
+    part(box(0.55, 0.8, 0.55), lamp, [x, 12.2, z], undefined, undefined, false),
+  ]
+}
 
 /** Interior light in background windows: off by day, warming through dusk into night. */
 function useWindowGlow(time: number) {
@@ -44,19 +85,6 @@ function useWindowGlow(time: number) {
     setWindowGlow(smoothstep(17.25, 20.5, time) * 2.4)
     invalidate()
   }, [time, invalidate])
-}
-
-function useInstances(matrices: Matrix4[]) {
-  const mesh = useRef<InstancedMesh>(null)
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.count = matrices.length
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices])
-  return mesh
 }
 
 // --- Plants -------------------------------------------------------------------------------
@@ -132,11 +160,13 @@ const Shrub = memo(function Shrub({
   blossom?: string
   quality: Quality
 }) {
-  const count = Math.round(radius * radius * 90 * DENSITY[quality]) + 60
+  const { count, drawn } = thinned(radius * radius * 90, quality, 60)
   const shape = useMemo(
     () => shrubShape(seed, radius, height, count),
     [seed, radius, height, count],
   )
+  // The tier draws the leaves and blossoms of its first `drawn` cards (instances.ts).
+  const thin = useMemo(() => shrubShape(seed, radius, height, drawn), [seed, radius, height, drawn])
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial('courtyard', height * 0.5), [height])
   const flowers = useMemo(
@@ -151,8 +181,8 @@ const Shrub = memo(function Shrub({
     },
     [card, leaves, flowers],
   )
-  const leafMesh = useInstances(shape.leaves)
-  const flowerMesh = useInstances(shape.blossoms)
+  const leafMesh = useInstances(shape.leaves, thin.leaves.length, card, leaves)
+  const flowerMesh = useInstances(shape.blossoms, thin.blossoms.length, card, flowers)
   return (
     <group position={position}>
       <instancedMesh
@@ -207,7 +237,7 @@ function GrassBed({
   return (
     <group position={[0, y, 0]}>
       <Tufts
-        count={Math.round(count * DENSITY[quality]) + 6}
+        {...thinned(count, quality, 6)}
         blades={16}
         height={height}
         bend={0.6}
@@ -219,98 +249,84 @@ function GrassBed({
   )
 }
 
+/** A setting's layout (scenery.ts), and its buildings as their generators build them. */
+function useLayout(environment: 'residences' | 'campus' | 'backyard', L: number) {
+  const layout = useMemo(() => sceneryLayout(environment, L), [environment, L])
+  const buildings = useMemo(() => layout.buildings.flatMap(buildingParts), [layout])
+  return { layout, buildings }
+}
+
+/** The layout's shrubs. */
+function Shrubs({ layout, quality }: { layout: SceneryLayout; quality: Quality }) {
+  return layout.shrubs.map((s) => (
+    <Shrub
+      key={s.seed}
+      position={[s.x, s.base, s.z]}
+      radius={s.radius}
+      height={s.height}
+      seed={s.seed}
+      blossom={s.blossom}
+      quality={quality}
+    />
+  ))
+}
+
+/** The layout's trees. */
+function Trees({ layout, quality }: { layout: SceneryLayout; quality: Quality }) {
+  return layout.trees.map((t) => (
+    <Tree
+      key={t.seed}
+      position={[t.x, t.base, t.z]}
+      scale={t.scale}
+      seed={t.seed}
+      biome={t.biome}
+      quality={quality}
+    />
+  ))
+}
+
 // --- Residential courtyard (photos 1 and 3) -----------------------------------------------
 
 export function Residences({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   useWindowGlow(c.time)
-  const buildings = useMemo(
-    () => [
-      ...place(apartmentBlock({ length: 160, style: 'brick', seed: 1 }), [0, 0, -34]),
-      ...place(
-        apartmentBlock({ length: 110, style: 'timber', seed: 2 }),
-        [-(L / 2 + 44), 0, 6],
-        [0, Math.PI / 2, 0],
-      ),
-      ...place(
-        apartmentBlock({ length: 110, style: 'brick', seed: 3 }),
-        [L / 2 + 50, 0, 2],
-        [0, -Math.PI / 2, 0],
-      ),
-    ],
-    [L],
-  )
+  const { layout, buildings } = useLayout('residences', L)
   const flame = c.lights && c.time > 17
   const furniture = useMemo(() => {
     const parts: Part[] = [
-      ...place(planter(14, 3.2, 2.2), [-L / 2 - 12, 0, 7], [0, 0.04, 0]),
-      ...place(planter(3.2, 16, 2.2), [L / 2 + 7.5, 0, 2]),
-      ...place(planter(L + 14, 3.6, 2.2), [0, 0, -13]),
+      ...layout.planters.flatMap(planterParts),
       ...place(loungeSet({ flame }), [L / 2 + 17, 0, 12], [0, -0.5, 0]),
     ]
     // Courtyard pole lights.
     const pole = palette.powder('#1a1b1a', false, 0.6)
     const lamp = c.lights ? palette.emitter('#ffd8a6', 5) : palette.plastic('#e7e3da', 0.4)
-    for (const [x, z] of [
-      [-L / 2 - 14, 14],
-      [L / 2 + 14, -4],
-      [-L / 2 - 4, -20],
-    ]) {
-      parts.push(part(cylinder(0.12, 0.16, 12, 16), pole, [x, 6, z]))
-      parts.push(part(box(0.7, 1.1, 0.7), pole, [x, 12.3, z]))
-      parts.push(part(box(0.55, 0.8, 0.55), lamp, [x, 12.2, z], undefined, undefined, false))
-    }
+    for (const post of layout.posts) parts.push(...postParts(post, pole, lamp))
     return parts
-  }, [L, c.lights, flame])
+  }, [layout, L, c.lights, flame])
   return (
     <group>
       <Ground set="herringbone_pavement" size={6.562} tint="#cdbfae" />
       <Parts parts={buildings} />
       <Parts parts={furniture} />
-      <GrassBed x={-L / 2 - 12} z={7} w={13} d={2.6} y={2.4} count={70} quality={quality} />
-      <GrassBed x={L / 2 + 7.5} z={2} w={2.6} d={15} y={2.4} count={80} quality={quality} />
-      <GrassBed
-        x={0}
-        z={-13}
-        w={L + 12}
-        d={3}
-        y={2.4}
-        count={120}
-        quality={quality}
-        colors={['#3e5229', '#8fa25a']}
-        height={1.6}
-      />
-      {[-L / 2 - 2, L / 2 - 4].map((x, i) => (
-        <Shrub
-          key={x}
-          position={[x + 3, 2.4, -13]}
-          radius={1.6}
-          height={2.4}
-          seed={i + 3}
-          quality={quality}
-        />
-      ))}
-      <Tree
-        position={[-L / 2 - 16, 2.4, 7]}
-        scale={1.2}
-        seed={6}
-        biome="courtyard"
-        quality={quality}
-      />
-      <Tree
-        position={[L / 2 + 12, 0, -20]}
-        scale={1.7}
-        seed={7}
-        biome="courtyard"
-        quality={quality}
-      />
-      <Tree
-        position={[-L / 2 - 16, 0, -22]}
-        scale={1.8}
-        seed={8}
-        biome="courtyard"
-        quality={quality}
-      />
+      {layout.planters.map(
+        ({ x, z, grass }) =>
+          grass && (
+            <GrassBed
+              key={`${x},${z}`}
+              x={x}
+              z={z}
+              w={grass.width}
+              d={grass.depth}
+              y={grass.base}
+              count={grass.count}
+              quality={quality}
+              colors={grass.colors}
+              height={grass.height}
+            />
+          ),
+      )}
+      <Shrubs layout={layout} quality={quality} />
+      <Trees layout={layout} quality={quality} />
     </group>
   )
 }
@@ -320,30 +336,14 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
 export function Campus({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   useWindowGlow(c.time)
-  const buildings = useMemo(
-    () => [
-      ...place(
-        curtainWallOffice({ length: 120, floors: 5, depth: 80 }),
-        [-58, 0, -52],
-        [0, 0.12, 0],
-      ),
-      ...place(precastOffice({ length: 96, floors: 4, depth: 60 }), [46, 0, -60]),
-      ...place(
-        curtainWallOffice({ length: 90, floors: 4, depth: 60 }),
-        [L / 2 + 70, 0, 10],
-        [0, -Math.PI / 2, 0],
-      ),
-    ],
-    [L],
-  )
+  const { layout, buildings } = useLayout('campus', L)
   const site = useMemo(() => {
     const gravel = material({ set: 'clean_pebbles', color: '#efe3cf', roughness: 1 })
     const edge = palette.powder('#2f2d2a', false, 0.75)
     const agave = material({ color: '#7f9c92', roughness: 0.55 })
     const stone = material({ set: 'concrete_wall_001', color: '#c9ab84', roughness: 1 })
     const parts: Part[] = [
-      ...place(planter(14, 4, 1.8), [L / 2 + 9, 0, -6]),
-      ...place(planter(4, 12, 1.8), [-L / 2 - 9, 0, -9]),
+      ...layout.planters.flatMap(planterParts),
       ...place(slatBench(), [L / 2 + 10, 0, 9], [0, -0.35, 0]),
       ...place(slatBench(), [-L / 2 - 12, 0, 12], [0, 0.4, 0]),
     ]
@@ -387,35 +387,15 @@ export function Campus({ config: c, quality }: { config: Config; quality: Qualit
         ),
       )
     return parts
-  }, [L])
+  }, [layout, L])
   return (
     <group>
       <Ground set="concrete_pavement" size={5.906} tint="#d8d2c7" />
       <Parts parts={buildings} />
       <Parts parts={site} />
-      <Tree
-        position={[L / 2 + 9, 1.8, -6]}
-        scale={1.15}
-        seed={10}
-        biome="desert"
-        quality={quality}
-      />
-      <Tree
-        position={[-L / 2 - 10, 1.8, -10]}
-        scale={1.3}
-        seed={11}
-        biome="desert"
-        quality={quality}
-      />
-      <Tree position={[L / 2 + 22, 0, 14]} scale={1.5} seed={12} biome="desert" quality={quality} />
-      {[
-        [-14, -38, 20],
-        [6, -42, 24],
-        [22, -36, 18],
-        [-32, -34, 22],
-        [L / 2 + 26, -14, 20],
-      ].map(([x, z, h], i) => (
-        <Palm key={i} position={[x, 0, z]} height={h} seed={i + 1} />
+      <Trees layout={layout} quality={quality} />
+      {layout.palms.map((p) => (
+        <Palm key={p.seed} position={[p.x, 0, p.z]} height={p.height} seed={p.seed} />
       ))}
       <GrassBed
         x={-L / 2 - 5}
@@ -436,14 +416,7 @@ export function Campus({ config: c, quality }: { config: Config; quality: Qualit
 export function Backyard({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   useWindowGlow(c.time)
-  const house = useMemo(
-    () => [
-      ...place(modernHouse(), [-(L / 2 + 34), 0, -26], [0, 0.42, 0]),
-      // A neighbor's house beyond the hedge on the other side.
-      ...place(modernHouse(), [L / 2 + 52, 0, -40], [0, -0.55, 0]),
-    ],
-    [L],
-  )
+  const { layout, buildings: house } = useLayout('backyard', L)
   const hardscape = useMemo(() => {
     const slab = material({ set: 'concrete_pavement', color: '#ece8e1', roughness: 1 })
     const joint = material({ color: '#7d7a73', roughness: 1 })
@@ -468,14 +441,13 @@ export function Backyard({ config: c, quality }: { config: Config; quality: Qual
       },
     [L, c.addons.deck],
   )
-  const lavender = '#8d7cc0'
   return (
     <group>
       <Ground set="leafy_grass" size={6.56} tint="#b4d095" />
       <Parts parts={house} />
       <Parts parts={hardscape} />
       <Tufts
-        count={Math.round(6500 * DENSITY[quality])}
+        {...thinned(6500, quality)}
         blades={9}
         height={0.42}
         bend={0.12}
@@ -483,60 +455,13 @@ export function Backyard({ config: c, quality }: { config: Config; quality: Qual
         colors={['#3d5126', '#93a258']}
         shadow={false}
       />
-      <Hedge length={L + 34} quality={quality} z={-14} />
-      {[-L / 2 - 4.5, -L / 2 - 3, L / 2 + 3.5].map((x, i) => (
-        <Shrub
-          key={`lav${i}`}
-          position={[x, 0, 9 + i * 1.4]}
-          radius={1.3}
-          height={1.6}
-          seed={20 + i}
-          blossom={lavender}
-          quality={quality}
-        />
+      {layout.hedges.map((h) => (
+        <Hedge key={h.z} length={h.length} quality={quality} z={h.z} />
       ))}
-      {[0, 1, 2].map((i) => (
-        <Shrub
-          key={`hyd${i}`}
-          position={[-L / 2 - 8 - i * 3.2, 0, -6 + i * 1.1]}
-          radius={1.8}
-          height={2.6}
-          seed={30 + i}
-          blossom="#eef0ea"
-          quality={quality}
-        />
-      ))}
-      <Shrub
-        position={[L / 2 + 5, 0, -5]}
-        radius={2.2}
-        height={3}
-        seed={40}
-        blossom="#d9c7e6"
-        quality={quality}
-      />
+      <Shrubs layout={layout} quality={quality} />
       <GrassBed x={-L / 2 - 2.6} z={1} w={2} d={6} count={40} quality={quality} />
       <GrassBed x={L / 2 + 2.6} z={-1} w={2} d={5} count={35} quality={quality} />
-      <Tree
-        position={[-L / 2 - 12, 0, -16]}
-        scale={1.9}
-        seed={13}
-        biome="courtyard"
-        quality={quality}
-      />
-      <Tree
-        position={[L / 2 + 16, 0, -18]}
-        scale={2.1}
-        seed={14}
-        biome="courtyard"
-        quality={quality}
-      />
-      <Tree
-        position={[L / 2 + 26, 0, 6]}
-        scale={1.6}
-        seed={15}
-        biome="courtyard"
-        quality={quality}
-      />
+      <Trees layout={layout} quality={quality} />
     </group>
   )
 }

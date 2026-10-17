@@ -161,7 +161,7 @@ def test_a_frame_cancelled_midway_is_still_finished_and_cached(client):
 
     asyncio.run(scenario())
     assert not service.queue.busy and service.waiting == 0
-    assert service.frames.read(frame_digest(validate_request(body))) is not None
+    assert service.frames.read(frame_digest(validate_request(body), service.version)) is not None
     assert client.post("/render", json=body).headers["x-cache"] == "hit"
 
 

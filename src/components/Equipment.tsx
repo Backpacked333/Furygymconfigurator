@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { PlacedItem } from '../lib/config'
 import { FLOOR_Y } from '../render/architecture'
 import { equipmentParts } from '../render/equipment'
@@ -16,7 +17,12 @@ function equipmentBatches(sku: PlacedItem['sku']) {
 
 export function Equipment({ item }: { item: PlacedItem }) {
   return (
-    <group position={[item.x, FLOOR_Y, item.z]} rotation={[0, (-item.rotation * Math.PI) / 180, 0]}>
+    // Inside the room: moving it changes the spin's panorama, not its exterior ring.
+    <group
+      position={[item.x, FLOOR_Y, item.z]}
+      rotation={[0, (-item.rotation * Math.PI) / 180, 0]}
+      userData={{ interior: true }}
+    >
       {equipmentBatches(item.sku).map((b) => (
         <mesh
           key={b.material.uuid + b.shadow}
@@ -27,15 +33,36 @@ export function Equipment({ item }: { item: PlacedItem }) {
           dispose={null}
         />
       ))}
-      {item.sku === 'sauna' && (
+    </group>
+  )
+}
+
+/**
+ * The warm glow inside each sauna. Lights live in a pool that only grows, and an empty slot stays
+ * mounted but dark: adding or removing a light changes every lit material's shader, so placing or
+ * removing a sauna (or picking the Recovery layout) would otherwise recompile the whole scene.
+ */
+export function SaunaLights({ items }: { items: PlacedItem[] }) {
+  const saunas = items.filter((item) => item.sku === 'sauna')
+  const [slots, setSlots] = useState(1)
+  if (saunas.length > slots) setSlots(saunas.length)
+  return Array.from({ length: Math.max(slots, saunas.length) }, (_, slot) => {
+    const sauna = saunas[slot]
+    return (
+      <group
+        key={slot}
+        position={sauna ? [sauna.x, FLOOR_Y, sauna.z] : [0, FLOOR_Y, 0]}
+        rotation={[0, sauna ? (-sauna.rotation * Math.PI) / 180 : 0, 0]}
+        userData={{ interior: true }}
+      >
         <pointLight
           position={[0, 5.2, -0.4]}
           color="#ffb072"
-          intensity={6}
+          intensity={sauna ? 6 : 0}
           distance={3.4}
           decay={2}
         />
-      )}
-    </group>
-  )
+      </group>
+    )
+  })
 }

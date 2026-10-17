@@ -47,6 +47,10 @@ MAX_TIME_LIMIT = 60.0
 MAX_BLOB_BYTES = 128 * 1024 * 1024
 MAX_OBJECTS = 20000
 MAX_INSTANCES = 200000
+# Light bounces a frame is traced with, the browser's tracer and Cycles alike (pathtrace.ts
+# maxBounces, blender.py): what a room lit through its glazing needs, and no more. Part of a
+# stored frame's name (api.py frame_version), so frames traced deeper are not served as these.
+BOUNCES = 6
 
 
 class ProtocolError(ValueError):
@@ -234,5 +238,5 @@ def validate_request(body: dict) -> dict:
         # "image": linear half floats for the browser to finish; "frame": a finished WebP.
         "output": output,
         "finish": {"exposure": exposure, "gain": gain, "glow": glow},
-        "priority": None if priority is None else max(0, min(9, priority)),
+        "priority": None if priority is None else max(0, min(31, priority)),
     }

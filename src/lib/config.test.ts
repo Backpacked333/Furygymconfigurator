@@ -549,6 +549,20 @@ describe('sharing and browser persistence', () => {
     localStorage.setItem('fury-builds-v1', '{')
     expect(readSaved()).toEqual([])
   })
+  it('keeps every readable build when one stored entry is not', () => {
+    const good = { id: 'one', name: 'Courtyard', date: '2026-10-14', config: fresh() }
+    const bad = { id: 'two', name: 'From a newer version', date: '2026-10-14', config: { v: 9 } }
+    localStorage.setItem('fury-builds-v1', JSON.stringify([bad, good]))
+    expect(readSaved()).toEqual([good])
+  })
+  it('never deletes entries it cannot read when saving', () => {
+    const bad = { id: 'two', name: 'From a newer version', date: '2026-10-14', config: { v: 9 } }
+    localStorage.setItem('fury-builds-v1', JSON.stringify([bad]))
+    const good = { id: 'one', name: 'Courtyard', date: '2026-10-14', config: fresh() }
+    writeSaved([good])
+    expect(JSON.parse(localStorage.getItem('fury-builds-v1')!)).toEqual([good, bad])
+    expect(readSaved()).toEqual([good])
+  })
   it('continues without storage access', () => {
     vi.stubGlobal('localStorage', {
       getItem: () => {

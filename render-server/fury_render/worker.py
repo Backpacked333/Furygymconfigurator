@@ -34,6 +34,8 @@ def run(
         # Before Blender loads: this process sees, and renders on, only its own GPU.
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
         os.environ["HIP_VISIBLE_DEVICES"] = str(gpu)
+    import bpy
+
     from .blender import Studio, warm_up
     from .protocol import ProtocolError
 
@@ -47,7 +49,15 @@ def run(
     finally:
         if os.path.exists(warm):
             os.remove(warm)
-    conn.send({"ready": True, **studio.device, "denoise": studio.denoise})
+    # The frame cache names frames by the Blender and denoiser that made them (api.py).
+    conn.send(
+        {
+            "ready": True,
+            **studio.device,
+            "denoise": studio.denoise,
+            "blender": bpy.app.version_string,
+        }
+    )
     while True:
         try:
             message = conn.recv()
