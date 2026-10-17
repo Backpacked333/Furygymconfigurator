@@ -46,10 +46,11 @@ import {
   type SkyLook,
 } from '../lib/visuals'
 import { circumsolarCut, circumsolarKeep, withoutCircumsolar } from '../render/circumsolar'
-import { onMaterialsChanged } from '../render/materials'
+import { onMaterialsChanged, setInsideView } from '../render/materials'
 import type { Quality } from '../render/quality'
 import { FRAME_ENVIRONMENT } from '../render/renderer'
 import { shadowOnly } from '../render/shadowOnly'
+import { requestSiteField, roomInside, setSiteField } from '../render/siteLightNode'
 import { invalidateShadows } from '../render/shadows'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
@@ -369,11 +370,30 @@ export function Atmosphere({
     invalidate()
   }, FRAME_ENVIRONMENT)
 
+  // How the site's shape lights each point of it (siteLight.ts): worked out in a worker for the
+  // setting, the unit and the time of day, and put in place when it arrives.
+  const { length, family } = config
+  useEffect(() => {
+    let current = true
+    const design = { ...config, environment, length, family, time }
+    void requestSiteField(design).then((field) => {
+      if (!current) return
+      setSiteField(field, roomInside(design))
+      invalidate()
+    })
+    return () => {
+      current = false
+    }
+    // The field depends on these alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [environment, length, family, time, invalidate])
+
   // The stills' exposure (visuals.ts exposureAt): eyes adapt after dark, and a camera inside
   // opens up for the dimmer room.
   useLayoutEffect(() => {
     const exposure = exposureAt(time)
     renderer.toneMappingExposure = view === 'interior' ? exposure.interior : exposure.exterior
+    setInsideView(view === 'interior')
     invalidate()
   }, [renderer, time, view, invalidate])
 

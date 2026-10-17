@@ -17,12 +17,14 @@ import {
   TextureLoader,
   UnsignedByteType,
   Vector2,
+  Vector3,
   type ColorRepresentation,
   type ColorSpace,
   type Side,
 } from 'three'
-import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
-import { float, normalView, pmremTexture, positionViewDirection } from 'three/tsl'
+import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type Node } from 'three/webgpu'
+import { float, normalView, pmremTexture, positionViewDirection, select, uniform } from 'three/tsl'
+import { parallaxProbe } from './parallax'
 import { textureProgress } from './progress'
 
 /**
@@ -68,8 +70,6 @@ export type MaterialSpec = {
   roughness?: number
   metalness?: number
   normalScale?: number
-  aoIntensity?: number
-  envIntensity?: number
   /** Lit by the captured interior radiance probe instead of the open sky. */
   interior?: boolean
   /**
@@ -367,12 +367,24 @@ const materials = new Map<string, MeshStandardNodeMaterial>()
  */
 type Probe = {
   node: ReturnType<typeof pmremTexture> | null
+  /** What its materials use: the probe, or for the site's, the probe from where they are. */
+  env: Node | null
   materials: Set<MeshStandardNodeMaterial>
 }
 export type ProbeKind = 'interior' | 'site'
 const probes: Record<ProbeKind, Probe> = {
-  interior: { node: null, materials: new Set() },
-  site: { node: null, materials: new Set() },
+  interior: { node: null, env: null, materials: new Set() },
+  site: { node: null, env: null, materials: new Set() },
+}
+/**
+ * Where the site probe is captured (InteriorProbe.tsx SiteProbe), and the size of the court its
+ * look-ups are corrected for (parallax.ts): about the distance to the buildings round it.
+ */
+const SITE_REACH = 45
+const siteCenter = new Vector3(0, 4.5, 6)
+/** The site probe's capture point, as SiteProbe places it. */
+export function setSiteProbeCenter(x: number, y: number, z: number) {
+  siteCenter.set(x, y, z)
 }
 export type MaterialChange = 'textures' | 'probe'
 const changeListeners = new Set<(change: MaterialChange) => void>()
@@ -435,7 +447,8 @@ function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps:
   if (maps.albedo) material.map = maps.albedo
   material.normalMap = maps.normal
   material.roughnessMap = maps.arm
-  material.aoMap = maps.arm
+  // No baked occlusion map: the traced stills take occlusion from the geometry alone and never
+  // see one (cloud.ts sends none), and on the ambient light it darkened grout and seams twice.
   if (info.metallic) material.metalnessMap = maps.arm
 }
 
@@ -460,8 +473,6 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
   m.roughness = spec.roughness ?? (spec.set ? 1 : 0.6)
   m.metalness = spec.metalness ?? 0
   m.normalScale = new Vector2(spec.normalScale ?? 1, spec.normalScale ?? 1)
-  m.aoMapIntensity = spec.aoIntensity ?? 1
-  m.envMapIntensity = spec.envIntensity ?? 1
   m.side = spec.side ?? FrontSide
   m.transparent = spec.transparent ?? false
   m.opacity = spec.opacity ?? 1
@@ -533,7 +544,7 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
   const kind: ProbeKind | null = spec.interior ? 'interior' : spec.site ? 'site' : null
   if (kind) {
     probes[kind].materials.add(m)
-    if (probes[kind].node) m.envNode = probes[kind].node
+    if (probes[kind].env) m.envNode = probes[kind].env
   }
   materials.set(key, m)
   return m
@@ -547,12 +558,39 @@ export function setProbeEnvironment(kind: ProbeKind, texture: Texture | null) {
   } else if (texture !== null || probe.node !== null) {
     // Adding or removing the probe changes the shader: rebuild once.
     probe.node = texture ? pmremTexture(texture) : null
+    probe.env = probe.node
+    if (kind === 'site') siteEnvironment()
+    else if (probes.site.node) siteEnvironment()
     probe.materials.forEach((m) => {
-      m.envNode = probe.node
+      m.envNode = probe.env
       m.needsUpdate = true
     })
   }
   changed('probe')
+}
+
+/** 1 while the camera is in the room (the interior view), 0 outside. */
+const insideView = uniform(0)
+/** Whether the camera is in the room: the glazing then reflects the room, not the site. */
+export function setInsideView(inside: boolean) {
+  insideView.value = inside ? 1 : 0
+}
+
+/**
+ * The site probe's materials' light: the site from where each surface stands (parallax.ts), and,
+ * seen from inside the room, the room's own probe, as the glazing reflects the room to someone in
+ * it (the traced stills find the same).
+ */
+function siteEnvironment() {
+  const site = probes.site
+  if (!site.node) return
+  const outside = parallaxProbe(site.node, siteCenter, SITE_REACH).node
+  const room = probes.interior.node
+  site.env = room ? select(insideView.greaterThan(0.5), room, outside) : outside
+  site.materials.forEach((m) => {
+    m.envNode = site.env
+    m.needsUpdate = true
+  })
 }
 
 /** Point every interior material at the latest captured interior radiance probe. */

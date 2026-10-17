@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { RectAreaLight, SpotLight } from 'three'
-import { Vector3, type Node } from 'three/webgpu'
-import { color, uniform } from 'three/tsl'
+import { Vector3 } from 'three/webgpu'
+import { Fn, color, uniform } from 'three/tsl'
 import type { Config } from '../lib/config'
 import { canopyLights } from '../render/addons'
 import { FLOOR_Y, interiorBounds } from '../render/architecture'
@@ -28,12 +28,14 @@ function useRoomLight(
 ) {
   const level = useMemo(() => uniform(0), [])
   useLayoutEffect(() => {
-    const light = ref.current as (SpotLight | RectAreaLight) & { colorNode?: Node }
-    // three r186's SpotLightNode calls a spot light's colorNode as a projection function (and
-    // keeps its own colour uniform), so a node there fails the whole lighting shader: the scene
-    // renders black. Spot lights keep their plain colour and intensity, as before.
-    if (!light || !room || (light as SpotLight).isSpotLight) return
-    light.colorNode = color(WARM).mul(level).mul(room)
+    const light = ref.current as (SpotLight | RectAreaLight) & { colorNode?: unknown }
+    if (!light || !room) return
+    // three r186's SpotLightNode calls a spot light's colorNode as a projection, with the point's
+    // coordinates in the light's frustum, and multiplies its own colour and intensity by what it
+    // returns (inside the frustum, which holds the whole cone). A node there failed the lighting
+    // shader (the view went black); a TSL function, callable and a node both, returns the mask.
+    if ((light as SpotLight).isSpotLight) light.colorNode = Fn(() => room)
+    else light.colorNode = color(WARM).mul(level).mul(room)
   }, [ref, room, level])
   useLayoutEffect(() => {
     level.value = intensity

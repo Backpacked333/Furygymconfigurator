@@ -59,6 +59,7 @@ import { traa } from 'three/addons/tsl/display/TRAANode.js'
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js'
 import { BLUR_SAMPLES, MAX_STREAK } from './motionBlur'
 import type { Quality } from './renderer'
+import { siteAmbient } from './siteLightNode'
 
 export type Pipeline = {
   render: () => void
@@ -84,7 +85,7 @@ export type Pipeline = {
  * more than a stop brighter than traced). Inside, the room's light is captured in the room
  * (InteriorProbe), its walls already in it: a long reach would count them twice.
  */
-export const AO_REACH = { exterior: 16, interior: 0.9 } as const
+export const AO_REACH = { exterior: 4, interior: 0.9 } as const
 
 /** A fraction of a level of noise against banding in smooth gradients (the sky). */
 const dither = () =>
@@ -139,6 +140,8 @@ export function createPipeline(
 
   if (quality === 'lite') {
     const scenePass = pass(scene, camera, { samples: 4 })
+    // No occlusion pass on Lite: the site's own light (siteLightNode.ts) still scales the ambient.
+    scenePass.contextNode = builtinAOContext(siteAmbient())
     pipeline.outputNode = rasterFinish(scenePass)
     return {
       render: () => pipeline.render(),
@@ -186,7 +189,7 @@ export function createPipeline(
   // Contact shadows: a short screen-space march toward the sun resolves the fine shadows a shadow
   // map spread over the whole site cannot (feet on the floor, a bench leg on paving, a plate on
   // its horn). They multiply the sun's shadow only, so lamps and sky light are untouched.
-  let lighting = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r)
+  let lighting = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r.mul(siteAmbient()))
   let contactDebug: Node<'float'> | null = null
   const sun = findSun(scene)
   if (sun) {

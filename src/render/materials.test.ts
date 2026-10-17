@@ -21,7 +21,8 @@ describe('textured materials before their scans arrive', () => {
     expect(texel(m.map)).toEqual([255, 255, 255, 255])
     expect(texel(m.normalMap).map((v) => DataUtils.fromHalfFloat(v))).toEqual([0.5, 0.5, 1, 1])
     expect(texel(m.roughnessMap)).toEqual([255, 255, 255, 255])
-    expect(m.aoMap).toBe(m.roughnessMap)
+    // No baked occlusion: the stills never see one (materials.ts applyMaps).
+    expect(m.aoMap).toBeNull()
     expect(m.metalnessMap).toBeNull()
     expect(m.version).toBe(0)
   })

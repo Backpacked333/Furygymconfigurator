@@ -11,7 +11,12 @@ import {
   type WebGPURenderer,
 } from 'three/webgpu'
 import { productHeight, type Config } from '../lib/config'
-import { onMaterialsChanged, setProbeEnvironment, type ProbeKind } from '../render/materials'
+import {
+  onMaterialsChanged,
+  setProbeEnvironment,
+  setSiteProbeCenter,
+  type ProbeKind,
+} from '../render/materials'
 import { withoutCircumsolar } from '../render/circumsolar'
 import { shadowOnly } from '../render/shadowOnly'
 import type { Quality } from '../render/quality'
@@ -208,11 +213,14 @@ const isUnit = (object: Object3D) => object.userData.unit === true
  * only the open sky, with the paving in the unit's shadow shaded.
  */
 export function SiteProbe({ config, quality }: { config: Config; quality: Quality }) {
+  const center: [number, number, number] = [0, productHeight(config) * 0.5, 6]
+  // Its look-ups are corrected for where each surface stands relative to this (parallax.ts).
+  setSiteProbeCenter(...center)
   useRadianceProbe({
     kind: 'site',
     config,
     quality,
-    center: [0, productHeight(config) * 0.5, 6],
+    center,
     passes: 1,
     size: quality === 'lite' ? 128 : 256,
     exclude: isUnit,
