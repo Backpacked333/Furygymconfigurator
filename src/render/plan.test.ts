@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { GALLERY_ANGLES, galleryAngle, type AngleId } from './gallery'
 import {
   MAX_PRIORITY,
+  PREFETCH_MAX,
+  PREFETCH_PRIORITY,
   aroundOrder,
   planStills,
   type PlanInput,
@@ -117,5 +119,113 @@ describe('the still plan', () => {
     const has = (angle: AngleId) => angle === many[0]
     const jobs = planStills(input({ angles: many, current: many[0], has, stored: has }), () => 'x')
     expect(Math.max(...jobs.map((job) => job.priority))).toBe(MAX_PRIORITY)
+  })
+
+  describe('with a panel section open', () => {
+    const siblings = ['graphite', 'espresso', 'bronze']
+    const prefetch = (over: Partial<NonNullable<PlanInput['prefetch']>> = {}) => ({
+      designs: siblings,
+      has: () => false,
+      room: PREFETCH_MAX,
+      ...over,
+    })
+    const named = (jobs: PlannedJob[]) =>
+      jobs.map((job) => (job.sibling ? `${job.sibling} ${job.angle}` : `${job.angle} ${job.tier}`))
+
+    it("renders the siblings' stills at the current angle after the filmstrip, then the other angles' stills", () => {
+      const has = storedAt({
+        'front-left': 'still',
+        front: 'thumb',
+        left: 'thumb',
+        'rear-left': 'thumb',
+        rear: 'thumb',
+        top: 'thumb',
+        entry: 'thumb',
+        centre: 'thumb',
+        back: 'thumb',
+      })
+      const jobs = planStills(input({ has, stored: has, prefetch: prefetch() }), group)
+      // The other angles' stills wait for the siblings: none is queued between two of them.
+      expect(named(jobs)).toEqual([
+        'graphite front-left',
+        'espresso front-left',
+        'bronze front-left',
+      ])
+      const done = planStills(
+        input({ has, stored: has, prefetch: prefetch({ has: () => true }) }),
+        group,
+      )
+      expect(names(done)[0]).toBe('front still')
+      const prefetched = jobs.filter((job) => job.sibling)
+      // Low priority: after every thumbnail (2 to 9), ahead of the other angles' stills (12 on).
+      expect(prefetched.every((job) => job.priority === PREFETCH_PRIORITY)).toBe(true)
+      expect(PREFETCH_PRIORITY).toBeGreaterThan(9)
+      expect(PREFETCH_PRIORITY).toBeLessThan(12)
+      expect(prefetched.every((job) => job.tier === 'still' && !job.focus)).toBe(true)
+    })
+
+    it("holds the other angles' stills back until the siblings are done", () => {
+      const stage = storedAt({ 'front-left': 'still' })
+      const flying = (angle: AngleId, tier: Tier) => stage(angle, tier) || tier === 'thumb'
+      // Thumbnails on their way: the siblings come next, not the other angles' stills.
+      const jobs = planStills(input({ has: flying, stored: stage, prefetch: prefetch() }), group)
+      expect(jobs).toEqual([])
+      expect(names(planStills(input({ has: flying, stored: stage }), group))).toContain(
+        'front still',
+      )
+    })
+
+    it('holds nothing back for siblings whose scans are still downloading', () => {
+      const all = storedAt(
+        Object.fromEntries(
+          ANGLES.map((angle) => [angle, angle === 'front-left' ? 'still' : 'thumb']),
+        ),
+      )
+      const plan = (waiting: (design: string) => boolean) =>
+        named(planStills(input({ has: all, stored: all, prefetch: prefetch({ waiting }) }), group))
+      // One sibling about to go to the GPU: the other angles' stills wait for it.
+      expect(plan((design) => design !== 'bronze')).toEqual([
+        'graphite front-left',
+        'espresso front-left',
+        'bronze front-left',
+      ])
+      // Every sibling left is downloading its scans (which may never come): the stills go, and the
+      // siblings stay planned, so each is looked at again.
+      const jobs = plan(() => true)
+      expect(jobs.slice(0, 3)).toEqual([
+        'graphite front-left',
+        'espresso front-left',
+        'bronze front-left',
+      ])
+      expect(jobs.slice(3, 5)).toEqual(['front still', 'left still'])
+    })
+
+    it('waits for the stage still and for every thumbnail to land, not just to be asked for', () => {
+      expect(planStills(input({ prefetch: prefetch() }), group).some((job) => job.sibling)).toBe(
+        false,
+      )
+      const stage = storedAt({ 'front-left': 'still', front: 'thumb' })
+      const flying = (angle: AngleId, tier: Tier) => stage(angle, tier) || tier === 'thumb'
+      const jobs = planStills(input({ has: flying, stored: stage, prefetch: prefetch() }), group)
+      expect(jobs.some((job) => job.sibling)).toBe(false)
+    })
+
+    it('leaves out the siblings stored, on their way, or not to be prefetched, and keeps to its room', () => {
+      const all = storedAt(
+        Object.fromEntries(
+          ANGLES.map((angle) => [angle, angle === 'front-left' ? 'still' : 'thumb']),
+        ),
+      )
+      const plan = (over: Partial<NonNullable<PlanInput['prefetch']>>) =>
+        planStills(input({ has: all, stored: all, idle: false, prefetch: prefetch(over) }), group)
+          .filter((job) => job.sibling)
+          .map((job) => job.sibling)
+      expect(plan({ has: (design) => design === 'espresso' })).toEqual(['graphite', 'bronze'])
+      // At most PREFETCH_MAX in flight or planned: with seven out, one more.
+      expect(plan({ room: 1 })).toEqual(['graphite'])
+      expect(plan({ room: 0 })).toEqual([])
+      const many = Array.from({ length: 12 }, (_, i) => `d${i}`)
+      expect(plan({ designs: many })).toHaveLength(PREFETCH_MAX)
+    })
   })
 })

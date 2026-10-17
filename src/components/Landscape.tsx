@@ -1,8 +1,7 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import {
   BufferGeometry,
   Color,
-  InstancedMesh,
   Matrix4,
   MeshStandardMaterial,
   Object3D,
@@ -26,7 +25,8 @@ import {
   type Biome,
 } from '../render/vegetation'
 import { Parts } from './Parts'
-import { DENSITY, agaveGeometry, boulderGeometry, limbParts } from '../render/scenery'
+import { useInstances } from './useInstances'
+import { agaveGeometry, boulderGeometry, limbParts, thinned } from '../render/scenery'
 import { Backyard, Campus, Residences } from './Surroundings'
 
 /** Module-level so the lawn's grass material is not rebuilt on every Landscape render. */
@@ -162,7 +162,7 @@ export const Tree = memo(function Tree({
   biome: Biome
   quality: Quality
 }) {
-  const count = Math.round((biome === 'desert' ? 1700 : 1500) * DENSITY[quality]) + 300
+  const { count, drawn } = thinned(biome === 'desert' ? 1700 : 1500, quality, 300)
   const shape = useMemo(() => treeShape(seed, biome, count), [seed, biome, count])
   const limbs = useMemo(
     () =>
@@ -179,16 +179,7 @@ export const Tree = memo(function Tree({
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial(biome, shape.crownHeight), [biome, shape.crownHeight])
   useEffect(() => () => card.dispose(), [card])
-  const mesh = useRef<InstancedMesh>(null)
-  // Also re-runs when new constructor args make R3F build a new InstancedMesh, whose instances
-  // would otherwise all sit at the origin.
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    shape.leaves.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [shape, card, leaves])
+  const mesh = useInstances(shape.leaves, drawn, card, leaves)
   return (
     <group position={position} scale={scale}>
       <Parts parts={limbs} />
@@ -214,7 +205,7 @@ export const Hedge = memo(function Hedge({
 }) {
   const height = 3.3,
     depth = 1.5
-  const count = Math.round(4200 * DENSITY[quality]) + 500
+  const { count, drawn } = thinned(4200, quality, 500)
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial('courtyard', height / 2, true), [])
   useEffect(() => () => card.dispose(), [card])
@@ -240,15 +231,7 @@ export const Hedge = memo(function Hedge({
     }
     return list
   }, [count, length])
-  const mesh = useRef<InstancedMesh>(null)
-  // Also re-runs when R3F builds a new InstancedMesh for new constructor args.
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices, card, leaves])
+  const mesh = useInstances(matrices, drawn, card, leaves)
   const core = useMemo(
     () => [
       part(
@@ -278,6 +261,7 @@ export const Hedge = memo(function Hedge({
 /** Instanced clumps of grass blades scattered by a placement function. */
 export function Tufts({
   count,
+  drawn = count,
   blades,
   height,
   bend,
@@ -286,7 +270,9 @@ export function Tufts({
   colors,
   shadow,
 }: {
+  /** Tufts placed (at full density), and how many the raster draws (instances.ts). */
   count: number
+  drawn?: number
   blades: number
   height: number
   bend: number
@@ -325,16 +311,7 @@ export function Tufts({
     }
     return list
   }, [count, place, variant])
-  const mesh = useRef<InstancedMesh>(null)
-  // Also re-runs when R3F builds a new InstancedMesh for new constructor args.
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.count = matrices.length
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices, geometry, grass, count])
+  const mesh = useInstances(matrices, drawn, geometry, grass)
   return (
     <instancedMesh
       ref={mesh}
@@ -406,7 +383,6 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
   const studio = c.environment === 'studio'
-  const density = DENSITY[quality]
   const groundSet: TextureSet = biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'
   // The ground is the largest surface on screen: ask for its scan before the hardscape and the
   // studio queue theirs (Ground itself only asks after it mounts). Requests are deduplicated.
@@ -447,7 +423,7 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
       {palettes.map((colors, k) => (
         <Tufts
           key={`bed-${k}`}
-          count={Math.round((biome === 'desert' ? 120 : 260) * density) + 30}
+          {...thinned(biome === 'desert' ? 120 : 260, quality, 30)}
           blades={biome === 'desert' ? 9 : 14}
           height={biome === 'desert' ? 1.1 : 1.8}
           bend={0.55}
@@ -460,7 +436,7 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
       {biome === 'courtyard' && <Hedge length={L + 20} quality={quality} />}
       {biome === 'courtyard' && (
         <Tufts
-          count={Math.round(5200 * density)}
+          {...thinned(5200, quality)}
           blades={9}
           height={0.42}
           bend={0.12}

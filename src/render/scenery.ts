@@ -16,6 +16,17 @@ import { grassBlade, type treeShape } from './vegetation'
 
 export const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
 
+/**
+ * A set of `per` instances at a tier's density, plus `base`: how many to build (at full density,
+ * for the stills) and how many the tier draws (instances.ts).
+ */
+export function thinned(per: number, quality: Quality, base = 0) {
+  return {
+    count: Math.round(per * DENSITY.ultra) + base,
+    drawn: Math.round(per * DENSITY[quality]) + base,
+  }
+}
+
 const _up = new Vector3(0, 1, 0)
 export function limbParts(shape: ReturnType<typeof treeShape>, bark: Material): Part[] {
   return shape.limbs.map(({ from, to, r0, r1 }, i) => {

@@ -379,6 +379,9 @@ class Service:
         self.queue = RenderQueue(count)
         self.waiting = 0
         self.latest: dict[str, int] = {}
+        # Frames rendered and being finished off the worker, by digest: a request for the same
+        # frame that gets a worker meanwhile waits for it instead of rendering it again.
+        self.finishing: dict[str, asyncio.Future] = {}
         # Each session's requests waiting for a worker: the future a newer request completes to
         # drop them (drop_superseded), with the seq each asked for.
         self.pending: dict[str, dict[asyncio.Future, int]] = {}
@@ -432,15 +435,9 @@ class Service:
         if priority is None:
             priority = PRIORITY.get(kind, 1)
         frame = request["output"] == "frame"
-        for version in self.versions if frame else []:
-            cached = self.frames.read(frame_digest(request, version))
-            if cached is not None:
-                (key_light,) = FRAME_KEY.unpack_from(cached)
-                return self.frame_response(
-                    cached[FRAME_KEY.size :],
-                    request,
-                    {"X-Cache": "hit", "X-Traced-Key": f"{key_light:.4f}"},
-                )
+        hit = self.cached_frame(request) if frame else None
+        if hit is not None:
+            return hit
         if session:
             if len(self.latest) > 10000:
                 self.latest.clear()
@@ -471,30 +468,56 @@ class Service:
 
             async def on_worker() -> Response:
                 out = os.path.join(tempfile.gettempdir(), f"fury-{uuid.uuid4().hex}.bin")
+                # The same frame, rendered while this one waited and being finished now.
+                same: asyncio.Future | None = None
+                digest = ""
                 try:
                     try:
                         if session and self.latest.get(session, seq) > seq:
                             return JSONResponse({"superseded": True}, status_code=409)
-                        waited = time.perf_counter() - queued
-                        worker = self.workers[index]
-                        try:
-                            result = await asyncio.to_thread(
-                                worker.call, {"op": "render", "request": request, "out": out}
-                            )
-                        except WorkerDied:
-                            worker.crashed()
-                            await asyncio.to_thread(worker.start)
-                            return JSONResponse({"error": "renderer restarted"}, status_code=503)
-                        if not result.get("ok"):
-                            return JSONResponse(
-                                {"error": result.get("error", "render failed")},
-                                status_code=int(result.get("status", 500)),
-                            )
-                        if not frame:
-                            with open(out, "rb") as f:
-                                image = f.read()
+                        if frame:
+                            # Rendered while this one waited (the same frame asked for again
+                            # after its caller gave up on it, which Blender finished all the
+                            # same): the GPU need not render it twice.
+                            hit = self.cached_frame(request)
+                            if hit is not None:
+                                return hit
+                            digest = frame_digest(request, frame_version(self.workers[index].info))
+                            same = self.finishing.get(digest)
+                        if same is None:
+                            waited = time.perf_counter() - queued
+                            worker = self.workers[index]
+                            try:
+                                result = await asyncio.to_thread(
+                                    worker.call, {"op": "render", "request": request, "out": out}
+                                )
+                            except WorkerDied:
+                                worker.crashed()
+                                await asyncio.to_thread(worker.start)
+                                return JSONResponse(
+                                    {"error": "renderer restarted"}, status_code=503
+                                )
+                            if not result.get("ok"):
+                                return JSONResponse(
+                                    {"error": result.get("error", "render failed")},
+                                    status_code=int(result.get("status", 500)),
+                                )
+                            if frame:
+                                finishing = asyncio.get_running_loop().create_future()
+                                self.finishing[digest] = finishing
+                            else:
+                                with open(out, "rb") as f:
+                                    image = f.read()
                     finally:
                         self.queue.release(index)
+                    if same is not None:
+                        # Off the worker, which renders the next request meanwhile.
+                        await asyncio.shield(same)
+                        hit = self.cached_frame(request)
+                        if hit is not None:
+                            return hit
+                        # Its finishing failed: asked again, this one renders it.
+                        return JSONResponse({"error": "busy"}, status_code=503)
                     stats = result["stats"]
                     timings = {
                         "X-Queue-Ms": str(round(waited * 1000)),
@@ -506,13 +529,19 @@ class Service:
                     if frame:
                         # The GPU is free again: finish this frame while it renders the next.
                         started = time.perf_counter()
-                        data, key_light = await asyncio.get_running_loop().run_in_executor(
-                            self.finisher, finish_frame, out, request["finish"]
-                        )
-                        self.frames.put(
-                            frame_digest(request, frame_version(worker.info)),
-                            FRAME_KEY.pack(key_light) + data,
-                        )
+                        try:
+                            data, key_light = await asyncio.get_running_loop().run_in_executor(
+                                self.finisher, finish_frame, out, request["finish"]
+                            )
+                            self.frames.put(
+                                frame_digest(request, frame_version(worker.info)),
+                                FRAME_KEY.pack(key_light) + data,
+                            )
+                        finally:
+                            if self.finishing.get(digest) is finishing:
+                                del self.finishing[digest]
+                            if not finishing.done():
+                                finishing.set_result(None)
                         return self.frame_response(
                             data,
                             request,
@@ -552,6 +581,19 @@ class Service:
             if not superseded.done():
                 self.waiting -= 1
                 self.forget(session, superseded)
+
+    def cached_frame(self, request: dict) -> Response | None:
+        """A finished frame from the cache, made by any current worker, or None."""
+        for version in self.versions:
+            cached = self.frames.read(frame_digest(request, version))
+            if cached is not None:
+                (key_light,) = FRAME_KEY.unpack_from(cached)
+                return self.frame_response(
+                    cached[FRAME_KEY.size :],
+                    request,
+                    {"X-Cache": "hit", "X-Traced-Key": f"{key_light:.4f}"},
+                )
+        return None
 
     def forget(self, session: str, waiter: asyncio.Future):
         """Takes a request off the session's waiting ones; nothing if it is not among them."""

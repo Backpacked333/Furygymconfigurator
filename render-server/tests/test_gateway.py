@@ -52,6 +52,33 @@ def test_caps_render_time(gateway):
     assert forwarded["quality"]["timeLimit"] == 15
 
 
+def test_a_bake_with_its_token_renders_for_up_to_a_minute():
+    calls = []
+
+    async def dispatch(method, path, body, client, session):
+        calls.append(json.loads(body))
+        return 200, {}, b"result"
+
+    app = create_gateway(dispatch, r"^https://test\.example$", bake_token="s3cret")
+    body = request(Kit().scene())
+    body["quality"] = {"timeLimit": 60}
+    with TestClient(app) as client:
+        assert (
+            client.post("/render", json=body, headers={"x-fury-bake": "s3cret"}).status_code == 200
+        )
+        assert (
+            client.post("/render", json=body, headers={"x-fury-bake": "guess"}).status_code == 200
+        )
+        assert client.post("/render", json=body).status_code == 200
+    assert [call["quality"]["timeLimit"] for call in calls] == [60, 15, 15]
+    # With no token configured, nothing lifts the cap.
+    calls.clear()
+    app = create_gateway(dispatch, r"^https://test\.example$", bake_token="")
+    with TestClient(app) as client:
+        client.post("/render", json=body, headers={"x-fury-bake": ""})
+    assert calls[-1]["quality"]["timeLimit"] == 15
+
+
 def test_bad_inputs_and_render_throttle(gateway, monkeypatch):
     import fury_render.api as api
 

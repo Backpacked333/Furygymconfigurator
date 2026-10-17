@@ -12,6 +12,7 @@ import {
   Vector3,
   type BufferGeometry,
   type Camera,
+  type InstancedMesh,
   type Material,
   type PerspectiveCamera,
   type Mesh,
@@ -32,6 +33,7 @@ import {
 import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
 import { bench } from './bench'
 import { GBuffer, ViewHistory } from './history'
+import { stillInstances } from './instances'
 import { createExposureMeter } from './pipeline'
 import type { TraceState } from './traceStatus'
 
@@ -297,12 +299,13 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
     for (const element of object.matrixWorld.elements) mix('transforms', element)
     const mesh = object as Mesh & {
       instanceMatrix?: { version: number }
-      count?: number
+      isInstancedMesh?: boolean
     }
     if (mesh.isMesh) {
       mix('structure', identity ? mesh.geometry.id : geometryKey(mesh.geometry))
       mix('structure', mesh.instanceMatrix?.version ?? 0)
-      mix('structure', mesh.count ?? 0)
+      // Every instance, as the stills capture them, however many the raster tier draws.
+      mix('structure', mesh.isInstancedMesh ? stillInstances(mesh as unknown as InstancedMesh) : 0)
       if (!shape) {
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
         for (const material of materials) {

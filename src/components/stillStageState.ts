@@ -9,10 +9,24 @@ import { TIER_RANK, type Tier } from '../render/plan'
  * - A still is never replaced by a lesser tier of the same design and angle.
  * - Only what the visitor wants now is taken: an offer for a design or angle they have since left
  *   is ignored, and one decoding for it is dropped, so rapid edits end on the latest.
+ * - A baked still (bakedStills.ts) counts as the top tier: nothing rendered replaces it. The page's
+ *   first one is on the stage from the first render, out of sight until it has decoded.
  */
 
-/** A still on the stage, or on its way there. */
-export type Layer = { design: string; angle: AngleId; tier: Tier; url: string }
+/**
+ * A still on the stage, or on its way there. A baked one comes in several widths (`srcset`, by
+ * the stage's `sizes`); `url` is its widest, and names it.
+ */
+export type Layer = {
+  design: string
+  angle: AngleId
+  tier: Tier
+  url: string
+  srcset?: string
+  sizes?: string
+  /** The samples it was traced with, for the status line. */
+  samples?: number
+}
 
 export type StageState = {
   /** The design and angle the visitor wants on the stage. */
@@ -21,6 +35,11 @@ export type StageState = {
   shown: Layer | null
   /** The still it replaced, fading out under it until `faded`. */
   leaving: Layer | null
+  /**
+   * The still shown was put up before its image had loaded (a baked still at first paint): it
+   * covers the stage out of sight, and shows once it has decoded, at once.
+   */
+  loading: boolean
   /** Decoding: swapped in once decoded, unless something better or newer comes first. */
   pending: Layer | null
   /** A swap's crossfade is under way. */
@@ -41,15 +60,30 @@ export const EMPTY_STAGE: StageState = {
   want: null,
   shown: null,
   leaving: null,
+  loading: false,
   pending: null,
   fading: false,
   swaps: 0,
 }
 
-const sameShot = (
+/**
+ * The stage on the page's first render: a baked still of what the visitor wants, when there is
+ * one, already in place (loading), so nothing else is drawn on the stage before it.
+ */
+export function initialStage(
+  want: { design: string; angle: AngleId },
+  baked: Layer | null,
+): StageState {
+  if (!baked || !sameShot(want, baked)) return { ...EMPTY_STAGE, want }
+  return { ...EMPTY_STAGE, want, shown: baked, loading: true }
+}
+
+function sameShot(
   a: { design: string; angle: AngleId } | null,
   b: { design: string; angle: AngleId } | null,
-) => !!a && !!b && a.design === b.design && a.angle === b.angle
+) {
+  return !!a && !!b && a.design === b.design && a.angle === b.angle
+}
 
 export function stageReducer(state: StageState, event: StageEvent): StageState {
   switch (event.type) {
@@ -78,18 +112,23 @@ export function stageReducer(state: StageState, event: StageEvent): StageState {
       return { ...state, pending: layer }
     }
     case 'decoded': {
+      if (state.loading && state.shown?.url === event.url) return { ...state, loading: false }
       const { pending } = state
       if (!pending || pending.url !== event.url || !sameShot(pending, state.want)) return state
       return {
         ...state,
         shown: pending,
-        leaving: state.shown,
+        leaving: state.loading ? null : state.shown,
+        loading: false,
         pending: null,
         fading: true,
         swaps: state.swaps + 1,
       }
     }
     case 'failed':
+      // A still put up before it loaded that cannot be: the stage goes back to having none.
+      if (state.loading && state.shown?.url === event.url)
+        return { ...state, shown: null, loading: false }
       return state.pending?.url === event.url ? { ...state, pending: null } : state
     case 'faded':
       if (event.swap !== state.swaps || (!state.fading && !state.leaving)) return state

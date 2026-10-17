@@ -1,6 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import { useThree } from '@react-three/fiber'
-import { InstancedMesh, type Matrix4 } from 'three/webgpu'
 import type { Config } from '../lib/config'
 import { noise, smoothstep } from '../lib/visuals'
 import { box, cylinder } from '../render/geometry'
@@ -28,7 +27,8 @@ import {
   shrubShape,
 } from '../render/vegetation'
 import { Ground, Hedge, Tree, Tufts } from './Landscape'
-import { DENSITY, agaveGeometry, boulderGeometry, limbParts } from '../render/scenery'
+import { useInstances } from './useInstances'
+import { agaveGeometry, boulderGeometry, limbParts, thinned } from '../render/scenery'
 import { Parts } from './Parts'
 
 /**
@@ -44,19 +44,6 @@ function useWindowGlow(time: number) {
     setWindowGlow(smoothstep(17.25, 20.5, time) * 2.4)
     invalidate()
   }, [time, invalidate])
-}
-
-function useInstances(matrices: Matrix4[]) {
-  const mesh = useRef<InstancedMesh>(null)
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.count = matrices.length
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices])
-  return mesh
 }
 
 // --- Plants -------------------------------------------------------------------------------
@@ -132,11 +119,13 @@ const Shrub = memo(function Shrub({
   blossom?: string
   quality: Quality
 }) {
-  const count = Math.round(radius * radius * 90 * DENSITY[quality]) + 60
+  const { count, drawn } = thinned(radius * radius * 90, quality, 60)
   const shape = useMemo(
     () => shrubShape(seed, radius, height, count),
     [seed, radius, height, count],
   )
+  // The tier draws the leaves and blossoms of its first `drawn` cards (instances.ts).
+  const thin = useMemo(() => shrubShape(seed, radius, height, drawn), [seed, radius, height, drawn])
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial('courtyard', height * 0.5), [height])
   const flowers = useMemo(
@@ -151,8 +140,8 @@ const Shrub = memo(function Shrub({
     },
     [card, leaves, flowers],
   )
-  const leafMesh = useInstances(shape.leaves)
-  const flowerMesh = useInstances(shape.blossoms)
+  const leafMesh = useInstances(shape.leaves, thin.leaves.length, card, leaves)
+  const flowerMesh = useInstances(shape.blossoms, thin.blossoms.length, card, flowers)
   return (
     <group position={position}>
       <instancedMesh
@@ -207,7 +196,7 @@ function GrassBed({
   return (
     <group position={[0, y, 0]}>
       <Tufts
-        count={Math.round(count * DENSITY[quality]) + 6}
+        {...thinned(count, quality, 6)}
         blades={16}
         height={height}
         bend={0.6}
@@ -475,7 +464,7 @@ export function Backyard({ config: c, quality }: { config: Config; quality: Qual
       <Parts parts={house} />
       <Parts parts={hardscape} />
       <Tufts
-        count={Math.round(6500 * DENSITY[quality])}
+        {...thinned(6500, quality)}
         blades={9}
         height={0.42}
         bend={0.12}

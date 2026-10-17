@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { ENVIRONMENTS, type Config } from '../lib/config'
+import { boostOption, focusSection, leaveSection } from '../render/prefetch'
 import { TimeOfDay } from './TimeOfDay'
 
 /**
@@ -87,6 +88,12 @@ export function StageToolbar({
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [open])
+  // Open, its settings are the section whose siblings the stills prefetch (prefetch.ts).
+  useEffect(() => {
+    if (!open) return
+    focusSection('environment')
+    return () => leaveSection('environment')
+  }, [open])
   // Opened, the focus moves to the setting chosen now.
   const shown = open && place !== null
   useEffect(() => {
@@ -133,6 +140,8 @@ export function StageToolbar({
               {ENVIRONMENTS.map((env) => (
                 <button
                   key={env.id}
+                  onPointerEnter={() => boostOption('environment', env.id)}
+                  onFocus={() => boostOption('environment', env.id)}
                   aria-pressed={config.environment === env.id}
                   className={config.environment === env.id ? 'selected' : ''}
                   onClick={() => onChange({ ...config, environment: env.id })}

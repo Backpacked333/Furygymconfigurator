@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
   ArrowRight,
   Building2,
@@ -46,6 +47,7 @@ import {
 } from '../lib/config'
 import { QUALITY_DETAILS, type Quality } from '../render/quality'
 import { usePendingChoice } from '../render/stillStatus'
+import { boostOption, focusSection, showSections, type PrefetchField } from '../render/prefetch'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
@@ -60,6 +62,35 @@ import { Elevation } from './Elevation'
 import { TimeOfDay } from './TimeOfDay'
 
 const STEPS = ['Space', 'Exterior', 'Interior', 'Setting']
+
+/**
+ * The option sections each step shows, top to bottom, for the stills' prefetch (prefetch.ts): while
+ * one is open, its other options' stills are rendered ahead at the current angle.
+ */
+function stepSections(step: number, c: Config): PrefetchField[] {
+  if (step === 1)
+    return c.family === 'studio'
+      ? ['studioDoor', 'finish']
+      : [
+          'containerOpening',
+          ...(c.containerOpening === 'roll-up' ? [] : ['openingInfill' as const]),
+          'finish',
+        ]
+  if (step === 2) return ['interiorStyle', 'flooring']
+  if (step === 3) return ['environment']
+  return []
+}
+
+/** A section's options: pointing at or focusing any of them opens its siblings to prefetch. */
+const section = (field: PrefetchField) => ({
+  onPointerEnter: () => focusSection(field),
+  onFocus: () => focusSection(field),
+})
+/** An option: pointing at or focusing it prefetches its still first. */
+const option = (field: PrefetchField, value: string) => ({
+  onPointerEnter: () => boostOption(field, value),
+  onFocus: () => boostOption(field, value),
+})
 
 function Toggle({
   label,
@@ -156,6 +187,12 @@ export default function ConfigPanel({
   const pending = usePendingChoice()
   const rendering = (field: string, value: string) =>
     pending?.field === field && pending.value === value ? ' swatch-rendering' : ''
+  // The step's option sections, for the stills' prefetch.
+  const sections = stepSections(step, c).join()
+  useEffect(
+    () => showSections(sections ? (sections.split(',') as PrefetchField[]) : []),
+    [sections],
+  )
   /** Applies a change unless it would obstruct the planned entry. */
   const guarded = (next: Config, message: string) => {
     if (layoutIssues(next).length) {
@@ -402,10 +439,16 @@ export default function ConfigPanel({
             {container ? (
               <>
                 <div className="section-label">Access + openings</div>
-                <div className="opening-options" role="group" aria-label="Container opening">
+                <div
+                  className="opening-options"
+                  role="group"
+                  aria-label="Container opening"
+                  {...section('containerOpening')}
+                >
                   {CONTAINER_OPENINGS.map((opening) => (
                     <button
                       key={opening.id}
+                      {...option('containerOpening', opening.id)}
                       aria-pressed={c.containerOpening === opening.id}
                       className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
                       onClick={() =>
@@ -434,10 +477,16 @@ export default function ConfigPanel({
                     <div className="section-label">
                       Fill the opening <span>Portfolio</span>
                     </div>
-                    <div className="choice-list" role="group" aria-label="Opening infill">
+                    <div
+                      className="choice-list"
+                      role="group"
+                      aria-label="Opening infill"
+                      {...section('openingInfill')}
+                    >
                       {OPENING_INFILLS.map((infill) => (
                         <button
                           key={infill.id}
+                          {...option('openingInfill', infill.id)}
                           aria-pressed={c.openingInfill === infill.id}
                           className={`choice-card ${c.openingInfill === infill.id ? 'selected' : ''}`}
                           onClick={() => onChange({ ...c, openingInfill: infill.id })}
@@ -467,10 +516,16 @@ export default function ConfigPanel({
                 <div className="section-label">
                   Glazed front <span>Portfolio</span>
                 </div>
-                <div className="choice-list" role="group" aria-label="Studio door">
+                <div
+                  className="choice-list"
+                  role="group"
+                  aria-label="Studio door"
+                  {...section('studioDoor')}
+                >
                   {STUDIO_DOORS.map((door) => (
                     <button
                       key={door.id}
+                      {...option('studioDoor', door.id)}
                       aria-pressed={c.studioDoor === door.id}
                       className={`choice-card ${c.studioDoor === door.id ? 'selected' : ''}`}
                       onClick={() =>
@@ -506,10 +561,16 @@ export default function ConfigPanel({
             <p className="muted small">
               Visualization palette only—not Fury’s approved finish names or availability.
             </p>
-            <div className="finish-options">
+            <div
+              className="finish-options"
+              role="group"
+              aria-label="Exterior finish"
+              {...section('finish')}
+            >
               {FINISHES.map((f) => (
                 <button
                   key={f.id}
+                  {...option('finish', f.id)}
                   className={c.finish === f.id ? 'selected' : ''}
                   aria-pressed={c.finish === f.id}
                   onClick={() => onChange({ ...c, finish: f.id })}
@@ -640,10 +701,16 @@ export default function ConfigPanel({
             <div className="section-label separated">
               Interior finish <span>Concept</span>
             </div>
-            <div className="interior-options" role="group" aria-label="Interior finish">
+            <div
+              className="interior-options"
+              role="group"
+              aria-label="Interior finish"
+              {...section('interiorStyle')}
+            >
               {INTERIORS.map((style) => (
                 <button
                   key={style.id}
+                  {...option('interiorStyle', style.id)}
                   aria-pressed={c.interiorStyle === style.id}
                   className={c.interiorStyle === style.id ? 'selected' : ''}
                   onClick={() => onChange({ ...c, interiorStyle: style.id })}
@@ -662,10 +729,16 @@ export default function ConfigPanel({
               Fury lists performance flooring. These looks and materials are not confirmed
               purchasable options.
             </p>
-            <div className="floor-options">
+            <div
+              className="floor-options"
+              role="group"
+              aria-label="Floor appearance"
+              {...section('flooring')}
+            >
               {FLOORS.map((f) => (
                 <button
                   key={f.id}
+                  {...option('flooring', f.id)}
                   aria-pressed={c.flooring === f.id}
                   className={c.flooring === f.id ? 'selected' : ''}
                   onClick={() => onChange({ ...c, flooring: f.id })}
@@ -738,12 +811,18 @@ export default function ConfigPanel({
             <div className="section-label">
               Surroundings <span>Concept settings</span>
             </div>
-            <div className="environment-options">
+            <div
+              className="environment-options"
+              role="group"
+              aria-label="Surroundings"
+              {...section('environment')}
+            >
               {ENVIRONMENTS.map((env) => {
                 const Icon = environmentIcons[env.id]
                 return (
                   <button
                     key={env.id}
+                    {...option('environment', env.id)}
                     className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}${rendering('environment', env.id)}`}
                     aria-pressed={c.environment === env.id}
                     onClick={() => onChange({ ...c, environment: env.id })}

@@ -46,6 +46,11 @@ export type BenchStats = {
   totalMs: number | null
   /** The local tracer's last view: milliseconds to its first denoised image, and to settling. */
   local: { firstMs: number | null; settledMs: number | null }
+  /**
+   * The stills' prefetch (stills.ts): sibling stills asked for and landed, and clicks that found
+   * theirs ready (its hit rate is hits over the clicks on an open section's options).
+   */
+  prefetch: { sent: number; landed: number; hits: number }
 }
 
 /** A first answer later than this came from a container that started for this page. */
@@ -73,6 +78,7 @@ const fresh = (): BenchStats => ({
   finishMs: null,
   totalMs: null,
   local: { firstMs: null, settledMs: null },
+  prefetch: { sent: 0, landed: 0, hits: 0 },
 })
 
 let stats = fresh()
@@ -143,6 +149,10 @@ export const bench = {
   /** The local tracer's view: how long its first image took, and its settling once it has. */
   local(local: BenchStats['local']) {
     publish({ local })
+  },
+  /** A sibling's still prefetched (asked for, or landed), or a click that found one. */
+  prefetch(event: keyof BenchStats['prefetch']) {
+    publish({ prefetch: { ...stats.prefetch, [event]: stats.prefetch[event] + 1 } })
   },
   /** Back to nothing recorded (tests). */
   reset() {

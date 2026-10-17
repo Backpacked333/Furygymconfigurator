@@ -211,6 +211,75 @@ const failedRounds = new Map<TextureSet, number>()
 /** Surfaces built while their set was failing, given its scans when a later round lands. */
 const waiting = new Map<TextureSet, ((maps: Maps) => void)[]>()
 
+// --- Unseen surfaces -------------------------------------------------------------
+//
+// The stills' prefetch (siblings.ts) builds a design the visitor has not chosen, to learn which
+// surfaces it would change. Its new surfaces and their scans are nothing the page shows: their
+// downloads are left out of the load progress (which the stills wait on, and which the live view
+// shows as "Loading photo-scanned materials") until a surface on screen asks for them, and their
+// arrival redraws nothing.
+
+/** `quietly` calls running: what they build is not on screen. */
+let quiet = 0
+/** Sets downloading for unseen surfaces alone, and how many of their maps are still to come. */
+const unseenSets = new Map<TextureSet, { outstanding: number }>()
+/** Surfaces built quietly that nothing on screen has asked for since. */
+const unseen = new WeakSet<MeshStandardNodeMaterial>()
+/** The set each surface is made from. */
+const setOf = new WeakMap<MeshStandardNodeMaterial, TextureSet>()
+
+/**
+ * Builds something the page does not show (a design the visitor might choose next): the surfaces
+ * it makes, and the scans they download, stay out of the page's load progress and redraw nothing
+ * until a surface on screen asks for them.
+ */
+export function quietly<T>(build: () => T): T {
+  quiet++
+  try {
+    return build()
+  } finally {
+    quiet--
+  }
+}
+
+/** A set downloading quietly is now wanted on screen: its maps still to come are counted. */
+function counted(set: TextureSet) {
+  const still = unseenSets.get(set)
+  if (!still) return
+  unseenSets.delete(set)
+  textureProgress.update(still.outstanding, 0)
+}
+
+/** A map of a set has arrived (or given up): counted, unless its set downloads quietly. */
+function arrived(set: TextureSet) {
+  const still = unseenSets.get(set)
+  if (still) still.outstanding--
+  else textureProgress.update(0, 1)
+}
+
+/** Whether a surface has its scans in (or needs none): the cloud may capture it as it is. */
+export function materialLoaded(material: MeshStandardNodeMaterial) {
+  const set = setOf.get(material)
+  if (!set) return true
+  const maps = ready.get(set)
+  return !!maps && material.normalMap === maps.normal
+}
+
+/**
+ * Downloads a surface's scans quietly if they are not on their way: true once it has them, false
+ * as soon as a round of its set fails. Unlike the surface's own wait, this one does not wait
+ * through failed rounds, which may go on for minutes, and asks for none.
+ */
+export function whenMaterialLoaded(material: MeshStandardNodeMaterial): Promise<boolean> {
+  const set = setOf.get(material)
+  if (!set || materialLoaded(material)) return Promise.resolve(true)
+  // The surface's own wait was set up when it was made, ahead of this one: it has its maps first.
+  return quietly(() => load(set)).then(
+    () => true,
+    () => false,
+  )
+}
+
 /**
  * A set's scans, waiting through failed rounds: a dropped connection that recovers still textures
  * every surface that asked during the outage.
@@ -226,17 +295,21 @@ function whenLoaded(set: TextureSet): Promise<Maps> {
   )
 }
 
-function load(set: TextureSet): Promise<Maps> {
+function load(set: TextureSet, shown = quiet === 0): Promise<Maps> {
   let pending = sets.get(set)
-  if (pending) return pending
+  if (pending) {
+    if (shown) counted(set)
+    return pending
+  }
   const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
   const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
-  textureProgress.update(names.length, 0)
+  if (shown) textureProgress.update(names.length, 0)
+  else unseenSets.set(set, { outstanding: names.length })
   pending = Promise.allSettled(
     names.map((name) =>
       fetchTexture(`${base}${set}/${name}.webp`)
         // A map that never arrives still counts as settled, so the progress bar always finishes.
-        .finally(() => textureProgress.update(0, 1))
+        .finally(() => arrived(set))
         .then((texture) => [name, configure(texture, info.size, name === 'albedo')] as const),
     ),
   ).then((results) => {
@@ -261,7 +334,8 @@ function load(set: TextureSet): Promise<Maps> {
       setTimeout(
         () => {
           if (sets.get(set) === pending) sets.delete(set)
-          if (waiting.get(set)?.length) load(set).catch(() => {})
+          // Another round, as quiet as this one if nothing on screen has asked for it since.
+          if (waiting.get(set)?.length) load(set, !unseenSets.has(set)).catch(() => {})
         },
         Math.min(RETRY_SET_MAX_MS, RETRY_SET_AFTER_MS * 2 ** (rounds - 1)),
       )
@@ -272,6 +346,7 @@ function load(set: TextureSet): Promise<Maps> {
     })
     const maps = Object.fromEntries(entries) as Maps
     ready.set(set, maps)
+    unseenSets.delete(set)
     failedRounds.delete(set)
     waiting.get(set)?.forEach((resolve) => resolve(maps))
     waiting.delete(set)
@@ -367,7 +442,14 @@ function applyMaps(material: MeshStandardNodeMaterial, spec: MaterialSpec, maps:
 export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
   const key = JSON.stringify(spec)
   const existing = materials.get(key)
-  if (existing) return existing
+  if (existing) {
+    // Built quietly before, and now for the page: its scans count from here on.
+    if (!quiet && unseen.has(existing)) {
+      unseen.delete(existing)
+      if (spec.set) counted(spec.set)
+    }
+    return existing
+  }
   const physical =
     spec.clearcoat !== undefined ||
     spec.sheen !== undefined ||
@@ -428,7 +510,9 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
       transparent: false,
     }
   }
+  if (quiet) unseen.add(m)
   if (spec.set) {
+    setOf.set(m, spec.set)
     const maps = ready.get(spec.set)
     if (maps) applyMaps(m, spec, maps)
     else {
@@ -438,10 +522,11 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
         ...neutralMaps,
         albedo: info.detailOnly ? undefined : neutralMaps.albedo,
       })
-      // Neutral maps until the scans arrive, however many rounds that takes.
+      // Neutral maps until the scans arrive, however many rounds that takes. A surface nothing
+      // shows yet redraws nothing.
       void whenLoaded(spec.set).then((loaded) => {
         applyMaps(m, spec, loaded)
-        changed('textures')
+        if (!unseen.has(m)) changed('textures')
       })
     }
   }

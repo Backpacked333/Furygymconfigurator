@@ -11,10 +11,12 @@ import type { Config, PlacedItem } from './config'
  */
 
 /**
- * The renderer's version: stills made by another one are not this one's. A placeholder until
- * the build stamps a hash of the render-affecting sources here.
+ * The renderer's version: stills made by another one are not this one's. A hash of the sources
+ * that change how a still looks (scripts/render-version.ts), stamped by the build and the dev
+ * server; 'test' in tests, 'dev' where nothing stamps it.
  */
-export const RENDER_VERSION = 'dev'
+export const RENDER_VERSION: string =
+  typeof __RENDER_VERSION__ === 'string' ? __RENDER_VERSION__ : 'dev'
 
 /** A number as JSON writes it, with -0 as 0 and float noise below 1e-6 rounded away. */
 const tidy = (v: number) => {

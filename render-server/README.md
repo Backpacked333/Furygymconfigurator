@@ -93,6 +93,12 @@ Settings read during deployment:
 | `FURY_IDLE_SECONDS`    | `600`         | GPU idle tail before scale-to-zero; billed time   |
 | `FURY_WARM`            | `0`           | `1` keeps one renderer running (one L40S, always) |
 | `FURY_DENOISE`         | `auto`        | `cpu` skips GPU denoising (it falls back anyway)  |
+| `FURY_BAKE_TOKEN`      | None          | Lets `npm run bake` render up to a minute a still |
+
+`FURY_BAKE_TOKEN` is a secret of your choosing. The gateway cuts every view at 15 seconds of
+sampling; a request carrying the token in `X-Fury-Bake` may take a minute, as the baked stills'
+export tier needs (1024 samples at 2400 px). `scripts/bake-stills.mjs` sends it from its own proxy
+when `FURY_BAKE_TOKEN` is set where it runs; browsers never see it.
 
 Stop a test with `modal app stop <app-name>` and confirm zero tasks with `modal app list`.
 Never raise gateway `max_containers` above 1 without replacing the in-memory limits and the

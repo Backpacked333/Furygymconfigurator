@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMPTY_STAGE,
+  initialStage,
   showsWanted,
   stageReducer,
   type Layer,
@@ -100,6 +101,53 @@ describe('the still stage', () => {
     expect(failed.pending).toBeNull()
     expect(failed.shown).toEqual(front)
     expect(run([offer(rear), decoded(rear)], state).shown).toEqual(rear)
+  })
+
+  it('takes a baked still as the top tier: on the stage from the start, and never replaced', () => {
+    const baked: Layer = {
+      ...layer('a', 'export'),
+      url: '/stills/v1/a/front-left-wide-640.webp',
+      srcset:
+        '/stills/v1/a/front-left-wide-320.webp 320w, /stills/v1/a/front-left-wide-640.webp 640w',
+      sizes: '100vw',
+    }
+    // The page's first render: in place, out of sight until it has decoded, covering the stage.
+    const first = initialStage({ design: 'a', angle: 'front-left' }, baked)
+    expect(first).toMatchObject({ shown: baked, loading: true, pending: null, fading: false })
+    expect(showsWanted(first)).toBe(true)
+    // Its own offer, made once the stage is mounted, changes nothing.
+    expect(run([want('a'), offer(baked)], first)).toBe(first)
+    // Shown at once when decoded: no crossfade from nothing, and no swap counted.
+    const shown = run([decoded(baked)], first)
+    expect(shown).toMatchObject({ shown: baked, loading: false, fading: false, swaps: 0 })
+    // A still or an export rendered for the same design and angle never replaces it.
+    expect(run([offer(layer('a', 'still'))], shown)).toBe(shown)
+    expect(run([offer(layer('a', 'export'))], shown)).toBe(shown)
+    expect(run([offer(layer('a', 'thumb'))], shown)).toBe(shown)
+    // Another design's baked still swaps in as any still does: decoded, then one crossfade.
+    const next = { ...baked, design: 'b', url: '/stills/v1/b/front-left-wide-640.webp' }
+    const swapped = run([want('b'), offer(next), decoded(next)], shown)
+    expect(swapped).toMatchObject({ shown: next, leaving: baked, fading: true, swaps: 1 })
+  })
+
+  it('starts empty without a baked still of what the visitor wants, and drops one that fails', () => {
+    expect(initialStage({ design: 'a', angle: 'front-left' }, null)).toEqual({
+      ...EMPTY_STAGE,
+      want: { design: 'a', angle: 'front-left' },
+    })
+    const other = layer('b', 'export')
+    expect(initialStage({ design: 'a', angle: 'front-left' }, other).shown).toBeNull()
+    const baked = layer('a', 'export')
+    const first = initialStage({ design: 'a', angle: 'front-left' }, baked)
+    // Gone from the store: the stage has no still, and the live view shows until one renders.
+    expect(run([{ type: 'failed', url: baked.url }], first)).toMatchObject({
+      shown: null,
+      loading: false,
+    })
+    // Something else decoded first replaces it with no crossfade from an image never seen.
+    const rendered = layer('a', 'still', 'rear')
+    const moved = run([want('a', 'rear'), offer(rendered), decoded(rendered)], first)
+    expect(moved).toMatchObject({ shown: rendered, leaving: null, loading: false })
   })
 
   it('ends a crossfade only for its own swap', () => {

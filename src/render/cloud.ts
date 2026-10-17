@@ -19,6 +19,7 @@ import type { SkyLook } from '../lib/visuals'
 import { environmentTexture, lookKey, preparePathTraceScene, sunLight } from './pathtrace'
 import { bench } from './bench'
 import { fingerprint } from './hash'
+import { stillInstances } from './instances'
 import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
 import { cloudUrl } from './traceStatus'
 
@@ -314,10 +315,12 @@ export function encodeInstances(matrices: Float32Array, count: number) {
 
 const instanceBlobs = new WeakMap<object, { version: string; blob: Promise<HashedBlob> }>()
 function instanceBlob(mesh: InstancedMesh) {
-  const version = `${mesh.instanceMatrix.version},${mesh.count}`
+  // Every instance, however many the raster tier draws (instances.ts).
+  const count = stillInstances(mesh)
+  const version = `${mesh.instanceMatrix.version},${count}`
   const cached = instanceBlobs.get(mesh.instanceMatrix)
   if (cached && cached.version === version) return cached.blob
-  const bytes = encodeInstances(mesh.instanceMatrix.array as Float32Array, mesh.count)
+  const bytes = encodeInstances(mesh.instanceMatrix.array as Float32Array, count)
   const blob = hashed(async () => bytes)
   instanceBlobs.set(mesh.instanceMatrix, { version, blob })
   return blob
@@ -519,6 +522,9 @@ function lightRecord(light: Light): CloudLight | null {
  * those names in, an object by its geometry, instances, materials and placement. Two of anything
  * alike are one, objects are listed by name and the records by key, so the description is the
  * same from any page load (uuids would differ every time) and the server's frame cache hits.
+ *
+ * Everything read from the scene is read before the first await, in the caller's task: the
+ * stills' prefetch puts a sibling design's surfaces on for the call alone (siblings.ts).
  */
 export async function captureScene(scene: Scene, look: SkyLook): Promise<CapturedScene> {
   // Timed by phase for `?traceStats=1`: which of them the first capture's seconds go to decides
@@ -569,7 +575,7 @@ export async function captureScene(scene: Scene, look: SkyLook): Promise<Capture
       for (const material of list)
         if (!params.has(material)) params.set(material, materialParams(material, placeholder))
       const instanced = mesh as InstancedMesh
-      if (instanced.isInstancedMesh && instanced.count === 0) return
+      if (instanced.isInstancedMesh && stillInstances(instanced) === 0) return
       meshes.push({
         materials: list,
         matrix: Array.from(mesh.matrixWorld.elements),

@@ -12,8 +12,10 @@ import {
   type PerspectiveCamera,
   type WebGPURenderer,
 } from 'three/webgpu'
+import { BAKE, reportBake, type BakeResult } from '../lib/bake'
+import { onBakedChange } from '../lib/bakedStills'
 import type { Config, View } from '../lib/config'
-import { configKey } from '../lib/stillKey'
+import { RENDER_VERSION, configKey } from '../lib/stillKey'
 import type { SkyLook } from '../lib/visuals'
 import {
   createExposureMeter,
@@ -32,14 +34,26 @@ import {
   type AngleId,
 } from '../render/gallery'
 import { IDLE_MS } from '../render/plan'
+import { bakeJobs } from '../render/bake'
 import {
   StillSession,
   cloudCamera,
+  type BakedLookup,
   type LocalJob,
+  type PrefetchState,
   type RasterMeter,
   type SceneKeys,
   type StillState,
 } from '../render/stills'
+import { prefetchOn, prefetchSiblings, usePrefetchIntent } from '../render/prefetch'
+import {
+  captureSibling,
+  deriveSibling,
+  siblingKeys,
+  siblingLoaded,
+  whenSiblingLoaded,
+  type Derivation,
+} from '../render/siblings'
 import { INTERIOR_EXPOSURE } from './Atmosphere'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import {
@@ -90,6 +104,19 @@ const denoise = new URLSearchParams(window.location.search).get('denoise') !== '
 /** `?traceStats=1` logs which fingerprint of which part of the scene an edit changed. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
 const SCENE_PARTS: ScenePart[] = ['exterior', 'interior']
+/**
+ * Bake mode renders every still afresh, and a look already baked in this run (the script's
+ * `window.__bakeLooks`) with the gains it was baked with, so a look has one gain across designs.
+ */
+const BAKE_LOOKUP: BakedLookup = {
+  still: () => null,
+  gains: (lighting) => window.__bakeLooks?.[lighting] ?? null,
+  revision: () => 0,
+}
+/** In bake mode, how often the frame loop looks again whether the design is ready to bake. */
+const BAKE_POLL_MS = 500
+/** Siblings' derivations kept (siblings.ts): a few sections' worth. */
+const DERIVATIONS_KEPT = 48
 
 export type Capture = () => Promise<string>
 /** Requests made while an image is on its way share it. An empty image means none was made. */
@@ -102,8 +129,9 @@ function dataUrlBlob(url: string) {
   return new Blob([bytes], { type: /data:([^;]+)/.exec(head)?.[1] ?? 'image/png' })
 }
 
-/** A still as a PNG data URL, which the PDF and a download both take. */
-async function pngOf(blob: Blob) {
+/** A still as a PNG data URL, which the PDF and a download both take (a baked one by address). */
+async function pngOf(image: Blob | string) {
+  const blob = typeof image === 'string' ? await (await fetch(image)).blob() : image
   const bitmap = await createImageBitmap(blob)
   const canvas = document.createElement('canvas')
   canvas.width = bitmap.width
@@ -200,6 +228,8 @@ export function RenderEffects({
   const lastChange = useRef(performance.now())
   /** A redraw booked for a moment no event brings (the design turning idle). */
   const wake = useRef<{ at: number; timer: ReturnType<typeof setTimeout> } | null>(null)
+  /** Bake mode: the bake has started (or failed to). */
+  const baking = useRef(false)
   const timing = useRef({
     last: 0,
     samples: [] as number[],
@@ -271,6 +301,57 @@ export function RenderEffects({
   // cloud renderer, light devices leave all tracing to it; others keep it ready for when every
   // cloud GPU is in use.
   const remote = useMemo(() => cloudUrl(), [])
+
+  // The prefetch (stills.ts): the open panel section's siblings, the option pointed at first, each
+  // captured from the live scene with its surfaces swapped in for the moment (siblings.ts). Only
+  // from the cloud, and never on Lite or in bake mode.
+  const intent = usePrefetchIntent()
+  const derivations = useRef(new Map<string, Derivation | null>())
+  const prefetch = useMemo((): PrefetchState | null => {
+    if (!prefetchOn(quality, remote !== null, !!BAKE)) return null
+    const found = prefetchSiblings(config, intent)
+    if (!found?.options.length) return null
+    const direction = heroKey.split(',').map(Number) as [number, number, number]
+    return {
+      section: found.field,
+      siblings: found.options.map(({ config: sibling }) => {
+        const key = configKey(sibling)
+        return {
+          design: key,
+          capture: (at, expected) => {
+            const pair = `${design}|${key}`
+            const kept = derivations.current
+            let derivation = kept.get(pair)
+            if (derivation === undefined) {
+              derivation = deriveSibling(config, sibling)
+              kept.set(pair, derivation)
+              if (kept.size > DERIVATIONS_KEPT) kept.delete(kept.keys().next().value!)
+            }
+            if (!derivation) return { kind: 'never' }
+            const lens = {
+              camera: cloudCamera(galleryCamera(sibling, at, aspect, direction), near, far),
+              angleKey: angleKey(at, direction),
+            }
+            // Its keys first, which need no scans and no capture: a sibling whose still at this
+            // angle is in already costs neither.
+            const keys = siblingKeys(scene, lookRef.current, derivation, expected)
+            if (!keys) return { kind: 'later' }
+            if (!siblingLoaded(derivation)) {
+              const load = () => whenSiblingLoaded(derivation)
+              return { kind: 'unloaded', keys, load, ...lens }
+            }
+            const take = () => {
+              const shot = captureSibling(scene, lookRef.current, derivation, expected)
+              return shot ? shot.captured : Promise.reject(new Error('the scene has changed'))
+            }
+            return { kind: 'ready', keys, take, ...lens }
+          },
+        }
+      }),
+    }
+  }, [config, design, intent, quality, remote, scene, aspect, heroKey, near, far])
+  // A section opened, or an option pointed at: the plan is looked at again.
+  useEffect(() => invalidate(), [prefetch, invalidate])
   const localAvailable = webgpu && trace && (quality !== 'lite' || remote === null)
   useEffect(() => {
     if (!localAvailable) return
@@ -342,7 +423,11 @@ export function RenderEffects({
     }
     const placeholder = new DataTexture(new Uint16Array(4), 1, 1, RGBAFormat, HalfFloatType)
     const created = {
-      session: new StillSession(remote ? new CloudClient(remote) : null, invalidate),
+      session: new StillSession(
+        remote ? new CloudClient(remote) : null,
+        invalidate,
+        BAKE ? BAKE_LOOKUP : undefined,
+      ),
       meter: createExposureMeter(renderer, placeholder),
       offscreen: new RenderTarget(4, 4, { depthBuffer: false }),
     }
@@ -362,10 +447,19 @@ export function RenderEffects({
   useEffect(() => {
     stills.current?.session.setLocalAvailable(tracer !== null)
   }, [tracer, stillsOn])
-  // The 360° view stands the stills down: nothing new is asked for, and the canvas is redrawn.
-  // Its camera was placed there, not moved: no blur on its first frames.
+  // Bake mode with no cloud to render on (`?trace=0`, or a renderer turned off): the script hears
+  // at once rather than when its wait runs out.
   useEffect(() => {
-    stills.current?.session.setActive(mode === 'gallery')
+    if (BAKE && !BAKE.list && (!trace || remote === null))
+      reportBake({ state: 'failed', error: 'There is no cloud renderer to bake with.' })
+  }, [trace, remote])
+  // A baked still that failed to load is rendered instead: the plan is looked at again.
+  useEffect(() => onBakedChange(invalidate), [invalidate])
+  // The 360° view stands the stills down: nothing new is asked for, and the canvas is redrawn.
+  // Its camera was placed there, not moved: no blur on its first frames. Bake mode renders only
+  // what it bakes.
+  useEffect(() => {
+    stills.current?.session.setActive(mode === 'gallery' && !BAKE)
     shutter.cut()
     changed.current = true
     invalidate()
@@ -519,6 +613,8 @@ export function RenderEffects({
         angleKeys: lenses.angleKeys,
         exposure: { exterior: outside, interior: outside * INTERIOR_EXPOSURE },
         idle,
+        editedAt: lastChange.current,
+        prefetch: active ? prefetch : null,
       }
       session.sync(
         scene,
@@ -534,6 +630,50 @@ export function RenderEffects({
         textures.loaded >= textures.requested,
       )
       session.wantExport(pending.current !== null)
+      if (BAKE && !baking.current) {
+        const ready = session.bakeState()
+        if (ready === 'waiting') wakeAt(now + BAKE_POLL_MS)
+        else {
+          baking.current = true
+          if (ready === 'failed')
+            reportBake({ state: 'failed', error: 'The cloud renderer is not available.' })
+          else {
+            const jobs = bakeJobs({
+              config,
+              hero,
+              aspects: BAKE.aspects,
+              near: cam.near,
+              far: cam.far,
+              quick: BAKE.quick,
+            })
+            const results: BakeResult[] = []
+            reportBake({ state: 'rendering', version: RENDER_VERSION, design, total: jobs.length })
+            session
+              .bake(jobs, (job, frame) => {
+                results.push({
+                  key: job.key,
+                  angle: job.angle,
+                  angleKey: job.angleKey,
+                  aspect: job.aspect,
+                  width: job.width,
+                  height: job.height,
+                  samples: job.quality.samples,
+                  renderMs: frame.renderMs,
+                  cached: frame.cached,
+                  image: frame.image,
+                })
+                reportBake({ results: [...results] })
+              })
+              .then(({ lighting, gains }) => reportBake({ state: 'done', lighting, gains }))
+              .catch((error: unknown) =>
+                reportBake({
+                  state: 'failed',
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              )
+          }
+        }
+      }
       if (meterWanted.current.length) {
         // The raster frame for this look at each camera asked for, rendered a few times so its
         // temporal effects settle, and measured. None reaches the canvas: the meter reads the
@@ -647,7 +787,7 @@ export function RenderEffects({
           const blob = dataUrlBlob(renderer.domElement.toDataURL('image/webp', 0.92))
           usable.halt()
           local.current = null
-          producer.session.deliverLocal(tracing.job, blob)
+          producer.session.deliverLocal(tracing.job, blob, target)
           beginFrame(renderer)
           pipe.render()
         }
@@ -690,7 +830,9 @@ export function RenderEffects({
         captureTimer.current = null
         const answer = (image: string) => capture.resolvers.forEach((resolve) => resolve(image))
         if (best)
-          pngOf(best.blob).then(answer, () => answer(renderer.domElement.toDataURL('image/png')))
+          pngOf('blob' in best ? best.blob : best.url).then(answer, () =>
+            answer(renderer.domElement.toDataURL('image/png')),
+          )
         else {
           beginFrame(renderer)
           refreshShadows(scene)

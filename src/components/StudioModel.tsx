@@ -1,18 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, SRGBColorSpace } from 'three'
 import type { Config } from '../lib/config'
-import {
-  containerInterior,
-  containerShell,
-  interiorBounds,
-  studioGlazing,
-  studioInterior,
-  studioShell,
-} from '../render/architecture'
-import { canopy, deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
+import { interiorBounds } from '../render/architecture'
 import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
+import { UNIT_LISTS, type UnitList } from '../render/unitParts'
 import { useMirror } from '../render/mirror'
 import type { Quality } from '../render/quality'
 import { Equipment, SaunaLights } from './Equipment'
@@ -20,11 +13,24 @@ import { InteriorLights } from './InteriorLights'
 import { Mirror } from './Mirror'
 import { Parts } from './Parts'
 
-/** Rebuilds a part list only when the inputs named in `key` change. */
-function useParts(build: (c: Config) => Part[], config: Config, key: string) {
-  const cache = useRef<{ key: string; parts: Part[] } | null>(null)
-  if (cache.current?.key !== key) cache.current = { key, parts: build(config) }
-  return cache.current.parts
+/**
+ * The unit's part lists shown for a design (unitParts.ts), each rebuilt only when the inputs its
+ * key names change.
+ */
+function useUnitParts(config: Config) {
+  const cache = useRef(new Map<string, { key: string; parts: Part[] }>())
+  const lists: { list: UnitList; parts: Part[] }[] = []
+  for (const list of UNIT_LISTS) {
+    if (!list.shown(config)) continue
+    const key = list.key(config)
+    let kept = cache.current.get(list.name)
+    if (kept?.key !== key) {
+      kept = { key, parts: list.build(config) }
+      cache.current.set(list.name, kept)
+    }
+    lists.push({ list, parts: kept.parts })
+  }
+  return lists
 }
 
 function Signature({ length }: { length: number }) {
@@ -96,50 +102,25 @@ export function StudioModel({
   quality?: Quality
 }) {
   const studio = c.family === 'studio'
-  const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
-  const openingKey = `${shellKey}|${c.openingInfill}|${c.doorsOpen}|${c.studioDoor}`
-  const interiorKey = `${shellKey}|${c.flooring}|${c.interiorStyle}|${c.openingInfill}`
-  const shell = useParts(
-    (x) => (x.family === 'studio' ? studioShell(x) : containerShell(x)),
-    c,
-    openingKey,
-  )
-  const interior = useParts(
-    (x) => (x.family === 'studio' ? studioInterior(x) : containerInterior(x)),
-    c,
-    interiorKey,
-  )
-  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, openingKey)
-  const a = c.addons
-  const deckParts = useParts(deck, c, `${shellKey}|${c.lights}`)
-  const pergolaParts = useParts(pergola, c, shellKey)
-  const roofParts = useParts(roofDeck, c, `${shellKey}|${a.stairs}|${c.railing}`)
-  const stairParts = useParts(stairs, c, `${shellKey}|${c.railing}`)
-  const canopyParts = useParts(canopy, c, `${shellKey}|${a.roof}|${c.lights}`)
-  const accentParts = useParts(timberAccent, c, shellKey)
+  const lists = useUnitParts(c)
+  // Each list's meshes carry its name, so the stills' prefetch can find them (siblings.ts).
+  const scoped = (scope: UnitList['scope']) =>
+    lists
+      .filter(({ list }) => list.scope === scope)
+      .map(({ list, parts }) => <Parts key={list.name} name={list.name} parts={parts} />)
   return (
     // Tagged so the site reflection probe can leave the unit out of its capture.
     <group userData={{ unit: true }}>
       {/* The shell and its glazing (the door, the windows) are seen from both sides: an edit to
-          them, a door opened, costs the spin its exterior ring and its panorama alike. */}
-      <group userData={{ shared: true }}>
-        <Parts parts={shell} />
-        {glazing.length > 0 && <Parts parts={glazing} />}
-      </group>
-      {/* What is inside the room is marked, so an edit there costs the spin only its panorama,
-          not the exterior ring (pathtrace.ts sceneSignature). */}
-      <group userData={{ interior: true }}>
-        <Parts parts={interior} />
-      </group>
+          them, a door opened, costs the stills outside and inside alike. */}
+      <group userData={{ shared: true }}>{scoped('shared')}</group>
+      {/* What is inside the room is marked, so an edit there costs the stills only the interior
+          angles, not the exterior ones (pathtrace.ts sceneSignature). */}
+      <group userData={{ interior: true }}>{scoped('interior')}</group>
       <InteriorLights config={c} quality={quality} />
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}
-      {studio && c.accent && <Parts parts={accentParts} />}
-      {a.deck && <Parts parts={deckParts} />}
-      {studio && a.gazebo && <Parts parts={pergolaParts} />}
-      {a.roof && <Parts parts={roofParts} />}
-      {a.stairs && <Parts parts={stairParts} />}
-      {!studio && a.canopy && <Parts parts={canopyParts} />}
+      {scoped('outside')}
       {c.items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}

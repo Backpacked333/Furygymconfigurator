@@ -88,7 +88,7 @@ export const galleryAngle = (id: AngleId) => GALLERY_ANGLES.find((a) => a.id ===
 export type AspectClass = 'wide' | 'tall'
 export const ASPECT_RATIO: Record<AspectClass, number> = { wide: 16 / 10, tall: 4 / 5 }
 /** The phone layout (styles.css uses the same breakpoint). */
-export const TALL_MEDIA = '(max-width: 820px)'
+export { TALL_MEDIA } from '../lib/stillsManifest'
 /** The class of a stage (or of the canvas inside it) by its measured shape. */
 export const aspectClassOf = (width: number, height: number): AspectClass =>
   width >= height ? 'wide' : 'tall'

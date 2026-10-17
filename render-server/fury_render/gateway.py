@@ -13,6 +13,7 @@ its own container is up.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -113,14 +114,19 @@ def create_gateway(
     max_sessions: int | None = None,
     warm: bool | None = None,
     idle_seconds: float | None = None,
+    bake_token: str | None = None,
 ) -> FastAPI:
     """Builds the gateway over `dispatch(method, path, body, client, session)`.
 
     `dispatch` calls the session's own GPU, or the renderer kept running when `session` is
     WARM_SESSION; `warm` (FURY_WARM) sends a session there until its own renderer has answered.
     `idle_seconds` (FURY_IDLE_SECONDS) is how long a session's GPU stays on without requests; its
-    place here outlives that by PLACE_MARGIN.
+    place here outlives that by PLACE_MARGIN. `bake_token` (FURY_BAKE_TOKEN), when set, lets a
+    request carrying it in X-Fury-Bake render for up to a minute, as the export tier's baked stills
+    need (scripts/bake-stills.mjs sends it from its own proxy, never from a browser); without it
+    every view is cut at 15 seconds.
     """
+    token = bake_token if bake_token is not None else os.environ.get("FURY_BAKE_TOKEN", "")
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(
         CORSMiddleware,
@@ -242,8 +248,13 @@ def create_gateway(
                 # Supersession stays within one caller's own views.
                 data["session"] = client + ":" + str(data.get("session", ""))[:24]
                 quality = data.get("quality") or {}
-                # A 360° panorama has several times a view's pixels.
-                cap = 60 if (data.get("camera") or {}).get("panorama") else 15
+                # A 360° panorama has several times a view's pixels; a baked export still is
+                # traced to 1024 samples at 2400 px.
+                baking = bool(token) and hmac.compare_digest(
+                    request.headers.get("x-fury-bake", "").encode(), token.encode()
+                )
+                panorama = (data.get("camera") or {}).get("panorama")
+                cap = 60 if panorama or baking else 15
                 quality["timeLimit"] = min(cap, float(quality.get("timeLimit", 15)))
                 data["quality"] = quality
                 body = json.dumps(data).encode()

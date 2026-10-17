@@ -34,7 +34,7 @@ import Modal from './components/Modal'
 import { SceneLoadBoundary } from './components/SceneLoadBoundary'
 import { SceneLoading } from './components/SceneLoading'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
-import { RenderStatus } from './components/RenderStatus'
+import { PILL_DELAY_MS, RenderStatus } from './components/RenderStatus'
 import { StageToolbar } from './components/StageToolbar'
 import { Filmstrip, StillLayers } from './components/StillStage'
 import { stillLabel, useReducedMotion, useStillStage } from './components/useStillStage'
@@ -55,6 +55,7 @@ import {
   type Unit,
   type View,
 } from './lib/config'
+import { BAKE, heroOf } from './lib/bake'
 import { describeChange, type Change } from './lib/describeChange'
 import { configKey } from './lib/stillKey'
 import { useConfig } from './lib/useConfig'
@@ -108,7 +109,9 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(false),
     [mobilePanel, setMobilePanel] = useState(true),
     [downloading, setDownloading] = useState(false)
-  const [camera, setCamera] = useState<[number, number, number]>(DEFAULT_CAMERA)
+  // The front three-quarter view's direction: a signature build's own, as it is baked, when the
+  // page opens one (a share link, a draft) or one is applied; kept through later edits.
+  const [camera, setCamera] = useState<[number, number, number]>(() => BAKE?.hero ?? heroOf(config))
   // The gallery of path-traced stills (the default), or the live 360° view.
   const [mode, setMode] = useState<'gallery' | 'live'>('gallery')
   /**
@@ -138,26 +141,39 @@ export default function App() {
     design,
     angle,
     aspect,
+    hero: camera,
     snapshot: stills,
     instant: freeze === 'hold',
   })
   const gallery = mode === 'gallery'
   // The stage waits for a still of the visitor's design at their angle, which something renders.
   const stagePending = gallery && stills.source !== null && !stage.current
+  // The swatch's ring and the filmstrip's shimmer show with the pill, once the wait has lasted:
+  // a still that swaps in sooner (a prefetched option, a cached design) shows no status at all.
+  const statusShown = useHeldFor(stagePending, PILL_DELAY_MS)
   const covered = gallery && stage.covered
   // Nothing path traced on the stage yet (or nothing to trace with): the live view shows there.
   const livePreview = gallery && !stage.state.shown
+  // The page's first still, baked, still loading: the stage says so, not that it is path traced.
+  const stillLoading = gallery && !livePreview && !stage.visible
+  /** What made the still on the stage: a baked one says its own samples. */
+  const shownStill = stage.state.shown
+  const stillSource = shownStill?.srcset
+    ? 'Cycles'
+    : stills.source === 'local'
+      ? 'This device'
+      : 'Cycles'
   // An angle turned to whose still is not in yet is named by the angle; anything else by the edit.
   const what =
     stage.state.shown?.design === `${design}|${aspect}` ? galleryAngle(angle).phrase : change.label
   const progress = stills.design === design ? stills.progress : null
   useEffect(() => {
     setPendingChoice(
-      stagePending && change.field && change.value
+      statusShown && change.field && change.value
         ? { field: change.field, value: change.value }
         : null,
     )
-  }, [stagePending, change])
+  }, [statusShown, change])
   // The still in the 360° view's way lifts once the live view shows a settled frame (or after a
   // while, on a device too slow to settle promptly).
   useEffect(() => {
@@ -282,6 +298,7 @@ export default function App() {
         return false
       }
       setConfig(shared)
+      setCamera(heroOf(shared))
       notify('Shared design loaded. Undo returns to your previous design.')
       return true
     },
@@ -331,7 +348,12 @@ export default function App() {
   const download = async () => {
     if (downloading) return
     setDownloading(true)
-    if (gallery && stills.source !== null)
+    // An export on the stage already (a baked still) is downloaded as it is, at once.
+    if (
+      gallery &&
+      stills.source !== null &&
+      !(stage.current && stage.state.shown?.tier === 'export')
+    )
       notify('Rendering a full-resolution image of this view. It takes up to a minute.')
     const image = await capture()
     setDownloading(false)
@@ -463,16 +485,23 @@ export default function App() {
                 <div className="scene-status">
                   <span className="status-dot" />
                   <strong>
-                    {mode === 'live' ? 'LIVE 3D' : livePreview ? 'LIVE PREVIEW' : 'PATH TRACED'}
+                    {mode === 'live'
+                      ? 'LIVE 3D'
+                      : livePreview
+                        ? 'LIVE PREVIEW'
+                        : stillLoading
+                          ? 'LOADING'
+                          : 'PATH TRACED'}
                   </strong>
                   {backend && (mode === 'live' || livePreview) && (
                     <span className="render-backend">
                       {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
                     </span>
                   )}
-                  {gallery && !livePreview && (
+                  {gallery && !livePreview && !stillLoading && (
                     <span className="render-backend">
-                      {stills.source === 'local' ? 'This device' : 'Cycles'} · 256 samples
+                      {stillSource}
+                      {shownStill?.samples ? ` · ${shownStill.samples} samples` : ''}
                     </span>
                   )}
                   <span className="scene-note">
@@ -579,8 +608,9 @@ export default function App() {
                 design={design}
                 angle={angle}
                 aspect={aspect}
+                hero={camera}
                 snapshot={stills}
-                stagePending={stagePending}
+                stagePending={statusShown}
                 onPick={pickAngle}
               />
             )}
@@ -674,7 +704,10 @@ export default function App() {
         <LibraryDialog
           config={config}
           unit={unit}
-          onLoad={setConfig}
+          onLoad={(saved) => {
+            setConfig(saved)
+            setCamera(heroOf(saved))
+          }}
           onClose={close}
           notify={notify}
         />
@@ -778,6 +811,18 @@ function useChange(config: Config): Change {
   return seen.change
 }
 
+/** Whether `on` has held for `ms` (false again the moment it is not). */
+function useHeldFor(on: boolean, ms: number) {
+  const [held, setHeld] = useState(false)
+  useEffect(() => {
+    setHeld(false)
+    if (!on) return
+    const timer = setTimeout(() => setHeld(true), ms)
+    return () => clearTimeout(timer)
+  }, [on, ms])
+  return on && held
+}
+
 /**
  * The largest box of `ratio` that fits the frame: the stage keeps its shape at any window size,
  * like a photograph. Null until the frame has been measured (CSS sizes the box meanwhile).
@@ -855,6 +900,10 @@ function BenchPanel() {
     [
       'local tracer',
       `first image ${seconds(stats.local.firstMs)} · settled ${seconds(stats.local.settledMs)}`,
+    ],
+    [
+      'prefetch',
+      `${stats.prefetch.sent} sent · ${stats.prefetch.landed} landed · ${stats.prefetch.hits} clicks found theirs`,
     ],
   ]
   return (

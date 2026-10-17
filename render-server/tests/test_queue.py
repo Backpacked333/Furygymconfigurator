@@ -224,6 +224,59 @@ def test_frames_are_named_by_the_worker_that_made_them(tmp_path):
     assert service.versions == [frame_version(gpu.info), frame_version(cpu.info)]
 
 
+def test_a_frame_asked_for_again_while_it_renders_is_rendered_once(tmp_path):
+    """The browser gave up on a frame and asked again: the copy waits, then comes from the cache.
+
+    Blender finishes what it started whatever the caller does, so a request that waited for the
+    worker behind the very frame it asks for gets that frame, not a second render.
+    """
+    import time
+
+    import numpy as np
+
+    from fury_render.api import Service, Settings
+    from scene_kit import Kit, request
+
+    kit = Kit()
+    scene = kit.scene()
+    service = Service(
+        Settings(blob_dir=str(tmp_path / "blobs"), frame_dir=str(tmp_path / "frames"))
+    )
+    for key, data in kit.blobs.items():
+        service.store.put(key, data)
+    service.workers[0].info = {"blender": "4.5.0", "denoise": "gpu"}
+    hdr = np.full((48, 64, 3), 0.5, np.float16)
+    renders = []
+
+    def call(message):
+        renders.append(message["request"]["width"])
+        time.sleep(0.2)
+        with open(message["out"], "wb") as f:
+            np.save(f, hdr)
+        stats = {"prepareMs": 1, "renderMs": 200, "device": "test", "width": 64, "height": 48}
+        return {"ok": True, "stats": stats}
+
+    service.workers[0].call = call
+    body = {
+        **request(scene, session="tab-p"),
+        "output": "frame",
+        "finish": {"exposure": 1, "gain": 1},
+    }
+
+    async def scenario():
+        first = asyncio.create_task(service.render(body))
+        while not service.queue.busy:
+            await asyncio.sleep(0.001)
+        again = asyncio.create_task(service.render(body))
+        return await asyncio.gather(first, again)
+
+    first, again = asyncio.run(scenario())
+    assert first.headers["x-cache"] == "miss" and again.headers["x-cache"] == "hit"
+    assert again.body == first.body
+    assert len(renders) == 1
+    assert service.waiting == 0 and not service.queue.busy
+
+
 def test_priority_is_clamped_to_the_ring_distance_range():
     from fury_render.protocol import validate_request
     from scene_kit import Kit, request

@@ -2700,7 +2700,9 @@ h3 {
   object-fit: cover;
   user-select: none;
 }
-.still-layer.is-pending {
+/* Decoding out of sight: the still that replaces the one shown, or the page's first, baked. */
+.still-layer.is-pending,
+.still-layer.is-loading {
   opacity: 0;
 }
 .still-layer.is-entering {
@@ -2712,6 +2714,32 @@ h3 {
   }
   to {
     opacity: 1;
+  }
+}
+/* The page's first still, slow to arrive: a soft light passes over the empty stage, and a quiet
+   line says what is coming, under the still that fades in over them once it has decoded. */
+.still-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 64px;
+  background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.22) 50%, transparent 70%)
+    #c7ccc2;
+  background-size: 250% 100%;
+  animation: film-shimmer 1.8s ease-in-out infinite;
+}
+.still-loading span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(32 34 31 / 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .still-loading {
+    animation: none;
   }
 }
 .stage.is-live .still-layers {

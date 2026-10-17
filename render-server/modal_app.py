@@ -164,6 +164,9 @@ gateway_image = (
                 # running only when there is one.
                 "FURY_IDLE_SECONDS": str(IDLE_SECONDS),
                 "FURY_WARM": "1" if WARM else "0",
+                # Lets `npm run bake` render export-tier stills (up to a minute each) through the
+                # gateway; unset, every view is cut at 15 seconds.
+                "FURY_BAKE_TOKEN": os.environ.get("FURY_BAKE_TOKEN", ""),
             }
         ),
     ],
