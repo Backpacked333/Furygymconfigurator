@@ -1,13 +1,28 @@
 import type { InstancedMesh, Matrix4 } from 'three/webgpu'
+import type { Quality } from './quality'
 
 /**
  * Instanced plants thinned by the raster tier. Grass, hedges, shrubs and tree crowns are built at
- * full density (scenery.ts DENSITY.ultra) and each tier draws the first of their instances, which
+ * full density (DENSITY.ultra) and each tier draws the first of their instances, which
  * thin the set evenly (each is placed by its own index). The path-traced stills capture and sign
  * every instance (cloud.ts, pathtrace.ts), so a still of a design is the same whatever tier the
  * visitor's raster runs at: a still rendered for an edit on a phone matches one baked or rendered
  * on a desktop, and the server's cache serves both.
  */
+
+/** The share of a set of instances each raster tier draws. */
+export const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
+
+/**
+ * A set of `per` instances at a tier's density, plus `base`: how many to build (at full density,
+ * for the stills) and how many the tier draws.
+ */
+export function thinned(per: number, quality: Quality, base = 0) {
+  return {
+    count: Math.round(per * DENSITY.ultra) + base,
+    drawn: Math.round(per * DENSITY[quality]) + base,
+  }
+}
 
 /** Every instance put on each mesh, however many it draws. */
 const built = new WeakMap<InstancedMesh, number>()

@@ -58,11 +58,13 @@ describe('the interior probe', () => {
     draw()
     expect(captures()).toBe(1)
     expect(setProbeEnvironment).toHaveBeenLastCalledWith('interior', expect.any(Texture))
-    // The second pass (a diffuse bounce of the first) the frame after, then nothing.
+    // Three more passes (each a diffuse bounce of the one before), a frame apart, then nothing.
+    for (let pass = 2; pass <= 4; pass++) {
+      draw()
+      expect(captures()).toBe(pass)
+    }
     draw()
-    expect(captures()).toBe(2)
-    draw()
-    expect(captures()).toBe(2)
+    expect(captures()).toBe(4)
     // An edit is captured once it has held still: a slider drag is many.
     act(() =>
       root.render(
@@ -73,10 +75,10 @@ describe('the interior probe', () => {
       ),
     )
     draw()
-    expect(captures()).toBe(2)
+    expect(captures()).toBe(4)
     vi.advanceTimersByTime(DEBOUNCE_MS)
     draw()
-    expect(captures()).toBe(3)
+    expect(captures()).toBe(5)
     // Unmounted, the probe takes its environment away.
     act(() => root.unmount())
     expect(setProbeEnvironment).toHaveBeenLastCalledWith('interior', null)

@@ -3,9 +3,8 @@ import { InstancedMesh, MeshStandardMaterial, PlaneGeometry, Scene } from 'three
 import { describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import { captureScene, stableJson } from './cloud'
-import { drawInstances, fillInstances, stillInstances } from './instances'
+import { DENSITY, drawInstances, fillInstances, stillInstances, thinned } from './instances'
 import { partsSignature, sceneParts } from './pathtrace'
-import { DENSITY, thinned } from './scenery'
 import { shrubShape, treeShape } from './vegetation'
 
 // The sky map takes seconds to compute: a scene capture gets a tiny one.

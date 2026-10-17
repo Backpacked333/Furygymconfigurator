@@ -36,8 +36,8 @@ export { fingerprint }
  * matrices, the sky map, and texture files. The server keeps them, so a new camera angle or a
  * material edit sends only the small JSON description, and a blob is uploaded only when the
  * server answers that it is missing (409). Texture bytes are uploaded by the browser too.
- * The still comes back finished (exposure, bloom, tone mapping) as WebP, with the traced image's
- * brightness, which the exposure meter matches to the live view's.
+ * The still comes back finished (exposure, bloom, tone mapping) as WebP, at the exposure the live
+ * view is shown at (visuals.ts exposureAt), with no gain between the two (stills.ts STILL_GAIN).
  *
  * The description names nothing by the page's own ids: objects, materials and textures are keyed
  * by their content and listed in key order, so the same design serializes to the same bytes on
@@ -767,7 +767,7 @@ export class CloudClient {
   }
 
   /**
-   * A finished frame (a still of stills.ts, or the exposure meter's): tone mapped, with bloom, as WebP. All
+   * A finished frame (a still of stills.ts): tone mapped, with bloom, as WebP. All
    * frames of one `generation` share a sequence number, so a newer generation (the design
    * changed) drops the ones still queued. A frame that takes too long to come (FRAME_TIMEOUT_MS
    * beyond twice its time limit and the longest other frame open) is given up as a busy server.
@@ -782,7 +782,7 @@ export class CloudClient {
       finish: { exposure: number; gain: number }
       priority: number
       generation: number
-      /** Frames on another channel never supersede these (the exposure meter's own frame). */
+      /** Frames on another channel never supersede these (the stage's, a prefetch, a bake). */
       channel?: string
     },
     signal: AbortSignal,
@@ -893,7 +893,8 @@ export class CloudClient {
 
 /**
  * A finished frame as the server sent it (WebP), with the traced image's key: its mean log
- * luminance before finishing, metered as the browser meters (pipeline.ts createExposureMeter).
+ * luminance before finishing on a 48×30 grid (render-server finishing.py traced_key), for
+ * diagnostics: the page meters nothing against it.
  */
 export type StillFrame = {
   image: Blob

@@ -9,8 +9,8 @@ import type { Tier } from './plan'
  * traceStatus.ts, so the app shell reads it without re-rendering the 3D scene tree.
  */
 
-/** A still image: its tier, its address, and the samples it was traced with. */
-export type StillImage = { tier: Tier; url: string; samples?: number }
+/** A still image: its tier, its address, the samples it was traced with, and its pixel width. */
+export type StillImage = { tier: Tier; url: string; samples?: number; width?: number }
 /** An angle's images of the design: a thumbnail, and the best still (or export) for the stage. */
 export type AngleImages = { thumb?: StillImage; still?: StillImage }
 /**

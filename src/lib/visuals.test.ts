@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   CLOUD_LAYER,
+  DAYLIGHT_EXPOSURE,
+  INTERIOR_EXPOSURE,
+  NIGHT_EXPOSURE,
   SKY_PRESETS,
   SOLAR,
   STUDIO_BACKDROP,
   cloudySkyRadiance,
   environmentRadiance,
   equirectRadiance,
+  exposureAt,
   horizonRadiance,
   nightAt,
   noise,
@@ -155,5 +159,30 @@ describe('path-traced environment', () => {
     // The low front strip light is wide and shallow.
     expect(studioRadiance([0, 0.15, 1])[0]).toBeCloseTo(1.6, 6)
     expect(studioRadiance([0, 0.3, 1])).toEqual(STUDIO_BACKDROP)
+  })
+})
+
+describe('camera exposure', () => {
+  it('is fixed by the time of day alone, outside and in the room', () => {
+    // The live view and every still take it from here; nothing about the device enters it.
+    expect(exposureAt.length).toBe(1)
+    const noon = exposureAt(12)
+    expect(noon.exterior).toBe(DAYLIGHT_EXPOSURE)
+    expect(noon.interior).toBeCloseTo(DAYLIGHT_EXPOSURE * INTERIOR_EXPOSURE, 12)
+    expect(exposureAt(12)).toEqual(noon)
+    // A camera inside opens up, by less than a stop.
+    expect(INTERIOR_EXPOSURE).toBeGreaterThan(1)
+    expect(INTERIOR_EXPOSURE).toBeLessThan(2)
+  })
+  it('opens up after dark, smoothly, as eyes adapt', () => {
+    expect(exposureAt(22).exterior).toBeCloseTo(DAYLIGHT_EXPOSURE * (1 + NIGHT_EXPOSURE), 6)
+    let previous = exposureAt(18).exterior
+    for (let time = 18; time <= 22; time += 0.05) {
+      const { exterior, interior } = exposureAt(time)
+      expect(exterior).toBeGreaterThanOrEqual(previous - 1e-12)
+      expect(exterior - previous).toBeLessThan(0.2 * DAYLIGHT_EXPOSURE)
+      expect(interior / exterior).toBeCloseTo(INTERIOR_EXPOSURE, 12)
+      previous = exterior
+    }
   })
 })

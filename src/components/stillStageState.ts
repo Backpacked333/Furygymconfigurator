@@ -6,7 +6,8 @@ import { TIER_RANK, type Tier } from '../render/plan'
  * own (StillStage.tsx drives it):
  *
  * - The stage holds a still until its replacement has decoded, then swaps once (one crossfade).
- * - A still is never replaced by a lesser tier of the same design and angle.
+ * - A still is never replaced by a lesser tier of the same design and angle, nor by the same tier
+ *   unless that one is larger (rendered again for a stage grown to full screen): never smaller.
  * - Only what the visitor wants now is taken: an offer for a design or angle they have since left
  *   is ignored, and one decoding for it is dropped, so rapid edits end on the latest.
  * - A baked still (bakedStills.ts) counts as the top tier: nothing rendered replaces it. The page's
@@ -26,6 +27,8 @@ export type Layer = {
   sizes?: string
   /** The samples it was traced with, for the status line. */
   samples?: number
+  /** Its width in pixels (a baked one's widths are its `srcset`'s). */
+  width?: number
 }
 
 export type StageState = {
@@ -78,6 +81,17 @@ export function initialStage(
   return { ...EMPTY_STAGE, want, shown: baked, loading: true }
 }
 
+/**
+ * How large a still is, to tell a larger one of the same tier: a baked one comes in every width the
+ * stage could want (`srcset`), so nothing is larger.
+ */
+const widthOf = (layer: Layer) => (layer.srcset ? Infinity : (layer.width ?? 0))
+
+/** Whether `next` would be a lesser still than `held` of the same design and angle. */
+const lesser = (next: Layer, held: Layer) =>
+  TIER_RANK[next.tier] < TIER_RANK[held.tier] ||
+  (next.tier === held.tier && widthOf(next) <= widthOf(held))
+
 function sameShot(
   a: { design: string; angle: AngleId } | null,
   b: { design: string; angle: AngleId } | null,
@@ -104,10 +118,10 @@ export function stageReducer(state: StageState, event: StageEvent): StageState {
         if (sameShot(shown, layer) && shown.tier === layer.tier) return state
         return { ...state, shown: layer, pending: null }
       }
-      if (sameShot(shown, layer) && TIER_RANK[layer.tier] <= TIER_RANK[shown!.tier]) return state
+      if (sameShot(shown, layer) && lesser(layer, shown!)) return state
       if (pending && sameShot(pending, layer)) {
         if (pending.url === layer.url) return state
-        if (TIER_RANK[layer.tier] < TIER_RANK[pending.tier]) return state
+        if (lesser(layer, pending)) return state
       }
       return { ...state, pending: layer }
     }

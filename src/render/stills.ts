@@ -1,5 +1,5 @@
 import { Matrix4, Vector3, type Scene } from 'three/webgpu'
-import { bakedGains, bakedRevision, bakedStill } from '../lib/bakedStills'
+import { bakedRevision, bakedStill } from '../lib/bakedStills'
 import { EXPORT_SAMPLES } from '../lib/stillsManifest'
 import type { SkyLook } from '../lib/visuals'
 import type { BakeJob } from './bake'
@@ -43,8 +43,8 @@ export type { Tier }
  * rendered as a finished still by the visitor's cloud GPU (render-server/), at three tiers: a
  * thumbnail for the filmstrip, the still the stage shows, and an export for downloads and the
  * PDF. The stage swaps a still in only once it is the real thing: nothing is asked for before
- * the scanned textures are in and the exposure is metered, so a still is never a stand-in that
- * a better one replaces in front of the visitor.
+ * the scanned textures are in, so a still is never a stand-in that a better one replaces in front
+ * of the visitor.
  *
  * What the stage waits for comes first (plan.ts): the current angle's still, on a channel of its
  * own; then a thumbnail of every other angle; then, once the visitor rests on the design, their
@@ -56,9 +56,9 @@ export type { Tier }
  * `localJob` and hands the result to `deliverLocal`), and the same store keeps it.
  *
  * A still baked ahead of time (bakedStills.ts, found from the design's config key) counts as
- * stored at every tier: the stage shows it from first paint, and it is never rendered again. A
- * lighting look baked with exposure gains is rendered with those, unmetered, so a still rendered
- * for an edit matches the baked one it replaces.
+ * stored at every tier: the stage shows it from first paint, and it is never rendered again. Every
+ * still is exposed as the live view is (STILL_GAIN), so a still rendered for an edit matches the
+ * baked one it replaces.
  *
  * While a panel section is open, the current angle's still of each of its siblings (the design
  * with that one option changed: prefetch.ts) is rendered ahead, one at a time, once the stage's
@@ -77,15 +77,24 @@ export const QUALITY: Record<Tier, Quality> = {
   still: { samples: 256, threshold: 0, timeLimit: 20 },
   export: { samples: EXPORT_SAMPLES, threshold: 0.01, timeLimit: 60 },
 }
-/** The exposure meter's frame: denoised, its mean brightness settles within a few samples. */
-const METER = { samples: 16, threshold: 0, timeLimit: 4 }
-/** The meter's frame keeps the raster's full size: a much smaller frame reads brighter. */
-const METER_MAX_EDGE = 3200
+/**
+ * The gain between the traced light and the finished still: none. A still is exposed at its part's
+ * camera exposure (StillState `exposure`, visuals.ts exposureAt), as the live view is, and the
+ * raster is tuned to the traced light rather than the still to the raster. Nothing is metered, so
+ * a design gets the same still, and the same request to the server's cache, on every device and
+ * tier.
+ */
+export const STILL_GAIN = 1
 /** A thumbnail's width, in pixels. */
 export const THUMB_WIDTH = 320
 /** A stage still is rendered at the stage's size at up to this density, its long edge capped. */
 export const STILL_MAX_DPR = 1.5
 export const STILL_LONG_EDGE = 1920
+/**
+ * A stage grown this much past its still's size (full screen, a big resize) has the still rendered
+ * again at the new size, swapped in with no status; a smaller stage keeps the larger still.
+ */
+export const STILL_GROWTH = 1.25
 /** An export's long edge, whatever the screen. */
 export const EXPORT_LONG_EDGE = 2400
 /**
@@ -98,8 +107,6 @@ const BUSY_MS = 2000
 const BUSY_MAX_MS = 30_000
 /** Every cloud GPU in use: this page renders on its own device and asks again after this long. */
 const FULL_MS = 60_000
-/** The exposure is metered once the design has held still this long (a slider drag is many). */
-export const METER_DEBOUNCE_MS = 400
 /**
  * The textures count as settled once every set asked for is in and none has been asked for in
  * this long: sets are asked for as surfaces are built and as edits call for new ones, so the
@@ -156,7 +163,7 @@ const SIBLINGS_KEPT = 64
 /** An evicted still's address stays valid this long, for an image still fading out. */
 const REVOKE_AFTER_MS = 30_000
 
-/** `?traceStats=1` logs the exposure match and each still's timing. */
+/** `?traceStats=1` logs each still's timing. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
 
 type Quality = { samples: number; threshold: number; timeLimit: number }
@@ -211,6 +218,13 @@ export function stillSize(
 }
 
 /**
+ * Whether a stage still `width` pixels wide still serves a stage that wants `wanted`: it does
+ * unless the stage has grown more than STILL_GROWTH past it. Never the other way: a still is not
+ * rendered again smaller.
+ */
+export const stillServes = (width: number, wanted: number) => wanted <= width * STILL_GROWTH
+
+/**
  * A sibling's scene for its prefetch (siblings.ts), at the angle asked for: its fingerprints as a
  * click will sign them and its camera, learned cheaply, so a sibling whose still at this angle is
  * in already costs no capture and no download; with `take`, which captures its scene, to be called
@@ -258,7 +272,10 @@ export type StillState = {
   /** Each angle's camera, and its key part (gallery.ts angleKey). */
   cameras: Record<AngleId, CloudCamera>
   angleKeys: Record<AngleId, string>
-  /** The renderer's exposure outside and inside (a camera inside opens up for the dimmer room). */
+  /**
+   * The camera's exposure outside and inside (visuals.ts exposureAt, the live view's too): from
+   * the design's time of day alone, never from the device.
+   */
   exposure: { exterior: number; interior: number }
   /** The design has held still a while and the floor plan is closed: the longer renders go out. */
   idle: boolean
@@ -268,15 +285,11 @@ export type StillState = {
   prefetch?: PrefetchState | null
 }
 
-/** The raster frame's brightness (mean log luminance), and the camera and size it was seen at. */
-export type RasterMeter = { key: number; camera: CloudCamera; width: number; height: number }
-/** Meters the raster frame at a camera, for StillSession. */
-export type MeterRaster = (camera: CloudCamera) => Promise<RasterMeter>
-/** Exposure gains, one for each part: the raster interior is lit more generously than outside. */
-type Gains = { exterior: number; interior: number }
-
-/** An angle's images by tier, the address each is shown at, and the samples it was traced with. */
-type Stored = Partial<Record<Tier, { blob: Blob; url: string; samples: number }>>
+/**
+ * An angle's images by tier, the address each is shown at, the samples it was traced with, and
+ * its width in pixels.
+ */
+type Stored = Partial<Record<Tier, { blob: Blob; url: string; samples: number; width: number }>>
 
 /** The best tier stored, or null for none. */
 const bestTier = (stored: Stored | undefined): Tier | null =>
@@ -301,8 +314,8 @@ type PrefetchOpen = Open & { design: string; waitMs: number }
 export type LocalJob = { key: string; angle: AngleId; tier: Exclude<Tier, 'thumb'> }
 
 /**
- * Where the session finds baked stills and gains (bakedStills.ts), by the design's config key,
- * the angle key and the stage's shape; `revision` changes when a baked still is forgotten.
+ * Where the session finds baked stills (bakedStills.ts), by the design's config key, the angle key
+ * and the stage's shape; `revision` changes when a baked still is forgotten.
  */
 export type BakedLookup = {
   /** A baked still, and its tier: 'export' when baked at the export tier, a quick bake's 'thumb'. */
@@ -311,10 +324,9 @@ export type BakedLookup = {
     angle: string,
     aspect: AspectClass,
   ) => { url: string; tier: 'export' | 'thumb' } | null
-  gains: (lighting: string) => Gains | null
   revision: () => number
 }
-const BAKED: BakedLookup = { still: bakedStill, gains: bakedGains, revision: bakedRevision }
+const BAKED: BakedLookup = { still: bakedStill, revision: bakedRevision }
 
 /** Stills baked at once (bake mode): enough to keep the GPU busy across round trips. */
 const BAKE_IN_FLIGHT = 2
@@ -338,9 +350,9 @@ function remember<T>(map: Map<string, T>, key: string, value: T) {
 
 /**
  * Renders and keeps the gallery's stills for the design on screen, and says which are ready and
- * which are on their way (`snapshot`). The exposure gains are metered once per lighting look, at
- * fixed angles, so a finish change never shifts brightness, as a camera on manual exposure would
- * not, and the same design always gets the same still.
+ * which are on their way (`snapshot`). Stills are exposed at a fixed camera exposure per part,
+ * with no gain (STILL_GAIN): as on a camera on manual exposure, a finish change never shifts
+ * brightness, and the same design always gets the same still, on every device and tier.
  */
 export class StillSession {
   private readonly client: CloudClient | null
@@ -355,7 +367,7 @@ export class StillSession {
   private focusSeq = 0
   /** The export's channel's sequence. */
   private exportSeq = 0
-  /** Cancels metering, which outlives design changes, when the session closes. */
+  /** Cancels what outlives design changes (a bake's requests) when the session closes. */
   private readonly closed = new AbortController()
   /** The scene each part's stills are rendered for (with the lighting look). */
   private designs: SceneKeys = { exterior: '', interior: '' }
@@ -381,15 +393,6 @@ export class StillSession {
   private state: StillState | null = null
   /** Gallery mode: stills are worked on. In the 360° view nothing new is asked for. */
   private active = true
-  /** The gains for the look, or null until its meter answers. */
-  private gain: Gains | null = null
-  private gainSettled = false
-  private readonly gains = new Map<string, { gains: Gains; settled: boolean }>()
-  private metering = 0
-  private meteredBefore = false
-  private meterTimer: ReturnType<typeof setTimeout> | undefined
-  private meterAbort: AbortController | null = null
-  private meterHeld = false
   /** Stored stills by angle key, most recently used last. */
   private readonly frames = new Map<string, Stored>()
   /** Requests open for each part, by job id (see `drop`). */
@@ -477,14 +480,7 @@ export class StillSession {
    * the room renders the interior angles again and keeps the rest. `settled` says whether every
    * scanned texture asked for is in; nothing is rendered until that has held a moment.
    */
-  sync(
-    scene: Scene,
-    look: SkyLook,
-    keys: SceneKeys,
-    state: StillState,
-    rasterKey: MeterRaster,
-    settled = true,
-  ) {
+  sync(scene: Scene, look: SkyLook, keys: SceneKeys, state: StillState, settled = true) {
     this.state = state
     const now = performance.now()
     const lighting = lookKey(look)
@@ -498,17 +494,13 @@ export class StillSession {
       this.designSince = now
     }
     const latched = this.latch(settled, now)
-    const metered = this.client !== null && !this.failed
+    const rendering = this.client !== null && !this.failed
     if (held) {
-      // A scene on its way to a new key: a meter under way would read a scene about to change.
-      if (metered) this.holdMeter()
       this.designSince = now
       this.name(now)
       this.pump()
       return
     }
-    const restart = this.meterHeld && metered
-    this.meterHeld = false
     const arrived = latched && !this.settled
     this.settled = latched
     const fresh = PARTS.filter((part) => designs[part] !== this.designs[part])
@@ -520,15 +512,12 @@ export class StillSession {
     if (arrived) bench.mark('texturesSettled')
     // A part whose scene changed: its queued requests are for stills no longer wanted.
     for (const part of fresh) this.drop(part)
-    if (fresh.length) {
-      if (!this.failed) this.failures = 0
-      this.stopMeter()
-    }
+    if (fresh.length && !this.failed) this.failures = 0
     this.designs = designs
     const sceneKey = `${designs.exterior}|${designs.interior}`
     // Captured for a new scene, and again once its textures are in.
     if (
-      metered &&
+      rendering &&
       (sceneKey !== this.sceneKey || !this.captured || (latched && !this.capturedSettled))
     ) {
       this.sceneKey = sceneKey
@@ -538,17 +527,6 @@ export class StillSession {
         () => bench.mark('sceneCaptured'),
         () => {},
       )
-    }
-    // Metered once per look, with the textures in: nothing is rendered before they are, so a
-    // meter without them would cost the GPU a frame for nothing.
-    if (fresh.length) {
-      const known = this.gains.get(lighting) ?? this.bakedLook(lighting)
-      this.gain = known?.gains ?? null
-      this.gainSettled = known?.settled ?? false
-      if (metered && latched && !known?.settled) this.startMeter(lighting, rasterKey)
-    } else if (metered && latched && (restart || (arrived && !this.gainSettled))) {
-      // The textures came in under the same scene: they change its brightness. Once per look.
-      this.startMeter(lighting, rasterKey)
     }
     this.rekey(state)
     this.name(now)
@@ -674,149 +652,9 @@ export class StillSession {
     if (this.state && partOf(this.state.angle) === part) this.focused = ''
   }
 
-  /**
-   * Meters the gain for a look. The page's first design is metered at once; a changed design
-   * once it has held still for a moment, since a slider drag is a run of designs. The design must
-   * hold still meanwhile too, so the traced render and the raster frame show the same scene; if
-   * it changes, the meter is dropped and the next design meters again. Metered before the
-   * textures, it is metered again once they are in.
-   */
-  private startMeter(lighting: string, rasterKey: MeterRaster) {
-    const delay = this.meteredBefore ? METER_DEBOUNCE_MS : 0
-    this.meteredBefore = true
-    this.stopMeter()
-    const token = this.metering
-    this.meterTimer = setTimeout(() => {
-      this.meterTimer = undefined
-      this.runMeter(token, lighting, rasterKey)
-    }, delay)
-  }
-
-  /** Stops a meter waiting or under way while the scene is on its way to a new key (`take`). */
-  private holdMeter() {
-    if (this.meterTimer === undefined && this.meterAbort === null) return
-    this.stopMeter()
-    this.meterHeld = true
-  }
-
-  /** Drops the metering waiting or under way; whatever it answers is ignored. */
-  private stopMeter() {
-    this.metering++
-    clearTimeout(this.meterTimer)
-    this.meterTimer = undefined
-    this.meterAbort?.abort()
-    this.meterAbort = null
-  }
-
-  private runMeter(token: number, lighting: string, rasterKey: MeterRaster) {
-    if (token !== this.metering || this.closed.signal.aborted) return
-    const settled = this.settled
-    const controller = new AbortController()
-    this.meterAbort = controller
-    const settle = (gains: Gains | null) => {
-      if (token !== this.metering || this.closed.signal.aborted) return
-      this.meterAbort = null
-      if (gains) this.gains.set(lighting, { gains, settled })
-      this.gain = gains ?? { exterior: 1, interior: 1 }
-      this.gainSettled = settled
-      this.onChange()
-      this.pump()
-    }
-    this.meterParts(rasterKey, controller.signal).then(settle, (error) => {
-      if (token !== this.metering || this.closed.signal.aborted) return
-      if (this.unloading || isAbort(error)) return
-      if (error instanceof Outdated) return this.fail(error)
-      const delay = error instanceof Busy ? this.busy() : error instanceof Full ? this.full() : 0
-      if (delay > 0) {
-        this.meterAbort = null
-        this.meterTimer = setTimeout(() => {
-          this.meterTimer = undefined
-          this.runMeter(token, lighting, rasterKey)
-        }, delay)
-        return
-      }
-      console.warn('The path-traced exposure could not be metered.', error)
-      settle(null)
-    })
-  }
-
-  /**
-   * Both parts' gains, metered at fixed angles (the front three-quarter view outside, the entry
-   * inside): the same design always gets the same gain, so its stills match the server's cache.
-   */
-  private async meterParts(rasterKey: MeterRaster, signal: AbortSignal): Promise<Gains> {
-    const captured = await this.captured!
-    signal.throwIfAborted()
-    const { cameras } = this.state!
-    const exterior = await this.meter(
-      captured,
-      rasterKey,
-      cameras['front-left'],
-      'exterior',
-      signal,
-    )
-    const interior = await this.meter(captured, rasterKey, cameras.entry, 'interior', signal)
-    return { exterior, interior }
-  }
-
-  /**
-   * The exposure gain that matches the raster frame's brightness: a quick traced frame of the
-   * same view, at the same camera and size, metered the same way by the server.
-   */
-  private async meter(
-    captured: CapturedScene,
-    rasterKey: MeterRaster,
-    camera: CloudCamera,
-    part: Part,
-    signal: AbortSignal,
-  ) {
-    signal.throwIfAborted()
-    const raster = await rasterKey(camera)
-    signal.throwIfAborted()
-    const scale = Math.min(1, METER_MAX_EDGE / Math.max(raster.width, raster.height))
-    bench.mark('firstRequest')
-    const frame = await this.client!.frame(
-      captured,
-      {
-        camera: raster.camera,
-        width: Math.max(1, Math.round(raster.width * scale)),
-        height: Math.max(1, Math.round(raster.height * scale)),
-        quality: METER,
-        finish: { exposure: 1, gain: 1 },
-        priority: 0,
-        generation: 0,
-        channel: 'm',
-      },
-      signal,
-    )
-    this.answered(frame)
-    const traced = frame.tracedKey
-    const ratio = Math.exp(raster.key - traced)
-    if (!Number.isFinite(ratio)) throw new Error(`no exposure reading (${raster.key}, ${traced})`)
-    const gain = Math.min(4, Math.max(0.5, ratio))
-    if (TRACE_STATS)
-      console.info(
-        `[stills] ${part} exposure for ${this.designs[part]}: raster key ${raster.key.toFixed(3)}, traced key ${traced.toFixed(3)}, gain ${gain.toFixed(3)}`,
-      )
-    return gain
-  }
-
-  /** The gains a look was baked with, kept as if metered here: no meter for it. */
-  private bakedLook(lighting: string) {
-    const gains = this.baked.gains(lighting)
-    if (!gains) return undefined
-    const known = { gains, settled: true }
-    this.gains.set(lighting, known)
-    if (TRACE_STATS)
-      console.info(
-        `[stills] baked gains for ${lighting}: outside ${gains.exterior.toFixed(3)}, inside ${gains.interior.toFixed(3)}`,
-      )
-    return known
-  }
-
-  /** Everything a still needs is in: the textures, and the exposure metered with them. */
+  /** Everything a still needs is in: the textures. */
   private get ready() {
-    return this.gain !== null && this.settled && this.gainSettled
+    return this.settled
   }
 
   /** An angle's baked still for the design on screen, at the stage's shape, or null. */
@@ -827,12 +665,20 @@ export class StillSession {
 
   /**
    * Whether an angle's still is stored at a tier or a better one. A still baked at the export tier
-   * is the best; a quick bake counts as a thumbnail.
+   * is the best; a quick bake counts as a thumbnail. A stage still counts only while the stage has
+   * not grown well past it (stillServes): then it is rendered again at the stage's new size.
    */
   private storedAt(angle: AngleId, tier: Tier) {
     const baked = this.bakedAt(angle)
     if (baked && TIER_RANK[baked.tier] >= TIER_RANK[tier]) return true
-    return this.storedKey(this.keys[angle], tier)
+    const key = this.keys[angle]
+    if (!this.storedKey(key, tier)) return false
+    const stored = this.frames.get(key)!
+    if (tier !== 'still' || stored.export || !this.state) return true
+    return stillServes(
+      stored.still!.width,
+      stillSize('still', this.state.aspect, this.state.stage).width,
+    )
   }
 
   /** Whether a still is stored under a key at a tier or a better one. */
@@ -1138,7 +984,6 @@ export class StillSession {
     const size = stillSize('still', state.aspect, state.stage)
     const quality = QUALITY.still
     const part = partOf(state.angle)
-    const gains = this.gain ?? { exterior: 1, interior: 1 }
     const now = performance.now()
     const own = renderRate.estimateMs({ ...size, ...quality })
     const open: PrefetchOpen = {
@@ -1172,7 +1017,7 @@ export class StillSession {
             ...size,
             quality,
             priority,
-            finish: { exposure: state.exposure[part], gain: gains[part] },
+            finish: { exposure: state.exposure[part], gain: STILL_GAIN },
             // One generation: a prefetch is never dropped for a newer one (one is open at a time).
             generation: 0,
             channel: 'p',
@@ -1188,7 +1033,7 @@ export class StillSession {
           )
         this.answered(frame)
         if (!frame.cached) renderRate.record(frame.renderMs, { ...size, ...quality })
-        this.store(key, 'still', frame.image, quality.samples)
+        this.store(key, 'still', frame.image, quality.samples, size.width)
         if (this.prefetched.size > 4 * SIBLINGS_KEPT) this.prefetched.clear()
         this.prefetched.add(key)
         bench.prefetch('landed')
@@ -1237,8 +1082,7 @@ export class StillSession {
         : channel === 'f'
           ? this.focusSeq
           : this.generations[job.part]
-    const gains = this.gain ?? { exterior: 1, interior: 1 }
-    const finish = { exposure: job.exposure, gain: gains[job.part] }
+    const finish = { exposure: job.exposure, gain: STILL_GAIN }
     const now = performance.now()
     const own = renderRate.estimateMs({ ...job, ...job.quality })
     // The GPU renders one still at a time: the one under way (the oldest open) finishes first,
@@ -1285,7 +1129,7 @@ export class StillSession {
           )
         this.answered(frame)
         if (!frame.cached) renderRate.record(frame.renderMs, { ...job, ...job.quality })
-        this.store(job.key, job.tier, frame.image, job.quality.samples)
+        this.store(job.key, job.tier, frame.image, job.quality.samples, job.width)
         this.failures = 0
         this.busyStreak = 0
         this.onChange()
@@ -1314,12 +1158,17 @@ export class StillSession {
     if (frame.renderer !== 'shared') this.answeredAt = performance.now()
   }
 
-  /** Keeps a still, replacing a lesser tier's address only once the stage has moved on from it. */
-  private store(key: string, tier: Tier, blob: Blob, samples: number) {
+  /**
+   * Keeps a still `width` pixels wide, replacing a lesser tier's address only once the stage has
+   * moved on from it. A smaller one of the same tier (one sent before the stage grew) never
+   * replaces a larger one.
+   */
+  private store(key: string, tier: Tier, blob: Blob, samples: number, width: number) {
     const stored = this.frames.get(key) ?? {}
     const before = stored[tier]
+    if (before && before.width > width) return
     if (before) this.revoke(before.url)
-    stored[tier] = { blob, url: URL.createObjectURL(blob), samples }
+    stored[tier] = { blob, url: URL.createObjectURL(blob), samples, width }
     this.frames.delete(key)
     this.frames.set(key, stored)
     if (tier === 'thumb') bench.mark('firstThumb')
@@ -1451,8 +1300,10 @@ export class StillSession {
   /** A still this device's tracer rendered; kept if it is still of the design on screen. */
   deliverLocal(job: LocalJob, blob: Blob, samples: number) {
     this.localProgress = null
-    if (this.keys[job.angle] !== job.key) return
-    this.store(job.key, job.tier, blob, samples)
+    if (this.keys[job.angle] !== job.key || !this.state) return
+    // Traced at the canvas, which fills the stage: the stage's size, as a cloud still's.
+    const { width } = stillSize(job.tier, this.state.aspect, this.state.stage)
+    this.store(job.key, job.tier, blob, samples, width)
     this.onChange()
   }
 
@@ -1476,12 +1327,18 @@ export class StillSession {
       const still = stored?.export ?? stored?.still
       const shown: AngleImages = {}
       if (stored?.thumb)
-        shown.thumb = { tier: 'thumb', url: stored.thumb.url, samples: stored.thumb.samples }
+        shown.thumb = {
+          tier: 'thumb',
+          url: stored.thumb.url,
+          samples: stored.thumb.samples,
+          width: stored.thumb.width,
+        }
       if (still)
         shown.still = {
           tier: stored?.export ? 'export' : 'still',
           url: still.url,
           samples: still.samples,
+          width: still.width,
         }
       if (shown.thumb || shown.still) images[angle] = shown
       // The stage's angle waits for its still; the others for a thumbnail, from the cloud alone.
@@ -1519,17 +1376,16 @@ export class StillSession {
       // Prefetched while it was a sibling, and on its way: the wait counts from when it went out.
       this.wait = { key, startedAt: prefetching.sentAt, expectedMs: prefetching.waitMs }
     } else if (this.wait?.key !== key) {
-      // Not asked for yet: the textures, and the meter's two frames, come first.
+      // Not asked for yet: the textures come first.
       const own = renderRate.estimateMs({
         ...stillSize('still', state.aspect, state.stage),
         ...QUALITY.still,
       })
-      const meter = this.gain === null ? 2 * renderRate.estimateMs({ ...state.stage, ...METER }) : 0
       const first = renderRate.learned() ? 0 : FIRST_FRAME_MS
       this.wait = {
         key,
         startedAt: now,
-        expectedMs: own + meter + first + (this.settled ? 0 : SETTLE_MS),
+        expectedMs: own + first + (this.settled ? 0 : SETTLE_MS),
       }
     }
     const estimate: StillProgress = {
@@ -1542,8 +1398,7 @@ export class StillSession {
 
   /**
    * Bake mode (lib/bake.ts): whether the design's stills can be baked now ('ready': its scene is
-   * captured with the textures in, and its gains metered or baked), not yet, or never (the cloud
-   * gave up on the page).
+   * captured with the textures in), not yet, or never (the cloud gave up on the page).
    */
   bakeState(): 'ready' | 'waiting' | 'failed' {
     if (this.failed || !this.client) return 'failed'
@@ -1552,14 +1407,15 @@ export class StillSession {
   }
 
   /**
-   * Bake mode: renders `jobs` (bake.ts, every angle at every stage shape) with the look's gains, a
-   * few at a time, and hands each finished frame to `onFrame`. A busy server is waited out; any
-   * other failure fails the bake. Resolves with the lighting look and its gains.
+   * Bake mode: renders `jobs` (bake.ts, every angle at every stage shape) as the session renders
+   * stills, a few at a time, and hands each finished frame to `onFrame`. A busy server is waited
+   * out; any other failure fails the bake. Resolves with the lighting look and the gains it was
+   * baked with (STILL_GAIN, for the manifest's record).
    */
   async bake(jobs: BakeJob[], onFrame: (job: BakeJob, frame: StillFrame) => void) {
     if (this.bakeState() !== 'ready') throw new Error('the design is not ready to bake')
     const captured = await this.captured!
-    const gains = this.gain!
+    const gains = { exterior: STILL_GAIN, interior: STILL_GAIN }
     const { exposure } = this.state!
     const lighting = this.lighting
     const queue = jobs.map((job, i) => ({ job, priority: Math.min(MAX_PRIORITY, i) }))
@@ -1573,7 +1429,7 @@ export class StillSession {
               width: job.width,
               height: job.height,
               quality: job.quality,
-              finish: { exposure: exposure[job.part], gain: gains[job.part] },
+              finish: { exposure: exposure[job.part], gain: STILL_GAIN },
               priority,
               generation: 0,
               channel: 'b',
@@ -1602,7 +1458,6 @@ export class StillSession {
     clearTimeout(this.settleTimer)
     clearTimeout(this.quietTimer)
     clearTimeout(this.prefetchTimer)
-    this.stopMeter()
     for (const part of PARTS) this.drop(part)
     for (const open of this.prefetchOpen.values()) open.abort.abort()
     this.prefetchOpen = new Map()

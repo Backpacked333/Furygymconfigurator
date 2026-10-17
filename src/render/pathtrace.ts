@@ -34,7 +34,6 @@ import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
 import { bench } from './bench'
 import { GBuffer, ViewHistory } from './history'
 import { stillInstances } from './instances'
-import { createExposureMeter } from './pipeline'
 import type { TraceState } from './traceStatus'
 
 /**
@@ -437,10 +436,12 @@ const SEEDED_MILESTONES = [2, ...MILESTONES]
 const FADE_MS = 520
 
 type Denoiser = InstanceType<TracerModule['OIDNDenoiser']>
-/** What to put on screen: `from` (null for the frozen raster frame) blending into `to`. */
-export type TraceView = { from: Texture | null; to: Texture; t: number; gain: number }
-/** The traced image may brighten by two stops or darken by one to match the raster frame. */
-const GAIN_RANGE = [0.5, 4] as const
+/**
+ * What to put on screen: `from` (null for the frozen raster frame) blending into `to`. The traced
+ * light is shown as it is, at the camera's exposure, as the cloud's stills are (stills.ts
+ * STILL_GAIN): nothing is metered against the raster.
+ */
+export type TraceView = { from: Texture | null; to: Texture; t: number }
 
 /**
  * One path tracer bound to a renderer, re-capturing the scene only when it actually changed.
@@ -477,11 +478,6 @@ export class PathTraceSession {
     to: null,
     start: 0,
   }
-  private readonly meter: ReturnType<typeof createExposureMeter>
-  /** Exposure match for the traced images; null until metered for this view. */
-  private gain: number | null = null
-  private rasterKey: Promise<number> | null = null
-  private metering = false
   private signature = -1
   /** What the tracer holds: the scene parts and sky it last captured or updated. */
   private captured: { parts: SceneParts; look: string } | null = null
@@ -506,7 +502,6 @@ export class PathTraceSession {
 
   constructor(renderer: WebGPURenderer, modules: Modules, denoise = true) {
     this.renderer = renderer
-    this.meter = createExposureMeter(renderer, this.sink.texture)
     const module = modules.tracer
     const tracer = new module.WebGPUPathTracer(renderer)
     tracer.frameBudget = FRAME_BUDGET
@@ -548,7 +543,7 @@ export class PathTraceSession {
   }
 
   /** Starts refining the current view, re-capturing the scene only if it changed. */
-  begin(scene: Scene, camera: Camera, look: SkyLook, raster: Texture, target = REST_SAMPLES) {
+  begin(scene: Scene, camera: Camera, look: SkyLook, target = REST_SAMPLES) {
     const key = lookKey(look)
     const parts = sceneParts(scene)
     const signature = sceneSignature(scene, key)
@@ -609,11 +604,7 @@ export class PathTraceSession {
     this.frames = 0
     this.passes = 1
     this.accumulating = true
-    this.gain = null
-    this.metering = false
     this.measuring = false
-    // Meter the frozen raster frame now, before anything else draws over the GPU's time.
-    this.rasterKey = this.meter.measure(raster, false).catch(() => NaN)
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0 }
   }
@@ -729,11 +720,6 @@ export class PathTraceSession {
     if (running) {
       const denoiser = this.denoisers[running.index]
       if (denoiser.complete && denoiser.texture) {
-        // The first image of a view waits for its exposure match before fading in.
-        if (this.gain === null) {
-          this.matchExposure(denoiser.texture)
-          return
-        }
         // Regions this image shows unchanged from the last one are finished: stop sampling them.
         const previous = this.shownIndex >= 0 ? this.denoisers[this.shownIndex].texture : null
         if (previous && this.shownSamples >= MIN_SETTLE_SAMPLES && this.accumulating)
@@ -787,39 +773,15 @@ export class PathTraceSession {
     })
   }
 
-  private matchExposure(image: Texture) {
-    if (this.metering || !this.rasterKey) return
-    this.metering = true
-    const epoch = this.epoch
-    Promise.all([this.rasterKey, this.meter.measure(image, true)])
-      .then(([raster, traced]) => {
-        if (epoch !== this.epoch) return
-        const ratio = Math.exp(raster - traced)
-        this.gain = Number.isFinite(ratio)
-          ? Math.min(GAIN_RANGE[1], Math.max(GAIN_RANGE[0], ratio))
-          : 1
-      })
-      .catch(() => {
-        if (epoch === this.epoch) this.gain = 1
-      })
-      .finally(() => {
-        if (epoch === this.epoch) this.metering = false
-      })
-  }
-
   /** The images to composite this frame. */
   view(now = performance.now()): TraceView {
     const raw = this.tracer.target!
-    const gain = this.gain ?? 1
-    if (!this.denoising) {
-      if (this.gain === null && this.tracer.fadeState > 0) this.matchExposure(raw)
-      return { from: null, to: raw, t: this.gain === null ? 0 : this.tracer.fadeState, gain }
-    }
+    if (!this.denoising) return { from: null, to: raw, t: this.tracer.fadeState }
     const { from, to, start } = this.transition
-    if (!to) return { from: null, to: raw, t: 0, gain }
+    if (!to) return { from: null, to: raw, t: 0 }
     const t = Math.min(1, (now - start) / FADE_MS)
     // Once faded in, the outgoing image may be recycled, so stop referencing it.
-    return { from: t < 1 ? from : null, to, t, gain }
+    return { from: t < 1 ? from : null, to, t }
   }
 
   /**
@@ -862,7 +824,6 @@ export class PathTraceSession {
 
   dispose() {
     this.tracer.dispose()
-    this.meter.dispose()
     this.sink.dispose()
     this.snapshot?.dispose()
     this.gbuffer.dispose()

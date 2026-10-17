@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Matrix4, Scene, Vector3 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SkyLook } from '../lib/visuals'
+import { exposureAt, type SkyLook } from '../lib/visuals'
 import { Busy, Full, Outdated, type CloudCamera, type CloudClient } from './cloud'
 import { GALLERY_ANGLES, galleryCamera, type AngleId } from './gallery'
 import { DEFAULT_CAMERA, DEFAULT_CONFIG } from '../lib/config'
@@ -12,7 +12,6 @@ import { FIRST_FRAME_MS, renderRate } from './progress'
 import { bench } from './bench'
 import { PILL_DELAY_MS } from '../components/RenderStatus'
 import {
-  METER_DEBOUNCE_MS,
   PREFETCH_IDLE_MS,
   PREFETCH_PAUSE_MS,
   PREFETCH_PER_DESIGN,
@@ -21,12 +20,12 @@ import {
   QUIET_MS,
   SETTLE_MS,
   SIBLING_LATER_MS,
+  STILL_GAIN,
   StillSession,
   WARM_MS,
   cloudCamera,
   stillSize,
   type BakedLookup,
-  type MeterRaster,
   type PrefetchSibling,
   type SceneKeys,
   type SiblingShot,
@@ -94,20 +93,15 @@ type Open = {
 
 /**
  * A client that records the frame requests open and answers them when told to; one the session
- * drops leaves the list. The exposure meter's frames (channel "m") answer at once with a traced
- * key of 0.
+ * drops leaves the list.
  */
 function fakeClient() {
   const requests: Open[] = []
-  const meters: Open[] = []
   const frame = vi.fn(
     (_captured: unknown, request: FrameRequest, signal: AbortSignal) =>
       new Promise((resolve, reject) => {
         const open: Open = { request, signal, resolve: () => resolve(answerFrame()), reject }
-        if (request.channel === 'm') {
-          meters.push(open)
-          open.resolve()
-        } else requests.push(open)
+        requests.push(open)
         signal.addEventListener(
           'abort',
           () => {
@@ -119,7 +113,7 @@ function fakeClient() {
         )
       }),
   )
-  return { client: { frame } as unknown as CloudClient, frame, requests, meters }
+  return { client: { frame } as unknown as CloudClient, frame, requests }
 }
 
 const look = { environment: 'meadow', sunlight: { direction: [0, 1, 0] }, night: 0 } as never
@@ -139,8 +133,6 @@ const label = (r: FrameRequest) => {
   return `${angle} ${tier}`
 }
 const labels = (requests: Open[]) => requests.map((r) => label(r.request))
-const raster = (key: number, at: CloudCamera) => ({ key, camera: at, width: 900, height: 600 })
-const meter: MeterRaster = async (at) => raster(0, at)
 
 describe('still geometry', () => {
   it('sizes thumbnails fixed, stills at the stage at up to 1.5x density, exports fixed', () => {
@@ -192,18 +184,17 @@ describe('still session', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
-  /** Syncs a design with its textures in and sees it through to settled and metered. */
+  /** Syncs a design with its textures in and sees it through to settled. */
   const settled = async (session: StillSession, keys: SceneKeys, state: StillState) => {
-    session.sync(scene, look as SkyLook, keys, state, meter)
+    session.sync(scene, look as SkyLook, keys, state)
     await tick(SETTLE_MS)
-    session.sync(scene, look as SkyLook, keys, state, meter)
-    await tick(METER_DEBOUNCE_MS)
+    session.sync(scene, look as SkyLook, keys, state)
     await tick()
   }
   /** Syncs a changed design on two frames running: it is taken up once it has held one. */
   const edit = (session: StillSession, keys: SceneKeys, state: StillState) => {
-    session.sync(scene, look as SkyLook, keys, state, meter)
-    session.sync(scene, look as SkyLook, keys, state, meter)
+    session.sync(scene, look as SkyLook, keys, state)
+    session.sync(scene, look as SkyLook, keys, state)
   }
   /** Answers the oldest open request, `count` times; the labels answered. */
   const answer = async (requests: Open[], count = 1) => {
@@ -217,26 +208,19 @@ describe('still session', () => {
     return answered
   }
 
-  it("meters at fixed angles, then asks for the stage's still alone, on its own channel", async () => {
-    const { client, requests, meters } = fakeClient()
+  it("asks for the stage's still alone, on its own channel, once the textures are in", async () => {
+    const { client, requests } = fakeClient()
     const session = new StillSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     await tick()
     await tick()
-    // Nothing is metered or rendered before the textures are in: no stand-in ever reaches the
-    // stage, and a meter without them would cost the GPU a frame for nothing.
-    expect(meters).toHaveLength(0)
+    // Nothing is rendered before the textures are in: no stand-in ever reaches the stage.
     expect(requests).toHaveLength(0)
     await tick(SETTLE_MS)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     await tick()
     await tick()
-    // Metered at the front three-quarter view outside and the entry inside, whatever the visitor
-    // looks at, so a design always gets the same gain.
-    expect(meters.map((m) => m.request.camera.matrix)).toEqual([
-      cameras['front-left'].matrix,
-      cameras.entry.matrix,
-    ])
+    // At once: nothing is metered first.
     expect(labels(requests)).toEqual(['front-left still'])
     const [still] = requests.map((r) => r.request)
     expect(still.channel).toBe('f')
@@ -244,6 +228,38 @@ describe('still session', () => {
     expect([still.width, still.height]).toEqual([1000, 625])
     expect(still.finish).toEqual({ exposure: 1, gain: 1 })
     session.dispose()
+  })
+
+  it("exposes every still at its part's camera exposure with no gain, so every tier asks for the same", async () => {
+    // Exposure is a function of the time of day alone (visuals.ts exposureAt), which the live
+    // view is exposed with too: nothing about a still is read off this device's raster, so a
+    // design on Lite, High or Ultra asks the server (and its cache) for the very same frames.
+    const exposure = exposureAt(15)
+    const tiers = ['lite', 'high', 'ultra'].map(() => {
+      const { client, frame, requests } = fakeClient()
+      return { session: new StillSession(client, () => {}), frame, requests }
+    })
+    for (const { session, requests } of tiers) {
+      await settled(session, design('a'), stillState({ exposure }))
+      await answer(requests, 9)
+    }
+    const asked = tiers.map(({ frame }) =>
+      frame.mock.calls.map(([, request]) => ({ ...request, generation: 0 })),
+    )
+    expect(asked[0].length).toBeGreaterThanOrEqual(9)
+    expect(asked[1]).toEqual(asked[0])
+    expect(asked[2]).toEqual(asked[0])
+    // Nothing but stills goes out: no meter frame before the first.
+    expect(new Set(asked[0].map((r) => r.channel))).toEqual(new Set(['f', 's', 'i']))
+    for (const request of asked[0]) {
+      const inside = ['entry', 'centre', 'back'].includes(label(request).split(' ')[0])
+      expect(request.finish).toEqual({
+        exposure: inside ? exposure.interior : exposure.exterior,
+        gain: STILL_GAIN,
+      })
+    }
+    expect(STILL_GAIN).toBe(1)
+    for (const { session } of tiers) session.dispose()
   })
 
   it('then thumbnails of the other angles, nearest first, and their stills once the visitor rests', async () => {
@@ -274,10 +290,10 @@ describe('still session', () => {
   it("names a design's stills only once its scene has held, and says which are on their way", async () => {
     const { client, requests } = fakeClient()
     const session = new StillSession(client, () => {})
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     expect(session.snapshot().design).toBe('')
     await tick(QUIET_MS)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     const waiting = session.snapshot()
     expect(waiting).toMatchObject({ source: 'cloud', design: 'd1', aspect: 'wide', images: {} })
     expect(waiting.pending['front-left']).toBe(true)
@@ -288,13 +304,12 @@ describe('still session', () => {
       FIRST_FRAME_MS,
     )
     await tick(SETTLE_MS)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
-    await tick(METER_DEBOUNCE_MS)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     await tick()
     await answer(requests)
     const shown = session.snapshot()
     expect(shown.images['front-left']).toEqual({
-      still: { tier: 'still', url: 'blob:still-0', samples: QUALITY.still.samples },
+      still: { tier: 'still', url: 'blob:still-0', samples: QUALITY.still.samples, width: 1000 },
     })
     expect(shown.pending['front-left']).toBe(false)
     expect(shown.progress).toBeNull()
@@ -303,8 +318,83 @@ describe('still session', () => {
     edit(session, design('b'), stillState({ design: 'd2' }))
     expect(session.snapshot().design).toBe('')
     await tick(QUIET_MS)
-    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }), meter)
+    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }))
     expect(session.snapshot()).toMatchObject({ design: 'd2', images: {} })
+    session.dispose()
+  })
+
+  it('renders the stage still again, larger, for a stage grown past it, and never smaller', async () => {
+    const { client, requests } = fakeClient()
+    const session = new StillSession(client, () => {})
+    const small = stillState({ idle: false })
+    await settled(session, design('a'), small)
+    await answer(requests, 9)
+    expect(requests).toHaveLength(0)
+    const sync = (state: StillState) => session.sync(scene, look as SkyLook, design('a'), state)
+    // A little larger (within a quarter): the still serves.
+    sync(stillState({ idle: false, stage: { width: 1240, height: 775, dpr: 1 } }))
+    await tick()
+    expect(requests).toHaveLength(0)
+    // Full screen: the same tier again, at the stage's new size, on the stage's own channel...
+    const big = stillState({ idle: false, stage: { width: 1600, height: 1000, dpr: 1 } })
+    sync(big)
+    await tick()
+    expect(labels(requests)).toEqual(['front-left still'])
+    expect(requests[0].request).toMatchObject({ width: 1600, height: 1000, channel: 'f' })
+    // ...with no status: the stage shows the smaller still meanwhile, waiting for nothing.
+    const meanwhile = session.snapshot()
+    expect(meanwhile.pending['front-left']).toBe(false)
+    expect(meanwhile.progress).toBeNull()
+    expect(meanwhile.images['front-left']?.still?.width).toBe(1000)
+    await answer(requests)
+    const grown = session.snapshot().images['front-left']?.still
+    expect(grown).toMatchObject({ tier: 'still', width: 1600 })
+    // Back to the small stage: the larger still stays, and nothing is rendered smaller.
+    sync(small)
+    await tick()
+    expect(requests).toHaveLength(0)
+    expect(session.snapshot().images['front-left']?.still).toEqual(grown)
+    // The other angles' stills, rendered at rest on the small stage, are rendered again on the
+    // big one, the stage's first: each still the stage turns to fits it.
+    session.setIdle(true)
+    await tick()
+    while (requests.length) await answer(requests)
+    expect(session.snapshot().images.rear?.still?.width).toBe(1000)
+    sync({ ...big, idle: true, angle: 'rear' })
+    await tick()
+    expect(labels(requests)[0]).toBe('rear still')
+    expect(
+      requests.every((r) => r.request.width === 1600 || label(r.request).includes('thumb')),
+    ).toBe(true)
+    while (requests.length) await answer(requests)
+    expect(session.snapshot().images.rear?.still?.width).toBe(1600)
+    session.dispose()
+  })
+
+  it("traces the stage's still again on this device for a grown stage, keeping the larger one", async () => {
+    const session = new StillSession(null, () => {})
+    session.setLocalAvailable(true)
+    const small = stillState()
+    const big = stillState({ stage: { width: 1600, height: 1000, dpr: 1 } })
+    await settled(session, design('a'), small)
+    const first = session.localJob()!
+    session.deliverLocal(first, new Blob(['traced']), 256)
+    expect(session.snapshot().images['front-left']?.still?.width).toBe(1000)
+    expect(session.localJob()).toBeNull()
+    // Full screen: traced again at the canvas's new size, while the smaller one stays up.
+    session.sync(scene, look as SkyLook, design('a'), big)
+    const again = session.localJob()!
+    expect(again).toEqual(first)
+    expect(session.snapshot().pending['front-left']).toBe(false)
+    session.deliverLocal(again, new Blob(['larger']), 256)
+    const larger = session.snapshot().images['front-left']?.still
+    expect(larger?.width).toBe(1600)
+    // Back to the small stage: nothing is traced smaller, and a trace finishing for the smaller
+    // stage after the larger one is in never replaces it.
+    session.sync(scene, look as SkyLook, design('a'), small)
+    expect(session.localJob()).toBeNull()
+    session.deliverLocal(first, new Blob(['late']), 256)
+    expect(session.snapshot().images['front-left']?.still).toEqual(larger)
     session.dispose()
   })
 
@@ -320,7 +410,7 @@ describe('still session', () => {
     const inside = design('a', { interior: 'mirror' })
     edit(session, inside, stillState({ design: 'd2' }))
     await tick(QUIET_MS)
-    session.sync(scene, look as SkyLook, inside, stillState({ design: 'd2' }), meter)
+    session.sync(scene, look as SkyLook, inside, stillState({ design: 'd2' }))
     const after = session.snapshot()
     expect(after.design).toBe('d2')
     for (const angle of ['front-left', 'front', 'left', 'rear-left', 'rear', 'top'] as const)
@@ -341,7 +431,7 @@ describe('still session', () => {
     const generation = old[0].request.generation
     edit(session, design('b'), stillState({ design: 'd2' }))
     await tick(QUIET_MS)
-    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }), meter)
+    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }))
     await tick()
     expect(old.every((r) => r.signal.aborted)).toBe(true)
     // The new design's still goes out under a newer number on the stage's channel, so the
@@ -359,10 +449,9 @@ describe('still session', () => {
     const session = new StillSession(client, () => {})
     await settled(session, design('a'), stillState())
     const plans = vi.mocked(planStills).mock.calls.length
-    for (let i = 0; i < 5; i++)
-      session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    for (let i = 0; i < 5; i++) session.sync(scene, look as SkyLook, design('a'), stillState())
     expect(vi.mocked(planStills).mock.calls.length).toBe(plans)
-    session.sync(scene, look as SkyLook, design('a'), stillState({ angle: 'rear' }), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState({ angle: 'rear' }))
     expect(vi.mocked(planStills).mock.calls.length).toBe(plans + 1)
     session.dispose()
   })
@@ -389,18 +478,17 @@ describe('still session', () => {
   it('waits out a busy server, twice as long each time', async () => {
     let asked = 0
     let counting = false
-    const frame = vi.fn(async (_captured: unknown, request: FrameRequest) => {
-      if (request.channel === 'm') return answerFrame()
+    const frame = vi.fn(async () => {
       if (!counting) return new Promise<never>(() => {})
       asked++
       throw new Busy('cloud renderer busy (503)')
     })
     const session = new StillSession({ frame } as unknown as CloudClient, () => {})
     counting = true
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     await tick(SETTLE_MS)
-    // The textures in: metered at once, and the still asked for, and turned away.
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    // The textures in: the still asked for at once, and turned away.
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     await tick()
     await tick()
     expect(asked).toBe(1)
@@ -467,10 +555,10 @@ describe('still session', () => {
   it("renders on this device alone without a cloud, and only the stage's still", async () => {
     const session = new StillSession(null, () => {})
     session.setLocalAvailable(true)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     expect(session.localJob()).toBeNull()
     await tick(SETTLE_MS)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     const job = session.localJob()!
     expect(job.tier).toBe('still')
     session.deliverLocal(job, new Blob(['traced']), 256)
@@ -480,7 +568,7 @@ describe('still session', () => {
     // A still traced for a design the visitor has since left is not kept for the new one.
     edit(session, design('b'), stillState({ design: 'd2' }))
     await tick(QUIET_MS)
-    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }), meter)
+    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }))
     const next = session.localJob()!
     session.deliverLocal(job, new Blob(['late']), 256)
     expect(session.snapshot().images['front-left']).toBeUndefined()
@@ -488,8 +576,8 @@ describe('still session', () => {
     session.dispose()
   })
 
-  it("never renders a baked still again, and renders the rest with the look's baked gains", async () => {
-    const { client, requests, meters } = fakeClient()
+  it('never renders a baked still again, and renders the rest exposed as it was baked', async () => {
+    const { client, requests } = fakeClient()
     let forgotten = false
     let revision = 0
     const baked: BakedLookup = {
@@ -500,22 +588,20 @@ describe('still session', () => {
         !(forgotten && angle === 'front-left')
           ? { url: `/stills/${angle}.webp`, tier: 'export' as const }
           : null,
-      gains: (lighting) => (lighting === lookKey(look) ? { exterior: 1.5, interior: 2 } : null),
       revision: () => revision,
     }
     const session = new StillSession(client, () => {}, baked)
     await settled(session, design('a'), stillState({ idle: false }))
-    // The look was baked: its gains are taken as they are, and nothing is metered.
-    expect(meters).toHaveLength(0)
     // The stage's angle is baked: on to the other angles' thumbnails, the baked ones left out.
     expect(labels(requests)).toEqual(['left thumb', 'rear-left thumb', 'rear thumb'])
-    expect(requests[0].request.finish).toEqual({ exposure: 1, gain: 1.5 })
+    // At the camera's exposure, as a bake renders them: no gain between the two.
+    expect(requests[0].request.finish).toEqual({ exposure: 1, gain: STILL_GAIN })
     const snapshot = session.snapshot()
     expect(snapshot.pending).toMatchObject({ 'front-left': false, front: false, left: true })
     expect(snapshot.progress).toBeNull()
     await answer(requests, 3)
     expect(labels(requests)).toEqual(['top thumb', 'centre thumb', 'back thumb'])
-    expect(requests[1].request.finish).toEqual({ exposure: 1.6, gain: 2 })
+    expect(requests[1].request.finish).toEqual({ exposure: 1.6, gain: STILL_GAIN })
     // A download takes the baked still itself, and nothing is rendered for it.
     session.wantExport(true)
     await tick()
@@ -525,7 +611,7 @@ describe('still session', () => {
     // A baked still that failed to load is rendered like any other.
     forgotten = true
     revision++
-    session.sync(scene, look as SkyLook, design('a'), stillState({ idle: false }), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState({ idle: false }))
     await tick()
     expect(labels(requests)).toContain('front-left still')
     expect(session.snapshot().pending['front-left']).toBe(true)
@@ -539,7 +625,6 @@ describe('still session', () => {
         key === 'd1' && angle === 'front-left'
           ? { url: `/stills/${angle}-640.webp`, tier: 'thumb' }
           : null,
-      gains: () => null,
       revision: () => 0,
     }
     const session = new StillSession(client, () => {}, quick)
@@ -557,19 +642,16 @@ describe('still session', () => {
     session.dispose()
   })
 
-  it('bakes every still it is given, with the gains of the look, once the design is ready', async () => {
-    const { client, requests, meters } = fakeClient()
-    const none: BakedLookup = { still: () => null, gains: () => null, revision: () => 0 }
+  it('bakes every still it is given, exposed as the stills are, once the design is ready', async () => {
+    const { client, requests } = fakeClient()
+    const none: BakedLookup = { still: () => null, revision: () => 0 }
     const session = new StillSession(client, () => {}, none)
     // Bake mode asks for nothing else.
     session.setActive(false)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     expect(session.bakeState()).toBe('waiting')
     await tick(SETTLE_MS)
-    session.sync(scene, look as SkyLook, design('a'), stillState(), meter)
-    await tick()
-    await tick()
-    expect(meters).toHaveLength(2)
+    session.sync(scene, look as SkyLook, design('a'), stillState())
     expect(session.bakeState()).toBe('ready')
     expect(requests).toHaveLength(0)
     const jobs = bakeJobs({
@@ -618,7 +700,7 @@ describe('still session', () => {
   })
 
   describe('prefetch', () => {
-    const none: BakedLookup = { still: () => null, gains: () => null, revision: () => 0 }
+    const none: BakedLookup = { still: () => null, revision: () => 0 }
     /** A sibling design whose scene is captured as `keys`, at the current angle's camera. */
     const sibling = (
       design: string,
@@ -749,7 +831,7 @@ describe('still session', () => {
       expect(b.take).toHaveBeenCalledTimes(1)
       // Pointed at d4 while d2 renders: d4 is next, ahead of d3.
       const pointed = { ...state, prefetch: finishes(d, b, c) }
-      session.sync(scene, look as SkyLook, design('a'), pointed, meter)
+      session.sync(scene, look as SkyLook, design('a'), pointed)
       await land(requests)
       expect(d.take).toHaveBeenCalledTimes(1)
       expect(c.take).not.toHaveBeenCalled()
@@ -788,7 +870,7 @@ describe('still session', () => {
       await filmstrip(session, requests, state)
       await tick(WARM_MS + 1)
       const b = sibling('d2', design('b'))
-      session.sync(scene, look as SkyLook, design('a'), { ...state, prefetch: finishes(b) }, meter)
+      session.sync(scene, look as SkyLook, design('a'), { ...state, prefetch: finishes(b) })
       await tick()
       expect(b.capture).not.toHaveBeenCalled()
       expect(prefetched(requests)).toEqual([])
@@ -806,7 +888,7 @@ describe('still session', () => {
       // The GPU renders it whatever the page does: cut short, it would only be rendered again.
       expect(open.signal.aborted).toBe(false)
       await land(requests)
-      session.sync(scene, look as SkyLook, design('a'), state, meter)
+      session.sync(scene, look as SkyLook, design('a'), state)
       await tick()
       expect(prefetched(requests)).toEqual([])
       expect(c.take).not.toHaveBeenCalled()
@@ -866,7 +948,7 @@ describe('still session', () => {
       const floors = { section: 'flooring', siblings: [sibling('d5', design('e'))] }
       // The pointer moves to another section and back, and on again, while it renders.
       for (const prefetch of [floors, state.prefetch!, floors]) {
-        session.sync(scene, look as SkyLook, design('a'), { ...state, prefetch }, meter)
+        session.sync(scene, look as SkyLook, design('a'), { ...state, prefetch })
         await tick()
       }
       expect(open.signal.aborted).toBe(false)
@@ -895,7 +977,7 @@ describe('still session', () => {
       const waiting = session.snapshot().progress
       // The pointer moves on to the door options (or the Interior step opens).
       const doors = { section: 'studioDoor', siblings: [] }
-      session.sync(scene, look as SkyLook, design('b'), { ...clicked, prefetch: doors }, meter)
+      session.sync(scene, look as SkyLook, design('b'), { ...clicked, prefetch: doors })
       await tick()
       expect(open.signal.aborted).toBe(false)
       expect(requests.filter((r) => r.request.channel === 'f')).toEqual([])
@@ -1125,7 +1207,7 @@ describe('still session', () => {
         }
         edit(session, design(key), next)
         await tick(QUIET_MS + 1)
-        session.sync(scene, look as SkyLook, design(key), next, meter)
+        session.sync(scene, look as SkyLook, design(key), next)
         await tick()
         await answer(requests)
         await answer(requests, 8)
@@ -1146,13 +1228,13 @@ describe('still session', () => {
       session.setLocalAvailable(true)
       const b = sibling('d2', design('b'))
       const state = stillState({ prefetch: finishes(b) })
-      session.sync(scene, look as SkyLook, design('a'), state, meter)
+      session.sync(scene, look as SkyLook, design('a'), state)
       await tick(SETTLE_MS)
-      session.sync(scene, look as SkyLook, design('a'), state, meter)
+      session.sync(scene, look as SkyLook, design('a'), state)
       const job = session.localJob()!
       session.deliverLocal(job, new Blob(['traced']), 256)
       await tick(PREFETCH_IDLE_MS)
-      session.sync(scene, look as SkyLook, design('a'), state, meter)
+      session.sync(scene, look as SkyLook, design('a'), state)
       expect(session.localJob()).toBeNull()
       expect(b.capture).not.toHaveBeenCalled()
       session.dispose()

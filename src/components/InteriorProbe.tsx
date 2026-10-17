@@ -12,6 +12,8 @@ import {
 } from 'three/webgpu'
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setProbeEnvironment, type ProbeKind } from '../render/materials'
+import { withoutCircumsolar } from '../render/circumsolar'
+import { shadowOnly } from '../render/shadowOnly'
 import type { Quality } from '../render/quality'
 
 /** Changes arriving faster than this (slider drags) are captured once, after they stop. */
@@ -117,6 +119,7 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     // cameras. Transmissive surfaces sample a copy of the frame being drawn, which here is the
     // probe itself. Shadow maps are rendered once for the capture rather than once per cube face.
     const hidden: Object3D[] = []
+    const restores: (() => void)[] = []
     const shadows: { shadow: LightShadow; autoUpdate: boolean }[] = []
     // The sky's sun disc is a tiny, enormously bright spot: in a filtered capture it only adds
     // fireflies and counts the sun twice, since the sun light already lights every surface.
@@ -131,7 +134,9 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
       const surface = (object as Mesh).material as
         { transmission?: number; userData?: { glass?: boolean } } | undefined
       const glazing = (surface?.transmission ?? 0) > 0 || surface?.userData?.glass
-      const leave = object.userData.noProbe || glazing || (skip?.(object) ?? false)
+      // What the capture looks through is drawn as nothing but its shadow (shadowOnly.ts).
+      if (skip?.(object)) restores.push(shadowOnly(object))
+      const leave = object.userData.noProbe || glazing
       if (leave && object.visible) {
         object.visible = false
         hidden.push(object)
@@ -150,13 +155,17 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     }
     let target: RenderTarget
     try {
-      target = probe.generator.fromScene(scene, 0, 0.05, 900, {
-        size: faceSize,
-        position: position.current,
-        renderTarget: probe.targets[next] ?? undefined,
-      })
+      // The sky seen through the glazing without its circumsolar glow: the sun light carries it.
+      target = withoutCircumsolar(() =>
+        probe.generator.fromScene(scene, 0, 0.05, 900, {
+          size: faceSize,
+          position: position.current,
+          renderTarget: probe.targets[next] ?? undefined,
+        }),
+      )
     } finally {
       hidden.forEach((object) => (object.visible = true))
+      restores.forEach((restore) => restore())
       shadows.forEach(({ shadow, autoUpdate }) => (shadow.autoUpdate = autoUpdate))
       discs.forEach(({ uniform, value }) => (uniform.value = value))
     }
@@ -173,7 +182,9 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
  * Interior image-based lighting. A radiance cube is captured from the middle of the room and used
  * as the environment for interior surfaces, so walls, floor, and equipment are lit and reflected
  * by the room itself (light through the glazing, luminaires, finishes) rather than the open sky.
- * Two captures per change approximate a second diffuse bounce.
+ * Each capture is lit by the one before, so four per change carry three bounces of the room's
+ * light: in a white room most of the light has bounced more than once, and with two the live view
+ * read a quarter to a third of a stop darker than the traced stills (docs/benchmarks.md).
  */
 export function InteriorProbe({ config, quality }: { config: Config; quality: Quality }) {
   useRadianceProbe({
@@ -181,19 +192,20 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
     config,
     quality,
     center: [0, productHeight(config) * 0.52, 0.3],
-    passes: 2,
+    passes: 4,
     size: quality === 'lite' ? 64 : 128,
   })
   return null
 }
 
-/** The unit itself is left out of the site capture, which is taken from just in front of it. */
+/** The site capture, taken from just in front of the unit, looks through it (its shadow kept). */
 const isUnit = (object: Object3D) => object.userData.unit === true
 
 /**
  * Local reflections for the outside of the unit. A radiance cube is captured just in front of the
- * glazing with the unit itself hidden, and used by glazing and glossy exterior finishes, so they
- * reflect the actual buildings, trees, and paving around them instead of only the open sky.
+ * glazing, looking through the unit (which still casts its shadow), and used by glazing and glossy
+ * exterior finishes, so they reflect the actual buildings, trees, and paving around them instead of
+ * only the open sky, with the paving in the unit's shadow shaded.
  */
 export function SiteProbe({ config, quality }: { config: Config; quality: Quality }) {
   useRadianceProbe({

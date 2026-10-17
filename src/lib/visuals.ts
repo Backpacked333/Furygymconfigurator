@@ -229,6 +229,26 @@ export function nightAt(time: number) {
   return 1 - smoothstep(-0.12, 0.02, sunAt(time).elevation)
 }
 
+// --- Camera exposure, shared by the live view and the path-traced stills ------------------------
+
+/**
+ * The camera's exposure outside in daylight, before AgX tone mapping. The live view and the stills
+ * are exposed alike, with no gain between them: a still is the traced light at the exposure the
+ * 360° View shows, the same on every device and tier, and the raster is tuned to the traced light
+ * (docs/benchmarks.md, "Live view vs stills").
+ */
+export const DAYLIGHT_EXPOSURE = 1.64
+/** A camera inside opens up for the dimmer room, as a photographer would: about half a stop. */
+export const INTERIOR_EXPOSURE = 1.37
+/** Eyes adapt after dark: this much more exposure once the sky has gone dark. */
+export const NIGHT_EXPOSURE = 1.35
+
+/** The exposure outside and in the room at a time of day; nothing else enters it. */
+export function exposureAt(time: number) {
+  const exterior = DAYLIGHT_EXPOSURE * (1 + nightAt(time) * NIGHT_EXPOSURE)
+  return { exterior, interior: exterior * INTERIOR_EXPOSURE }
+}
+
 // --- Sky calibration shared by the real-time sky and the path tracer ----------------------------
 
 export type Environment = keyof typeof SKY_PRESETS
@@ -319,6 +339,68 @@ export function environmentRadiance(direction: Vec3, look: SkyLook): Vec3 {
   const sky = cloudySkyRadiance(d, look.sunlight.direction, look.preset, look.clouds)
   const up = Math.pow(d[1], 0.6)
   return sky.map((v, i) => v * SKY_SCALE + look.fill[i] * up) as Vec3
+}
+
+/**
+ * The circumsolar sky: the bright glow within about 25° of the sun (Perez et al.'s circumsolar
+ * region), where a clear sky is ten times brighter than elsewhere. Solar engineering counts its
+ * light with the sun's beam, because whatever shades a surface from the sun almost always shades
+ * it from the glow too: a building's shadow is dark for that reason. The live view does the same
+ * (Atmosphere): its radiance captures leave the glow out, and the sun light carries it, shadowed.
+ * Its share of a direction's sky falls smoothly from 1 inside `inner` to 0 outside `outer`.
+ */
+export const CIRCUMSOLAR = { inner: (20 * Math.PI) / 180, outer: (30 * Math.PI) / 180 } as const
+
+/** How much of the sky `angle` radians from the sun is circumsolar. */
+export function circumsolarShare(angle: number) {
+  return 1 - smoothstep(CIRCUMSOLAR.inner, CIRCUMSOLAR.outer, angle)
+}
+
+/**
+ * The circumsolar sky's irradiance on a surface facing the sun (linear RGB, scene units): the
+ * sky above the horizon within `CIRCUMSOLAR.outer` of the sun, weighted by `circumsolarShare` and
+ * by the cosine to the sun.
+ */
+export function circumsolarIrradiance(look: SkyLook): Vec3 {
+  const s = normalize(look.sunlight.direction)
+  // Two axes perpendicular to the sun.
+  const helper: Vec3 = Math.abs(s[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+  const u = normalize([
+    helper[1] * s[2] - helper[2] * s[1],
+    helper[2] * s[0] - helper[0] * s[2],
+    helper[0] * s[1] - helper[1] * s[0],
+  ])
+  const v: Vec3 = [s[1] * u[2] - s[2] * u[1], s[2] * u[0] - s[0] * u[2], s[0] * u[1] - s[1] * u[0]]
+  const rings = 24,
+    spokes = 48
+  const dTheta = CIRCUMSOLAR.outer / rings,
+    dPhi = (2 * Math.PI) / spokes
+  const sum: Vec3 = [0, 0, 0]
+  for (let i = 0; i < rings; i++) {
+    const theta = (i + 0.5) * dTheta
+    const weight = circumsolarShare(theta) * Math.cos(theta) * Math.sin(theta) * dTheta * dPhi
+    for (let j = 0; j < spokes; j++) {
+      const phi = (j + 0.5) * dPhi
+      const a = Math.sin(theta) * Math.cos(phi),
+        b = Math.sin(theta) * Math.sin(phi),
+        c = Math.cos(theta)
+      const d: Vec3 = [0, 1, 2].map((k) => c * s[k] + a * u[k] + b * v[k]) as Vec3
+      if (d[1] <= 0) continue
+      const radiance = environmentRadiance(d, look)
+      for (let k = 0; k < 3; k++) sum[k] += radiance[k] * weight
+    }
+  }
+  return sum
+}
+
+/**
+ * The live view's sun light (linear RGB irradiance, scene units): the sun's beam and, outdoors,
+ * the circumsolar sky's. The traced stills take both from the sky itself.
+ */
+export function sunBeam(look: SkyLook): Vec3 {
+  const { color, intensity } = look.sunlight
+  const glow: Vec3 = look.environment === 'studio' ? [0, 0, 0] : circumsolarIrradiance(look)
+  return color.map((c, i) => c * SUN_INTENSITY * intensity + glow[i]) as Vec3
 }
 
 /** Radiance of the photo studio seen from its center: softboxes in a neutral cyclorama. */

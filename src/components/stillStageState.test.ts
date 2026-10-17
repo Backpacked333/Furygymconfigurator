@@ -67,6 +67,47 @@ describe('the still stage', () => {
     expect(run([offer(layer('a'))], decoding).pending).toEqual(exported)
   })
 
+  it('takes a larger still of the same tier, design and angle, and never a smaller one', () => {
+    const sized = (width: number, tier: Layer['tier'] = 'still'): Layer => ({
+      ...layer('a', tier),
+      url: `blob:a-${tier}-${width}`,
+      width,
+    })
+    const state = run([want('a'), offer(sized(1000)), decoded(sized(1000))])
+    // The stage grew to full screen: the same still at its new size swaps in, one crossfade.
+    const grown = run([offer(sized(1600))], state)
+    expect(grown.pending).toEqual(sized(1600))
+    const swapped = run([decoded(sized(1600))], grown)
+    expect(swapped).toMatchObject({ shown: sized(1600), leaving: sized(1000), fading: true })
+    expect(swapped.swaps).toBe(state.swaps + 1)
+    expect(showsWanted(grown)).toBe(true)
+    // Never smaller, nor another of the same size.
+    expect(run([offer(sized(1000))], swapped)).toBe(swapped)
+    expect(run([offer({ ...sized(1600), url: 'blob:again' })], swapped)).toBe(swapped)
+    // Nor one no larger than the larger one already decoding.
+    expect(run([offer(sized(1200))], grown).pending).toEqual(sized(1600))
+    expect(run([offer(sized(1900))], grown).pending).toEqual(sized(1900))
+    // A lesser tier stays lesser however large; a better one is taken whatever its size.
+    expect(run([offer(sized(2400, 'thumb'))], state)).toBe(state)
+    expect(run([offer(sized(800, 'export'))], state).pending).toEqual(sized(800, 'export'))
+    // Another design's still is taken at any size (an edit, not a resize).
+    const other = { ...sized(600), design: 'b', url: 'blob:b' }
+    expect(run([want('b'), offer(other)], swapped).pending).toEqual(other)
+  })
+
+  it('takes nothing rendered over a baked still, however large', () => {
+    const baked: Layer = {
+      ...layer('a', 'export'),
+      url: '/stills/v1/a/front-left-wide-1920.webp',
+      srcset:
+        '/stills/v1/a/front-left-wide-960.webp 960w, /stills/v1/a/front-left-wide-1920.webp 1920w',
+      sizes: '100vw',
+    }
+    const shown = run([decoded(baked)], initialStage({ design: 'a', angle: 'front-left' }, baked))
+    const huge = { ...layer('a', 'export'), url: 'blob:huge', width: 4000 }
+    expect(run([offer(huge)], shown)).toBe(shown)
+  })
+
   it('keeps the latest of rapid edits, ignoring stills of designs the visitor has left', () => {
     const state = run([want('a'), offer(layer('a')), decoded(layer('a'))])
     const rapid = run([want('b'), offer(layer('b')), want('c')], state)

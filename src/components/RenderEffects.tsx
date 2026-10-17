@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
-  DataTexture,
-  HalfFloatType,
   Matrix4,
   Quaternion,
-  RGBAFormat,
-  RenderTarget,
-  Vector2,
   Vector3,
   type PerspectiveCamera,
   type WebGPURenderer,
@@ -16,13 +11,12 @@ import { BAKE, reportBake, type BakeResult } from '../lib/bake'
 import { onBakedChange } from '../lib/bakedStills'
 import type { Config, View } from '../lib/config'
 import { RENDER_VERSION, configKey } from '../lib/stillKey'
-import type { SkyLook } from '../lib/visuals'
+import { exposureAt, type SkyLook } from '../lib/visuals'
 import {
-  createExposureMeter,
   createPipeline,
-  createTracePresent,
+  createStillFinish,
   type Pipeline,
-  type TracePresent,
+  type StillFinish,
 } from '../render/pipeline'
 import { CloudClient, cloudUrl, type CloudCamera } from '../render/cloud'
 import { bench } from '../render/bench'
@@ -30,6 +24,7 @@ import {
   GALLERY_ANGLES,
   angleKey,
   aspectClassOf,
+  galleryAngle,
   galleryCamera,
   type AngleId,
 } from '../render/gallery'
@@ -41,7 +36,6 @@ import {
   type BakedLookup,
   type LocalJob,
   type PrefetchState,
-  type RasterMeter,
   type SceneKeys,
   type StillState,
 } from '../render/stills'
@@ -54,7 +48,6 @@ import {
   whenSiblingLoaded,
   type Derivation,
 } from '../render/siblings'
-import { INTERIOR_EXPOSURE } from './Atmosphere'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import {
   EXPORT_SAMPLES,
@@ -85,16 +78,6 @@ const STILL = 1e-6
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
 const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
 /**
- * Raster frames drawn at each camera the exposure meter reads, fewest and most, by tier: enough
- * for the tier's temporal effects to settle, and no more than a settle run on a device that is
- * already slow (Lite has no temporal effects: its first frame is the frame).
- */
-const METER_FRAMES: Record<Quality, [least: number, most: number]> = {
-  lite: [1, 8],
-  high: [4, 16],
-  ultra: [4, 16],
-}
-/**
  * How long a download or a PDF waits for the current angle's export (the cloud's takes up to a
  * minute on the GPU) before it takes the still on the stage.
  */
@@ -104,15 +87,8 @@ const denoise = new URLSearchParams(window.location.search).get('denoise') !== '
 /** `?traceStats=1` logs which fingerprint of which part of the scene an edit changed. */
 const TRACE_STATS = new URLSearchParams(window.location.search).get('traceStats') === '1'
 const SCENE_PARTS: ScenePart[] = ['exterior', 'interior']
-/**
- * Bake mode renders every still afresh, and a look already baked in this run (the script's
- * `window.__bakeLooks`) with the gains it was baked with, so a look has one gain across designs.
- */
-const BAKE_LOOKUP: BakedLookup = {
-  still: () => null,
-  gains: (lighting) => window.__bakeLooks?.[lighting] ?? null,
-  revision: () => 0,
-}
+/** Bake mode renders every still afresh. */
+const BAKE_LOOKUP: BakedLookup = { still: () => null, revision: () => 0 }
 /** In bake mode, how often the frame loop looks again whether the design is ready to bake. */
 const BAKE_POLL_MS = 500
 /** Siblings' derivations kept (siblings.ts): a few sections' worth. */
@@ -148,10 +124,11 @@ async function pngOf(image: Blob | string) {
  * its motion (motionBlur.ts); the frame it settles on has no blur at all.
  *
  * In the gallery the stage shows path-traced stills (stills.ts) over this canvas, which stays
- * mounted, hidden, and draws only what the stills need: the raster frame the exposure meter reads,
- * and the view this device's tracer starts from when it renders the stage's still itself (WebGPU,
- * with no cloud to do it). That still is traced offscreen and handed to the stage finished, so its
- * progressive samples are never seen. Until the stage has a still to show (a design never
+ * mounted, hidden, and draws only what the stills need: the view this device's tracer starts from
+ * when it renders the stage's still itself (WebGPU, with no cloud to do it). That still is traced
+ * offscreen and handed to the stage finished as the cloud's are, so its progressive samples are
+ * never seen. Stills and the live view share one exposure (visuals.ts exposureAt): nothing about a
+ * still depends on this device or its tier. Until the stage has a still to show (a design never
  * rendered before, or no tracer at all) the canvas shows the live view at the angle's camera.
  */
 export function RenderEffects({
@@ -196,19 +173,20 @@ export function RenderEffects({
   const renderer = gl as unknown as WebGPURenderer
   const webgpu = backendOf(renderer) === 'webgpu'
   const pipeline = useRef<Pipeline | null>(null)
-  const [raster, setRaster] = useState<Pipeline | null>(null)
+  /** Where the camera stands, for the pipeline's ambient occlusion. */
+  const place = useRef<'exterior' | 'interior'>('exterior')
   const [tracer, setTracer] = useState<PathTraceSession | null>(null)
-  const present = useRef<TracePresent | null>(null)
+  const present = useRef<StillFinish | null>(null)
   const settle = useRef(0)
   const lastView = useRef({ position: new Vector3(Infinity, 0, 0), quaternion: new Quaternion() })
   const lastProjection = useRef(new Matrix4())
   const changed = useRef(true)
   /**
-   * Something the live view shows changed (an edit, the camera, a texture, a probe capture, the
-   * meter's frames): in the gallery the view is drawn only then, not for the stills' own redraws.
+   * Something the live view shows changed (an edit, the camera, a texture, a probe capture): in
+   * the gallery the view is drawn only then, not for the stills' own redraws.
    */
   const dirty = useRef(true)
-  /** Whether the raster frame on screen (and in `hdr`) shows the current view, settled. */
+  /** Whether the raster frame on screen shows the current view, settled. */
   const fresh = useRef(false)
   const pending = useRef<PendingCapture | null>(null)
   /** Redraws when a capture's wait runs out, in case nothing else does by then. */
@@ -221,9 +199,6 @@ export function RenderEffects({
   const freezes = useRef<{ target: HTMLCanvasElement; resolve: (pose: LivePose | null) => void }[]>(
     [],
   )
-  const bufferSize = useRef(new Vector2()).current
-  const meterMatrix = useRef(new Matrix4()).current
-  const meterScale = useRef(new Vector3()).current
   /** When the design last changed: the other angles' stills wait for it to hold still a while. */
   const lastChange = useRef(performance.now())
   /** A redraw booked for a moment no event brings (the design turning idle). */
@@ -267,8 +242,8 @@ export function RenderEffects({
 
   useEffect(() => {
     const created = createPipeline(renderer, scene, camera, quality)
+    created.setPlace(place.current)
     pipeline.current = created
-    setRaster(created)
     invalidateShadows(scene)
     settle.current = 0
     fresh.current = false
@@ -283,6 +258,8 @@ export function RenderEffects({
 
   // The design's key, and every gallery angle's camera for it at this stage's shape.
   const design = useMemo(() => configKey(config), [config])
+  // The stills' exposure: the live view's, from the time of day alone.
+  const exposure = useMemo(() => exposureAt(config.time), [config.time])
   const aspect = aspectClassOf(width, height)
   const heroKey = hero.join(',')
   const { near, far } = camera as PerspectiveCamera
@@ -386,24 +363,18 @@ export function RenderEffects({
   }, [renderer, localAvailable, invalidate])
 
   useEffect(() => {
-    if (!tracer || !raster) return
-    const created = createTracePresent(renderer, raster.hdr, tracer.tracer.target!)
+    if (!tracer) return
+    const created = createStillFinish(renderer, tracer.tracer.target!)
     present.current = created
     invalidate()
     return () => {
       present.current = null
       created.dispose()
     }
-  }, [renderer, tracer, raster, invalidate])
+  }, [renderer, tracer, invalidate])
 
-  // The stills: their session, and a meter for the raster frame's brightness, which the cloud's
-  // stills match once per lighting look.
-  const stills = useRef<{
-    session: StillSession
-    meter: ReturnType<typeof createExposureMeter>
-    /** Where the meter's frames are drawn: a target nothing presents (see the frame loop). */
-    offscreen: RenderTarget
-  } | null>(null)
+  // The stills' session.
+  const stills = useRef<{ session: StillSession } | null>(null)
   /** The still this device's tracer is on: settling the raster view it starts from, or tracing. */
   const local = useRef<{ job: LocalJob; phase: 'settle' | 'trace'; began: number } | null>(null)
   /** Each part's fingerprints as last signed, to name what an edit changed (`?traceStats=1`). */
@@ -411,39 +382,29 @@ export function RenderEffects({
     exterior: null,
     interior: null,
   })
-  /** Waiting for the raster frame's brightness at a camera, which the next frame measures. */
-  const meterWanted = useRef<
-    { camera: CloudCamera; resolve: (meter: Promise<RasterMeter>) => void }[]
-  >([])
   const stillsOn = trace && (remote !== null || localAvailable)
   useEffect(() => {
     if (!stillsOn) {
       setStills(null)
       return
     }
-    const placeholder = new DataTexture(new Uint16Array(4), 1, 1, RGBAFormat, HalfFloatType)
     const created = {
       session: new StillSession(
         remote ? new CloudClient(remote) : null,
         invalidate,
         BAKE ? BAKE_LOOKUP : undefined,
       ),
-      meter: createExposureMeter(renderer, placeholder),
-      offscreen: new RenderTarget(4, 4, { depthBuffer: false }),
     }
     stills.current = created
     invalidate()
     return () => {
       stills.current = null
       created.session.dispose()
-      created.meter.dispose()
-      created.offscreen.dispose()
-      placeholder.dispose()
       setStills(null)
       changed.current = true
       invalidate()
     }
-  }, [stillsOn, remote, renderer, invalidate])
+  }, [stillsOn, remote, invalidate])
   useEffect(() => {
     stills.current?.session.setLocalAvailable(tracer !== null)
   }, [tracer, stillsOn])
@@ -465,6 +426,11 @@ export function RenderEffects({
     invalidate()
   }, [mode, stillsOn, invalidate, shutter])
 
+  // Inside, the ambient occlusion reaches less far than outside (pipeline.ts AO_REACH).
+  useEffect(() => {
+    place.current = view === 'interior' ? 'interior' : 'exterior'
+    pipeline.current?.setPlace(place.current)
+  }, [view])
   // Any edit to the design redraws the view, from the start of a settle run.
   useEffect(() => {
     changed.current = true
@@ -568,11 +534,8 @@ export function RenderEffects({
     // Shadow maps are redrawn on demand (shadows.ts), by the first scene render after a change,
     // which marks that frame as eventful for the timing below.
     let eventful = false
-    /** The exposure meter drew the view at another camera this frame. */
-    let metered = false
     const gallery = mode === 'gallery'
     const producer = gallery ? stills.current : null
-    const size = renderer.getDrawingBufferSize(bufferSize)
     const usable = tracer && present.current ? tracer : null
     let job: LocalJob | null = null
 
@@ -599,7 +562,6 @@ export function RenderEffects({
       const textures = textureProgress.get()
       const idle = active && now - lastChange.current >= IDLE_MS
       if (active && !idle) wakeAt(lastChange.current + IDLE_MS)
-      const outside = renderer.toneMappingExposure / (view === 'interior' ? INTERIOR_EXPOSURE : 1)
       const stillState: StillState = {
         design,
         angle,
@@ -611,7 +573,7 @@ export function RenderEffects({
         },
         cameras: lenses.cameras,
         angleKeys: lenses.angleKeys,
-        exposure: { exterior: outside, interior: outside * INTERIOR_EXPOSURE },
+        exposure,
         idle,
         editedAt: lastChange.current,
         prefetch: active ? prefetch : null,
@@ -621,11 +583,6 @@ export function RenderEffects({
         lookRef.current,
         keys,
         stillState,
-        (at) =>
-          new Promise<RasterMeter>((resolve) => {
-            meterWanted.current.push({ camera: at, resolve })
-            invalidate()
-          }),
         // Scanned materials still streaming in: the stills wait for them (each arrival redraws).
         textures.loaded >= textures.requested,
       )
@@ -674,54 +631,6 @@ export function RenderEffects({
           }
         }
       }
-      if (meterWanted.current.length) {
-        // The raster frame for this look at each camera asked for, rendered a few times so its
-        // temporal effects settle, and measured. None reaches the canvas: the meter reads the
-        // pipeline's `hdr` texture, and the frames are drawn into a target nothing presents. The
-        // camera is put back after each.
-        eventful = true
-        metered = true
-        refreshShadows(scene)
-        const position = cam.position.clone()
-        const quaternion = cam.quaternion.clone()
-        const fov = cam.fov
-        const [least, most] = METER_FRAMES[quality]
-        const frames = Math.min(most, Math.max(least, pipe.settleFrames))
-        const draw = () => {
-          beginFrame(renderer)
-          pipe.render()
-        }
-        renderer.setRenderTarget(producer.offscreen)
-        try {
-          for (const { camera: at, resolve } of meterWanted.current.splice(0)) {
-            meterMatrix.fromArray(at.matrix).decompose(cam.position, cam.quaternion, meterScale)
-            cam.fov = at.fov
-            cam.updateProjectionMatrix()
-            cam.updateMatrixWorld()
-            for (let i = 0; i < frames; i++) draw()
-            resolve(
-              producer.meter
-                .measure(pipe.hdr, false)
-                .then((key) => ({ key, camera: at, width: size.x, height: size.y })),
-            )
-            cam.position.copy(position)
-            cam.quaternion.copy(quaternion)
-            cam.fov = fov
-            cam.updateProjectionMatrix()
-            cam.updateMatrixWorld()
-          }
-        } finally {
-          renderer.setRenderTarget(null)
-        }
-        // The pipeline's passes draw once per frame, and the meter's draws advanced it: a new
-        // frame here, so the view's own render below draws the scene again rather than present
-        // the last meter camera's frame from `hdr`. Its temporal history is the meter camera's
-        // now, so the view settles again from the start.
-        beginFrame(renderer)
-        settle.current = 0
-        fresh.current = false
-        dirty.current = true
-      }
       job = usable ? session.localJob() : null
     }
 
@@ -764,8 +673,8 @@ export function RenderEffects({
       // Traced from the raster view at the job's camera, once that view has settled.
       const at = lenses.cameras[tracing.job.angle].matrix
       const posed = camera.matrixWorld.elements.every((v, i) => Math.abs(v - at[i]) < 1e-3)
-      if (tracing.phase === 'settle' && fresh.current && settle.current <= 0 && posed && !metered) {
-        usable.begin(scene, camera, lookRef.current, pipe.hdr, target)
+      if (tracing.phase === 'settle' && fresh.current && settle.current <= 0 && posed) {
+        usable.begin(scene, camera, lookRef.current, target)
         tracing.phase = 'trace'
         tracing.began = now
       }
@@ -781,9 +690,13 @@ export function RenderEffects({
           fraction > 0.05 ? (elapsed / fraction) * (1 - fraction) : null,
         )
         if (usable.ready(target)) {
-          // The finished image, finished as the raster frame is, read off the canvas in this
-          // task; the raster view is drawn again at once, so the visitor never sees it here.
-          present.current!.render(usable.view(now))
+          // The finished image, finished as the cloud finishes its stills (pipeline.ts
+          // stillFinish) at its part's exposure, read off the canvas in this task; the raster view
+          // is drawn again at once, so the visitor never sees it here.
+          present.current!.render(
+            usable.view(now).to,
+            exposure[galleryAngle(tracing.job.angle).group],
+          )
           const blob = dataUrlBlob(renderer.domElement.toDataURL('image/webp', 0.92))
           usable.halt()
           local.current = null

@@ -108,13 +108,21 @@ export function useStillStage({
   const offeredUrl = offered?.url
   const offeredTier = offered?.tier
   const offeredSamples = offered?.samples
+  const offeredWidth = offered?.width
   useEffect(() => {
     if (!offeredUrl || !offeredTier) return
     dispatch({
       type: 'offer',
-      layer: { design: wanted, angle, tier: offeredTier, url: offeredUrl, samples: offeredSamples },
+      layer: {
+        design: wanted,
+        angle,
+        tier: offeredTier,
+        url: offeredUrl,
+        samples: offeredSamples,
+        width: offeredWidth,
+      },
     })
-  }, [offeredUrl, offeredTier, offeredSamples, wanted, angle])
+  }, [offeredUrl, offeredTier, offeredSamples, offeredWidth, wanted, angle])
   // The page's first still, baked, is on the stage once it has decoded.
   const wasLoading = useRef(state.loading)
   useEffect(() => {

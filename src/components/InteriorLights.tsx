@@ -1,5 +1,7 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { RectAreaLight, SpotLight } from 'three'
+import { Vector3, type Node } from 'three/webgpu'
+import { color, uniform } from 'three/tsl'
 import type { Config } from '../lib/config'
 import { canopyLights } from '../render/addons'
 import { FLOOR_Y, interiorBounds } from '../render/architecture'
@@ -7,21 +9,51 @@ import { cylinder, lathe, box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
+import { roomMask, roomReach } from '../render/roomLight'
 import { Parts } from './Parts'
 
 /** 2700 K warm-white architectural LEDs. */
 const WARM = '#ffd9ad'
 
+type Room = ReturnType<typeof roomMask>
+
+/**
+ * A light whose color (with its intensity) is masked to the room, set before the light is first
+ * drawn. Its `intensity` stays as it is for the path tracers, which stop it at the walls.
+ */
+function useRoomLight(
+  ref: RefObject<SpotLight | RectAreaLight | null>,
+  intensity: number,
+  room: Room | undefined,
+) {
+  const level = useMemo(() => uniform(0), [])
+  useLayoutEffect(() => {
+    const light = ref.current as (SpotLight | RectAreaLight) & { colorNode?: Node }
+    // three r186's SpotLightNode calls a spot light's colorNode as a projection function (and
+    // keeps its own colour uniform), so a node there fails the whole lighting shader: the scene
+    // renders black. Spot lights keep their plain colour and intensity, as before.
+    if (!light || !room || (light as SpotLight).isSpotLight) return
+    light.colorNode = color(WARM).mul(level).mul(room)
+  }, [ref, room, level])
+  useLayoutEffect(() => {
+    level.value = intensity
+  }, [level, intensity])
+}
+
 function Downlight({
   position,
   intensity,
   shadow,
+  room,
 }: {
   position: [number, number, number]
   intensity: number
   shadow: boolean
+  /** Inside the room: its light stays there. */
+  room?: Room
 }) {
   const light = useRef<SpotLight>(null)
+  useRoomLight(light, intensity, room)
   useLayoutEffect(() => {
     const spot = light.current
     if (!spot) return
@@ -56,14 +88,17 @@ function Wash({
   width,
   height,
   intensity,
+  room,
 }: {
   position: [number, number, number]
   target: [number, number, number]
   width: number
   height: number
   intensity: number
+  room: Room
 }) {
   const light = useRef<RectAreaLight>(null)
+  useRoomLight(light, intensity, room)
   useLayoutEffect(() => {
     light.current?.lookAt(...target)
   }, [target])
@@ -192,6 +227,20 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
   // lit material's shader, so the switch would otherwise recompile the whole scene.
   const level = on ? 1 : 0
   const spotIntensity = 46
+  // The room's box, kept current as the design changes: the lights' masks read it.
+  const corners = useMemo(
+    () => ({ low: uniform(new Vector3()), high: uniform(new Vector3()), front: uniform(0) }),
+    [],
+  )
+  const room = useMemo(() => roomMask(corners.low, corners.high, corners.front), [corners])
+  const reach = roomReach(c)
+  const reachKey = JSON.stringify(reach)
+  useLayoutEffect(() => {
+    const { low, high, front } = JSON.parse(reachKey) as typeof reach
+    corners.low.value.set(...low)
+    corners.high.value.set(high[0], high[1], 0)
+    corners.front.value = front
+  }, [corners, reachKey])
   return (
     <>
       {/* The room's lights and fixtures are inside it: a change there costs the spin only its
@@ -206,6 +255,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               position={[x + 0.12, b.ceiling - 0.08, 0.1]}
               intensity={(linear ? spotIntensity * 0.8 : spotIntensity) * level}
               shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
+              room={room}
             />
           ))}
         {linear &&
@@ -218,6 +268,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               width={channel}
               height={0.14}
               intensity={52 * level}
+              room={room}
             />
           ))}
         {quality !== 'lite' && (
@@ -228,6 +279,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               width={L - 2.6}
               height={0.12}
               intensity={26 * level}
+              room={room}
             />
             <Wash
               position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
@@ -235,6 +287,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               width={L - 1.6}
               height={0.06}
               intensity={16 * level}
+              room={room}
             />
           </>
         )}

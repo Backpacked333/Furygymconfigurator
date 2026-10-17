@@ -26,7 +26,9 @@ import {
 } from '../render/vegetation'
 import { Parts } from './Parts'
 import { useInstances } from './useInstances'
-import { agaveGeometry, boulderGeometry, limbParts, thinned } from '../render/scenery'
+import { thinned } from '../render/instances'
+import { agaveGeometry, boulderGeometry, limbParts } from '../render/landscapeParts'
+import { GARDEN_WALL, HEDGE, sceneryLayout, type SceneryLayout } from '../render/scenery'
 import { Backyard, Campus, Residences } from './Surroundings'
 
 /** Module-level so the lawn's grass material is not rebuilt on every Landscape render. */
@@ -66,7 +68,11 @@ export function Ground({ set, size, tint }: { set: TextureSet; size: number; tin
 
 // --- Hardscape ----------------------------------------------------------------------------
 
-function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
+/**
+ * The garden's paving, its wall and the potted tree's pot (where scenery.ts puts them), its steps,
+ * gravel beds and bollards.
+ */
+function hardscape(L: number, biome: Biome, lights: boolean, layout: SceneryLayout): Part[] {
   const desert = biome === 'desert'
   const paving = material({
     set: 'concrete_pavement',
@@ -91,10 +97,18 @@ function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
   })
   const parts: Part[] = [
     part(box(L + 3, 0.24, 23), paving, [0, -0.12, 3.5], undefined, undefined, false),
-    // Board-formed garden wall with a smooth precast coping.
-    part(box(L + 24, 3.8, 0.55), wall, [0, 1.8, -12]),
-    part(roundedBox(L + 24.2, 0.16, 0.8, 0.03, 1), smooth, [0, 3.76, -12]),
   ]
+  // Board-formed garden wall with a smooth precast coping.
+  const { coping } = GARDEN_WALL
+  for (const w of layout.walls)
+    parts.push(
+      part(box(w.length, GARDEN_WALL.height, GARDEN_WALL.thickness), wall, [0, GARDEN_WALL.y, w.z]),
+      part(roundedBox(w.length + coping.overhang, coping.height, coping.depth, 0.03, 1), smooth, [
+        0,
+        coping.y,
+        w.z,
+      ]),
+    )
   for (let i = 0; i < 7; i++)
     parts.push(
       part(
@@ -133,17 +147,21 @@ function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
     }
   }
   // Tapered concrete planter for the potted tree.
-  parts.push(part(cylinder(0.75, 0.56, 1.8, 40), smooth, [-L / 2 - 0.8, 0.9, 11.5]))
-  parts.push(
-    part(
-      cylinder(0.68, 0.68, 0.05, 40),
-      material({ set: 'dry_ground_01', color: '#7a6a58', roughness: 1 }),
-      [-L / 2 - 0.8, 1.72, 11.5],
-      undefined,
-      undefined,
-      false,
-    ),
-  )
+  for (const pot of layout.pots) {
+    parts.push(
+      part(cylinder(pot.radius, 0.56, pot.height, 40), smooth, [pot.x, pot.height / 2, pot.z]),
+    )
+    parts.push(
+      part(
+        cylinder(0.68, 0.68, 0.05, 40),
+        material({ set: 'dry_ground_01', color: '#7a6a58', roughness: 1 }),
+        [pot.x, 1.72, pot.z],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+  }
   return parts
 }
 
@@ -203,11 +221,9 @@ export const Hedge = memo(function Hedge({
   quality: Quality
   z?: number
 }) {
-  const height = 3.3,
-    depth = 1.5
   const { count, drawn } = thinned(4200, quality, 500)
   const card = useMemo(leafCard, [])
-  const leaves = useMemo(() => leafMaterial('courtyard', height / 2, true), [])
+  const leaves = useMemo(() => leafMaterial('courtyard', HEDGE.height / 2, true), [])
   useEffect(() => () => card.dispose(), [card])
   const matrices = useMemo(() => {
     const object = new Object3D()
@@ -216,10 +232,10 @@ export const Hedge = memo(function Hedge({
       const face = noise(i, 51)
       const x = (noise(i, 52) - 0.5) * length
       const jitter = (noise(i, 53) - 0.5) * 0.35
-      if (face < 0.62) object.position.set(x, noise(i, 54) * height, depth / 2 + jitter)
+      if (face < 0.62) object.position.set(x, noise(i, 54) * HEDGE.height, HEDGE.depth / 2 + jitter)
       else if (face < 0.9)
-        object.position.set(x, height + jitter * 0.6, (noise(i, 54) - 0.5) * depth)
-      else object.position.set(x, noise(i, 54) * height, -depth / 2 + jitter)
+        object.position.set(x, HEDGE.height + jitter * 0.6, (noise(i, 54) - 0.5) * HEDGE.depth)
+      else object.position.set(x, noise(i, 54) * HEDGE.height, -HEDGE.depth / 2 + jitter)
       object.rotation.set(
         noise(i, 55) * Math.PI,
         noise(i, 56) * Math.PI * 2,
@@ -235,9 +251,9 @@ export const Hedge = memo(function Hedge({
   const core = useMemo(
     () => [
       part(
-        box(length - 0.4, height - 0.3, depth - 0.5),
+        box(length - 0.4, HEDGE.height - 0.3, HEDGE.depth - 0.5),
         material({ color: '#2b3a1e', roughness: 1 }),
-        [0, (height - 0.3) / 2, 0],
+        [0, (HEDGE.height - 0.3) / 2, 0],
       ),
     ],
     [length],
@@ -378,16 +394,20 @@ export function Landscape({ config: c, quality }: { config: Config; quality: Qua
   return <Garden config={c} quality={quality} />
 }
 
-/** The original garden courtyard and desert retreat settings. */
+/**
+ * The original garden courtyard and desert retreat settings. Where the wall, the hedge, the trees
+ * and the potted tree stand is scenery.ts's layout, which the gallery's cameras keep clear of.
+ */
 function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
   const studio = c.environment === 'studio'
+  const layout = useMemo(() => sceneryLayout(c.environment, L), [c.environment, L])
   const groundSet: TextureSet = biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'
   // The ground is the largest surface on screen: ask for its scan before the hardscape and the
   // studio queue theirs (Ground itself only asks after it mounts). Requests are deduplicated.
   if (!studio) prefetchTextures(groundSet)
-  const hard = useMemo(() => hardscape(L, biome, c.lights), [L, biome, c.lights])
+  const hard = useMemo(() => hardscape(L, biome, c.lights, layout), [L, biome, c.lights, layout])
   const accents = useMemo(() => (biome === 'desert' ? desertAccents(L) : []), [L, biome])
   const palettes = grassPalette(biome)
   const bedPlace = useMemo(
@@ -433,7 +453,9 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
           shadow={quality !== 'lite'}
         />
       ))}
-      {biome === 'courtyard' && <Hedge length={L + 20} quality={quality} />}
+      {layout.hedges.map((h) => (
+        <Hedge key={h.z} length={h.length} quality={quality} z={h.z} />
+      ))}
       {biome === 'courtyard' && (
         <Tufts
           {...thinned(5200, quality)}
@@ -445,31 +467,16 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
           shadow={false}
         />
       )}
-      {[-1, 1].map((side) => (
-        <group key={side}>
-          <Tree
-            position={[side * (L / 2 + 6), 0, -8]}
-            scale={1.55}
-            seed={side > 0 ? 1 : 2}
-            biome={biome}
-            quality={quality}
-          />
-          <Tree
-            position={[side * (L / 2 + 14), 0, -19]}
-            scale={2.0}
-            seed={side > 0 ? 3 : 4}
-            biome={biome}
-            quality={quality}
-          />
-        </group>
+      {layout.trees.map((t) => (
+        <Tree
+          key={t.seed}
+          position={[t.x, t.base, t.z]}
+          scale={t.scale}
+          seed={t.seed}
+          biome={t.biome}
+          quality={quality}
+        />
       ))}
-      <Tree
-        position={[-L / 2 - 0.8, 1.75, 11.5]}
-        scale={0.5}
-        seed={5}
-        biome={biome}
-        quality={quality}
-      />
     </group>
   )
 }
