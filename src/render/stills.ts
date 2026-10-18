@@ -33,8 +33,9 @@ import {
   type PlannedJob,
   type Tier,
 } from './plan'
-import { FIRST_FRAME_MS, queueEstimate, renderRate } from './progress'
+import { queueEstimate, renderRate } from './progress'
 import type { AngleImages, StillProgress, StillsSnapshot } from './stillStatus'
+import type { CloudWork } from './workProgress'
 
 export type { Tier }
 
@@ -307,7 +308,13 @@ type Job = PlannedJob & {
   exposure: number
 }
 /** A request open: what drops it, when it went out, and what it should take (the estimate). */
-type Open = { focus: boolean; abort: AbortController; sentAt: number; estimateMs: number }
+type Open = {
+  focus: boolean
+  abort: AbortController
+  sentAt: number
+  estimateMs: number
+  work?: CloudWork
+}
 /** A prefetch open: the sibling it is of, and its whole wait from when it went out. */
 type PrefetchOpen = Open & { design: string; waitMs: number }
 /** A still for this device's tracer to render: RenderEffects traces it and hands it back. */
@@ -407,11 +414,6 @@ export class StillSession {
   private exportWanted = false
   private planned: Job[] = []
   private planStamp = ''
-  /**
-   * When the still the stage waits for became wanted, and how long it should take in all: the
-   * status line's estimate. Updated, not restarted, when its request goes out.
-   */
-  private wait: { key: string; startedAt: number; expectedMs: number } | null = null
   /** This device's tracer can render stills (WebGPU), and how far it is with one. */
   private localAvailable = false
   private localProgress: { key: string; fraction: number; remainingMs: number | null } | null = null
@@ -1023,6 +1025,11 @@ export class StillSession {
             channel: 'p',
           },
           open.abort.signal,
+          (work) => {
+            if (open.abort.signal.aborted) return
+            open.work = work
+            if (this.state && this.keys[this.state.angle] === key) this.onChange()
+          },
         ),
       )
       .then((frame) => {
@@ -1085,9 +1092,6 @@ export class StillSession {
     const finish = { exposure: job.exposure, gain: STILL_GAIN }
     const now = performance.now()
     const own = renderRate.estimateMs({ ...job, ...job.quality })
-    // The GPU renders one still at a time: the one under way (the oldest open) finishes first,
-    // and anything the server ranks ahead of this one.
-    const ahead = this.ahead(job.focus, now)
     const open: Open = {
       focus: job.focus,
       abort: new AbortController(),
@@ -1095,15 +1099,6 @@ export class StillSession {
       estimateMs: own,
     }
     inFlight.set(job.id, open)
-    // The status line's estimate: from when the still became wanted, its wait from here on.
-    if (job.focus && job.tier === 'still') {
-      const startedAt = this.wait?.key === job.key ? this.wait.startedAt : now
-      this.wait = {
-        key: job.key,
-        startedAt,
-        expectedMs: now - startedAt + queueEstimate(own, ahead),
-      }
-    }
     this.captured!.then((captured) => {
       bench.mark('firstRequest')
       return this.client!.frame(
@@ -1119,6 +1114,12 @@ export class StillSession {
           channel,
         },
         open.abort.signal,
+        (work) => {
+          if (open.abort.signal.aborted) return
+          open.work = work
+          if (job.tier !== 'thumb' && this.state && this.keys[this.state.angle] === job.key)
+            this.onChange()
+        },
       )
     })
       .then((frame) => {
@@ -1197,6 +1198,7 @@ export class StillSession {
     const delay = Math.min(BUSY_MAX_MS, BUSY_MS * 2 ** this.busyStreak)
     this.busyStreak++
     this.busyUntil = now + delay
+    this.onChange()
     setTimeout(() => this.pump(), delay)
     return delay
   }
@@ -1279,6 +1281,27 @@ export class StillSession {
     this.onChange()
   }
 
+  retry() {
+    this.drop('exterior')
+    this.drop('interior')
+    for (const open of this.prefetchOpen.values()) open.abort.abort()
+    this.prefetchOpen.clear()
+    if (this.state) {
+      const key = this.keys[this.state.angle]
+      const stored = this.frames.get(key)
+      if (stored) for (const image of Object.values(stored)) this.revoke(image.url)
+      this.frames.delete(key)
+    }
+    this.failed = false
+    this.failures = 0
+    this.localProgress = null
+    this.sceneKey = ''
+    this.captured = null
+    this.capturedSettled = false
+    this.planStamp = ''
+    this.onChange()
+  }
+
   /**
    * The still this device's tracer should render: the stage's, when the cloud is not rendering,
    * once the design has settled and its textures are in. Null when there is none to render.
@@ -1355,45 +1378,39 @@ export class StillSession {
       aspect: state.aspect,
       images,
       pending,
-      progress: pending[state.angle] ? this.progress(state, source, now) : null,
+      progress:
+        pending[state.angle] ||
+        (source === null &&
+          !images[state.angle]?.still &&
+          this.bakedAt(state.angle)?.tier !== 'export')
+          ? this.progress(state, source, now)
+          : null,
     }
   }
 
-  /** How far the stage's still is: measured on this device, estimated for the cloud. */
-  private progress(state: StillState, source: 'cloud' | 'local' | null, now: number) {
+  /** Only observations: sample counts locally, request lifecycle in the cloud. */
+  private progress(
+    state: StillState,
+    source: 'cloud' | 'local' | null,
+    now: number,
+  ): StillProgress {
     const key = this.keys[state.angle]
     if (source === 'local') {
       const local = this.localProgress
+      if (local?.key !== key) return { kind: 'stage', stage: 'preparing' }
       const measured: StillProgress = {
         kind: 'measured',
-        fraction: local?.key === key ? local.fraction : 0,
-        remainingMs: local?.key === key ? local.remainingMs : null,
+        fraction: local.fraction,
+        remainingMs: local.remainingMs,
       }
       return measured
     }
-    const prefetching = this.prefetchOpen.get(key)
-    if (this.wait?.key !== key && prefetching) {
-      // Prefetched while it was a sibling, and on its way: the wait counts from when it went out.
-      this.wait = { key, startedAt: prefetching.sentAt, expectedMs: prefetching.waitMs }
-    } else if (this.wait?.key !== key) {
-      // Not asked for yet: the textures come first.
-      const own = renderRate.estimateMs({
-        ...stillSize('still', state.aspect, state.stage),
-        ...QUALITY.still,
-      })
-      const first = renderRate.learned() ? 0 : FIRST_FRAME_MS
-      this.wait = {
-        key,
-        startedAt: now,
-        expectedMs: own + first + (this.settled ? 0 : SETTLE_MS),
-      }
-    }
-    const estimate: StillProgress = {
-      kind: 'estimate',
-      startedAt: this.wait.startedAt,
-      expectedMs: this.wait.expectedMs,
-    }
-    return estimate
+    if (now < this.busyUntil || now < this.fullUntil) return { kind: 'stage', stage: 'retrying' }
+    if (!source) return { kind: 'stage', stage: 'unavailable' }
+    const open =
+      this.inFlight[partOf(state.angle)].get(`${key}|still`) ?? this.prefetchOpen.get(key)
+    if (open) return { kind: 'stage', ...(open.work ?? { stage: 'preparing' }) }
+    return { kind: 'stage', stage: 'preparing' }
   }
 
   /**

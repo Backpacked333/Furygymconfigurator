@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LoadingExperience } from './LoadingExperience'
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -251,6 +252,14 @@ export function BriefDialog({
         <ArrowDownToLine size={17} />
         {busy ? 'Preparing your brief…' : 'Download build brief'}
       </button>
+      {busy && (
+        <LoadingExperience
+          config={config}
+          compact
+          title="Your vision, ready to share."
+          label="Preparing your build brief"
+        />
+      )}
     </Modal>
   )
 }
