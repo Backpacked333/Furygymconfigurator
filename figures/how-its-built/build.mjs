@@ -167,6 +167,9 @@ body.cg-bare{background:transparent}
 .cg-bare .cg-embed{padding:0}
 .cg-bare .iso-plate{padding:0;background:none;box-shadow:none;--anatomy-paper:var(--cg-paper,var(--anatomy-page))}
 .cg-bare .iso-plate-corners,.cg-bare .iso-legend{display:none}
+/* Without the card the build fills the frame it is embedded in, and never scrolls. */
+body.cg-bare,body.cg-bare .cg-embed{height:100vh;overflow:hidden}
+.cg-bare .cg-stage svg{width:100%;height:100vh}
 .cg-nosite .cg-site{display:none}
 .cg-static .cg-stage{cursor:default;pointer-events:none}
 `
