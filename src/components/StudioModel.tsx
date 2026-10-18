@@ -14,7 +14,7 @@ import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
-import { Equipment } from './Equipment'
+import { Equipment, SaunaLights } from './Equipment'
 import { InteriorLights } from './InteriorLights'
 import { Mirror } from './Mirror'
 import { Parts } from './Parts'
@@ -87,8 +87,11 @@ export function StudioModel({
   quality?: Quality
 }) {
   const studio = c.family === 'studio'
-  const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
-  const interiorKey = `${shellKey}|${c.flooring}`
+  // Each key names exactly the inputs its builder reads, so a finish change does not rebuild and
+  // re-merge parts that only depend on size (the interior reads the finish only for chalk paint).
+  const size = `${c.family}|${c.length}`
+  const shellKey = `${size}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
+  const interiorKey = `${size}|${c.finish === 'chalk'}|${c.containerOpening}|${c.flooring}`
   const shell = useParts(
     (x) => (x.family === 'studio' ? studioShell(x) : containerShell(x)),
     c,
@@ -99,13 +102,13 @@ export function StudioModel({
     c,
     interiorKey,
   )
-  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, shellKey)
+  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, size)
   const a = c.addons
   const deckParts = useParts(deck, c, `${shellKey}|${c.lights}`)
   const pergolaParts = useParts(pergola, c, shellKey)
-  const roofParts = useParts(roofDeck, c, `${shellKey}|${a.stairs}`)
+  const roofParts = useParts(roofDeck, c, `${size}|${a.stairs}`)
   const stairParts = useParts(stairs, c, shellKey)
-  const accentParts = useParts(timberAccent, c, shellKey)
+  const accentParts = useParts(timberAccent, c, size)
   return (
     <group>
       <Parts parts={shell} />
@@ -122,6 +125,7 @@ export function StudioModel({
       {c.items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}
+      <SaunaLights items={c.items} />
     </group>
   )
 }

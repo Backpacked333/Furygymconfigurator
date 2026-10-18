@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "figure": "node figures/how-its-built/build.mjs"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.6",

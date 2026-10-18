@@ -17,3 +17,39 @@ export const textureProgress = {
     listeners.forEach((listener) => listener())
   },
 }
+
+/** Where the 3D view is on its way to a first picture. */
+export type ScenePhase = 'engine' | 'renderer' | 'shaders' | 'ready'
+const phaseListeners = new Set<Listener>()
+let phase: ScenePhase = 'engine'
+let afterDraw: (() => void)[] = []
+
+export const sceneProgress = {
+  subscribe(listener: Listener) {
+    phaseListeners.add(listener)
+    return () => {
+      phaseListeners.delete(listener)
+    }
+  },
+  get: () => phase,
+  set(next: ScenePhase) {
+    if (phase === next) return
+    phase = next
+    phaseListeners.forEach((listener) => listener())
+  },
+  /** Runs `callback` once, after the next frame the scene draws. */
+  afterNextDraw(callback: () => void) {
+    afterDraw.push(callback)
+    return () => {
+      afterDraw = afterDraw.filter((c) => c !== callback)
+    }
+  },
+  /** Called by the scene each time it draws a frame. */
+  drawn() {
+    sceneProgress.set('ready')
+    if (!afterDraw.length) return
+    const callbacks = afterDraw
+    afterDraw = []
+    callbacks.forEach((callback) => callback())
+  },
+}

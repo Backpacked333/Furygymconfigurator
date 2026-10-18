@@ -68,6 +68,25 @@ The project deploys on Vercel. `vercel.json` caches Vite's content-hashed `/asse
 - **History:** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z redoes. Changing size preserves selections, and downsizing is blocked if current equipment would no longer fit.
 - **Photo mode:** expands the scene and downloads a rasterized PNG at the current canvas resolution. It is not 4K path tracing.
 
+## How it's built figures
+
+`public/how-its-built.html` is a gallery of isometric figures, one per unit and option Fury offers, each building itself piece by piece and looping. There are five Container Gyms (the 10′ roll-up door, a center opening, a partial open side, a full open side, and 40′) and seven Studios (single, 40′, double-wide, front deck and gazebo, rooftop deck and stairs, every add-on, and stacked). A thirteenth, `no-excuses.html`, stands the word EXCUSES on the pad in block letters, lets it fall apart into a heap, and flies the blocks one by one into a Studio with every add-on. A switch in the gallery header chooses between four themes: dark, white, a light sage tint, and color, which draws every part in its own material (painted steel, galvanised framing, plywood, oak, teak, rubber, glass, chrome) from one small block of CSS, with no extra geometry.
+
+Each figure is also a standalone page under `public/how-its-built/` (`container.html`, `studio-single.html` and so on) for landing pages and loading screens. With no options it shows just the build on a transparent background. URL options:
+
+| Option                           | Effect                                                     |
+| -------------------------------- | ---------------------------------------------------------- |
+| `theme=dark\|light\|tint\|color` | Colours; light is the default; color uses real materials   |
+| `frame=card`                     | The framed card with title, live readout, legend and steps |
+| `site=0`                         | Hide the concrete pad and ruler and crop to the unit       |
+| `interactive=0`                  | No hover, click or keys                                    |
+| `paper=<colour>`                 | Fill colour for the solids; match it to the page behind    |
+| `speed=<n>` / `still=1`          | Playback speed, or the finished unit only                  |
+
+For example: `<iframe src="/how-its-built/studio-single.html?theme=light&site=0&interactive=0" style="border:0;width:100%;aspect-ratio:16/10"></iframe>`. A host page can switch themes live by posting `{ cg: "theme", theme }` to the frame, and each frame posts `{ cg: "height", height }` to its parent.
+
+Sizes follow `src/lib/products.ts`, `openingGeometry()` and the configurator's models; part geometry is illustrative. Rebuild with `npm run figure` after editing `figures/how-its-built/` (`container.mjs`, `studio.mjs`, shared parts in `common.mjs`, pages in `build.mjs`). `figures/kit/` is a vendored copy of the MIT-licensed Anatomy isometric kit.
+
 ## Configuration architecture
 
 One validated, versioned `Config` object drives the scene, layout, quote checklist, share payload, and PDF. `src/lib/config.ts` owns the Zod schema, planning equipment, presets, validation rules, unit conversions, and quote semantics. `src/lib/products.ts` owns the sourced product facts. Never add prices separately in a component or PDF.
@@ -127,7 +146,7 @@ Rules:
 
 ### Local data and sharing
 
-The URL fragment `#c=…` contains the entire LZ-string-compressed configuration. It updates with edits and is not sent in HTTP requests to the static host. Anyone with the full link can read the configuration. There is no short-link service, authentication, cross-device account, or automatic social-preview image. A link needs a running deployment of this app; localhost and session-preview links are not permanent public links.
+The URL fragment `#c=…` contains the entire LZ-string-compressed configuration. It follows edits within half a second (at once when the tab is hidden or closed), so dragging a slider does not rewrite browser history on every step, and it is not sent in HTTP requests to the static host. Pasting another design's link into an open tab loads it; Undo returns to the previous design. Anyone with the full link can read the configuration. There is no short-link service, authentication, cross-device account, or automatic social-preview image. A link needs a running deployment of this app; localhost and session-preview links are not permanent public links.
 
 `fury-draft-v1` and `fury-builds-v1` remain the only localStorage keys to preserve existing drafts and saved builds; their payloads migrate to schema v2. A valid URL configuration takes precedence over the draft. Storage failure does not prevent configuration or file export; named-save failures show a message. Clearing browser storage removes local drafts and saved builds, so export important designs.
 
@@ -155,13 +174,23 @@ Materials come from 18 CC0 photo-scanned PBR sets from [Poly Haven](https://poly
 
 Models are procedural and batched: each equipment item or architectural assembly is merged per material into a few draw calls and shared by every placed copy. Trees use alpha-tested leaf cards with crown-bent normals and daylight-scaled translucency; grass and foliage are instanced. Footprint tests keep every equipment model inside the planning envelope the floor-plan collision rules use; a racked Olympic bar is the one deliberate exception, overhanging its uprights into the rack's published side clearance as on real racks.
 
-These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Glass and water use physically based transmission, not traced caustics. Lights do not simulate certified photometry, and screen-space GI only bounces light that is on screen. Photo and PDF exports capture the current real-time view; they are not offline path-traced renders.
+These remain procedural concept models, not manufacturer-verified CAD or photographic scans of Fury products. Equipment is generic. Clear glazing is drawn as thin float glass over the room behind it (Fresnel reflection, nothing blurred); tinted sauna glass and water use physically based transmission, not traced caustics. Lights do not simulate certified photometry, and screen-space GI only bounces light that is on screen. Photo and PDF exports capture the current real-time view; they are not offline path-traced renders.
 
-The three.js chunk (WebGPU and the classic renderer React Three Fiber references) is about 2.2 MB minified, 630 kB gzipped, and loads only with the scene; the app shell stays about 160 kB. No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
+The three.js chunk is about 1.6 MB minified, 480 kB gzipped, and loads only with the scene: React Three Fiber is pointed at three's WebGPU build, so the classic WebGL renderer is not bundled. The app shell (app code, React, and CSS) is about 430 kB minified, 130 kB gzipped, and paints the configurator before three.js or jsPDF arrive.
+
+Smoothness and reliability:
+
+- **Nothing runs at rest.** three's own animation loop is stopped; frames are drawn only on demand and for the settle window. Sun shadows re-render only when something changes, not on every settle frame. Sub-pixel camera damping no longer extends the settle window.
+- **No shader compiles on common toggles.** Lights that come and go (moonlight, interior luminaires, sauna heaters) stay mounted at zero intensity, and foliage, grass, ground, and studio floor materials are kept for the session, so switching lights, time of day, packages, or surroundings reuses compiled shaders instead of stalling. On WebGPU, instanced trees, hedges, and grass read their placements from vertex attributes, so every copy shares its material's shader rather than compiling one per mesh. (A 20↔40 ft change still recompiles lit materials once, because the larger unit has more downlights.)
+- **Loading is always visible.** A first visit shows staged progress (downloading the 3D engine, starting the renderer, preparing materials and lighting) until the scene has drawn its first frame, while the configuration panel already works. Changes that rebuild much of the scene (size, product, surroundings, quality) show "Updating the 3D view" a frame before the work starts, and materials streaming in show a progress bar. Their motion is transform-only, so it keeps animating while the browser compiles shaders.
+- **Textures decode off the main thread** where the browser supports it, retry on network errors (a whole set that fails tries again after growing pauses, then textures every surface that was waiting), and show neutral stand-ins until they arrive; a failed texture never leaves the progress indicator stuck.
+- **Recovery.** If the GPU device or WebGL context is lost, the scene rebuilds its renderer and textures (up to three times) instead of freezing. If the 3D code fails to download, configuration, pricing, and the floor plan keep working with a message in place of the scene; any other unexpected error shows a reload screen instead of a blank page, and the design survives the reload in the page's link.
+
+No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
 
 ## Verification
 
-Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, and both product shells staying inside their nominal envelopes for every opening and length. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
+Vitest covers presets at both sizes, family transitions and heights, Container openings, independent Studio add-ons, custom inquiries, wall/entry/collision constraints, quote-only pricing, schema v1 migration, share validation, storage failure, undo/redo, real PDF generation for both families, demand-render invalidation, demand-loop frame bookkeeping, on-demand shadow refresh, texture retry and off-thread decoding, share-link throttling and pasted links, saved-build preservation, model part keys, the sun path and sky model, quality and backend selection, material streaming progress, every equipment model staying inside its planning footprint, valid batched geometry, and both product shells staying inside their nominal envelopes for every opening and length. These are not substitutes for browser interaction tests, real-device performance testing, accessibility audits, or manufacturer review. No screenshot-diff or browser E2E suite is included yet.
 
 ## Before commercial launch
 
