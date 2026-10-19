@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import type { DesignEnvelope } from '../../domain/design.js'
-import { setSnapshotSchema, sha256Schema, uuidSchema, type SetIdentity } from '../contracts.js'
+import {
+  RECIPE_RELEASE,
+  setSnapshotSchema,
+  sha256Schema,
+  uuidSchema,
+  type SetIdentity,
+} from '../contracts.js'
 import {
   artifactEventSchema,
   eventResponseSchema,
@@ -18,7 +24,7 @@ import { boundedBytes, httpsOrigin, ServiceError } from './httpSafety.js'
 
 export const registrationSchema = z
   .object({
-    releaseId: z.literal('fury-native-five@2'),
+    releaseId: z.literal(RECIPE_RELEASE.id),
     workerBuildSha256: sha256Schema,
     recipeBundleSha256: sha256Schema,
     geometrySha256: sha256Schema,
@@ -132,7 +138,7 @@ export class SupabaseRepository implements RenderLibraryRepository {
       .length(1)
       .parse(
         await this.transport.json(
-          '/rest/v1/render_library_recipes?release_id=eq.fury-native-five%401&select=registration',
+          `/rest/v1/render_library_recipes?release_id=eq.${encodeURIComponent(RECIPE_RELEASE.id)}&select=registration`,
         ),
       )
     return rows[0].registration

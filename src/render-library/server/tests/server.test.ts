@@ -98,6 +98,16 @@ const policy = {
   },
 } as const satisfies AdmissionPolicy
 const seeds = { images: vi.fn(async () => []) }
+it('loads the registered recipe for the active immutable release', async () => {
+  const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+    expect(String(url)).toContain('release_id=eq.fury-native-five%402&select=registration')
+    return Response.json([{ registration: policy.recipe }])
+  })
+  const repository = new SupabaseRepository(
+    new SupabaseTransport('https://test.supabase.co', key, fetcher),
+  )
+  expect(await repository.registration()).toEqual(policy.recipe)
+})
 let snapshot: SetSnapshot
 afterEach(() => vi.unstubAllGlobals())
 beforeEach(async () => {
