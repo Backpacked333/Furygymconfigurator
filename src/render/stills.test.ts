@@ -560,6 +560,25 @@ describe('still session', () => {
     warn.mockRestore()
   })
 
+  it('advances the export sequence when retrying the current export', async () => {
+    const { client, requests } = fakeClient()
+    const session = new StillSession(client, () => {})
+    const state = stillState()
+    await settled(session, design('a'), state)
+    await answer(requests)
+    session.wantExport(true)
+    await tick()
+    const old = requests.find((open) => open.request.channel === 'x')!
+    expect(old).toBeDefined()
+    session.retry()
+    session.sync(scene, look as SkyLook, design('a'), state)
+    await tick()
+    const replacement = requests.find((open) => open.request.channel === 'x')!
+    expect(old.signal.aborted).toBe(true)
+    expect(replacement.request.generation).toBeGreaterThan(old.request.generation)
+    session.dispose()
+  })
+
   it("hands the stage's still to this device's tracer while every cloud GPU is in use", async () => {
     const { client, frame, requests } = fakeClient()
     const answer = frame.getMockImplementation()!
@@ -801,6 +820,91 @@ describe('still session', () => {
     }
 
     beforeEach(() => bench.reset())
+
+    it.each(['rear', 'entry'] as const)(
+      'retries only %s, keeping other gallery requests, cached views and prefetches',
+      async (angle) => {
+        const { client, requests } = fakeClient()
+        const session = new StillSession(client, () => {}, none)
+        const b = sibling('d2', design('b'))
+        await filmstrip(session, requests, stillState({ idle: false, prefetch: finishes(b) }))
+        const saved = session.snapshot().images['front-left']?.still
+        expect(saved).toBeDefined()
+        const prefetch = requests.find((open) => open.request.channel === 'p')!
+        expect(prefetch).toBeDefined()
+        session.sync(scene, look as SkyLook, design('a'), stillState({ prefetch: null }))
+        await tick()
+        const state = stillState({ angle, prefetch: null })
+        session.sync(scene, look as SkyLook, design('a'), state)
+        await tick()
+        const focused = requests.find((open) => open.request.channel === 'f')!
+        expect(label(focused.request)).toBe(`${angle} still`)
+        const unrelated = requests.filter((open) => open !== focused)
+        expect(unrelated.some((open) => open.request.channel === 's')).toBe(true)
+        expect(unrelated).toContain(prefetch)
+
+        session.retry()
+        expect(focused.signal.aborted).toBe(true)
+        expect(unrelated.every((open) => !open.signal.aborted)).toBe(true)
+        expect(session.snapshot().images['front-left']?.still).toEqual(saved)
+        session.sync(scene, look as SkyLook, design('a'), state)
+        await tick()
+        const replacement = requests.find((open) => open.request.channel === 'f')!
+        expect(replacement.request.generation).toBeGreaterThan(focused.request.generation)
+        expect(requests).toHaveLength(unrelated.length + 1)
+        for (const open of unrelated) expect(requests).toContain(open)
+        replacement.report?.({ stage: 'uploading', completed: 1, total: 2 })
+        focused.report?.({ stage: 'receiving' })
+        expect(session.snapshot().progress).toEqual({
+          kind: 'stage',
+          stage: 'uploading',
+          completed: 1,
+          total: 2,
+        })
+        session.sync(scene, look as SkyLook, design('a'), state)
+        await tick()
+        expect(requests.filter((open) => open.request.channel === 'f')).toEqual([replacement])
+
+        const background = unrelated.find((open) => open.request.channel === 's')!
+        const backgroundAngle = label(background.request).split(' ')[0] as AngleId
+        requests.splice(requests.indexOf(background), 1)
+        background.resolve()
+        await tick()
+        expect(session.snapshot().images[backgroundAngle]?.still).toBeDefined()
+        expect(
+          requests
+            .filter((open) => open.request.channel === 's')
+            .every((open) => open.request.generation === background.request.generation),
+        ).toBe(true)
+        await land(requests)
+        edit(session, design('b'), stillState({ design: 'd2', idle: false }))
+        expect(session.snapshot().images['front-left']?.still).toBeDefined()
+        expect(session.snapshot().pending['front-left']).toBe(false)
+        session.dispose()
+      },
+    )
+
+    it('replaces a selected prefetch when the visitor explicitly retries it', async () => {
+      const { client, requests } = fakeClient()
+      const session = new StillSession(client, () => {}, none)
+      await filmstrip(
+        session,
+        requests,
+        stillState({ idle: false, prefetch: finishes(sibling('d2', design('b'))) }),
+      )
+      const prefetch = requests.find((open) => open.request.channel === 'p')!
+      const state = stillState({ design: 'd2', idle: false })
+      edit(session, design('b'), state)
+      await tick()
+      expect(prefetch.signal.aborted).toBe(false)
+      expect(requests.some((open) => open.request.channel === 'f')).toBe(false)
+      session.retry()
+      session.sync(scene, look as SkyLook, design('b'), state)
+      await tick()
+      expect(prefetch.signal.aborted).toBe(true)
+      expect(requests.some((open) => open.request.channel === 'f')).toBe(true)
+      session.dispose()
+    })
 
     it("renders the open section's siblings at the current angle once the filmstrip is in, one at a time", async () => {
       const { client, requests } = fakeClient()
