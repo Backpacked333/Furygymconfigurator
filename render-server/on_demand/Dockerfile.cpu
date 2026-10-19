@@ -1,0 +1,20 @@
+# Build the generated native package, not an arbitrary repository checkout.
+# Operators must supply approved digest-pinned base images; no mutable defaults.
+ARG NODE_IMAGE
+ARG PYTHON_IMAGE
+FROM ${NODE_IMAGE} AS node
+FROM ${PYTHON_IMAGE}
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+WORKDIR /opt/fury
+COPY . .
+RUN python -c "import sys; assert sys.version_info[:2] == (3,11)" \
+    && node -e "if (Number(process.versions.node.split('.')[0]) !== 24) process.exit(1)" \
+    && python -m pip install --no-cache-dir --require-hashes -r render-server/on_demand/requirements-cpu.lock \
+    && npm ci \
+    && useradd --uid 10001 --no-create-home --home-dir /tmp fury
+ENV PYTHONPATH=/opt/fury/render-server
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "on_demand.dispatcher"]
+CMD ["--policy", "/etc/fury/policy.json", "--state", "/var/lib/fury-native"]
