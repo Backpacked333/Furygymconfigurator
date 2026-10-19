@@ -59,8 +59,13 @@ export class StaticSeedSource {
   ) {
     if (origin) httpsOrigin(origin)
   }
-  async images(design: DesignEnvelope): Promise<readonly ImageDescriptor[]> {
-    const descriptors = await seedImagesForSet(await readFile(this.manifestPath), design)
+  async images(
+    design: DesignEnvelope,
+    readyImageKeys: readonly string[] = [],
+  ): Promise<readonly ImageDescriptor[]> {
+    const descriptors = (await seedImagesForSet(await readFile(this.manifestPath), design)).filter(
+      (image) => !readyImageKeys.includes(image.imageKey),
+    )
     if (descriptors.length && !this.origin) throw new ServiceError('lookup-unavailable', 503)
     // At most five bounded downloads; serial timeouts can exceed the API's 60s limit.
     await Promise.all(

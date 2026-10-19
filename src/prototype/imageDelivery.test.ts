@@ -40,6 +40,20 @@ beforeEach(() => {
   )
 })
 afterEach(() => vi.unstubAllGlobals())
+it('preserves same-origin preview authentication without forwarding cookies cross-origin', async () => {
+  const fetch = vi.fn(async (_url: string, options?: RequestInit) =>
+    options?.credentials === 'same-origin'
+      ? response()
+      : new Response('Preview authentication required', { status: 401 }),
+  )
+  vi.stubGlobal('fetch', fetch)
+  const image = await deliverImage(
+    { ...(await descriptor()), url: '/native-library/test.webp' },
+    new AbortController().signal,
+  )
+  image.release()
+  expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: 'same-origin', redirect: 'error' })
+})
 it('enforces the stream cap even without Content-Length and cancels an oversized stream', async () => {
   const cancel = vi.fn()
   const stream = new ReadableStream({

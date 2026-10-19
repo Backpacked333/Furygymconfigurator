@@ -32,7 +32,7 @@ export function getNativeLibrary(): Promise<NativeLibrary> {
   libraryPromise ??= (async () => {
     const response = await fetch('/native-library/manifest.json', {
       cache: 'no-cache',
-      credentials: 'omit',
+      credentials: 'same-origin',
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     })

@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { webcrypto } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
 import { defaultDesign, designEnvelopeSchema, parseDesign } from '../domain/design'
 import {
   bytesSha256,
   decodeNativeImage,
   findNativeImage,
+  getNativeLibrary,
   type NativeEntry,
   type NativeLibrary,
 } from './nativeLibrary'
@@ -39,6 +41,18 @@ const library: NativeLibrary = {
   entries: [entry],
 }
 afterEach(() => vi.unstubAllGlobals())
+it('loads the pinned catalog with same-origin credentials on protected previews', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const bytes = await readFile('public/native-library/manifest.json')
+  const fetch = vi.fn(async (_url: string, options?: RequestInit) =>
+    options?.credentials === 'same-origin'
+      ? new Response(bytes)
+      : new Response('Preview authentication required', { status: 401 }),
+  )
+  vi.stubGlobal('fetch', fetch)
+  expect((await getNativeLibrary()).entries).toHaveLength(400)
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
 function webpBytes() {
   const bytes = new Uint8Array(1000)
   bytes.set(new TextEncoder().encode('RIFF'), 0)

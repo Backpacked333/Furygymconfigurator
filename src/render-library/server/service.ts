@@ -38,7 +38,10 @@ import { SupabaseRepository } from './supabase.js'
 import { verifyArtifactReceipt, verifyWorkerClaim } from './validation.js'
 
 export interface SeedSource {
-  images(design: DesignEnvelope): Promise<readonly ImageDescriptor[]>
+  images(
+    design: DesignEnvelope,
+    readyImageKeys?: readonly string[],
+  ): Promise<readonly ImageDescriptor[]>
 }
 const admissionSchema = z.union([
   z
@@ -110,7 +113,11 @@ export class LibraryService implements RenderLibraryService {
       }
     }
     let seeds: readonly ImageDescriptor[] = []
-    if (snapshot.coverage !== 'complete') seeds = await this.seeds.images(request.design)
+    if (snapshot.coverage !== 'complete')
+      seeds = await this.seeds.images(
+        request.design,
+        snapshot.views.filter((view) => view.status === 'ready').map((view) => view.imageKey),
+      )
     for (const image of seeds) await verifyImageDescriptor(image, image.design, this.storageOrigins)
     const views = snapshot.views.map((view) => {
       const seed = seeds.find((candidate) => candidate.imageKey === view.imageKey)
@@ -138,7 +145,11 @@ export class LibraryService implements RenderLibraryService {
     if (!this.repository) throw new ServiceError('rendering-disabled', 503)
     const policy = await this.policy()
     const identity = await computeSetIdentity(request.design)
-    const seedImages = await this.seeds.images(request.design)
+    const snapshot = await this.repository.lookup(request.design, identity)
+    const seedImages = await this.seeds.images(
+      request.design,
+      snapshot.views.filter((view) => view.status === 'ready').map((view) => view.imageKey),
+    )
     for (const image of seedImages)
       await verifyImageDescriptor(image, image.design, this.storageOrigins)
     const result = admissionSchema.parse(

@@ -96,7 +96,7 @@ export async function deliverImage(
     const response = await fetch(image.url, {
       signal: controller.signal,
       cache: 'force-cache',
-      credentials: 'omit',
+      credentials: 'same-origin',
       redirect: 'error',
     })
     if (!response.ok) throw new Error('The selected image could not be loaded.')

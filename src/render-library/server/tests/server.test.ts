@@ -1,5 +1,6 @@
 // @vitest-environment node
 import sharp from 'sharp'
+import { readFile } from 'node:fs/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { lookupSet, readJob, submitSet } from '../../../prototype/renderLibraryClient'
 import { jobId, queued } from '../../../prototype/renderLibraryClient.fixtures'
@@ -7,13 +8,15 @@ import fixture from '../../fixtures/http-contract.json'
 import workerFixture from '../../fixtures/worker-adapter.json'
 import {
   createJobRequestSchema,
+  customerDesignSchema,
   lookupRequestSchema,
   safeError,
   type SetSnapshot,
 } from '../../contracts'
 import { computeSetIdentity } from '../../identity'
 import { artifactEventSchema, artifactReceiptSchema } from '../../workerProtocol'
-import { checksum, SupabaseArtifacts, verifyPixels } from '../artifacts'
+import { checksum, StaticSeedSource, SupabaseArtifacts, verifyPixels } from '../artifacts'
+import { seedImagesForSet, verifySeedManifest } from '../seedCache'
 import {
   boundedBytes,
   boundedJson,
@@ -28,6 +31,52 @@ import type { AdmissionPolicy } from '../ports'
 
 const origin = 'https://fury.example'
 const key = 'test-only-not-a-real-secret-'.repeat(2)
+it('keeps partial cached sets readable with admissions disabled and protected seed URLs', async () => {
+  const manifestBytes = await readFile('public/native-library/manifest.json')
+  const manifest = verifySeedManifest(manifestBytes)
+  const design = customerDesignSchema.parse(
+    manifest.entries.find((entry) => entry.design.presentation.lookRef === 'studio-night-draft@1')!
+      .design,
+  )
+  const identity = await computeSetIdentity(design)
+  const images = await seedImagesForSet(manifestBytes, design)
+  expect(images).toHaveLength(1)
+  const snapshot: SetSnapshot = {
+    contractVersion: 'fury.render-library@1',
+    status: 'ok',
+    identity,
+    coverage: 'partial',
+    job: null,
+    views: Object.entries(identity.imageKeys).map(([cameraRef, imageKey]) => {
+      const image = images.find((image) => image.imageKey === imageKey)
+      return image
+        ? { cameraRef, imageKey, status: 'ready', image }
+        : { cameraRef, imageKey, status: 'missing' }
+    }) as SetSnapshot['views'],
+    rendering: { status: 'unavailable', reason: safeError('budget-unavailable') },
+  }
+  const database = vi.fn(async (url: RequestInfo | URL) => {
+    expect(String(url)).toContain('/rpc/render_library_snapshot')
+    return Response.json(snapshot)
+  })
+  const protectedFiles = vi.fn(async () => new Response('Authentication required', { status: 401 }))
+  const service = new LibraryService(
+    new SupabaseRepository(new SupabaseTransport('https://test.supabase.co', key, database)),
+    new StaticSeedSource(origin, protectedFiles),
+    async () => {
+      throw new ServiceError('budget-unavailable', 503)
+    },
+    [],
+  )
+  expect(await service.lookup({ contractVersion: 'fury.render-library@1', design })).toEqual(
+    snapshot,
+  )
+  expect(protectedFiles).not.toHaveBeenCalled()
+  expect(database).toHaveBeenCalledTimes(1)
+  expect(database.mock.calls[0]?.[0]).toBe(
+    'https://test.supabase.co/rest/v1/rpc/render_library_snapshot',
+  )
+})
 const design = lookupRequestSchema.parse(fixture.lookup).design
 const input = createJobRequestSchema.parse(fixture.create)
 const policy = {
@@ -292,11 +341,12 @@ describe('same-origin API and durable repository wiring', () => {
   })
   it('admits explicit click through one SQL reservation RPC with server-computed identity and policy', async () => {
     const fetcher = vi.fn(async () => Response.json({ status: 'admitted', snapshot }))
+    fetcher.mockResolvedValueOnce(Response.json(snapshot))
     const runtime = testRuntime(fetcher)
     const result = await route(request('jobs', input, credentials(runtime)), 'jobs', () => runtime)
     expect(result.status).toBe(202)
-    expect(fetcher).toHaveBeenCalledTimes(1)
-    const [url, options] = fetcher.mock.calls[0] as unknown as [string, RequestInit]
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    const [url, options] = fetcher.mock.calls[1] as unknown as [string, RequestInit]
     expect(url).toContain('/rpc/render_library_reserve_set')
     const command = JSON.parse(options.body as string).command
     expect(command.identity).toEqual(await computeSetIdentity(input.design))
@@ -308,6 +358,7 @@ describe('same-origin API and durable repository wiring', () => {
     const fetcher = vi.fn(async () =>
       Response.json({ status: 'denied', error: safeError('capacity-full') }),
     )
+    fetcher.mockResolvedValueOnce(Response.json(snapshot))
     const runtime = testRuntime(fetcher)
     expect(
       (await route(request('jobs', input, credentials(runtime)), 'jobs', () => runtime)).status,
