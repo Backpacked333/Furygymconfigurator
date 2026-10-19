@@ -130,12 +130,23 @@ export default function App() {
     setStillsMissing(true)
     notify('Rendered views are unavailable right now. Showing the live 3D view instead.')
   }, [notify])
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  // With pre-rendered stills, a failed 3D view only costs the 360 view: back to the gallery.
+  const [sceneBroken, setSceneBroken] = useState(false)
   const onSceneFailed = useCallback(() => {
-    if (published) {
-      setMode((m) => (m === '360' ? 'stills' : m))
-      notify('The 360 view is not available in this browser. Rendered views still work.')
-    } else setMode('plan')
+    if (!published) {
+      setMode('plan')
+      return
+    }
+    setSceneBroken(true)
+    if (modeRef.current !== '360') return
+    setMode('stills')
+    notify('The 360 view is not available in this browser. Rendered views still work.')
   }, [published, notify])
+  const onSceneUnavailable = useCallback(() => {
+    if (published) onSceneFailed()
+  }, [published, onSceneFailed])
   const capture = useCallback(async () => {
     if (mode === 'plan') return null
     if (published) return stillImage(config, angle)
@@ -146,6 +157,10 @@ export default function App() {
     }
   }, [mode, published, config, angle])
   const enter360 = () => {
+    if (sceneBroken) {
+      notify('The 360 view is not available in this browser. Rendered views still work.')
+      return
+    }
     setMode('360')
     setAutoRotate(false)
   }
@@ -284,7 +299,7 @@ export default function App() {
         >
           {sceneMounted && (
             <div className={`scene-layer ${mode === 'plan' ? 'is-hidden' : ''}`}>
-              <SceneLoadBoundary onFallback={onSceneFailed}>
+              <SceneLoadBoundary onFallback={onSceneFailed} onError={onSceneUnavailable}>
                 <Suspense fallback={showImages ? null : <SceneLoading phase="engine" />}>
                   <Scene
                     active={mode !== 'plan'}
@@ -300,6 +315,7 @@ export default function App() {
                     onFallback={onSceneFailed}
                     onBackend={setBackend}
                     onSlow={onSlow}
+                    onUnavailable={onSceneUnavailable}
                   />
                 </Suspense>
               </SceneLoadBoundary>

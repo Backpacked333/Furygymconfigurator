@@ -6,12 +6,20 @@ import { Component, type ReactNode } from 'react'
  * app. The design lives in the URL fragment, so reloading keeps it.
  */
 export class SceneLoadBoundary extends Component<
-  { children: ReactNode; onFallback: () => void },
+  {
+    children: ReactNode
+    onFallback: () => void
+    /** Called once when the bundle fails, e.g. so pre-rendered stills can carry on alone. */
+    onError?: () => void
+  },
   { failed: boolean }
 > {
   state = { failed: false }
   static getDerivedStateFromError() {
     return { failed: true }
+  }
+  componentDidCatch() {
+    this.props.onError?.()
   }
   render() {
     if (!this.state.failed) return this.props.children

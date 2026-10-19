@@ -271,6 +271,7 @@ export default memo(function Scene({
   onFallback,
   onBackend,
   onSlow,
+  onUnavailable,
 }: {
   /** False while hidden under the floor plan: nothing renders until the scene shows again. */
   active: boolean
@@ -288,6 +289,8 @@ export default memo(function Scene({
   onFallback: () => void
   onBackend?: (backend: Backend) => void
   onSlow?: () => void
+  /** 3D graphics failed for good in this browser (no WebGPU or WebGL, or a lost device). */
+  onUnavailable?: () => void
 }) {
   const view = CAMERA_PRESETS[angle].view
   // The scene draws the lights as they are seen: always on by day, by choice after dark.
@@ -319,7 +322,14 @@ export default memo(function Scene({
     }
   }, [mounted])
   return (
-    <GraphicsBoundary key={attempt} onFallback={onFallback} onFailure={() => setFailed(true)}>
+    <GraphicsBoundary
+      key={attempt}
+      onFallback={onFallback}
+      onFailure={() => {
+        setFailed(true)
+        onUnavailable?.()
+      }}
+    >
       {generation > MAX_RENDERER_REBUILDS ? (
         <DeviceUnstable />
       ) : (
