@@ -211,7 +211,9 @@ export function Atmosphere({
   useFrame(() => {
     if (!environmentStale.current || !generator) return
     environmentStale.current = false
-    const size = quality === 'lite' ? 128 : 256
+    // Captured only when lighting or surroundings change, never per frame: High and Ultra can
+    // afford sharp sky reflections in glass and polished metal.
+    const size = quality === 'lite' ? 128 : 512
     // A target is reused only at its own cube size; Lite and High/Ultra differ.
     if (target.current && target.current.height !== 4 * size) {
       target.current.dispose()

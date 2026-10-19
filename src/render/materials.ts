@@ -1,6 +1,7 @@
 import {
   Color,
   CustomBlending,
+  type Material,
   DataTexture,
   DataUtils,
   FrontSide,
@@ -157,8 +158,8 @@ const decode = (blob: Blob) =>
 /** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
 const releasable = new Set<Texture>()
 
-async function fetchBitmapTexture(url: string) {
-  const response = await fetch(url)
+async function fetchBitmapTexture(url: string, priority: RequestPriority = 'auto') {
+  const response = await fetch(url, { priority })
   if (!response.ok) throw new Error(`${response.status} for ${url}`)
   const blob = await response.blob()
   const texture = new Texture(await decode(blob))
@@ -409,8 +410,67 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     interiorMaterials.add(m)
     if (interiorEnvironment) m.envNode = interiorEnvironment
   }
+  if (spec.set) {
+    let list = libraryUsers.get(spec.set)
+    if (!list) libraryUsers.set(spec.set, (list = []))
+    list.push({ material: m, spec })
+  }
   materials.set(key, m)
   return m
+}
+
+/** Library materials per set, so a set's maps can be replaced on all of them at once. */
+const libraryUsers = new Map<
+  TextureSet,
+  { material: MeshStandardNodeMaterial; spec: MaterialSpec }[]
+>()
+/** Sets handed to custom node materials, whose texture nodes the library cannot rebind. */
+const exported = new Set<TextureSet>()
+const upgraded = new Set<TextureSet>()
+
+/**
+ * Replaces the 1K copies the live view loaded with the full 2K scans, one set at a time at low
+ * network priority. Only for library materials: assigning a new map of the same format and
+ * sampler rebinds it without recompiling the shader. A set whose download fails keeps its 1K maps.
+ * Only sets that a material on screen uses (`shown`) are upgraded: a floor that was only prepared
+ * ahead of a choice keeps its light copy. Returns once every such set is done or `cancelled`
+ * says to stop.
+ */
+export async function upgradeLiveTextures(
+  cancelled: () => boolean,
+  shown: (m: Material) => boolean = () => true,
+) {
+  if (fullResolution || !decodeOffThread) return
+  for (const set of LIVE_COPIES) {
+    if (cancelled()) return
+    const old = ready.get(set)
+    if (!old || upgraded.has(set) || exported.has(set)) continue
+    if (!libraryUsers.get(set)?.some(({ material: m }) => shown(m))) continue
+    upgraded.add(set)
+    const info = TEXTURE_SETS[set] as { size: number }
+    try {
+      const maps = {} as Maps
+      // One map at a time: at most one extra decoded 2K image in memory.
+      for (const name of ['albedo', 'normal', 'arm'] as const) {
+        if (cancelled()) {
+          upgraded.delete(set)
+          return
+        }
+        const texture = await fetchBitmapTexture(`${base}${set}/${name}.webp`, 'low')
+        maps[name] = configure(texture, info.size, name === 'albedo')
+      }
+      for (const { material: m, spec } of libraryUsers.get(set) ?? []) applyMaps(m, spec, maps)
+      ready.set(set, maps)
+      for (const texture of Object.values(old) as Texture[]) {
+        releasable.delete(texture)
+        texture.dispose()
+      }
+      for (const texture of Object.values(maps) as Texture[]) releasable.add(texture)
+      changed('textures')
+    } catch {
+      // The 1K maps stay; this set is not tried again this visit.
+    }
+  }
 }
 
 /** Point every interior material at the latest captured interior radiance probe. */
@@ -430,6 +490,7 @@ export function setInteriorEnvironment(texture: Texture | null) {
 
 /** Loaded maps of a set, for custom node materials (shared with the library's materials). */
 export function textureMaps(set: TextureSet) {
+  exported.add(set)
   return whenLoaded(set)
 }
 

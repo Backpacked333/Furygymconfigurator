@@ -40,7 +40,21 @@ export type Pipeline = {
   dispose: () => void
   /** Frames to keep rendering after a change so temporal AA, AO, and GI converge. */
   settleFrames: number
+  /**
+   * At-rest quality for the 360 view, which draws this pipeline only while the camera is still:
+   * more AO samples, more GI rays, and a longer settle window. Uniforms only, so switching costs
+   * nothing and never recompiles or resizes anything.
+   */
+  rest: (boost: boolean) => void
 }
+
+/** Standard and at-rest settings for the tunable passes. */
+export const PASS_SETTINGS = {
+  aoSamples: { standard: 16, rest: 32 },
+  giSlices: { standard: 2, rest: 3 },
+  giSteps: { standard: 10, rest: 16 },
+  settle: { high: { standard: 28, rest: 48 }, ultra: { standard: 40, rest: 64 } },
+} as const
 
 /** Display-referred finishing: filmic tone mapping, a soft lens vignette, and dither. */
 function finish(hdr: Node<'vec4'>) {
@@ -82,6 +96,7 @@ export function createPipeline(
         scenePass.dispose()
       },
       settleFrames: 1,
+      rest: () => {},
     }
   }
 
@@ -100,7 +115,7 @@ export function createPipeline(
   occlusion.radius.value = 0.9
   occlusion.thickness.value = 1.2
   occlusion.distanceExponent.value = 1.5
-  occlusion.samples.value = 16
+  occlusion.samples.value = PASS_SETTINGS.aoSamples.standard
   disposables.push(occlusion)
 
   const scenePass = pass(scene, camera)
@@ -114,12 +129,13 @@ export function createPipeline(
   disposables.push(glow)
 
   let lit: Node<'vec4'> = color.add(vec4(glow.rgb, 0))
+  let gi: ReturnType<typeof ssgi> | null = null
   if (quality === 'ultra') {
     const diffuseTexture = scenePass.getTexture('diffuseColor')
     diffuseTexture.type = UnsignedByteType
-    const gi = ssgi(color, preDepth, preNormal, camera as PerspectiveCamera)
-    gi.sliceCount.value = 2
-    gi.stepCount.value = 10
+    gi = ssgi(color, preDepth, preNormal, camera as PerspectiveCamera)
+    gi.sliceCount.value = PASS_SETTINGS.giSlices.standard
+    gi.stepCount.value = PASS_SETTINGS.giSteps.standard
     gi.radius.value = 6
     gi.thickness.value = 0.6
     gi.giIntensity.value = 1.4
@@ -137,9 +153,20 @@ export function createPipeline(
     pipeline.outputNode = vec4(vec3(occlusion.getTextureNode().sample(screenUV).r), 1)
   if (debug === 'normal')
     pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
-  return {
+  const settle = PASS_SETTINGS.settle[quality]
+  const result: Pipeline = {
     render: () => pipeline.render(),
     dispose: () => disposables.forEach((d) => d.dispose()),
-    settleFrames: quality === 'ultra' ? 40 : 28,
+    settleFrames: settle.standard,
+    rest: (boost) => {
+      const mode = boost ? 'rest' : 'standard'
+      occlusion.samples.value = PASS_SETTINGS.aoSamples[mode]
+      if (gi) {
+        gi.sliceCount.value = PASS_SETTINGS.giSlices[mode]
+        gi.stepCount.value = PASS_SETTINGS.giSteps[mode]
+      }
+      result.settleFrames = settle[mode]
+    },
   }
+  return result
 }

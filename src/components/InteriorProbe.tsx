@@ -126,7 +126,8 @@ export function InteriorProbe({
         light.shadow.needsUpdate = true
       }
     })
-    const size = quality === 'lite' ? 64 : 128
+    // Captured once per change, never per frame.
+    const size = quality === 'lite' ? 64 : 192
     // Reuse the idle target only at its own cube size; Lite and High/Ultra differ.
     if (probe.targets[next] && probe.targets[next].height !== 4 * size) {
       probe.targets[next].dispose()

@@ -150,6 +150,8 @@ function StillDriver({
         // A fresh pipeline: temporal AA and GI history start from this job's first frame.
         pipeline.current.dispose()
         pipeline.current = createPipeline(renderer, scene, camera, job.quality)
+        // Stills always get the at-rest settings: time is free offline.
+        pipeline.current.rest(true)
         invalidateShadows(scene)
         phase.current = { name: 'accumulate', frames: 0 }
         window.__fury!.state = 'accumulating'

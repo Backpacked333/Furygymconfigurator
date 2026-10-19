@@ -12,9 +12,9 @@ import { deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
 import { batch, type Part } from '../render/parts'
 import { sceneProgress } from '../render/progress'
 import { equipmentBatches } from '../render/equipment'
+import { whenIdle } from '../lib/idle'
 
-const idle = (callback: () => void) =>
-  (window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 200)))(callback)
+const idle = (callback: () => void) => whenIdle(callback, 4000)
 
 /**
  * Prepares what the visitor has not picked yet, so choosing it in the 360 view never stalls on

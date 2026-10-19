@@ -14,6 +14,7 @@ import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
 import { Prewarm } from './Prewarm'
+import { TextureUpgrade } from './TextureUpgrade'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
 import { sceneProgress } from '../render/progress'
@@ -382,6 +383,7 @@ export default memo(function Scene({
           />
           <InteriorProbe config={config} quality={quality} />
           <Prewarm config={config} />
+          <TextureUpgrade enabled={interactive && quality !== 'lite'} />
           <RenderEffects
             quality={quality}
             refine={interactive && !autoRotate}

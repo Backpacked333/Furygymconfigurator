@@ -24,6 +24,11 @@ const REFINE_AFTER_MS = 150
 
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
 const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
+/**
+ * At-rest frames in the 360 view carry extra AO and GI work that never runs while anyone
+ * interacts, so they get proportionally more time before a tier counts as too heavy.
+ */
+const REST_FRAME_ALLOWANCE = 1.4
 
 /**
  * Drives the TSL pipeline. Rendering stays on demand, but after any change it keeps drawing for a
@@ -111,6 +116,9 @@ export function RenderEffects({
   useFrame(() => {
     const active = pipeline.current
     if (!active) return
+    // The full tier draws only at rest when Lite takes the motion: it can afford more.
+    const boosted = !!fast.current
+    active.rest(boosted)
     const chained = settle.current > 0
     const last = lastView.current
     const moved =
@@ -157,7 +165,8 @@ export function RenderEffects({
       t.samples.push(end - t.last)
       if (t.samples.length >= 16) {
         const sorted = [...t.samples].sort((a, b) => a - b)
-        if (sorted[sorted.length >> 1] > SLOW_FRAME_MS[quality]) {
+        const limit = SLOW_FRAME_MS[quality] * (boosted ? REST_FRAME_ALLOWANCE : 1)
+        if (sorted[sorted.length >> 1] > limit) {
           t.reported = true
           onSlow?.()
         }

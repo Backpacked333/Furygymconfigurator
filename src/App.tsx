@@ -60,6 +60,7 @@ import { CAMERA_PRESETS, type AngleId } from './lib/cameras'
 import { prefetchChoice, stillImage, useStillsMode } from './lib/stillImages'
 import { useShareFragment } from './lib/useShareFragment'
 import { useStagedScene } from './lib/useStagedScene'
+import { whenIdle } from './lib/idle'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
 import { sceneProgress, textureProgress } from './render/progress'
@@ -123,8 +124,7 @@ export default function App() {
   if (sceneWanted && !sceneMounted) setSceneMounted(true)
   const onStillShown = useCallback(() => {
     if (warm || !canWarmUp()) return
-    const idle = window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 300))
-    idle(() => setWarm(true))
+    whenIdle(() => setWarm(true))
   }, [warm])
   const onStillsMissing = useCallback(() => {
     setStillsMissing(true)
