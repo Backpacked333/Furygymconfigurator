@@ -69,3 +69,12 @@ export function layerPath(key: string, width: number, format: StillFormat, rende
 export function layerUrl(key: string, width: number, format: StillFormat) {
   return `${STILLS_BASE}/${layerPath(key, width, format)}`
 }
+
+/**
+ * Written by the batch verifier once every layer of this renderer and scene version is
+ * published. The page shows pre-rendered stills only when it exists; otherwise it draws stills
+ * live, so a deploy that is ahead of its batch never shows a broken image.
+ */
+export function readyPath(renderer = RENDERER_ID) {
+  return `${renderer}/ready-scene-${SCENE_VERSION}.json`
+}

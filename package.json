@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "scene-version": "node scripts/check-scene-version.mjs",
+    "scene-version:accept": "node scripts/check-scene-version.mjs --accept"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.6",

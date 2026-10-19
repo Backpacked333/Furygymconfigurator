@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "vite/client"],
+    "typeRoots": ["./node_modules/@types", "../node_modules/@types", "../node_modules"]
+  },
+  "include": ["src", "../src/lib", "../src/render-harness/job.ts"]
+}

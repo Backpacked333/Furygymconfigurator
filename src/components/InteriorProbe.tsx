@@ -13,6 +13,7 @@ import {
 import { productHeight, type Config } from '../lib/config'
 import { onMaterialsChanged, setInteriorEnvironment } from '../render/materials'
 import type { Quality } from '../render/quality'
+import { sceneWork } from '../render/progress'
 
 /** Changes arriving faster than this (slider drags) are captured once, after they stop. */
 const DEBOUNCE_MS = 250
@@ -24,7 +25,19 @@ const DEBOUNCE_MS = 250
  * Two captures per change approximate a second diffuse bounce; targets ping-pong so a probe is
  * never sampled while it is being written.
  */
-export function InteriorProbe({ config, quality }: { config: Config; quality: Quality }) {
+export function InteriorProbe({
+  config,
+  quality,
+  debounce = DEBOUNCE_MS,
+  passes = 2,
+}: {
+  config: Config
+  quality: Quality
+  /** Stills capture at once; the live view waits for a burst of changes to end. */
+  debounce?: number
+  /** Captures per change: each adds a diffuse bounce. */
+  passes?: number
+}) {
   const { gl, scene, invalidate } = useThree()
   const renderer = gl as unknown as WebGPURenderer
   const state = useRef<{
@@ -56,6 +69,7 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
     }
     return () => {
       clearTimeout(wake.current)
+      sceneWork.set('probe', false)
       setInteriorEnvironment(null)
       state.current?.targets.forEach((t) => t?.dispose())
       state.current?.generator.dispose()
@@ -66,19 +80,21 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
   // Re-capture after any configuration or lighting change, once textures settle.
   useEffect(() => {
     if (!state.current) return
-    state.current.passes = 2
-    state.current.due = performance.now() + DEBOUNCE_MS
+    state.current.passes = passes
+    state.current.due = performance.now() + debounce
+    sceneWork.set('probe', true)
     wakeAt(state.current.due)
-  }, [config, quality, wakeAt])
+  }, [config, quality, wakeAt, passes, debounce])
   useEffect(
     () =>
       onMaterialsChanged((change) => {
         if (change !== 'textures' || !state.current) return
-        state.current.passes = 2
-        state.current.due = performance.now() + DEBOUNCE_MS
+        state.current.passes = passes
+        state.current.due = performance.now() + debounce
+        sceneWork.set('probe', true)
         wakeAt(state.current.due)
       }),
-    [wakeAt],
+    [wakeAt, passes, debounce],
   )
 
   useFrame(() => {
@@ -130,6 +146,7 @@ export function InteriorProbe({ config, quality }: { config: Config; quality: Qu
     probe.targets[next] = target
     probe.current = next
     probe.passes--
+    if (probe.passes <= 0) sceneWork.set('probe', false)
     setInteriorEnvironment(target.texture)
     invalidate()
   }, 0)

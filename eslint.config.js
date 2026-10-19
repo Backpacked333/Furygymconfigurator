@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  { ignores: ['dist', 'render/out'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -16,5 +16,10 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
+  },
+  // Build and render tooling runs in Node.
+  {
+    files: ['scripts/**/*.{js,mjs}', 'render/**/*.ts'],
+    languageOptions: { globals: globals.node },
   },
 )

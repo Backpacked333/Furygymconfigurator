@@ -37,6 +37,7 @@ import { material, prefetchTextures, textureMaps, type TextureSet } from '../ren
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
+import { sceneWork } from '../render/progress'
 import {
   grassBlade,
   grassMaterial,
@@ -98,14 +99,20 @@ function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: stri
   const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
   useEffect(() => {
     let active = true
-    loadGround(set, size, tint).then(
-      (m) => {
-        if (active) setGroundMaterial(m)
-      },
-      () => {},
-    )
+    sceneWork.set('ground', true)
+    loadGround(set, size, tint)
+      .then(
+        (m) => {
+          if (active) setGroundMaterial(m)
+        },
+        () => {},
+      )
+      .finally(() => {
+        if (active) sceneWork.set('ground', false)
+      })
     return () => {
       active = false
+      sceneWork.set('ground', false)
     }
   }, [set, size, tint])
   const fallback = useMemo(() => new MeshStandardMaterial({ color: tint, roughness: 1 }), [tint])

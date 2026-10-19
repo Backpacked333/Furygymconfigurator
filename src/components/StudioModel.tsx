@@ -82,9 +82,12 @@ function MirrorWall({ config: c, quality }: { config: Config; quality: Quality }
 export function StudioModel({
   config: c,
   quality = 'high',
+  glazing: showGlazing = true,
 }: {
   config: Config
   quality?: Quality
+  /** Off for still layers that show the room through the glazing; the shell layer keeps it. */
+  glazing?: boolean
 }) {
   const studio = c.family === 'studio'
   // Each key names exactly the inputs its builder reads, so a finish change does not rebuild and
@@ -114,7 +117,7 @@ export function StudioModel({
     <group>
       <Parts parts={shell} />
       <Parts parts={interior} />
-      {glazing.length > 0 && <Parts parts={glazing} />}
+      {showGlazing && glazing.length > 0 && <Parts parts={glazing} />}
       <InteriorLights config={c} quality={quality} />
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}

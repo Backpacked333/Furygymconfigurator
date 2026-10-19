@@ -53,3 +53,17 @@ export const sceneProgress = {
     callbacks.forEach((callback) => callback())
   },
 }
+
+/**
+ * Asynchronous scene work that changes the picture after it arrives (the ground scan, interior
+ * probe captures). A still is only captured once nothing is outstanding.
+ */
+const outstanding = new Set<string>()
+export const sceneWork = {
+  set(id: string, busy: boolean) {
+    if (busy) outstanding.add(id)
+    else outstanding.delete(id)
+  },
+  idle: () => outstanding.size === 0,
+  pending: () => [...outstanding],
+}
