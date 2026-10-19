@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG } from '../lib/config'
 import { setProbeEnvironment } from '../render/materials'
 import { DEBOUNCE_MS, InteriorProbe } from './InteriorProbe'
+import { RevisionResources } from '../render/display/revisions'
 
 /** The frame loop as the probe subscribes to it: the latest callback, run by hand. */
 const { frame, invalidate, three } = vi.hoisted(() => ({
@@ -51,6 +52,46 @@ describe('the interior probe', () => {
   const draw = () => act(() => frame.current!())
   const captures = () => vi.mocked(setProbeEnvironment).mock.calls.length
 
+  it('private revisions clear previous radiance, gate on current resources, complete four actual passes and fence old callbacks', () => {
+    const resources = new RevisionResources(() => performance.now()),
+      first = resources.begin(1)
+    act(() =>
+      root.render(<InteriorProbe config={DEFAULT_CONFIG} quality="ultra" observation={first} />),
+    )
+    expect(setProbeEnvironment).toHaveBeenLastCalledWith('interior', null)
+    const cleared = captures()
+    draw()
+    expect(captures()).toBe(cleared)
+    first.complete('react-commit')
+    first.complete('materials')
+    first.complete('site-field')
+    first.complete('environment')
+    for (let n = 0; n < 3; n++) {
+      draw()
+      expect(resources.has('interior-probe')).toBe(false)
+    }
+    draw()
+    expect(resources.has('interior-probe')).toBe(true)
+    const stale = frame.current!,
+      second = resources.begin(2)
+    act(() =>
+      root.render(<InteriorProbe config={DEFAULT_CONFIG} quality="ultra" observation={second} />),
+    )
+    expect(setProbeEnvironment).toHaveBeenLastCalledWith('interior', null)
+    const clearedAgain = captures()
+    act(() => stale())
+    expect(captures()).toBe(clearedAgain)
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    draw()
+    expect(resources.has('interior-probe')).toBe(false)
+    second.complete('react-commit')
+    second.complete('materials')
+    second.complete('site-field')
+    second.complete('environment')
+    for (let n = 0; n < 4; n++) draw()
+    expect(resources.has('interior-probe')).toBe(true)
+    act(() => root.unmount())
+  })
   it('captures in its first frame, before the spin signs the scene, and later edits after a pause', () => {
     act(() => root.render(<InteriorProbe config={DEFAULT_CONFIG} quality="lite" />))
     // The first frame, at once: the materials it lights change shader for a probe that first

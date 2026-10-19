@@ -8,29 +8,26 @@ import '@fontsource/manrope/latin-800.css'
 import '@fontsource/dm-sans/latin-400.css'
 import '@fontsource/dm-sans/latin-500.css'
 import '@fontsource/dm-sans/latin-600.css'
-import App from './App'
-import { AppErrorBoundary } from './components/AppErrorBoundary'
-import { BAKE, bakeDesigns, bakeRefusal, reportBake } from './lib/bake'
-import { RENDER_VERSION } from './lib/stillKey'
+import { startApplication } from './lib/startup'
 import './styles.css'
 
-// `?bake=list` (scripts/bake-stills.mjs) asks only which designs there are to bake, and by
-// which renderer.
-if (BAKE?.list) {
-  window.__bakeDesigns = bakeDesigns()
-  reportBake({ version: RENDER_VERSION })
+// Deliberately no static legacy imports: even its module initialization starts renderer work.
+// The native image library is available on its explicit route; the ordinary route still boots v3.
+if (
+  new URLSearchParams(window.location.search).get('experience') === 'library' ||
+  (import.meta.env.DEV && new URLSearchParams(window.location.search).get('prototype') === 'images')
+) {
+  void startApplication(document.getElementById('root')!, async () => {
+    const { ImageConfigurator } = await import('./prototype/ImageConfigurator')
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <React.StrictMode>
+        <ImageConfigurator />
+      </React.StrictMode>,
+    )
+  })
 } else {
-  if (BAKE) reportBake({ state: 'loading', version: RENDER_VERSION })
-  else {
-    // Asked to bake where it may not: the script hears why at once; the page is an ordinary visit.
-    const refused = bakeRefusal(window.location.search, navigator.webdriver === true)
-    if (refused) reportBake({ state: 'failed', version: RENDER_VERSION, error: refused })
-  }
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <AppErrorBoundary>
-        <App />
-      </AppErrorBoundary>
-    </React.StrictMode>,
-  )
+  void startApplication(document.getElementById('root')!, async () => {
+    const { mountLegacy } = await import('./legacyEntry')
+    mountLegacy()
+  })
 }

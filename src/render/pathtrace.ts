@@ -238,15 +238,8 @@ export type SceneParts = {
 }
 
 /**
- * A part of the scene whose frames the spin keeps on their own: inside the building (what the
- * panorama shows: the room's linings, equipment, luminaires, the mirror; marked with
- * `userData.interior = true` on the groups that wrap them) or everything else, which the exterior
- * ring shows. An edit inside then costs the one panorama, not the ring's 72 frames; what the room
- * shows through the glazing from outside is accepted as a little behind. The shell and its
- * glazing are seen from both sides (the panorama looks straight at the door and the windows), so
- * they are marked `userData.shared = true`: the exterior reads all of them, the interior their
- * shape alone (what is there, where, and whether it shows: a door opened costs both views), never
- * their finishes or lights, so a finish swapped outside keeps the panorama.
+ * Views are cached separately, but both see the whole scene through glazing and reflections.
+ * A visible edit invalidates both; only objects excluded from tracing can be ignored safely.
  */
 export type ScenePart = 'exterior' | 'interior'
 
@@ -278,8 +271,7 @@ function geometryKey(geometry: BufferGeometry) {
 export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
   const identity = part === undefined
   const sum = { structure: 0, transforms: 0, materials: 0, lights: 0 }
-  /** `shape` alone: what is there and where, without its finishes or lights. */
-  const read = (object: Object3D, shape: boolean) => {
+  const read = (object: Object3D) => {
     const hash = {
       structure: 2166136261,
       transforms: 2166136261,
@@ -305,14 +297,12 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
       mix('structure', mesh.instanceMatrix?.version ?? 0)
       // Every instance, as the stills capture them, however many the raster tier draws.
       mix('structure', mesh.isInstancedMesh ? stillInstances(mesh as unknown as InstancedMesh) : 0)
-      if (!shape) {
-        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-        for (const material of materials) {
-          const m = material as Material & { id: number; emissiveIntensity?: number }
-          mix('materials', m.id)
-          mix('materials', material.version)
-          mix('materials', m.emissiveIntensity ?? 0)
-        }
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      for (const material of materials) {
+        const m = material as Material & { id: number; emissiveIntensity?: number }
+        mix('materials', m.id)
+        mix('materials', material.version)
+        mix('materials', m.emissiveIntensity ?? 0)
       }
     }
     const light = object as Object3D & {
@@ -320,31 +310,25 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
       intensity?: number
       color?: { r: number; g: number; b: number }
     }
-    if (!shape && light.isLight) {
+    if (light.isLight) {
       mix('lights', light.intensity ?? 0)
       mix('lights', (light.color?.r ?? 0) + (light.color?.g ?? 0) * 3 + (light.color?.b ?? 0) * 7)
     }
     // Each object's own hashes are summed, so the order they are met in does not count.
     for (const part of touched) sum[part] = (sum[part] + (hash[part] >>> 0)) >>> 0
   }
-  const walk = (object: Object3D, inside: boolean, both: boolean) => {
+  const walk = (object: Object3D) => {
     if (part !== undefined && object.userData.pathTrace === false) return
-    const interior = inside || object.userData.interior === true
-    const shared = both || object.userData.shared === true
-    // The exterior part never looks into an interior subtree; the interior part reads only there,
-    // and the shape of what is seen from both sides.
-    if (part === 'exterior' && interior) return
-    if (part !== 'interior' || interior) read(object, false)
-    else if (shared) read(object, true)
-    for (const child of object.children) walk(child, interior, shared)
+    read(object)
+    for (const child of object.children) walk(child)
   }
-  walk(scene, false, false)
+  walk(scene)
   return sum
 }
 
 /**
  * One fingerprint of everything the tracer captures, including the sky and sun; of one part of
- * the scene when `part` is given (the spin's frames outside and inside change on their own).
+ * the scene when `part` is given (stable across equivalent remounts, excluding live helpers).
  */
 export function sceneSignature(scene: Scene, lookKey: string, part?: ScenePart) {
   return partsSignature(sceneParts(scene, part), lookKey)

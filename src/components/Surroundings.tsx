@@ -4,6 +4,7 @@ import type { Material } from 'three/webgpu'
 import type { Config } from '../lib/config'
 import { noise, smoothstep } from '../lib/visuals'
 import { box, cylinder } from '../render/geometry'
+import { deckFront } from '../render/envelope'
 import { material } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, place, type Part } from '../render/parts'
@@ -285,6 +286,55 @@ function Trees({ layout, quality }: { layout: SceneryLayout; quality: Quality })
   ))
 }
 
+/** A quiet, large-format arrival court separates the gym from the surrounding street paving. */
+function ArrivalCourt({ config: c }: { config: Config }) {
+  const start = c.addons.deck ? deckFront(c) + 0.25 : 4.5
+  const paving = useMemo(() => {
+    const tones = ['#ccc9bd', '#c4c2b7', '#d2cec3'].map((color) =>
+      material({ set: 'concrete_wall_001', color, roughness: 0.92 }),
+    )
+    const joint = palette.powder('#55574f', false, 1)
+    const width = c.length + 4
+    const columns = Math.ceil(width / 3)
+    const slabWidth = width / columns
+    const parts: Part[] = [part(box(width + 0.12, 0.1, 8.12), joint, [0, -0.08, start + 4])]
+    for (let row = 0; row < 2; row++)
+      for (let col = 0; col < columns; col++)
+        parts.push(
+          part(
+            box(slabWidth - 0.025, 0.08, 3.975),
+            tones[Math.floor(noise(col, row + 83) * tones.length)],
+            [-width / 2 + (col + 0.5) * slabWidth, -0.005, start + row * 4 + 2],
+            undefined,
+            undefined,
+            false,
+          ),
+        )
+    return parts
+  }, [c.length, start])
+  return <Parts parts={paving} />
+}
+
+function PlantedBeds({ layout, quality }: { layout: SceneryLayout; quality: Quality }) {
+  return layout.planters.map(
+    ({ x, z, grass }) =>
+      grass && (
+        <GrassBed
+          key={`${x},${z}`}
+          x={x}
+          z={z}
+          w={grass.width}
+          d={grass.depth}
+          y={grass.base}
+          count={grass.count}
+          quality={quality}
+          colors={grass.colors}
+          height={grass.height}
+        />
+      ),
+  )
+}
+
 // --- Residential courtyard (photos 1 and 3) -----------------------------------------------
 
 export function Residences({ config: c, quality }: { config: Config; quality: Quality }) {
@@ -306,25 +356,10 @@ export function Residences({ config: c, quality }: { config: Config; quality: Qu
   return (
     <group>
       <Ground set="herringbone_pavement" size={6.562} tint="#cdbfae" />
+      <ArrivalCourt config={c} />
       <Parts parts={buildings} />
       <Parts parts={furniture} />
-      {layout.planters.map(
-        ({ x, z, grass }) =>
-          grass && (
-            <GrassBed
-              key={`${x},${z}`}
-              x={x}
-              z={z}
-              w={grass.width}
-              d={grass.depth}
-              y={grass.base}
-              count={grass.count}
-              quality={quality}
-              colors={grass.colors}
-              height={grass.height}
-            />
-          ),
-      )}
+      <PlantedBeds layout={layout} quality={quality} />
       <Shrubs layout={layout} quality={quality} />
       <Trees layout={layout} quality={quality} />
     </group>
@@ -391,6 +426,8 @@ export function Campus({ config: c, quality }: { config: Config; quality: Qualit
   return (
     <group>
       <Ground set="concrete_pavement" size={5.906} tint="#d8d2c7" />
+      <ArrivalCourt config={c} />
+      <PlantedBeds layout={layout} quality={quality} />
       <Parts parts={buildings} />
       <Parts parts={site} />
       <Trees layout={layout} quality={quality} />

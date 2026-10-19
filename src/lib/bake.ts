@@ -1,4 +1,4 @@
-import type { AspectClass } from '../render/gallery'
+import { GALLERY_ANGLES, type AngleId, type AspectClass } from '../render/gallery'
 import { loopbackCloud } from '../render/traceStatus'
 import {
   DEFAULT_CAMERA,
@@ -6,6 +6,7 @@ import {
   FINISHES,
   SIGNATURES,
   encodeConfig,
+  setFamily,
   type Config,
 } from './config'
 import { configKey } from './stillKey'
@@ -35,6 +36,7 @@ export type BakeMode = {
   hero: Vec3 | null
   /** `&aspects=wide,tall`: the stage shapes to bake, both by default. */
   aspects: AspectClass[]
+  angles?: AngleId[]
 }
 
 /** Why `?bake` is not honoured here, or null when it is (or not asked for). */
@@ -59,11 +61,16 @@ export function bakeMode(
   const aspects = (params.get('aspects') ?? '')
     .split(',')
     .filter((aspect): aspect is AspectClass => aspect === 'wide' || aspect === 'tall')
+  const angles = params
+    .get('angles')
+    ?.split(',')
+    .filter((angle): angle is AngleId => GALLERY_ANGLES.some((a) => a.id === angle))
   return {
     list: value === 'list',
     quick: params.get('quick') === '1',
     hero: hero?.length === 3 && hero.every(Number.isFinite) ? (hero as Vec3) : null,
     aspects: aspects.length ? [...new Set(aspects)] : ['wide', 'tall'],
+    ...(angles?.length ? { angles: [...new Set(angles)] } : {}),
   }
 }
 
@@ -105,6 +112,7 @@ export type BakeDesign = {
 export function bakeDesigns(): BakeDesign[] {
   const bases: Omit<BakeDesign, 'finish' | 'variant' | 'encoded'>[] = [
     { id: 'default', name: 'Default design', group: 'default', hero: null },
+    { id: 'default-container', name: 'Container starting design', group: 'default', hero: null },
     ...SIGNATURES.map((s) => ({
       id: s.id,
       name: s.name,
@@ -114,6 +122,7 @@ export function bakeDesigns(): BakeDesign[] {
   ]
   const configs: Record<string, Config> = {
     default: DEFAULT_CONFIG,
+    'default-container': setFamily(DEFAULT_CONFIG, 'container'),
     ...Object.fromEntries(SIGNATURES.map((s) => [s.id, s.config])),
   }
   return bases.flatMap((base) => {

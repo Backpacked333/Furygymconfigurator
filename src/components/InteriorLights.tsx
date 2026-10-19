@@ -12,8 +12,8 @@ import type { Quality } from '../render/quality'
 import { roomMask, roomReach } from '../render/roomLight'
 import { Parts } from './Parts'
 
-/** 2700 K warm-white architectural LEDs. */
-const WARM = '#ffd9ad'
+/** Warm-neutral architectural LEDs, without an amber cast on pale wall finishes. */
+const WARM = '#ffe2c2'
 
 type Room = ReturnType<typeof roomMask>
 
@@ -134,12 +134,12 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
   const channel = L - 3.4
   const fixtures = useMemo<Part[]>(() => {
     const trim = palette.powder('#141515')
-    const lens = on ? palette.emitter('#fff3e2', 7) : palette.plastic('#d8d4cb', 0.3)
-    const strip = on ? palette.emitter(WARM, 5) : palette.plastic('#cfcac0', 0.4)
+    const lens = on ? palette.emitter('#fff3e2', 4.5) : palette.plastic('#d8d4cb', 0.3)
+    const strip = on ? palette.emitter(WARM, 1.8) : palette.plastic('#cfcac0', 0.4)
     const parts: Part[] = []
     if (linear) {
       // Recessed aluminum channels with opal diffusers, flush with the ceiling.
-      const diffuser = on ? palette.emitter('#fff1df', 6) : palette.plastic('#e9e6df', 0.3)
+      const diffuser = on ? palette.emitter('#fff1df', 2.2) : palette.plastic('#e9e6df', 0.3)
       for (const z of LINEAR_ROWS) {
         parts.push(
           part(
@@ -269,7 +269,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               target={[0, FLOOR_Y, z]}
               width={channel}
               height={0.14}
-              intensity={52 * level}
+              intensity={24 * level}
               room={room}
             />
           ))}
@@ -280,7 +280,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               target={[0, FLOOR_Y + 3, b.back - 0.6]}
               width={L - 2.6}
               height={0.12}
-              intensity={26 * level}
+              intensity={12 * level}
               room={room}
             />
             <Wash
@@ -288,7 +288,7 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
               target={[0, b.ceiling, b.back - 0.4]}
               width={L - 1.6}
               height={0.06}
-              intensity={16 * level}
+              intensity={4 * level}
               room={room}
             />
           </>

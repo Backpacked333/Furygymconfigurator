@@ -17,7 +17,6 @@ function equipmentBatches(sku: PlacedItem['sku']) {
 
 export function Equipment({ item }: { item: PlacedItem }) {
   return (
-    // Inside the room: moving it changes the spin's panorama, not its exterior ring.
     <group
       position={[item.x, FLOOR_Y, item.z]}
       rotation={[0, (-item.rotation * Math.PI) / 180, 0]}

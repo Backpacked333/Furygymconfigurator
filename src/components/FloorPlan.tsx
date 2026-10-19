@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Move, RotateCw, Trash2 } from 'lucide-react'
 import {
   catalogItem,
@@ -15,31 +15,34 @@ import {
   type Unit,
 } from '../lib/config'
 
+type FloorPlanProps = { config: Config; unit: Unit } & (
+  | { readOnly?: false; onChange: (c: Config) => void; notify: (text: string) => void }
+  | { readOnly: true; onChange?: (c: Config) => void; notify?: (text: string) => void }
+)
+
 export default function FloorPlan({
   config,
   unit,
   onChange,
   notify,
-}: {
-  config: Config
-  unit: Unit
-  onChange: (c: Config) => void
-  notify: (text: string) => void
-}) {
+  readOnly = false,
+}: FloorPlanProps) {
+  const gridId = useId()
   const svg = useRef<SVGSVGElement>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [ghost, setGhost] = useState<PlacedItem | null>(null)
   const drag = useRef<{ id: string; dx: number; dz: number } | null>(null)
-  const current = config.items.find((i) => i.id === selected)
+  const current = readOnly ? undefined : config.items.find((i) => i.id === selected)
   const point = (e: PointerEvent) => {
     const matrix = svg.current?.getScreenCTM()
     if (!matrix) return { x: 0, y: 0 }
     return new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse())
   }
   const commit = (item: PlacedItem) => {
+    if (readOnly || !onChange) return
     const issue = placementIssue(item, config)
     if (issue) {
-      notify(issue)
+      notify?.(issue)
       return
     }
     onChange({
@@ -49,6 +52,7 @@ export default function FloorPlan({
     })
   }
   const keyboard = (e: KeyboardEvent<SVGGElement>, item: PlacedItem) => {
+    if (readOnly || !onChange) return
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       setSelected(item.id)
@@ -79,43 +83,59 @@ export default function FloorPlan({
     }
   }
   return (
-    <div className="floor-plan">
+    <div className={`floor-plan${readOnly ? ' is-read-only' : ''}`}>
       <div className="plan-heading">
         <span className="eyebrow">A PLACE FOR EVERYTHING</span>
         <h2>Make room for your ritual.</h2>
-        <p>Drag to arrange. Select an item to rotate or remove.</p>
+        <p>
+          {readOnly
+            ? 'DRAFT fixed arrangement. Read-only plan; no equipment editing.'
+            : 'Drag to arrange. Select an item to rotate or remove.'}
+        </p>
       </div>
       <svg
         ref={svg}
         className="plan-svg"
         viewBox={`${-config.length / 2 - 3.2} -7.5 ${config.length + 6.4} 15.5`}
-        role="group"
-        aria-label={`Editable ${productName(config)} floor plan`}
-        onPointerMove={(e) => {
-          if (!drag.current) return
-          const item = config.items.find((i) => i.id === drag.current!.id)
-          if (!item) return
-          const p = point(e)
-          setGhost({
-            ...item,
-            x: Math.round((p.x - drag.current.dx) * 4) / 4,
-            z: Math.round((p.y - drag.current.dz) * 4) / 4,
-          })
-        }}
-        onPointerUp={(e) => {
-          if (ghost) commit(ghost)
-          drag.current = null
-          setGhost(null)
-          if (svg.current?.hasPointerCapture(e.pointerId))
-            svg.current.releasePointerCapture(e.pointerId)
-        }}
-        onPointerCancel={() => {
-          drag.current = null
-          setGhost(null)
-        }}
+        role={readOnly ? 'img' : 'group'}
+        aria-label={`${readOnly ? 'Read-only' : 'Editable'} ${productName(config)} floor plan`}
+        onPointerMove={
+          readOnly
+            ? undefined
+            : (e) => {
+                if (!drag.current) return
+                const item = config.items.find((i) => i.id === drag.current!.id)
+                if (!item) return
+                const p = point(e)
+                setGhost({
+                  ...item,
+                  x: Math.round((p.x - drag.current.dx) * 4) / 4,
+                  z: Math.round((p.y - drag.current.dz) * 4) / 4,
+                })
+              }
+        }
+        onPointerUp={
+          readOnly
+            ? undefined
+            : (e) => {
+                if (ghost) commit(ghost)
+                drag.current = null
+                setGhost(null)
+                if (svg.current?.hasPointerCapture(e.pointerId))
+                  svg.current.releasePointerCapture(e.pointerId)
+              }
+        }
+        onPointerCancel={
+          readOnly
+            ? undefined
+            : () => {
+                drag.current = null
+                setGhost(null)
+              }
+        }
       >
         <defs>
-          <pattern id="floor-grid" width="1" height="1" patternUnits="userSpaceOnUse">
+          <pattern id={gridId} width="1" height="1" patternUnits="userSpaceOnUse">
             <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#d0d3c5" strokeWidth="0.018" />
           </pattern>
         </defs>
@@ -140,7 +160,7 @@ export default function FloorPlan({
           y={-3.35}
           width={config.length - 1.4}
           height="6.7"
-          fill="url(#floor-grid)"
+          fill={`url(#${gridId})`}
         />
         <path
           d={
@@ -193,30 +213,45 @@ export default function FloorPlan({
           {distance(8, unit)}
         </text>
         {config.items.map((item) => {
-          const shown = ghost?.id === item.id ? ghost : item,
+          const shown = !readOnly && ghost?.id === item.id ? ghost : item,
             f = footprint(shown),
             product = catalogItem(item.sku)
-          const active = selected === item.id,
-            invalid = ghost?.id === item.id && placementIssue(shown, config)
+          const active = !readOnly && selected === item.id,
+            invalid = !readOnly && ghost?.id === item.id && placementIssue(shown, config)
           return (
             <g
               key={item.id}
               transform={`translate(${shown.x} ${shown.z})`}
-              tabIndex={0}
-              role="button"
-              aria-label={`${product.name}. Position ${distance(shown.x, unit)}, ${distance(shown.z, unit)}. Arrow keys move, R rotates, Delete removes.`}
-              aria-pressed={active}
-              className="plan-item"
-              onKeyDown={(e) => keyboard(e, item)}
-              onPointerDown={(e) => {
-                e.preventDefault()
-                setSelected(item.id)
-                const p = point(e)
-                drag.current = { id: item.id, dx: p.x - item.x, dz: p.y - item.z }
-                setGhost(item)
-                svg.current?.setPointerCapture(e.pointerId)
-              }}
+              data-equipment={item.sku}
+              tabIndex={readOnly ? undefined : 0}
+              role={readOnly ? undefined : 'button'}
+              aria-label={
+                readOnly
+                  ? undefined
+                  : `${product.name}. Position ${distance(shown.x, unit)}, ${distance(shown.z, unit)}. Arrow keys move, R rotates, Delete removes.`
+              }
+              aria-pressed={readOnly ? undefined : active}
+              className={readOnly ? undefined : 'plan-item'}
+              onKeyDown={readOnly ? undefined : (e) => keyboard(e, item)}
+              onPointerDown={
+                readOnly
+                  ? undefined
+                  : (e) => {
+                      e.preventDefault()
+                      setSelected(item.id)
+                      const p = point(e)
+                      drag.current = { id: item.id, dx: p.x - item.x, dz: p.y - item.z }
+                      setGhost(item)
+                      svg.current?.setPointerCapture(e.pointerId)
+                    }
+              }
             >
+              {readOnly && (
+                <title>
+                  {product.name}. Fixed draft position {distance(shown.x, unit)},{' '}
+                  {distance(shown.z, unit)}.
+                </title>
+              )}
               {active && (
                 <rect
                   x={-f.w / 2 - product.clearance}
@@ -278,7 +313,9 @@ export default function FloorPlan({
         })}
       </svg>
       <div className="plan-toolbar">
-        {current ? (
+        {readOnly ? (
+          <span>DRAFT · Fixed arrangement · Ceiling, doors and access are unresolved.</span>
+        ) : current ? (
           <>
             <span>{catalogItem(current.sku).name}</span>
             <button
@@ -288,6 +325,7 @@ export default function FloorPlan({
             </button>
             <button
               onClick={() => {
+                if (readOnly || !onChange) return
                 onChange({
                   ...config,
                   package: 'custom',
@@ -308,6 +346,8 @@ export default function FloorPlan({
       <p className="plan-disclaimer">
         Concept layout, not a safety certification. Dashed zones are illustrative working space;
         confirm manufacturer clearances, access, and installation requirements.
+        {readOnly &&
+          ' Schematic only, not manufacturer CAD. Rack footprint includes loaded bar. Clear-looking space is not approved access or exercise clearance. Production and paid execution are blocked.'}
       </p>
     </div>
   )

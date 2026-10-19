@@ -1,0 +1,786 @@
+// @vitest-environment node
+import { execFile, execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { promisify } from 'node:util'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import contract from '../../fixtures/http-contract.json'
+import workerFixture from '../../fixtures/worker-adapter.json'
+import {
+  customerDesignSchema,
+  imageDescriptorSchema,
+  setSnapshotSchema,
+  type SetIdentity,
+} from '../../contracts'
+import { canonicalJson, computeSetIdentity } from '../../identity'
+import { workerClaimSchema } from '../../workerProtocol'
+import type { ReserveCommand } from '../ports'
+import { checksum } from '../artifacts'
+import { seedImagesForSet, verifySeedManifest } from '../seedCache'
+
+// Opt-in, Docker-only, fixed throwaway database. This suite cannot use a remote DATABASE_URL.
+const container = process.env.RENDER_LIBRARY_TEST_CONTAINER
+const enabled = Boolean(container)
+const args = [
+  'exec',
+  '-i',
+  container ?? 'not-configured',
+  'psql',
+  '-X',
+  '-q',
+  '-t',
+  '-A',
+  '-U',
+  'postgres',
+  '-d',
+  'fury_library_test',
+  '-v',
+  'ON_ERROR_STOP=1',
+]
+const quote = (value: string) => `'${value.replaceAll("'", "''")}'`
+const encoded = (value: unknown) => `${quote(JSON.stringify(value))}::jsonb`
+const run = (query: string) =>
+  execFileSync('docker', args, {
+    input: query,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim()
+const rpc = (name: string, values: string[]) =>
+  JSON.parse(run(`select public.${name}(${values.join(',')});`) || 'null')
+const asyncRun = promisify(execFile)
+async function parallelRpc(name: string, value: unknown) {
+  const result = await asyncRun('docker', [
+    ...args,
+    '-c',
+    `select public.${name}(${encoded(value)});`,
+  ])
+  return JSON.parse(result.stdout.trim())
+}
+const session = 'a'.repeat(64),
+  network = 'b'.repeat(64)
+const registration = {
+  releaseId: 'fury-native-five@2' as const,
+  workerBuildSha256: '1'.repeat(64),
+  recipeBundleSha256: '2'.repeat(64),
+  geometrySha256: '3'.repeat(64),
+  materialsSha256: '4'.repeat(64),
+  camerasSha256: '5'.repeat(64),
+  rendererSha256: '6'.repeat(64),
+}
+const approvalId = '00000000-0000-4000-8000-000000000099'
+let expiresAt: string
+let command: ReserveCommand
+function touch(hash: string, net = network) {
+  run(
+    `select public.render_library_touch_session(${quote(hash)},${quote(net)},now()+interval '24 hours');`,
+  )
+}
+function reserve(input = command) {
+  return rpc('render_library_reserve_set', [encoded(input)])
+}
+function ledger() {
+  return JSON.parse(run('select row_to_json(a) from public.render_library_approvals a;'))
+}
+function dispatch() {
+  return rpc('render_library_claim_dispatch', [quote('test-dispatcher')])
+}
+function workerClaim(envelope: unknown) {
+  return workerClaimSchema.parse(
+    rpc('render_library_claim_worker', [encoded(envelope), quote(registration.workerBuildSha256)]),
+  )
+}
+function recordDispatch(
+  claim: { dispatch: { dispatchId: string }; claimToken: string },
+  result: unknown,
+) {
+  return rpc('render_library_record_dispatch', [
+    quote(claim.dispatch.dispatchId),
+    quote(claim.claimToken),
+    encoded(result),
+  ])
+}
+function snapshot(identity: SetIdentity) {
+  return setSnapshotSchema.parse(rpc('render_library_snapshot', [encoded(identity)]))
+}
+
+function reservedAmount(claim: { dispatch: { dispatchId: string }; claimToken: string }) {
+  return rpc('render_library_dispatch_reservation', [
+    quote(claim.dispatch.dispatchId),
+    quote(claim.claimToken),
+  ])
+}
+
+function terminalEvidence(dispatchId: string) {
+  return {
+    kind: 'provider-terminal',
+    dispatchId,
+    providerCallId: 'sb-test',
+    observedAt: new Date().toISOString(),
+    evidenceSha256: '7'.repeat(64),
+  }
+}
+
+describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', () => {
+  beforeAll(() => {
+    if (!container || !/^[a-zA-Z0-9_-]+$/.test(container))
+      throw new Error('Explicit Docker container required')
+    run(
+      'drop schema public cascade; create schema public; grant usage on schema public to service_role,anon,authenticated;',
+    )
+    run(readFileSync('supabase/migrations/202610190001_render_library.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610190003_render_library_recovery.sql', 'utf8'))
+  })
+  beforeEach(async () => {
+    run(
+      'truncate public.render_library_recipes,public.render_library_approvals,public.render_library_sessions cascade;',
+    )
+    expiresAt = new Date(Date.now() + 3600_000).toISOString()
+    const policy = {
+      enabled: true as const,
+      approvalId,
+      expiresAt,
+      globalBudgetMicroUsd: 100_000,
+      maxJobLiabilityMicroUsd: 6_000,
+      maxImageLiabilityMicroUsd: 1_000,
+      startupLiabilityMicroUsd: 500,
+      recipe: registration,
+    }
+    run(`insert into public.render_library_recipes(release_id,registration) values('fury-native-five@2',${encoded(registration)});
+      insert into public.render_library_approvals(id,enabled,expires_at,budget_micro_usd,policy) values(${quote(approvalId)},true,${quote(expiresAt)},100000,${encoded(policy)});`)
+    touch(session)
+    const design = customerDesignSchema.parse(contract.create.design)
+    command = {
+      request: {
+        ...contract.create,
+        contractVersion: 'fury.render-library@1',
+        intent: 'render-missing',
+        idempotencyKey: randomUUID(),
+        design,
+      },
+      identity: await computeSetIdentity(design),
+      policy,
+      context: {
+        sessionHash: session,
+        networkHash: network,
+        sameOriginVerified: true,
+        csrfVerified: true,
+      },
+      seedImages: [],
+    }
+  })
+  it('read-only misses leave no jobs, outbox or liability', () => {
+    expect(snapshot(command.identity).coverage).toBe('missing')
+    expect(run('select count(*) from public.render_library_jobs')).toBe('0')
+    expect(ledger().reserved_micro_usd).toBe(0)
+  })
+  it('atomically joins racing sessions and reserves exactly once', async () => {
+    const sessions = Array.from({ length: 8 }, (_, i) => String(i).repeat(64))
+    sessions.forEach((hash) => touch(hash))
+    const results = await Promise.all(
+      sessions.map((hash) =>
+        parallelRpc('render_library_reserve_set', {
+          ...command,
+          context: { ...command.context, sessionHash: hash },
+          request: { ...command.request, idempotencyKey: randomUUID() },
+        }),
+      ),
+    )
+    expect(results.filter((result) => result.status === 'admitted')).toHaveLength(1)
+    expect(new Set(results.map((result) => result.snapshot.job.id)).size).toBe(1)
+    results.forEach((result) => setSnapshotSchema.parse(result.snapshot))
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    expect(run('select count(*) from public.render_library_outbox')).toBe('1')
+  })
+  it('replays identical keys and rejects changed design or camera', () => {
+    const result = reserve()
+    expect(reserve().snapshot.job.id).toBe(result.snapshot.job.id)
+    const changed = structuredClone(command)
+    changed.request.design.presentation.cameraRef = 'front-draft@1'
+    expect(reserve(changed).error.code).toBe('idempotency-conflict')
+  })
+  it('enforces expiry, activation, valid session, global capacity and budget before reservation', async () => {
+    run('update public.render_library_approvals set enabled=false;')
+    expect(reserve().error.code).toBe('budget-unavailable')
+    run(
+      "update public.render_library_approvals set enabled=true,expires_at=now()-interval '1 second';",
+    )
+    expect(reserve().error.code).toBe('budget-unavailable')
+    run(
+      `update public.render_library_approvals set expires_at=${quote(expiresAt)},budget_micro_usd=1000,policy=jsonb_set(policy,'{globalBudgetMicroUsd}','1000');`,
+    )
+    command = { ...command, policy: { ...command.policy, globalBudgetMicroUsd: 1000 } }
+    expect(reserve().error.code).toBe('budget-exhausted')
+    expect(ledger().reserved_micro_usd).toBe(0)
+    run(
+      "update public.render_library_approvals set budget_micro_usd=100000,policy=jsonb_set(policy,'{globalBudgetMicroUsd}','100000');",
+    )
+    command = { ...command, policy: { ...command.policy, globalBudgetMicroUsd: 100_000 } }
+    run("update public.render_library_sessions set expires_at=now()-interval '1 second';")
+    expect(reserve().error.code).toBe('csrf-invalid')
+  })
+  it('serializes competing designs against the final available budget', async () => {
+    run(
+      "update public.render_library_approvals set budget_micro_usd=6000,policy=jsonb_set(policy,'{globalBudgetMicroUsd}','6000');",
+    )
+    command = { ...command, policy: { ...command.policy, globalBudgetMicroUsd: 6000 } }
+    const other = structuredClone(command.request)
+    other.design.presentation.aspect = 'tall'
+    other.idempotencyKey = randomUUID()
+    touch('c'.repeat(64))
+    const results = await Promise.all([
+      parallelRpc('render_library_reserve_set', command),
+      parallelRpc('render_library_reserve_set', {
+        ...command,
+        request: other,
+        identity: await computeSetIdentity(other.design),
+        context: { ...command.context, sessionHash: 'c'.repeat(64) },
+      }),
+    ])
+    expect(results.map((result) => result.status).sort()).toEqual(['admitted', 'denied'])
+    expect(results.find((result) => result.status === 'denied').error.code).toBe('budget-exhausted')
+    expect(ledger().reserved_micro_usd).toBe(5500)
+  })
+  it(
+    'enforces session and shared network admission quotas even after safe settlement',
+    { timeout: 30_000 },
+    () => {
+      run('update public.render_library_sessions set admitted_count=3;')
+      expect(reserve().error.code).toBe('rate-limited')
+      run('update public.render_library_sessions set admitted_count=0;')
+      reserve()
+      for (let i = 0; i < 6; i++) {
+        const claimed = dispatch()
+        recordDispatch(claimed, {
+          status: 'definitely-not-submitted',
+          reason: {
+            code: 'worker-failed',
+            message: 'Rendering stopped. Completed images remain available.',
+            retryable: false,
+          },
+        })
+        rpc('render_library_reconcile_terminal', [
+          quote(claimed.dispatch.jobId),
+          encoded({ kind: 'never-submitted', dispatchId: claimed.dispatch.dispatchId }),
+          '0',
+        ])
+        const newSession = String(i + 1).repeat(64)
+        touch(newSession)
+        const context = { ...command.context, sessionHash: newSession }
+        // Join is free and grants polling/retry access, but cannot reserve more GPU work.
+        const joined = reserve({
+          ...command,
+          context,
+          request: { ...command.request, idempotencyKey: randomUUID() },
+        })
+        expect(joined.status).toBe('joined')
+        const retry = {
+          contractVersion: 'fury.render-library@1',
+          intent: 'retry-failed-missing',
+          idempotencyKey: randomUUID(),
+        }
+        const retried = rpc('render_library_retry_failed', [
+          quote(claimed.dispatch.jobId),
+          encoded(retry),
+          encoded(context),
+          encoded(command.policy),
+        ])
+        if (i === 5) expect(retried.error.code).toBe('rate-limited')
+        else expect(retried.status).toBe('admitted')
+      }
+      expect(ledger().charged_micro_usd).toBe(0)
+      expect(ledger().reserved_micro_usd).toBe(0)
+    },
+  )
+  it('imports unchanged exteriors without jobs or budget and reserves only the new interior', async () => {
+    const bytes = readFileSync('public/native-library/manifest.json')
+    const design = customerDesignSchema.parse(verifySeedManifest(bytes).entries[0].design)
+    const identity = await computeSetIdentity(design)
+    const images = await seedImagesForSet(bytes, design)
+    expect(images).toHaveLength(4)
+    run(
+      `select public.render_library_import_seed(${encoded(design)},${encoded(identity)},${encoded(images)});`,
+    )
+    run(
+      `select public.render_library_import_seed(${encoded(design)},${encoded(identity)},${encoded(images)});`,
+    )
+    expect(snapshot(identity).coverage).toBe('partial')
+    expect(run('select count(*) from public.render_library_jobs')).toBe('0')
+    expect(ledger().reserved_micro_usd).toBe(0)
+    const corrupt = images.map((image, i) => (i ? image : { ...image, sha256: '0'.repeat(64) }))
+    expect(() =>
+      run(
+        `select public.render_library_import_seed(${encoded(design)},${encoded(identity)},${encoded(corrupt)});`,
+      ),
+    ).toThrow()
+    const result = reserve({ ...command, identity, request: { ...command.request, design } })
+    expect(result.status).toBe('admitted')
+    expect(
+      result.snapshot.views.filter((view: { status: string }) => view.status === 'ready'),
+    ).toHaveLength(4)
+    expect(ledger().reserved_micro_usd).toBe(1500)
+    const claimed = dispatch()
+    const work = workerClaim(claimed.dispatch)
+    expect(work.views.map((view: { cameraRef: string }) => view.cameraRef)).toEqual([
+      'entry-draft@1',
+    ])
+  })
+  it('bounds concurrent distinct designs to two globally and one per session', async () => {
+    reserve()
+    let second = structuredClone(command)
+    second.request.design.presentation.lookRef = 'studio-night-draft@1'
+    second = { ...second, identity: await computeSetIdentity(second.request.design) }
+    second.request.idempotencyKey = randomUUID()
+    expect(reserve(second).error.code).toBe('capacity-full')
+    touch('c'.repeat(64))
+    second = { ...second, context: { ...second.context, sessionHash: 'c'.repeat(64) } }
+    expect(reserve(second).status).toBe('admitted')
+    let third = structuredClone(second)
+    third.request.design.presentation.aspect = 'tall'
+    third = { ...third, identity: await computeSetIdentity(third.request.design) }
+    third.request.idempotencyKey = randomUUID()
+    touch('d'.repeat(64))
+    third = { ...third, context: { ...third.context, sessionHash: 'd'.repeat(64) } }
+    expect(reserve(third).error.code).toBe('capacity-full')
+  })
+  it('does not reclaim dispatch after restart or ambiguous result and claims worker once', () => {
+    reserve()
+    const claim = dispatch()
+    expect(dispatch()).toBeNull()
+    const work = workerClaim(claim.dispatch)
+    expect(work.views).toHaveLength(5)
+    expect(
+      rpc('render_library_claim_worker', [
+        encoded(claim.dispatch),
+        quote(registration.workerBuildSha256),
+      ]),
+    ).toBeNull()
+    recordDispatch(claim, {
+      status: 'uncertain',
+      reason: {
+        code: 'dispatch-uncertain',
+        message: 'We are checking whether rendering started. Please do not submit again.',
+        retryable: false,
+      },
+    })
+    expect(snapshot(command.identity).job?.stage).toBe('dispatch-uncertain')
+    expect(dispatch()).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    expect(
+      reserve({ ...command, request: { ...command.request, idempotencyKey: randomUUID() } }).status,
+    ).toBe('joined')
+  })
+  it('settles the durable full-set reservation, not a larger or subsequently changed policy ceiling', () => {
+    reserve()
+    const claimed = dispatch()
+    workerClaim(claimed.dispatch)
+    recordDispatch(claimed, { status: 'accepted', providerCallId: 'sb-test' })
+    expect(command.policy.maxJobLiabilityMicroUsd).toBe(6000)
+    expect(reservedAmount(claimed)).toBe(5500)
+    expect(() => reservedAmount({ ...claimed, claimToken: randomUUID() })).toThrow()
+    run(
+      "update public.render_library_approvals set enabled=false,policy=jsonb_set(policy,'{maxJobLiabilityMicroUsd}','18000');",
+    )
+    expect(reservedAmount(claimed)).toBe(5500)
+    const evidence = terminalEvidence(claimed.dispatch.dispatchId)
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(claimed.dispatch.jobId),
+        encoded(evidence),
+        '6000',
+      ]),
+    ).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    for (let i = 0; i < 2; i++) {
+      expect(
+        rpc('render_library_reconcile_terminal', [
+          quote(claimed.dispatch.jobId),
+          encoded(evidence),
+          String(reservedAmount(claimed)),
+        ]).retrySafe,
+      ).toBe(true)
+    }
+    expect(ledger().reserved_micro_usd).toBe(0)
+    expect(ledger().charged_micro_usd).toBe(5500)
+  })
+  it('resolves uncertain dispatch exactly once with its fence and never changes provider or downgrades', () => {
+    reserve()
+    const claimed = dispatch()
+    workerClaim(claimed.dispatch)
+    const uncertain = workerFixture.uncertain
+    recordDispatch(claimed, uncertain)
+    recordDispatch(claimed, uncertain)
+    expect(() => recordDispatch(claimed, { status: 'definitely-not-submitted' })).toThrow()
+    const accepted = { status: 'accepted', providerCallId: 'sb-test' }
+    expect(() => recordDispatch({ ...claimed, claimToken: randomUUID() }, accepted)).toThrow()
+    expect(() => recordDispatch(claimed, { ...accepted, providerCallId: '' })).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    recordDispatch(claimed, accepted)
+    recordDispatch(claimed, accepted)
+    expect(snapshot(command.identity).job?.stage).toBe('preparing')
+    for (const invalid of [
+      uncertain,
+      { status: 'definitely-not-submitted' },
+      { ...accepted, providerCallId: 'sb-another' },
+    ]) {
+      expect(() => recordDispatch(claimed, invalid)).toThrow()
+    }
+    expect(dispatch()).toBeNull()
+    expect(
+      rpc('render_library_claim_worker', [
+        encoded(claimed.dispatch),
+        quote(registration.workerBuildSha256),
+      ]),
+    ).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    const evidence = terminalEvidence(claimed.dispatch.dispatchId)
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(claimed.dispatch.jobId),
+        encoded({ ...evidence, providerCallId: 'sb-another' }),
+        '5500',
+      ]),
+    ).toThrow()
+    expect(
+      rpc('render_library_reconcile_terminal', [
+        quote(claimed.dispatch.jobId),
+        encoded(evidence),
+        String(reservedAmount(claimed)),
+      ]).retrySafe,
+    ).toBe(true)
+    recordDispatch(claimed, accepted)
+    expect(() => recordDispatch(claimed, uncertain)).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(0)
+  })
+  it('prioritizes selected camera and fences duplicate/out-of-order progress', () => {
+    command.request.design.presentation.cameraRef = 'entry-draft@1'
+    reserve()
+    const claimed = dispatch()
+    const work = workerClaim(claimed.dispatch)
+    expect(work.views[0].cameraRef).toBe('entry-draft@1')
+    recordDispatch(claimed, { status: 'accepted', providerCallId: 'sb-test' })
+    const event = {
+      contractVersion: 'fury.render-library@1',
+      kind: 'progress',
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      fence: work.fence,
+      eventId: randomUUID(),
+      sequence: 2,
+      cameraRef: work.views[0].cameraRef,
+      stage: 'rendering',
+    }
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
+    expect(() =>
+      rpc('render_library_record_event', [encoded({ ...event, stage: 'saving' })]),
+    ).toThrow()
+    expect(
+      rpc('render_library_record_event', [
+        encoded({ ...event, sequence: 1, eventId: randomUUID() }),
+      ]).accepted,
+    ).toBe(false)
+    expect(
+      rpc('render_library_record_event', [
+        encoded({ ...event, fence: 10, sequence: 3, eventId: randomUUID() }),
+      ]).accepted,
+    ).toBe(false)
+    expect(snapshot(command.identity).job?.stage).toBe('rendering')
+    const terminal = {
+      contractVersion: 'fury.render-library@1',
+      kind: 'terminal',
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      fence: work.fence,
+      eventId: randomUUID(),
+      sequence: 3,
+      outcome: 'complete',
+      error: null,
+    }
+    expect(rpc('render_library_record_event', [encoded(terminal)]).accepted).toBe(false)
+  })
+  it('requires independent terminal evidence and retains partial images during safe explicit retry', () => {
+    reserve()
+    const claimed = dispatch()
+    const work = workerClaim(claimed.dispatch)
+    recordDispatch(claimed, { status: 'accepted', providerCallId: 'sb-test' })
+    const view = work.views[0]
+    // SQL tests use explicit synthetic metadata; real byte validation is covered separately.
+    const receipt = {
+      ...workerFixture.receipt,
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      imageKey: view.imageKey,
+      design: {
+        ...work.design,
+        presentation: { ...work.design.presentation, cameraRef: view.cameraRef },
+      },
+      workerBuildSha256: registration.workerBuildSha256,
+      recipeBundleSha256: registration.recipeBundleSha256,
+    }
+    const receiptSha256 = checksum(canonicalJson(receipt))
+    const image = imageDescriptorSchema.parse({
+      contractVersion: 'fury.render-library@1',
+      setKey: work.identity.setKey,
+      imageKey: view.imageKey,
+      design: receipt.design,
+      recipeRelease: work.identity.recipeRelease,
+      url: `https://test.supabase.co/storage/v1/object/public/render-library/${work.identity.setKey}/${view.imageKey}/${receipt.sha256}.webp`,
+      sha256: receipt.sha256,
+      bytes: receipt.bytes,
+      width: receipt.width,
+      height: receipt.height,
+      mime: 'image/webp',
+      samples: 1024,
+      adaptiveSampling: false,
+      quality: 95,
+      provenance: {
+        kind: 'native-worker',
+        jobId: work.jobId,
+        attemptId: work.attemptId,
+        workerBuildSha256: registration.workerBuildSha256,
+        recipeBundleSha256: registration.recipeBundleSha256,
+        receiptSha256,
+      },
+      productionAllowed: false,
+      visuallyQualified: false,
+      strictReference: false,
+      engineeringApproved: false,
+    })
+    const artifact = { receipt, receiptSha256, image }
+    const event = {
+      contractVersion: 'fury.render-library@1',
+      kind: 'artifact',
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      fence: work.fence,
+      eventId: randomUUID(),
+      sequence: 1,
+      receipt,
+    }
+    expect(rpc('render_library_prepare_artifact', [encoded(event)]).accepted).toBe(true)
+    expect(
+      rpc('render_library_publish_asset', [
+        quote(work.jobId),
+        quote(work.attemptId),
+        String(work.fence),
+        encoded(artifact),
+      ]).published,
+    ).toBe(true)
+    expect(
+      rpc('render_library_publish_asset', [
+        quote(work.jobId),
+        quote(work.attemptId),
+        String(work.fence),
+        encoded(artifact),
+      ]).published,
+    ).toBe(true)
+    expect(() =>
+      rpc('render_library_publish_asset', [
+        quote(work.jobId),
+        quote(work.attemptId),
+        String(work.fence),
+        encoded({ ...artifact, receipt: { ...receipt, quality: 90 } }),
+      ]),
+    ).toThrow()
+    const terminal = {
+      contractVersion: 'fury.render-library@1',
+      kind: 'terminal',
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      fence: work.fence,
+      eventId: randomUUID(),
+      sequence: 2,
+      outcome: 'failed',
+      error: null,
+    }
+    run(
+      `update public.render_library_jobs set deadline_at=now()-interval '1 second' where id=${quote(work.jobId)};`,
+    )
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
+    expect(rpc('render_library_prepare_artifact', [encoded(event)]).accepted).toBe(true)
+    expect(
+      rpc('render_library_prepare_artifact', [
+        encoded({ ...event, eventId: randomUUID(), sequence: 2 }),
+      ]).accepted,
+    ).toBe(false)
+    expect(snapshot(command.identity).views.filter((view) => view.status === 'ready')).toHaveLength(
+      1,
+    )
+    expect(rpc('render_library_record_event', [encoded(terminal)]).accepted).toBe(true)
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    const retry = {
+      contractVersion: 'fury.render-library@1',
+      intent: 'retry-failed-missing',
+      idempotencyKey: randomUUID(),
+    }
+    expect(
+      rpc('render_library_retry_failed', [
+        quote(work.jobId),
+        encoded(retry),
+        encoded(command.context),
+        encoded(command.policy),
+      ]).error.code,
+    ).toBe('unsafe-retry')
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(work.jobId),
+        encoded({ kind: 'never-submitted', dispatchId: work.dispatchId }),
+        '0',
+      ]),
+    ).toThrow()
+    const evidence = {
+      kind: 'provider-terminal',
+      dispatchId: work.dispatchId,
+      providerCallId: 'sb-test',
+      observedAt: new Date().toISOString(),
+      evidenceSha256: '7'.repeat(64),
+    }
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(work.jobId),
+        encoded({ ...evidence, evidenceSha256: null }),
+        '1300',
+      ]),
+    ).toThrow()
+    expect(
+      rpc('render_library_reconcile_terminal', [quote(work.jobId), encoded(evidence), '1300'])
+        .retrySafe,
+    ).toBe(true)
+    expect(ledger().reserved_micro_usd).toBe(0)
+    expect(ledger().charged_micro_usd).toBe(1300)
+    const retried = rpc('render_library_retry_failed', [
+      quote(work.jobId),
+      encoded(retry),
+      encoded(command.context),
+      encoded(command.policy),
+    ])
+    expect(retried.status).toBe('admitted')
+    expect(retried.snapshot.job.completedImages).toBe(1)
+    expect(ledger().reserved_micro_usd).toBe(4500)
+    const partial = dispatch()
+    expect(workerClaim(partial.dispatch).views).toHaveLength(4)
+    const replay = rpc('render_library_retry_failed', [
+      quote(work.jobId),
+      encoded(retry),
+      encoded(command.context),
+      encoded(command.policy),
+    ])
+    expect(replay.snapshot.job.id).toBe(retried.snapshot.job.id)
+    recordDispatch(partial, { status: 'accepted', providerCallId: 'sb-test' })
+    expect(reservedAmount(partial)).toBe(4500)
+    const partialEvidence = terminalEvidence(partial.dispatch.dispatchId)
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(partial.dispatch.jobId),
+        encoded(partialEvidence),
+        '5500',
+      ]),
+    ).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(4500)
+    expect(
+      rpc('render_library_reconcile_terminal', [
+        quote(partial.dispatch.jobId),
+        encoded(partialEvidence),
+        String(reservedAmount(partial)),
+      ]).retrySafe,
+    ).toBe(true)
+    expect(ledger().reserved_micro_usd).toBe(0)
+    expect(ledger().charged_micro_usd).toBe(5800)
+    expect(
+      snapshot(command.identity)
+        .views.filter((view) => view.status === 'ready')
+        .map((view) => view.image),
+    ).toEqual([image])
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
+  })
+  it('denies anon/authenticated reads and writes and grants only privileged RPCs', () => {
+    expect(
+      run(
+        "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_claim_dispatch';",
+      ),
+    ).toBe('{dispatcherId}')
+    expect(
+      run(
+        "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_record_dispatch';",
+      ),
+    ).toBe('{dispatchId,claimToken,result}')
+    expect(
+      run(
+        "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_reconcile_terminal';",
+      ),
+    ).toBe('{jobId,evidence,chargedMicroUsd}')
+    expect(
+      run(
+        "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relname like 'render_library_%' and not c.relrowsecurity;",
+      ),
+    ).toBe('0')
+    for (const role of ['anon', 'authenticated']) {
+      expect(
+        run(
+          `select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relname like 'render_library_%' and has_table_privilege(${quote(role)},c.oid,'SELECT,INSERT,UPDATE,DELETE');`,
+        ),
+      ).toBe('0')
+      expect(
+        run(
+          `select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like 'render_library_%' and has_function_privilege(${quote(role)},p.oid,'EXECUTE');`,
+        ),
+      ).toBe('0')
+    }
+    expect(
+      run(
+        "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join unnest(array['SELECT','INSERT','UPDATE','DELETE']) privilege where n.nspname='public' and c.relkind='r' and c.relname like 'render_library_%' and not has_table_privilege('service_role',c.oid,privilege);",
+      ),
+    ).toBe('0')
+    expect(
+      run(
+        "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like 'render_library_%' and not has_function_privilege('service_role',p.oid,'EXECUTE');",
+      ),
+    ).toBe('0')
+    expect(() => run('set role anon; select * from public.render_library_jobs;')).toThrow()
+    expect(() =>
+      run(`set role authenticated; select public.render_library_reserve_set(${encoded(command)});`),
+    ).toThrow()
+    expect(
+      run(
+        `set role service_role; select public.render_library_snapshot(${encoded(command.identity)})->>'coverage';`,
+      ),
+    ).toBe('missing')
+    expect(() => run("update public.render_library_recipes set registration='{}';")).toThrow()
+  })
+  it('installs restrictive Storage policies that fence preexisting permissive policies', () => {
+    // A minimal storage schema tests PostgreSQL policy semantics, not Supabase HTTP behavior.
+    run(`drop schema if exists storage cascade; create schema storage;
+      create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+      create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);
+      alter table storage.objects enable row level security;
+      grant usage on schema storage to anon,authenticated,service_role;
+      grant all on storage.objects to anon,authenticated,service_role;
+      create policy project_wide_permissive on storage.objects for all to anon,authenticated using(true) with check(true);`)
+    run(readFileSync('supabase/migrations/202610190002_render_library_storage.sql', 'utf8'))
+    run(
+      "insert into storage.objects(bucket_id,name) values('render-library','public.webp'),('render-library-staging','private.webp'),('unrelated','ok.txt');",
+    )
+    expect(() =>
+      run(
+        "set role anon; insert into storage.objects(bucket_id,name) values('render-library','bad.webp');",
+      ),
+    ).toThrow()
+    expect(() =>
+      run(
+        "set role authenticated; insert into storage.objects(bucket_id,name) values('render-library-staging','bad.webp');",
+      ),
+    ).toThrow()
+    expect(
+      run(
+        "set role anon; select count(*) from storage.objects where bucket_id='render-library-staging';",
+      ),
+    ).toBe('0')
+    run(
+      "set role authenticated; update storage.objects set name='bad' where bucket_id='render-library'; delete from storage.objects where bucket_id='render-library';",
+    )
+    expect(run("select name from storage.objects where bucket_id='render-library';")).toBe(
+      'public.webp',
+    )
+    expect(run('set role service_role; select count(*) from storage.objects;')).toBe('3')
+  })
+})

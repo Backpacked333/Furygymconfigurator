@@ -25,14 +25,19 @@ export function loopbackCloud(param: string | null): string | null {
 }
 
 /**
- * The cloud render server's address: VITE_CLOUD_RENDER_URL at build time. `?cloud=0` turns it
- * off, and `?cloud=<url>` points at a local server for development (this machine only).
+ * Legacy transport is restricted to development loopback diagnostics. Public builds cannot
+ * select it through environment configuration or query parameters; P04 owns future admission.
  */
 export function cloudUrl(search = window.location.search): string | null {
+  if (!import.meta.env.DEV) return null
   const param = new URLSearchParams(search).get('cloud')
   if (param === '0' || param === 'off') return null
   const local = loopbackCloud(param)
   if (local) return local
   const configured = import.meta.env.VITE_CLOUD_RENDER_URL as string | undefined
-  return configured ? configured.replace(/\/$/, '') : null
+  return loopbackCloud(configured ?? null)
+}
+
+export function legacyDiagnosticUrl(url: string): boolean {
+  return import.meta.env.DEV && loopbackCloud(url) !== null
 }

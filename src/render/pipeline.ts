@@ -63,6 +63,7 @@ import { siteAmbient } from './siteLightNode'
 
 export type Pipeline = {
   render: () => void
+  warm: () => Promise<void>
   dispose: () => void
   /** Frames to keep rendering after a change so temporal AA, AO, and GI converge. */
   settleFrames: number
@@ -128,6 +129,22 @@ function findSun(scene: Scene) {
  * - Ultra: High plus screen-space global illumination (one diffuse bounce of on-screen light) and
  *   screen-space reflections on metals.
  */
+export async function warmPipeline(renderer: WebGPURenderer, pipeline: RenderPipeline) {
+  const render = renderer.render
+  const compiles: Promise<unknown>[] = []
+  renderer.render = ((scene: Scene, camera: Camera) => {
+    compiles.push(renderer.compileAsync(scene, camera))
+  }) as typeof renderer.render
+  try {
+    pipeline.render()
+  } catch {
+    // Unsupported passes compile on their first real frame instead.
+  } finally {
+    renderer.render = render
+  }
+  await Promise.allSettled(compiles)
+}
+
 export function createPipeline(
   renderer: WebGPURenderer,
   scene: Scene,
@@ -145,6 +162,7 @@ export function createPipeline(
     pipeline.outputNode = rasterFinish(scenePass)
     return {
       render: () => pipeline.render(),
+      warm: () => warmPipeline(renderer, pipeline),
       // Scene passes own full-resolution render targets that the pipeline does not release.
       dispose: () => {
         pipeline.dispose()
@@ -307,6 +325,7 @@ export function createPipeline(
     pipeline.outputNode = vec4(motion.mul(vec2(10, -10)).add(0.5), float(0.5), 1)
   return {
     render: () => pipeline.render(),
+    warm: () => warmPipeline(renderer, pipeline),
     dispose: () => disposables.forEach((d) => d.dispose()),
     settleFrames: quality === 'ultra' ? 40 : 28,
     shutter,
@@ -327,7 +346,7 @@ export type StillFinish = {
  * The cloud's bloom on a finished still (render-server finishing.py): a faint glow on what is
  * brighter than the threshold, as a lens records lamps and sun glints.
  */
-export const STILL_BLOOM = { strength: 0.16, radius: 0.5, threshold: 1.4 } as const
+export const STILL_BLOOM = { strength: 0.045, radius: 0.5, threshold: 2.4 } as const
 
 /**
  * A still's finishing, as the render server finishes the cloud's (finishing.py): the bloom, AgX

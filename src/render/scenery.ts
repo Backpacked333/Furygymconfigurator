@@ -113,7 +113,7 @@ const NONE: SceneryLayout = {
 
 /** The residential courtyard (photos 1 and 3): three apartment blocks around a paved court. */
 function residences(L: number): SceneryLayout {
-  const grass = { base: 2.4, height: 2.6 }
+  const grass = { base: 2.4, height: 2.6, colors: ['#405439', '#829264'] as [string, string] }
   return {
     ...NONE,
     buildings: [
@@ -213,7 +213,22 @@ function campus(L: number): SceneryLayout {
       },
     ],
     planters: [
-      { x: L / 2 + 9, z: -6, turn: 0, width: 14, depth: 4, height: 1.8 },
+      {
+        x: L / 2 + 9,
+        z: -6,
+        turn: 0,
+        width: 14,
+        depth: 4,
+        height: 1.8,
+        grass: {
+          width: 13,
+          depth: 3,
+          base: 2.1,
+          height: 1.3,
+          count: 65,
+          colors: ['#465940', '#8a9969'],
+        },
+      },
       { x: -L / 2 - 9, z: -9, turn: 0, width: 4, depth: 12, height: 1.8 },
     ],
     trees: [

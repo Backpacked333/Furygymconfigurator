@@ -3,15 +3,19 @@ import { bakedStill, forgetBaked } from '../lib/bakedStills'
 import { DEFAULT_CAMERA, type Config } from '../lib/config'
 import { LoadingExperience } from './LoadingExperience'
 import {
-  ASPECT_RATIO,
   GALLERY_ANGLES,
   angleKey,
+  galleryAngle,
   type AngleId,
   type AspectClass,
 } from '../render/gallery'
+import { CUSTOMER_ANGLES } from '../render-library/views'
 import type { StillsSnapshot } from '../render/stillStatus'
 import type { Layer } from './stillStageState'
+import { showsWanted } from './stillStageState'
+import { bench } from '../render/bench'
 import type { useStillStage } from './useStillStage'
+import { StageFilmstrip, StageImageLayers } from './StagePresentation'
 
 /**
  * A first still still loading after this long gets a quiet loading treatment under it, so a slow
@@ -31,15 +35,27 @@ export function StillLayers({
   stage,
   label,
   lifting = false,
+  active = true,
   config,
 }: {
   stage: ReturnType<typeof useStillStage>
   /** What the still shows, for its alternative text. */
   label: string
   lifting?: boolean
+  active?: boolean
   config?: Config
 }) {
   const { state, dispatch } = stage
+  const current = showsWanted(state)
+  const ready = active && current && !!state.shown && !state.loading
+  const finished = ready && state.shown?.tier !== 'thumb' && !state.fading
+  useEffect(() => {
+    if (!finished) return
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => bench.mark('firstStillPresented'))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [finished])
   // Decoded before it is seen: the still waiting to replace the one shown, or the first one.
   const decoding = state.pending ?? (state.loading ? state.shown : null)
   const refs = useRef(new Map<string, HTMLImageElement>())
@@ -98,41 +114,50 @@ export function StillLayers({
     ])
   if (pending) layers.push([pending, 'is-pending'])
   return (
-    <div className={`still-layers${lifting ? ' is-lifting' : ''}`}>
-      {slow && firstUrl && (
-        <div className="still-loading">
+    <StageImageLayers
+      lifting={lifting}
+      busy={!ready}
+      current={current}
+      previous={
+        active && stage.visible && !current
+          ? 'Previous view shown · Your changes are not pictured yet'
+          : undefined
+      }
+      loading={
+        slow && firstUrl ? (
           <LoadingExperience
             config={config}
             title="Your view is on its way."
             description="Your design is ready. We’re loading the image at its best quality."
             label="Loading and preparing your image"
           />
-        </div>
-      )}
-      {layers.map(([layer, role]) => (
-        <img
-          key={layer.url}
-          ref={(element) => {
-            if (element) refs.current.set(layer.url, element)
-            else refs.current.delete(layer.url)
-          }}
-          className={`still-layer ${role}`}
-          src={layer.url}
-          srcSet={layer.srcset}
-          sizes={layer.sizes}
-          alt={role.startsWith('is-shown') ? label : ''}
-          aria-hidden={role.startsWith('is-shown') ? undefined : true}
-          // The still shown is painted whole: decoded already (pending), or as it is first painted
-          // (the page's first, which index.html preloads at the same priority).
-          decoding={role.startsWith('is-shown') ? 'sync' : 'async'}
-          fetchPriority={role.includes('is-loading') ? 'high' : undefined}
-          draggable={false}
-          data-tier={layer.tier}
-          data-angle={layer.angle}
-          data-baked={layer.srcset ? '' : undefined}
-        />
-      ))}
-    </div>
+        ) : undefined
+      }
+      layers={layers.map(([layer, role]) => ({
+        key: layer.url,
+        role,
+        ref: (element) => {
+          if (element) refs.current.set(layer.url, element)
+          else refs.current.delete(layer.url)
+        },
+        tier: layer.tier,
+        angle: layer.angle,
+        baked: !!layer.srcset,
+        image: {
+          src: layer.url,
+          srcSet: layer.srcset,
+          sizes: layer.sizes,
+          alt: role.startsWith('is-shown')
+            ? current
+              ? label
+              : `Previous design: ${galleryAngle(layer.angle).phrase}`
+            : '',
+          'aria-hidden': role.startsWith('is-shown') ? undefined : true,
+          decoding: role.startsWith('is-shown') ? 'sync' : 'async',
+          fetchPriority: role.includes('is-loading') ? 'high' : undefined,
+        },
+      }))}
+    />
   )
 }
 
@@ -167,35 +192,32 @@ export function Filmstrip({
     urls: {},
   })
   if (held.current.aspect !== aspect) held.current = { aspect, urls: {} }
-  const ratio = ASPECT_RATIO[aspect]
   return (
-    <nav className={`filmstrip is-${aspect}`} aria-label="Camera angles">
-      {GALLERY_ANGLES.map(({ id, label, group }, i) => {
-        const images = ready ? snapshot.images[id] : undefined
-        const baked = bakedStill(design, angleKey(id, hero), aspect)
-        const fresh = baked?.thumb ?? images?.thumb?.url ?? images?.still?.url
-        if (fresh) held.current.urls[id] = fresh
-        const url = fresh ?? held.current.urls[id]
-        const waiting =
-          id === angle
-            ? stagePending
-            : !baked && snapshot.source === 'cloud' && (!ready || snapshot.pending[id] === true)
-        const first = i > 0 && GALLERY_ANGLES[i - 1].group !== group
-        return (
-          <button
-            key={id}
-            className={`film-tile${id === angle ? ' is-current' : ''}${waiting ? ' is-pending' : ''}${first ? ' starts-group' : ''}`}
-            aria-pressed={id === angle}
-            aria-label={`${label} ${group === 'interior' ? 'interior' : 'exterior'} view${waiting ? ', rendering' : ''}`}
-            onClick={() => onPick(id)}
-          >
-            <span className="film-thumb" style={{ aspectRatio: String(ratio) }}>
-              {url && <img src={url} alt="" draggable={false} />}
-            </span>
-            <span className="film-label">{label}</span>
-          </button>
-        )
-      })}
-    </nav>
+    <StageFilmstrip
+      selected={angle}
+      aspect={aspect}
+      onPick={onPick}
+      items={GALLERY_ANGLES.filter(({ id }) => CUSTOMER_ANGLES.some((angle) => angle === id)).map(
+        ({ id, label, group }) => {
+          const images = ready ? snapshot.images[id] : undefined
+          const baked = bakedStill(design, angleKey(id, hero), aspect)
+          const fresh = baked?.thumb ?? images?.thumb?.url ?? images?.still?.url
+          if (fresh) held.current.urls[id] = fresh
+          const url = fresh ?? held.current.urls[id]
+          const waiting =
+            id === angle
+              ? stagePending
+              : !baked && snapshot.source === 'cloud' && (!ready || snapshot.pending[id] === true)
+          return {
+            id,
+            label,
+            group,
+            waiting,
+            url,
+            accessibleLabel: `${label} ${group === 'interior' ? 'interior' : 'exterior'} view${waiting ? ', rendering' : ''}`,
+          }
+        },
+      )}
+    />
   )
 }

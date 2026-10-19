@@ -21,6 +21,7 @@ describe('the bench', () => {
       firstRequest: null,
       firstThumb: 2400,
       firstStill: null,
+      firstStillPresented: null,
       firstLocalTrace: null,
     })
   })

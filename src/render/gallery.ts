@@ -315,7 +315,7 @@ function equipment(c: Config): Volume[] {
   const out: Volume[] = []
   for (const item of c.items) {
     const p = catalogItem(item.sku)
-    const { w, d } = footprint(item)
+    const { w, d } = item.rotation === 90 ? { w: p.d, d: p.w } : p
     out.push({
       min: [item.x - w / 2, FLOOR_Y, item.z - d / 2],
       max: [item.x + w / 2, FLOOR_Y + p.h, item.z + d / 2],

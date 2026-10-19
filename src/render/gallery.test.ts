@@ -46,6 +46,14 @@ const azimuth = (c: { position: number[]; target: number[] }) =>
 const minus = (a: number[], b: number[]) => a.map((v, i) => v - b[i]) as [number, number, number]
 
 describe('gallery angles', () => {
+  it('keeps signature heroes distinct from their front elevations', () => {
+    for (const [name, config, hero] of builds) {
+      const front = galleryCamera(config, 'front', 'wide', hero)
+      const threeQuarter = galleryCamera(config, 'front-left', 'wide', hero)
+      expect(Math.abs(azimuth(threeQuarter) - azimuth(front)), name).toBeGreaterThan(20)
+    }
+  })
+
   it('are six outside and three in the room, the front three-quarter view first', () => {
     expect(GALLERY_ANGLES.map((a) => a.id)).toEqual([
       'front-left',

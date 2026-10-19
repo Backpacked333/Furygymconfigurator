@@ -1,9 +1,30 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AgXToneMapping, type Node } from 'three/webgpu'
 import { uniform, vec4 } from 'three/tsl'
-import { STILL_BLOOM, rasterFinish, stillFinish } from './pipeline'
+import { STILL_BLOOM, rasterFinish, stillFinish, warmPipeline } from './pipeline'
+
+describe('pipeline preparation', () => {
+  it('compiles without drawing, restores the renderer immediately, and tolerates unsupported passes', async () => {
+    const draw = vi.fn()
+    const compile = vi.fn().mockRejectedValue(new Error('unsupported warm-up'))
+    const renderer = { render: draw, compileAsync: compile }
+    const scene = {},
+      camera = {}
+    const pipeline = {
+      render: () => {
+        renderer.render(scene, camera)
+        throw new Error('pass')
+      },
+    }
+    const warming = warmPipeline(renderer as never, pipeline as never)
+    expect(renderer.render).toBe(draw)
+    expect(draw).not.toHaveBeenCalled()
+    expect(compile).toHaveBeenCalledExactlyOnceWith(scene, camera)
+    await expect(warming).resolves.toBeUndefined()
+  })
+})
 
 /** The render server's finishing of the cloud's stills, which this device's must match. */
 const FINISHING = readFileSync('render-server/fury_render/finishing.py', 'utf8')

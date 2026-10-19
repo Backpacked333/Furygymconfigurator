@@ -29,6 +29,17 @@ def test_bloom_radii_scale_with_the_frame_width():
     assert finishing.bloom_kernels(8192) == (3, (10, 17, 24, 31, 38))
 
 
+def test_midtone_surfaces_do_not_glow_but_practical_highlights_still_do():
+    wall = np.full((100, 160, 3), 2.0, dtype=np.float32)
+    assert not finishing.bloom(wall).any()
+    wall[48:52, 40:120] = 8.0
+    glow = finishing.bloom(wall)
+    assert np.isfinite(glow).all()
+    assert glow[50, 80].max() > 0
+    # A fixture must not turn the whole wall into a haze.
+    assert glow[25, 80].max() < 0.1
+
+
 def test_bloom_work_is_bounded_whatever_the_frame_width():
     """The blurred image is 600 to 1200 px wide and the radii at most twice the kernels' pixels."""
     for width in (1200, 1800, 2399, 2400, 3200, 4800, 8191, 8192):

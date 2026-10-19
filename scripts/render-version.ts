@@ -10,7 +10,7 @@ import { join } from 'node:path'
  * or the dev server starts, and the dev server again when one of them changes (vite.config.ts).
  *
  * What counts:
- * - src/render/**, tests aside: scene capture, cameras, tiers, exposure, the scheduler.
+ * - src/render/**, tests/private prototype aside: scene capture, cameras, tiers, exposure, scheduler.
  * - The scene's components: what is in the scene, and where.
  * - src/lib/visuals.ts (sky, sun, settings) and src/lib/config.ts with src/lib/products.ts (what
  *   a design is, and its geometry's dimensions).
@@ -60,11 +60,19 @@ export const VERSION_LENGTH = 10
 const TEST = /\.test\.[cm]?[jt]sx?$/
 /** Text, whose line endings are normalized; anything else is hashed byte for byte. */
 const TEXT = /\.([cm]?[jt]sx?|json|py|txt|md|css|html)$/
+// Private CPU preparation has its own source receipts; it never changes legacy v3 pixels.
+const PRIVATE_PROTOTYPE = 'src/render/prototype/'
+const RUNTIME_ONLY = new Set([
+  'src/render/bench.ts',
+  'src/render/traceStatus.ts',
+  'src/render/stillStatus.ts',
+])
 
 type Sources = { directories: string[]; files: string[] }
 
 /** Whether a file (relative to the root, with forward slashes) is a render source. */
 export function isRenderSource(file: string, sources: Sources = RENDER_SOURCES) {
+  if (RUNTIME_ONLY.has(file) || file.startsWith(PRIVATE_PROTOTYPE)) return false
   const name = file.slice(file.lastIndexOf('/') + 1)
   if (sources.files.includes(file)) return true
   if (TEST.test(name) || file.split('/').some((part) => part.startsWith('.'))) return false
@@ -78,12 +86,15 @@ export function renderSources(root: string, sources: Sources = RENDER_SOURCES): 
     for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
       if (entry.name.startsWith('.')) continue
       const path = `${dir}/${entry.name}`
+      if (`${path}/`.startsWith(PRIVATE_PROTOTYPE)) continue
       if (entry.isDirectory()) walk(path)
-      else if (entry.isFile() && !TEST.test(entry.name)) found.push(path)
+      else if (entry.isFile() && isRenderSource(path, sources)) found.push(path)
     }
   }
   for (const dir of sources.directories) walk(dir)
-  return [...new Set([...found, ...sources.files])].sort()
+  return [
+    ...new Set([...found, ...sources.files.filter((file) => isRenderSource(file, sources))]),
+  ].sort()
 }
 
 /** The version of the sources under `root`: the same files with the same contents, the same hash. */

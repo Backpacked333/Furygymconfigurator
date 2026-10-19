@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exposureAt, type SkyLook } from '../lib/visuals'
 import { Busy, Full, Outdated, type CloudCamera, type CloudClient } from './cloud'
 import { GALLERY_ANGLES, galleryCamera, type AngleId } from './gallery'
+import { CUSTOMER_ANGLES } from '../render-library/views'
 import { DEFAULT_CAMERA, DEFAULT_CONFIG } from '../lib/config'
 import { bakeJobs } from './bake'
 import { lookKey } from './pathtrace'
@@ -255,12 +256,15 @@ describe('still session', () => {
     })
     for (const { session, requests } of tiers) {
       await settled(session, design('a'), stillState({ exposure }))
-      await answer(requests, 9)
+      await answer(requests, CUSTOMER_ANGLES.length)
     }
     const asked = tiers.map(({ frame }) =>
       frame.mock.calls.map(([, request]) => ({ ...request, generation: 0 })),
     )
-    expect(asked[0].length).toBeGreaterThanOrEqual(9)
+    expect(asked[0].length).toBeGreaterThanOrEqual(CUSTOMER_ANGLES.length)
+    expect(new Set(asked[0].map((request) => label(request).split(' ')[0]))).toEqual(
+      new Set(CUSTOMER_ANGLES),
+    )
     expect(asked[1]).toEqual(asked[0])
     expect(asked[2]).toEqual(asked[0])
     // Nothing but stills goes out: no meter frame before the first.
@@ -289,10 +293,10 @@ describe('still session', () => {
       [320, 200],
       [320, 200],
     ])
-    await answer(requests, 5)
-    expect(labels(requests)).toEqual(['entry thumb', 'centre thumb', 'back thumb'])
-    expect(requests.map((r) => r.request.channel)).toEqual(['i', 'i', 'i'])
     await answer(requests, 3)
+    expect(labels(requests)).toEqual(['entry thumb'])
+    expect(requests.map((r) => r.request.channel)).toEqual(['i'])
+    await answer(requests)
     // The longer renders wait for the visitor to rest on the design.
     expect(requests).toHaveLength(0)
     session.setIdle(true)
@@ -311,7 +315,8 @@ describe('still session', () => {
     const waiting = session.snapshot()
     expect(waiting).toMatchObject({ source: 'cloud', design: 'd1', aspect: 'wide', images: {} })
     expect(waiting.pending['front-left']).toBe(true)
-    expect(waiting.pending.rear).toBe(true)
+    expect(waiting.pending['rear-left']).toBe(true)
+    expect(waiting.pending.rear).toBeUndefined()
     expect(waiting.progress).toEqual({ kind: 'stage', stage: 'preparing' })
     await tick(SETTLE_MS)
     session.sync(scene, look as SkyLook, design('a'), stillState())
@@ -338,7 +343,7 @@ describe('still session', () => {
     const session = new StillSession(client, () => {})
     const small = stillState({ idle: false })
     await settled(session, design('a'), small)
-    await answer(requests, 9)
+    await answer(requests, CUSTOMER_ANGLES.length)
     expect(requests).toHaveLength(0)
     const sync = (state: StillState) => session.sync(scene, look as SkyLook, design('a'), state)
     // A little larger (within a quarter): the still serves.
@@ -369,15 +374,15 @@ describe('still session', () => {
     session.setIdle(true)
     await tick()
     while (requests.length) await answer(requests)
-    expect(session.snapshot().images.rear?.still?.width).toBe(1000)
-    sync({ ...big, idle: true, angle: 'rear' })
+    expect(session.snapshot().images['rear-left']?.still?.width).toBe(1000)
+    sync({ ...big, idle: true, angle: 'rear-left' })
     await tick()
-    expect(labels(requests)[0]).toBe('rear still')
+    expect(labels(requests)[0]).toBe('rear-left still')
     expect(
       requests.every((r) => r.request.width === 1600 || label(r.request).includes('thumb')),
     ).toBe(true)
     while (requests.length) await answer(requests)
-    expect(session.snapshot().images.rear?.still?.width).toBe(1600)
+    expect(session.snapshot().images['rear-left']?.still?.width).toBe(1600)
     session.dispose()
   })
 
@@ -412,10 +417,11 @@ describe('still session', () => {
     const { client, requests } = fakeClient()
     const session = new StillSession(client, () => {})
     await settled(session, design('a'), stillState())
-    await answer(requests, 9)
+    await answer(requests, 5)
     expect(requests.length).toBeGreaterThan(0)
     const before = session.snapshot()
-    expect(Object.keys(before.images)).toHaveLength(9)
+    expect(Object.keys(before.images)).toHaveLength(5)
+    expect(Object.keys(before.images).sort()).toEqual([...CUSTOMER_ANGLES].sort())
     // The mirror wall: the interior's scene changes, the exterior's does not.
     const inside = design('a', { interior: 'mirror' })
     edit(session, inside, stillState({ design: 'd2' }))
@@ -423,9 +429,9 @@ describe('still session', () => {
     session.sync(scene, look as SkyLook, inside, stillState({ design: 'd2' }))
     const after = session.snapshot()
     expect(after.design).toBe('d2')
-    for (const angle of ['front-left', 'front', 'left', 'rear-left', 'rear', 'top'] as const)
+    for (const angle of ['front-left', 'front', 'left', 'rear-left'] as const)
       expect(after.images[angle]).toEqual(before.images[angle])
-    for (const angle of ['entry', 'centre', 'back'] as const) {
+    for (const angle of ['entry'] as const) {
       expect(after.images[angle]).toBeUndefined()
       expect(after.pending[angle]).toBe(true)
     }
@@ -621,7 +627,7 @@ describe('still session', () => {
     session.deliverLocal(job, new Blob(['traced']), 256)
     const snapshot = session.snapshot()
     expect(snapshot.source).toBe('local')
-    expect(snapshot.pending).toMatchObject({ 'front-left': false, rear: false })
+    expect(snapshot.pending).toMatchObject({ 'front-left': false, 'rear-left': false })
     // A still traced for a design the visitor has since left is not kept for the new one.
     edit(session, design('b'), stillState({ design: 'd2' }))
     await tick(QUIET_MS)
@@ -650,15 +656,14 @@ describe('still session', () => {
     const session = new StillSession(client, () => {}, baked)
     await settled(session, design('a'), stillState({ idle: false }))
     // The stage's angle is baked: on to the other angles' thumbnails, the baked ones left out.
-    expect(labels(requests)).toEqual(['left thumb', 'rear-left thumb', 'rear thumb'])
+    expect(labels(requests)).toEqual(['left thumb', 'rear-left thumb'])
     // At the camera's exposure, as a bake renders them: no gain between the two.
     expect(requests[0].request.finish).toEqual({ exposure: 1, gain: STILL_GAIN })
     const snapshot = session.snapshot()
     expect(snapshot.pending).toMatchObject({ 'front-left': false, front: false, left: true })
     expect(snapshot.progress).toBeNull()
-    await answer(requests, 3)
-    expect(labels(requests)).toEqual(['top thumb', 'centre thumb', 'back thumb'])
-    expect(requests[1].request.finish).toEqual({ exposure: 1.6, gain: STILL_GAIN })
+    await answer(requests, 2)
+    expect(labels(requests)).toEqual([])
     // A download takes the baked still itself, and nothing is rendered for it.
     session.wantExport(true)
     await tick()
@@ -796,7 +801,7 @@ describe('still session', () => {
     const filmstrip = async (session: StillSession, requests: Open[], state: StillState) => {
       await settled(session, design('a'), state)
       await answer(requests)
-      await answer(requests, 8)
+      await answer(requests, CUSTOMER_ANGLES.length - 1)
       await tick()
     }
 
@@ -812,7 +817,7 @@ describe('still session', () => {
       expect(prefetched(requests)).toEqual([])
       await answer(requests)
       expect(prefetched(requests)).toEqual([])
-      await answer(requests, 7)
+      await answer(requests, CUSTOMER_ANGLES.length - 2)
       expect(prefetched(requests)).toEqual([])
       await answer(requests)
       await tick()
@@ -906,7 +911,7 @@ describe('still session', () => {
       const edited = { ...state, design: 'd2', editedAt: performance.now(), prefetch: finishes(c) }
       edit(session, design('b'), edited)
       await tick()
-      await answer(requests, 8)
+      await answer(requests, CUSTOMER_ANGLES.length - 1)
       await tick()
       const rested = PREFETCH_IDLE_MS - (performance.now() - edited.editedAt)
       expect(rested).toBeGreaterThan(0)
@@ -1266,7 +1271,7 @@ describe('still session', () => {
         session.sync(scene, look as SkyLook, design(key), next)
         await tick()
         await answer(requests)
-        await answer(requests, 8)
+        await answer(requests, CUSTOMER_ANGLES.length - 1)
         await tick(PREFETCH_IDLE_MS)
         await landAll()
       }

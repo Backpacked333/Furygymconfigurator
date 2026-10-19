@@ -111,7 +111,11 @@ let ticket = 0
  * A design's field, worked out in a worker (about a second for the larger courts): the latest
  * request is answered, earlier ones that have not been never are. Without workers (tests), at once.
  */
-export function requestSiteField(design: Design): Promise<SiteLightField | null> {
+export function requestSiteField(
+  design: Design,
+  signal?: AbortSignal,
+): Promise<SiteLightField | null> {
+  if (signal?.aborted) return Promise.reject(new Error('Site field cancelled.'))
   if (design.environment === 'studio') return Promise.resolve(null)
   if (worker === undefined)
     try {
@@ -128,18 +132,79 @@ export function requestSiteField(design: Design): Promise<SiteLightField | null>
     family,
     time,
   })
-  if (!worker) return Promise.resolve(siteField(pick(design)))
+  if (!worker) {
+    if (signal) return Promise.reject(new Error('Private site field requires its owned worker.'))
+    return Promise.resolve(siteField(pick(design)))
+  }
   const id = ++ticket
   const w = worker
-  return new Promise((resolve) => {
-    const answer = (event: MessageEvent) => {
-      if (event.data.id !== id) return
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
       w.removeEventListener('message', answer)
+      if (signal) {
+        signal.removeEventListener('abort', abort)
+        w.removeEventListener('error', failed)
+        w.removeEventListener('messageerror', failed)
+      }
+    }
+    const abort = () => {
+      cleanup()
+      reject(new Error('Site field cancelled.'))
+    }
+    const failed = () => {
+      cleanup()
+      reject(new Error('Site field worker failed.'))
+    }
+    const answer = (event: MessageEvent) => {
+      if (event.data?.id !== id) return
+      cleanup()
+      if (signal && (signal.aborted || !validPrivateSiteField(event.data.field))) {
+        reject(new Error('Invalid private site field.'))
+        return
+      }
       resolve(event.data.field as SiteLightField | null)
     }
     w.addEventListener('message', answer)
-    w.postMessage({ id, design: pick(design) })
+    if (signal) {
+      signal.addEventListener('abort', abort, { once: true })
+      w.addEventListener('error', failed, { once: true })
+      w.addEventListener('messageerror', failed, { once: true })
+    }
+    try {
+      w.postMessage({ id, design: pick(design) })
+    } catch (error) {
+      cleanup()
+      reject(error)
+    }
   })
+}
+
+/** Strict validation is opt-in; legacy callers retain their existing contract. */
+export function validPrivateSiteField(value: unknown): value is SiteLightField {
+  if (!value || typeof value !== 'object') return false
+  const f = value as SiteLightField
+  const finite = (v: unknown, n: number) =>
+    Array.isArray(v) && v.length === n && v.every(Number.isFinite)
+  return (
+    finite(f.origin, 3) &&
+    finite(f.cell, 3) &&
+    f.cell.every((v) => v > 0) &&
+    finite(f.dims, 3) &&
+    f.dims.every((v, i) => v === FIELD_DIMS[i]) &&
+    finite(f.capture, 4) &&
+    f.values instanceof Float32Array &&
+    f.values.length === FIELD_DIMS.reduce((a, b) => a * b, 4) &&
+    f.values.every(Number.isFinite)
+  )
+}
+
+/** Only the private owned realm calls this during teardown, never between successful designs. */
+export function disposePrivateSiteFieldWorker() {
+  worker?.terminate()
+  worker = undefined
+  ticket++
+  enabled.value = 0
+  texture.dispose()
 }
 
 /** The unit's inside, where the field gives way to the room's probe (feet). */

@@ -5,6 +5,7 @@ import {
   CATALOG,
   DEFAULT_CONFIG,
   INTERIORS,
+  footprint,
   productHeight,
   setFamily,
   type Config,
@@ -44,14 +45,11 @@ describe('equipment models', () => {
       const parts = equipmentParts(item.id)
       expect(parts.length).toBeGreaterThan(3)
       const b = bounds(parts)
-      // The floor-plan collision check uses these footprints, so models must not exceed them.
-      // A racked Olympic bar overhangs its uprights, as on real racks; that overhang stays within
-      // the rack's side working clearance.
-      const sideAllowance = item.id === 'rack' || item.id === 'halfrack' ? item.clearance : 0.06
-      expect(b.max.x).toBeLessThanOrEqual(item.w / 2 + sideAllowance)
-      expect(-b.min.x).toBeLessThanOrEqual(item.w / 2 + sideAllowance)
-      expect(b.max.z).toBeLessThanOrEqual(item.d / 2 + 0.06)
-      expect(-b.min.z).toBeLessThanOrEqual(item.d / 2 + 0.06)
+      const f = footprint({ id: 'bounds', sku: item.id, x: 0, z: 0, rotation: 0 })
+      expect(b.max.x).toBeLessThanOrEqual(f.w / 2 + 0.06)
+      expect(-b.min.x).toBeLessThanOrEqual(f.w / 2 + 0.06)
+      expect(b.max.z).toBeLessThanOrEqual(f.d / 2 + 0.06)
+      expect(-b.min.z).toBeLessThanOrEqual(f.d / 2 + 0.06)
       expect(b.min.y).toBeGreaterThanOrEqual(-0.01)
       expect(b.max.y).toBeLessThanOrEqual(Math.max(item.h, 0.6) + 0.35)
     },

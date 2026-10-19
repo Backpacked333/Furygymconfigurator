@@ -323,11 +323,13 @@ def test_frame_names_change_with_the_bounces_traced(monkeypatch):
 
 
 def test_warm_answers_as_the_gateway_does_without_starting_anything(tmp_path):
-    """The page warms its session on load; the local server has nothing to start, but answers
-    alike, so a local run sees the same flow as the cloud (gateway.py /warm)."""
+    """A direct factory call cannot bypass retirement, even with automatic startup disabled."""
     settings = Settings(blob_dir=str(tmp_path / "blobs"), frame_dir=str(tmp_path / "frames"))
     with TestClient(create_app(settings, start=False)) as client:
         response = client.get("/warm", params={"session": "visitor-one"})
-        assert response.status_code == 202
-        assert response.json() == {"warming": True, "renderer": "own"}
-        assert client.get("/warm").status_code == 202
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "LEGACY_RENDER_DISABLED"
+        assert response.json()["error"]["retryable"] is False
+        assert client.get("/warm").status_code == 503
+    assert not (tmp_path / "blobs").exists()
+    assert not (tmp_path / "frames").exists()

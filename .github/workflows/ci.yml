@@ -8,6 +8,17 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: fury_library_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,7 +29,14 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
+      - name: Initialize isolated local test roles
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker exec "$POSTGRES_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;'
+      # Tests also spawn Node children and use PostgreSQL; bound runner CPU contention.
+      - run: npm test -- --maxWorkers=2
+        env:
+          RENDER_LIBRARY_TEST_CONTAINER: ${{ job.services.postgres.id }}
       - run: npm run build
       # Without baked stills, which a local bake may have put under public/stills (full bakes
       # belong in Vercel Blob): the artifact is the app.
@@ -36,11 +54,21 @@ jobs:
         working-directory: render-server
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+        working-directory: .
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: render-server/requirements.txt
+          cache-dependency-path: |
+            render-server/requirements.txt
+            render-server/on_demand/requirements-cpu.lock
       - run: sudo apt-get update && sudo apt-get install -y libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
       - run: pip install -r requirements.txt pytest
+      - run: pip install --require-hashes -r on_demand/requirements-cpu.lock
       - run: python -m pytest -q
+      - run: python -m unittest discover -s on_demand/tests

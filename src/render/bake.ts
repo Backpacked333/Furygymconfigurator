@@ -52,6 +52,7 @@ export function bakeJobs({
   near,
   far,
   quick = false,
+  angles,
 }: {
   config: Config
   /** The front three-quarter view's direction (DEFAULT_CAMERA, or a signature's). */
@@ -61,23 +62,26 @@ export function bakeJobs({
   near: number
   far: number
   quick?: boolean
+  angles?: readonly AngleId[]
 }): BakeJob[] {
   const design = configKey(config)
   return aspects.flatMap((aspect) =>
-    GALLERY_ANGLES.map(({ id, group }): BakeJob => {
-      const key = angleKey(id, hero)
-      return {
-        angle: id,
-        angleKey: key,
-        aspect,
-        part: group,
-        key: stillKey(design, key, aspect),
-        camera: cloudCamera(galleryCamera(config, id, aspect, hero), near, far),
-        ...(quick
-          ? quickSize(aspect)
-          : stillSize('export', aspect, { width: 1, height: 1, dpr: 1 })),
-        quality: quick ? QUICK_QUALITY : QUALITY.export,
-      }
-    }),
+    GALLERY_ANGLES.filter(({ id }) => !angles || angles.includes(id)).map(
+      ({ id, group }): BakeJob => {
+        const key = angleKey(id, hero)
+        return {
+          angle: id,
+          angleKey: key,
+          aspect,
+          part: group,
+          key: stillKey(design, key, aspect),
+          camera: cloudCamera(galleryCamera(config, id, aspect, hero), near, far),
+          ...(quick
+            ? quickSize(aspect)
+            : stillSize('export', aspect, { width: 1, height: 1, dpr: 1 })),
+          quality: quick ? QUICK_QUALITY : QUALITY.export,
+        }
+      },
+    ),
   )
 }

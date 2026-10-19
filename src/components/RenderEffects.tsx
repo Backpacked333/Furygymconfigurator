@@ -8,6 +8,7 @@ import {
   type WebGPURenderer,
 } from 'three/webgpu'
 import { BAKE, reportBake, type BakeResult } from '../lib/bake'
+import { pngOf } from '../lib/image'
 import { onBakedChange } from '../lib/bakedStills'
 import type { Config, View } from '../lib/config'
 import { RENDER_VERSION, configKey } from '../lib/stillKey'
@@ -103,18 +104,6 @@ function dataUrlBlob(url: string) {
   const [head, body] = url.split(',')
   const bytes = Uint8Array.from(atob(body), (c) => c.charCodeAt(0))
   return new Blob([bytes], { type: /data:([^;]+)/.exec(head)?.[1] ?? 'image/png' })
-}
-
-/** A still as a PNG data URL, which the PDF and a download both take (a baked one by address). */
-async function pngOf(image: Blob | string) {
-  const blob = typeof image === 'string' ? await (await fetch(image)).blob() : image
-  const bitmap = await createImageBitmap(blob)
-  const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0)
-  bitmap.close()
-  return canvas.toDataURL('image/png')
 }
 
 /**
@@ -243,16 +232,26 @@ export function RenderEffects({
   useEffect(() => {
     const created = createPipeline(renderer, scene, camera, quality)
     created.setPlace(place.current)
-    pipeline.current = created
+    let disposed = false
+    let warmed = false
     invalidateShadows(scene)
     settle.current = 0
     fresh.current = false
     dirty.current = true
     timing.current = { last: 0, samples: [], frames: 0, reported: false, eventful: false }
-    invalidate()
+    void created.warm().finally(() => {
+      warmed = true
+      if (disposed) {
+        created.dispose()
+        return
+      }
+      pipeline.current = created
+      invalidate()
+    })
     return () => {
+      disposed = true
       pipeline.current = null
-      created.dispose()
+      if (warmed) created.dispose()
     }
   }, [renderer, scene, camera, quality, invalidate])
 
@@ -336,8 +335,10 @@ export function RenderEffects({
     let created: PathTraceSession | null = null
     loadTracerModule()
       .then(async (module) => {
+        if (!active) return null
         // The tracer reads the scans' decoded pixels, which are otherwise freed after upload.
         await keepDecodedTextures(true)
+        if (!active) return null
         return new PathTraceSession(renderer, module, denoise)
       })
       .catch((error) => {
@@ -607,6 +608,7 @@ export function RenderEffects({
               near: cam.near,
               far: cam.far,
               quick: BAKE.quick,
+              angles: BAKE.angles,
             })
             const results: BakeResult[] = []
             reportBake({ state: 'rendering', version: RENDER_VERSION, design, total: jobs.length })

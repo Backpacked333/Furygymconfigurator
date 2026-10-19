@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import LZString from 'lz-string'
+import { archiveRawValue } from './recovery.js'
 import {
   CONTAINER_OPENINGS,
   OPENING_INFILLS,
@@ -8,7 +9,7 @@ import {
   STUDIO_LAYOUTS,
   productFamily,
   type ProductFamily,
-} from './products'
+} from './products.js'
 
 export const FINISHES = [
   { id: 'obsidian', name: 'Obsidian', color: '#262927' },
@@ -108,6 +109,7 @@ export const CATALOG = [
     name: 'Power rack',
     category: 'Strength',
     w: 4.8,
+    occupiedW: 7.3,
     d: 3.2,
     h: 7.5,
     clearance: 1.5,
@@ -117,6 +119,7 @@ export const CATALOG = [
     name: 'Half rack',
     category: 'Strength',
     w: 4.6,
+    occupiedW: 7.3,
     d: 4.2,
     h: 7.6,
     clearance: 1.5,
@@ -478,7 +481,8 @@ export function setFamily(config: Config, family: ProductFamily): Config {
 }
 export function footprint(item: PlacedItem) {
   const p = catalogItem(item.sku)
-  return { w: item.rotation === 90 ? p.d : p.w, d: item.rotation === 90 ? p.w : p.d }
+  const w = 'occupiedW' in p ? p.occupiedW : p.w
+  return { w: item.rotation === 90 ? p.d : w, d: item.rotation === 90 ? w : p.d }
 }
 export function placementIssue(item: PlacedItem, config: Config): string | null {
   const { w, d } = footprint(item)
@@ -542,15 +546,15 @@ export type Signature = {
 const placed = (id: string, items: [PlacedItem['sku'], number, number, (0 | 90)?][]) =>
   items.map(([sku, x, z, rotation = 0], i) => ({ id: `${id}-${i}-${sku}`, sku, x, z, rotation }))
 /**
- * Five complete designs reproducing builds from Fury's portfolio photography: shell, openings,
- * additions, interior, equipment arrangement, setting, light, and camera angle.
+ * Five complete designs inspired by Fury's portfolio: shell, openings, additions, interior and
+ * equipment arrangement. Presentation lighting and cameras favor legible materials and space.
  */
 export const SIGNATURES: Signature[] = [
   {
     id: 'courtyard-pod',
     name: 'Courtyard pod',
     subtitle: 'Cloud S-Series, hinged door, functional strength',
-    camera: [0.16, 0.12, 1],
+    camera: [-0.62, 0.14, 0.78],
     config: {
       ...DEFAULT_CONFIG,
       finish: 'cloud',
@@ -565,7 +569,7 @@ export const SIGNATURES: Signature[] = [
         ['airbike', 7.2, -0.8],
       ]),
       environment: 'residences',
-      time: 19.5,
+      time: 16,
       lights: true,
     },
   },
@@ -597,7 +601,7 @@ export const SIGNATURES: Signature[] = [
     id: 'clubhouse',
     name: 'Clubhouse container',
     subtitle: 'Espresso, glass overhead door, canopy, cedar',
-    camera: [-0.42, 0.1, 0.9],
+    camera: [-0.65, 0.14, 0.76],
     config: {
       ...DEFAULT_CONFIG,
       family: 'container',
@@ -612,14 +616,13 @@ export const SIGNATURES: Signature[] = [
       flooring: 'concrete',
       package: 'custom',
       items: placed('clubhouse', [
-        ['treadmill', -7.4, -0.2],
-        ['halfrack', -3.4, -1.15],
-        ['halfrack', 1.4, -1.15],
-        ['halfrack', 6.2, -1.15],
+        ['treadmill', -7.8, -0.2],
+        ['halfrack', -2.6, -1.15],
+        ['halfrack', 4.9, -1.15],
         ['bench', 4.5, 2.25, 90],
       ]),
       environment: 'residences',
-      time: 19.75,
+      time: 16,
       lights: true,
     },
   },
@@ -672,11 +675,11 @@ export const SIGNATURES: Signature[] = [
       items: placed('rooftop', [
         ['airbike', -5.8, -0.4, 90],
         ['rack', 0.4, -1.6],
-        ['bench', 5.4, 0.9, 90],
+        ['bench', 5.4, 1.35, 90],
         ['weights', 6.6, -2.4],
       ]),
       environment: 'backyard',
-      time: 19,
+      time: 17,
       lights: true,
     },
   },
@@ -757,16 +760,17 @@ const savedSchema = z.array(savedBuildSchema).max(12)
  * Stored builds, read one by one: an entry this version cannot use (corrupted, or written by a
  * newer schema) is set aside instead of hiding every other build.
  */
-function storedBuilds() {
-  const raw: unknown = JSON.parse(localStorage.getItem('fury-builds-v1') || '[]')
+function storedBuilds(serialized = localStorage.getItem('fury-builds-v1')) {
+  const raw: unknown = JSON.parse(serialized ?? '[]')
+  if (!Array.isArray(raw)) throw new Error('The saved library is not an array.')
   const builds: SavedBuild[] = []
   const unreadable: unknown[] = []
-  for (const entry of Array.isArray(raw) ? raw : []) {
+  for (const entry of raw) {
     const parsed = savedBuildSchema.safeParse(entry)
     if (parsed.success && !layoutIssues(parsed.data.config).length) builds.push(parsed.data)
     else unreadable.push(entry)
   }
-  return { builds: builds.slice(0, 12), unreadable }
+  return { builds: builds.slice(0, 12), unreadable, hidden: builds.length > 12 }
 }
 export function readSaved(): SavedBuild[] {
   try {
@@ -777,32 +781,58 @@ export function readSaved(): SavedBuild[] {
 }
 export function writeSaved(builds: SavedBuild[]) {
   const valid = savedSchema.parse(builds)
+  const previous = localStorage.getItem('fury-builds-v1')
   // Entries set aside on reading are written back as they were, so a save never deletes them.
   let unreadable: unknown[] = []
+  let needsRecovery = false
   try {
-    unreadable = storedBuilds().unreadable
+    const stored = storedBuilds(previous)
+    unreadable = stored.unreadable
+    needsRecovery = stored.hidden || unreadable.length > 0
   } catch {
-    /* Storage that is not JSON at all cannot be kept. */
+    needsRecovery = true
   }
+  if (previous !== null && needsRecovery) archiveRawValue(localStorage, 'fury-builds-v1', previous)
+  if (localStorage.getItem('fury-builds-v1') !== previous)
+    throw new Error('The saved library changed. Reload before saving.')
   localStorage.setItem('fury-builds-v1', JSON.stringify([...valid, ...unreadable]))
 }
 export function initialConfig(): { config: Config; notice: string } {
   const encoded = new URLSearchParams(window.location.hash.slice(1)).get('c')
-  if (encoded) {
+  let invalidShare = false
+  if (encoded !== null) {
     const config = decodeConfig(encoded)
-    return {
-      config: config ?? DEFAULT_CONFIG,
-      notice: config
-        ? 'Shared design loaded. Make it your own.'
-        : 'This share link is invalid or unsupported. Your default design is ready.',
-    }
+    if (config) return { config, notice: 'Shared design loaded. Make it your own.' }
+    invalidShare = true
   }
   try {
     const draft = localStorage.getItem('fury-draft-v1')
     const config = draft && decodeConfig(draft)
-    if (config) return { config, notice: '' }
+    if (config)
+      return {
+        config,
+        notice: invalidShare
+          ? 'This share link is invalid or unsupported. Your previous draft is safe.'
+          : '',
+      }
   } catch {
     /* Storage is optional in private browsing. */
   }
-  return { config: DEFAULT_CONFIG, notice: '' }
+  return {
+    config: { ...DEFAULT_CONFIG, environment: 'studio', time: 12, lights: true },
+    notice: invalidShare
+      ? 'This share link is invalid or unsupported. No saved draft was available.'
+      : '',
+  }
+}
+
+export function writeDraft(encoded: string) {
+  const previous = localStorage.getItem('fury-draft-v1')
+  if (previous !== null && previous !== encoded && !decodeConfig(previous)) {
+    // Preserve older layouts/schemas before autosave replaces an unreadable draft.
+    archiveRawValue(localStorage, 'fury-draft-v1', previous, 'fury-draft-recovery-')
+  }
+  if (localStorage.getItem('fury-draft-v1') !== previous)
+    throw new Error('The stored draft changed. Reload before saving.')
+  localStorage.setItem('fury-draft-v1', encoded)
 }
