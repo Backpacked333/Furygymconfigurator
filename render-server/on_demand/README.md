@@ -202,10 +202,13 @@ browser still sends no scene/code/path/URL payload.
 
 `render-server/deploy_dispatcher.py` hosts the existing dispatcher on Modal; it does
 not expose a public gateway or keep a GPU running. A private scheduled CPU function
-checks the durable outbox every minute and handles one admitted job at a time. A
+checks the durable outbox every 15 seconds and handles one admitted job at a time. A
 click on **Bring your vision to life** is still required. Cache lookup, page reload,
 changing a camera and restoring a shared design never admit work. Queue pickup can
-take up to one minute before preparation starts.
+take a schedule interval plus container startup before preparation starts; an
+already active job can extend the wait. The shorter interval increases idle CPU
+coordination costs, still charged to the same cumulative ledger. GPU sampling,
+image quality, immutable recipe identity and one-shot dispatch are unchanged.
 
 Apply migrations `202610190004_hosted_dispatcher.sql` and
 `202610190005_dispatcher_headroom.sql` after the existing migrations. CPU cycles

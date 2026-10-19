@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { ImageDescriptor } from '../render-library/contracts'
 import { decodeLibraryImage } from './renderLibraryClient'
+import { canonicalJson } from '../render-library/identity'
 
 /** Dynamic thumbnails are the same verified immutable image, never an unverified URL. */
 export function LibraryThumbnail({ image }: { image: ImageDescriptor }) {
   const [shown, setShown] = useState<{ key: string; src: string } | null>(null)
+  const descriptor = canonicalJson(image)
   useEffect(() => {
+    const image: ImageDescriptor = JSON.parse(descriptor)
     const controller = new AbortController()
     let release: (() => void) | undefined
     void decodeLibraryImage(image, image.design, controller.signal)
@@ -19,7 +22,7 @@ export function LibraryThumbnail({ image }: { image: ImageDescriptor }) {
       controller.abort()
       release?.()
     }
-  }, [image])
+  }, [descriptor])
   return shown?.key === image.imageKey ? (
     <img src={shown.src} alt="" draggable={false} />
   ) : (

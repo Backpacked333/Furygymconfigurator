@@ -37,12 +37,31 @@ export async function readBounded(
   return bytes
 }
 
-type StoredImage = { src: string; users: number; bytes: number }
+type StoredImage = {
+  src: string
+  users: number
+  expiry?: ReturnType<typeof setTimeout>
+}
 const cache = new Map<string, StoredImage>()
 const MAX_CACHED_IMAGES = 8
+const IDLE_CACHE_MS = 60_000
+type Flight = { controller: AbortController; promise: Promise<StoredImage>; users: number }
+const pending = new Map<string, Flight>()
 export type DeliveredImage = { src: string; release: () => void }
 
+function evict(key: string, image: StoredImage) {
+  clearTimeout(image.expiry)
+  if (cache.get(key) === image) cache.delete(key)
+  URL.revokeObjectURL(image.src)
+}
+function retainIdle(key: string, image: StoredImage) {
+  clearTimeout(image.expiry)
+  image.expiry = setTimeout(() => {
+    if (image.users === 0) evict(key, image)
+  }, IDLE_CACHE_MS)
+}
 function acquire(key: string, image: StoredImage): DeliveredImage {
+  clearTimeout(image.expiry)
   image.users++
   cache.delete(key)
   cache.set(key, image)
@@ -51,11 +70,8 @@ function acquire(key: string, image: StoredImage): DeliveredImage {
     src: image.src,
     release: () => {
       if (!released) image.users--
+      if (!released && image.users === 0) retainIdle(key, image)
       released = true
-      if (image.users === 0 && cache.get(key) === image) {
-        cache.delete(key)
-        URL.revokeObjectURL(image.src)
-      }
     },
   }
 }
@@ -86,6 +102,43 @@ export async function deliverImage(
   const key = `${image.sha256}:${image.bytes}:${image.width}:${image.height}`
   const hit = cache.get(key)
   if (hit) return acquire(key, hit)
+  let flight = pending.get(key)
+  if (!flight) {
+    const controller = new AbortController()
+    flight = { controller, promise: loadImage(image, key, controller.signal), users: 0 }
+    pending.set(key, flight)
+  }
+  const shared = flight
+  shared.users++
+  let abort = () => {}
+  return new Promise<DeliveredImage>((resolve, reject) => {
+    abort = () => reject(new DOMException('Image delivery interrupted', 'AbortError'))
+    signal.addEventListener('abort', abort, { once: true })
+    shared.promise.then((stored) => {
+      if (!signal.aborted) resolve(acquire(key, stored))
+    }, reject)
+  }).finally(() => {
+    signal.removeEventListener('abort', abort)
+    shared.users--
+    if (shared.users === 0) {
+      shared.controller.abort()
+      if (pending.get(key) === shared) pending.delete(key)
+      void shared.promise.then(
+        (stored) => {
+          stored.users--
+          if (stored.users === 0) retainIdle(key, stored)
+        },
+        () => {},
+      )
+    }
+  })
+}
+
+async function loadImage(
+  image: { url: string; sha256: string; bytes: number; width: number; height: number },
+  key: string,
+  signal: AbortSignal,
+): Promise<StoredImage> {
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal.addEventListener('abort', abort, { once: true })
@@ -116,21 +169,16 @@ export async function deliverImage(
     controller.signal.throwIfAborted()
     if (dimensions.width !== image.width || dimensions.height !== image.height)
       throw new Error('Image dimensions do not match the library.')
-    const raced = cache.get(key)
-    if (raced) {
-      URL.revokeObjectURL(src)
-      src = undefined
-      return acquire(key, raced)
-    }
     while (cache.size >= MAX_CACHED_IMAGES) {
       const oldest = [...cache].find(([, value]) => value.users === 0)
       if (!oldest) throw new Error('Image memory is full. Close another image and retry delivery.')
-      URL.revokeObjectURL(oldest[1].src)
-      cache.delete(oldest[0])
+      evict(oldest[0], oldest[1])
     }
-    const stored = { src, users: 0, bytes: bytes.length }
+    // Pin publication until every waiting consumer has acquired or cancelled.
+    const stored = { src, users: 1 }
+    cache.set(key, stored)
     src = undefined
-    return acquire(key, stored)
+    return stored
   } finally {
     controller.abort()
     if (src) URL.revokeObjectURL(src)

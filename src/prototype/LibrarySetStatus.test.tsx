@@ -89,6 +89,19 @@ it('keeps completed images to one quiet summary without progress or refresh cont
   expect(host.querySelector('iframe')).toBeNull()
   expect(host.querySelector('button')).toBeNull()
 })
+it('offers a read-only reconnect for a partially cached set after polling pauses', async () => {
+  const library = await show(
+    { snapshot: queued(await snapshotFixture(defaultDesign(), 2)), paused: true },
+    true,
+  )
+  const refresh = [...host.querySelectorAll('button')].find((button) =>
+    button.textContent?.includes('Check status'),
+  )!
+  expect(refresh).toBeDefined()
+  act(() => refresh.click())
+  expect(library.refresh).toHaveBeenCalledOnce()
+  expect(library.request).not.toHaveBeenCalled()
+})
 it('animates image delivery, even after all five views are cached, without claiming GPU work', async () => {
   await show({ snapshot: await snapshotFixture(defaultDesign(), 5) }, false, { imageLoading: true })
   expect(host.querySelector('iframe')).not.toBeNull()

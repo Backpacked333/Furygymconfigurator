@@ -16,6 +16,25 @@ afterEach(() => {
   vi.unstubAllGlobals()
   calls.decode.mockReset()
 })
+it('does not reload a verified image when an equivalent design object is reconstructed', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const release = vi.fn()
+  calls.decode.mockResolvedValue({ src: 'blob:stable', release })
+  const root = createRoot(document.createElement('div'))
+  function Probe() {
+    useNativeLibraryImage(defaultDesign())
+    return null
+  }
+  try {
+    await act(async () => root.render(<Probe />))
+    await act(async () => root.render(<Probe />))
+    expect(calls.decode).toHaveBeenCalledTimes(1)
+    expect(release).not.toHaveBeenCalled()
+  } finally {
+    act(() => root.unmount())
+  }
+  expect(release).toHaveBeenCalledTimes(1)
+})
 it('fences obsolete A→B→A completions, including a decoder that ignores abort', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   const pending: ((value: { src: string }) => void)[] = []

@@ -27,7 +27,7 @@ image = (
 
 @app.function(
     image=image,
-    schedule=modal.Period(minutes=1),
+    schedule=modal.Period(seconds=15),
     secrets=[modal.Secret.from_name('fury-render-library-dispatcher')],
     volumes={'/state': volume},
     cpu=(2, 2), memory=(4096, 4096),
