@@ -65,6 +65,64 @@ const finished = () =>
 describe('cloud requests', () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it('reports completed uploads and image receipt, never elapsed-time render percentages', async () => {
+    const key = 'a'.repeat(64)
+    let finishUpload!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ missing: [key] }), { status: 409 }))
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              finishUpload = resolve
+            }),
+        )
+        .mockResolvedValueOnce(finished()),
+    )
+    const report = vi.fn()
+    const result = new CloudClient('https://gpu.example').frame(
+      { scene: {} as never, blobs: new Map([[key, async () => new Uint8Array([1])]]) },
+      still('f'),
+      new AbortController().signal,
+      report,
+    )
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith({ stage: 'uploading', completed: 0, total: 1 }),
+    )
+    finishUpload(new Response(null, { status: 204 }))
+    await result
+    expect(report.mock.calls.map(([work]) => work)).toEqual([
+      { stage: 'requesting' },
+      { stage: 'uploading', completed: 0, total: 1 },
+      { stage: 'uploading', completed: 1, total: 1 },
+      { stage: 'requesting' },
+      { stage: 'receiving' },
+    ])
+  })
+
+  it('reports no completed upload when sending an asset fails', async () => {
+    const key = 'a'.repeat(64)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ missing: [key] }), { status: 409 }))
+        .mockResolvedValueOnce(new Response(null, { status: 500 })),
+    )
+    const report = vi.fn()
+    await expect(
+      new CloudClient('https://gpu.example').frame(
+        { scene: {} as never, blobs: new Map([[key, async () => new Uint8Array([1])]]) },
+        still('f'),
+        new AbortController().signal,
+        report,
+      ),
+    ).rejects.toThrow()
+    expect(report).toHaveBeenLastCalledWith({ stage: 'uploading', completed: 0, total: 1 })
+  })
+
   it('ask for each channel on a session of its own, so none supersedes another', async () => {
     const fetch = vi.fn().mockImplementation(() => Promise.resolve(finished()))
     vi.stubGlobal('fetch', fetch)

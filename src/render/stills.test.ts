@@ -8,7 +8,8 @@ import { DEFAULT_CAMERA, DEFAULT_CONFIG } from '../lib/config'
 import { bakeJobs } from './bake'
 import { lookKey } from './pathtrace'
 import { planStills } from './plan'
-import { FIRST_FRAME_MS, renderRate } from './progress'
+import { renderRate } from './progress'
+import type { CloudWork } from './workProgress'
 import { bench } from './bench'
 import { PILL_DELAY_MS } from '../components/RenderStatus'
 import {
@@ -89,6 +90,7 @@ type Open = {
   signal: AbortSignal
   resolve: () => void
   reject: (error: unknown) => void
+  report?: (work: CloudWork) => void
 }
 
 /**
@@ -98,10 +100,22 @@ type Open = {
 function fakeClient() {
   const requests: Open[] = []
   const frame = vi.fn(
-    (_captured: unknown, request: FrameRequest, signal: AbortSignal) =>
+    (
+      _captured: unknown,
+      request: FrameRequest,
+      signal: AbortSignal,
+      report?: (work: CloudWork) => void,
+    ) =>
       new Promise((resolve, reject) => {
-        const open: Open = { request, signal, resolve: () => resolve(answerFrame()), reject }
+        const open: Open = {
+          request,
+          signal,
+          report,
+          resolve: () => resolve(answerFrame()),
+          reject,
+        }
         requests.push(open)
+        report?.({ stage: 'requesting' })
         signal.addEventListener(
           'abort',
           () => {
@@ -298,11 +312,7 @@ describe('still session', () => {
     expect(waiting).toMatchObject({ source: 'cloud', design: 'd1', aspect: 'wide', images: {} })
     expect(waiting.pending['front-left']).toBe(true)
     expect(waiting.pending.rear).toBe(true)
-    // The page's first still allows for the uploads and a GPU that may be starting.
-    expect(waiting.progress).toMatchObject({ kind: 'estimate' })
-    expect(waiting.progress?.kind === 'estimate' && waiting.progress.expectedMs).toBeGreaterThan(
-      FIRST_FRAME_MS,
-    )
+    expect(waiting.progress).toEqual({ kind: 'stage', stage: 'preparing' })
     await tick(SETTLE_MS)
     session.sync(scene, look as SkyLook, design('a'), stillState())
     await tick()
@@ -492,6 +502,7 @@ describe('still session', () => {
     await tick()
     await tick()
     expect(asked).toBe(1)
+    expect(session.snapshot().progress).toEqual({ kind: 'stage', stage: 'retrying' })
     for (const wait of [2000, 4000, 8000]) {
       await tick(wait - 1)
       const before = asked
@@ -501,6 +512,52 @@ describe('still session', () => {
     }
     expect(session.snapshot().source).toBe('cloud')
     session.dispose()
+  })
+
+  it('publishes only the current view’s observed work and ignores obsolete reports', async () => {
+    const { client, requests } = fakeClient()
+    const session = new StillSession(client, () => {})
+    await settled(session, design('a'), stillState())
+    const old = requests.find((request) => request.request.channel === 'f')!
+    old.report?.({ stage: 'uploading', completed: 2, total: 8 })
+    expect(session.snapshot().progress).toEqual({
+      kind: 'stage',
+      stage: 'uploading',
+      completed: 2,
+      total: 8,
+    })
+    edit(session, design('b'), stillState({ design: 'd2' }))
+    await tick(SETTLE_MS)
+    session.sync(scene, look as SkyLook, design('b'), stillState({ design: 'd2' }))
+    await tick()
+    const current = session.snapshot().progress
+    old.report?.({ stage: 'receiving' })
+    expect(session.snapshot().progress).toEqual(current)
+    expect(old.signal.aborted).toBe(true)
+    session.dispose()
+  })
+
+  it('can retry a failed renderer without losing the current design', async () => {
+    const { client, frame, requests } = fakeClient()
+    const answer = frame.getMockImplementation()!
+    frame.mockImplementation(() => Promise.reject(new Outdated('old')))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const session = new StillSession(client, () => {})
+    await settled(session, design('a'), stillState())
+    await tick()
+    expect(session.snapshot().progress).toEqual({ kind: 'stage', stage: 'unavailable' })
+    frame.mockImplementation(answer)
+    session.retry()
+    session.sync(scene, look as SkyLook, design('a'), stillState())
+    await tick()
+    expect(session.snapshot().design).toBe('d1')
+    expect(session.snapshot().source).toBe('cloud')
+    expect(requests.some((request) => request.request.channel === 'f')).toBe(true)
+    requests.find((request) => request.request.channel === 'f')!.resolve()
+    await tick()
+    expect(session.snapshot().images['front-left']?.still).toBeDefined()
+    session.dispose()
+    warn.mockRestore()
   })
 
   it("hands the stage's still to this device's tracer while every cloud GPU is in use", async () => {
@@ -798,12 +855,11 @@ describe('still session', () => {
       session.dispose()
     })
 
-    it('has a click on a sibling still rendering wait for it, counting the time it has had', async () => {
+    it('has a click on a sibling still rendering observe its request rather than estimate its time', async () => {
       const { client, requests } = fakeClient()
       const session = new StillSession(client, () => {}, none)
       const state = stillState({ idle: false, prefetch: finishes(sibling('d2', design('b'))) })
       await filmstrip(session, requests, state)
-      const sentAt = performance.now()
       await tick(3000)
       edit(session, design('b'), { ...state, design: 'd2', prefetch: finishes() })
       await tick()
@@ -811,7 +867,7 @@ describe('still session', () => {
       expect(requests.filter((r) => r.request.channel === 'f')).toEqual([])
       const waiting = session.snapshot()
       expect(waiting.pending['front-left']).toBe(true)
-      expect(waiting.progress).toMatchObject({ kind: 'estimate', startedAt: sentAt })
+      expect(waiting.progress).toEqual({ kind: 'stage', stage: 'requesting' })
       await land(requests)
       expect(session.snapshot().images['front-left']?.still?.tier).toBe('still')
       expect(session.snapshot().pending['front-left']).toBe(false)

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { bakedStill, forgetBaked } from '../lib/bakedStills'
-import { DEFAULT_CAMERA } from '../lib/config'
+import { DEFAULT_CAMERA, type Config } from '../lib/config'
+import { LoadingExperience } from './LoadingExperience'
 import {
   ASPECT_RATIO,
   GALLERY_ANGLES,
@@ -30,11 +31,13 @@ export function StillLayers({
   stage,
   label,
   lifting = false,
+  config,
 }: {
   stage: ReturnType<typeof useStillStage>
   /** What the still shows, for its alternative text. */
   label: string
   lifting?: boolean
+  config?: Config
 }) {
   const { state, dispatch } = stage
   // Decoded before it is seen: the still waiting to replace the one shown, or the first one.
@@ -97,8 +100,13 @@ export function StillLayers({
   return (
     <div className={`still-layers${lifting ? ' is-lifting' : ''}`}>
       {slow && firstUrl && (
-        <div className="still-loading" role="status">
-          <span>Loading the picture</span>
+        <div className="still-loading">
+          <LoadingExperience
+            config={config}
+            title="Your view is on its way."
+            description="Your design is ready. We’re loading the image at its best quality."
+            label="Loading and preparing your image"
+          />
         </div>
       )}
       {layers.map(([layer, role]) => (

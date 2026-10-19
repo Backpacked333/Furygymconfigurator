@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { AngleId, AspectClass } from './gallery'
 import type { Tier } from './plan'
+import type { WorkStage } from './workProgress'
 
 /**
  * The gallery's stills as the stage and the filmstrip see them, published by the 3D view
@@ -14,12 +15,11 @@ export type StillImage = { tier: Tier; url: string; samples?: number; width?: nu
 /** An angle's images of the design: a thumbnail, and the best still (or export) for the stage. */
 export type AngleImages = { thumb?: StillImage; still?: StillImage }
 /**
- * How far the current angle's still is: estimated from the cloud's earlier frames (start and
- * expected duration, in performance.now() milliseconds), or measured by a tracer on this device.
+ * Observed request stages or measured local samples. Neither is an elapsed-time estimate.
  */
 export type StillProgress =
-  | { kind: 'estimate'; startedAt: number; expectedMs: number }
   | { kind: 'measured'; fraction: number; remainingMs: number | null }
+  | ({ kind: 'stage' } & WorkStage)
 
 export type StillsSnapshot = {
   /** Who renders stills now: the cloud, this device's tracer, or no one (the live view shows). */
@@ -46,6 +46,15 @@ export const NO_STILLS: StillsSnapshot = {
 let snapshot = NO_STILLS
 let signature = ''
 const listeners = new Set<() => void>()
+let retry: (() => void) | null = null
+
+export function setStillRetry(handler: (() => void) | null) {
+  retry = handler
+}
+
+export function retryStill() {
+  retry?.()
+}
 
 const sign = (s: StillsSnapshot) =>
   JSON.stringify([

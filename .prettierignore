@@ -4,3 +4,5 @@ package-lock.json
 public/textures/sources.json
 # Written by scripts/bake-stills.mjs.
 src/stills.manifest.json
+# User-supplied, self-contained animation exports; preserve byte-for-byte.
+public/builds
