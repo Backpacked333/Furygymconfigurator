@@ -30,7 +30,7 @@ import { box, cylinder } from '../../render/geometry'
 import { material } from '../../render/materials'
 import { palette } from '../../render/palette'
 import { part, type Part } from '../../render/parts'
-import type { Quality } from '../../render/quality'
+import type { Quality } from '@fury/viewer360'
 import { grassPalette } from '../../render/vegetation'
 import { Parts } from '../Parts'
 import { Tree, Tufts } from './common'
@@ -218,13 +218,10 @@ export function Rooftop({ config: c, quality }: { config: Config; quality: Quali
           blades={12}
           height={2.1}
           bend={0.7}
-          place={(i, v) => {
-            const spot = planterPlace(i, v)
-            return spot && [spot[0], spot[1]]
-          }}
+          place={planterPlace}
           variant={k}
           colors={colors}
-          shadow={quality !== 'lite'}
+          shadow={false}
         />
       ))}
       {[-1, 1].map((side) => (

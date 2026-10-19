@@ -33,28 +33,14 @@ import { ao } from 'three/addons/tsl/display/GTAONode.js'
 import { bloom } from 'three/addons/tsl/display/BloomNode.js'
 import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
 import { traa } from 'three/addons/tsl/display/TRAANode.js'
-import type { Quality } from './renderer'
+import type { TierSpec } from './tiers'
 
 export type Pipeline = {
   render: () => void
   dispose: () => void
   /** Frames to keep rendering after a change so temporal AA, AO, and GI converge. */
   settleFrames: number
-  /**
-   * At-rest quality for the 360 view, which draws this pipeline only while the camera is still:
-   * more AO samples, more GI rays, and a longer settle window. Uniforms only, so switching costs
-   * nothing and never recompiles or resizes anything.
-   */
-  rest: (boost: boolean) => void
 }
-
-/** Standard and at-rest settings for the tunable passes. */
-export const PASS_SETTINGS = {
-  aoSamples: { standard: 16, rest: 32 },
-  giSlices: { standard: 2, rest: 3 },
-  giSteps: { standard: 10, rest: 16 },
-  settle: { high: { standard: 28, rest: 48 }, ultra: { standard: 40, rest: 64 } },
-} as const
 
 /** Display-referred finishing: filmic tone mapping, a soft lens vignette, and dither. */
 function finish(hdr: Node<'vec4'>) {
@@ -67,38 +53,65 @@ function finish(hdr: Node<'vec4'>) {
   return vec4(display.rgb.mul(vignette).add(dither), 1)
 }
 
+/** One multisampled scene pass, finished for display. */
+function direct(
+  renderer: WebGPURenderer,
+  scene: Scene,
+  camera: Camera,
+  samples: number,
+  scale?: number,
+): Pipeline {
+  const pipeline = new RenderPipeline(renderer)
+  pipeline.outputColorTransform = false
+  const scenePass = pass(scene, camera, { samples })
+  pipeline.outputNode = finish(scenePass)
+  return {
+    render: () => {
+      // A fixed pixel ratio whatever the canvas's: the pass is upscaled to the screen.
+      if (scale !== undefined)
+        scenePass.setResolutionScale(Math.min(1, scale / renderer.getPixelRatio()))
+      pipeline.render()
+    },
+    // Scene passes own full-resolution render targets that the pipeline does not release.
+    dispose: () => {
+      pipeline.dispose()
+      scenePass.dispose()
+    },
+    settleFrames: 1,
+  }
+}
+
 /**
- * Builds the TSL render pipeline for a quality tier. Every tier uses the same scene graph.
+ * The pipeline drawn while the camera moves: one pass at the tier's motion pixel ratio with light
+ * multisampling. Its cost barely depends on the tier, so dragging is smooth on any device.
+ */
+export function createMotionPipeline(
+  renderer: WebGPURenderer,
+  scene: Scene,
+  camera: Camera,
+  spec: TierSpec,
+): Pipeline {
+  return direct(renderer, scene, camera, spec.motion.samples, spec.motion.dpr)
+}
+
+/**
+ * Builds the TSL render pipeline for a tier. Every tier uses the same scene graph.
  *
- * - Lite: one 4x MSAA scene pass.
- * - High: depth/normal/velocity pre-pass, GTAO injected only into ambient light, emissive bloom,
- *   temporal reprojection anti-aliasing.
- * - Ultra: High plus screen-space global illumination (one diffuse bounce of on-screen light).
+ * - No AO (Lite): one multisampled scene pass.
+ * - AO (High): depth/normal/velocity pre-pass, GTAO injected only into ambient light, emissive
+ *   bloom, temporal reprojection anti-aliasing.
+ * - AO and GI (Ultra): High plus screen-space global illumination (one diffuse bounce).
  */
 export function createPipeline(
   renderer: WebGPURenderer,
   scene: Scene,
   camera: Camera,
-  quality: Quality,
+  spec: TierSpec,
 ): Pipeline {
+  if (!spec.ao) return direct(renderer, scene, camera, spec.samples)
   const pipeline = new RenderPipeline(renderer)
   pipeline.outputColorTransform = false
   const disposables: { dispose: () => void }[] = [pipeline]
-
-  if (quality === 'lite') {
-    const scenePass = pass(scene, camera, { samples: 4 })
-    pipeline.outputNode = finish(scenePass)
-    return {
-      render: () => pipeline.render(),
-      // Scene passes own full-resolution render targets that the pipeline does not release.
-      dispose: () => {
-        pipeline.dispose()
-        scenePass.dispose()
-      },
-      settleFrames: 1,
-      rest: () => {},
-    }
-  }
 
   // Opaque geometry only: glazing must not occlude the interior in AO, GI, or reprojection.
   const prePass = pass(scene, camera)
@@ -115,27 +128,24 @@ export function createPipeline(
   occlusion.radius.value = 0.9
   occlusion.thickness.value = 1.2
   occlusion.distanceExponent.value = 1.5
-  occlusion.samples.value = PASS_SETTINGS.aoSamples.standard
+  occlusion.samples.value = spec.ao.samples
   disposables.push(occlusion)
 
   const scenePass = pass(scene, camera)
   disposables.push(scenePass)
   scenePass.contextNode = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r)
-  scenePass.setMRT(
-    mrt(quality === 'ultra' ? { output, emissive, diffuseColor } : { output, emissive }),
-  )
+  scenePass.setMRT(mrt(spec.gi ? { output, emissive, diffuseColor } : { output, emissive }))
   const color = scenePass.getTextureNode('output')
   const glow = bloom(scenePass.getTextureNode('emissive'), 0.55, 0.45, 0.05)
   disposables.push(glow)
 
   let lit: Node<'vec4'> = color.add(vec4(glow.rgb, 0))
-  let gi: ReturnType<typeof ssgi> | null = null
-  if (quality === 'ultra') {
+  if (spec.gi) {
     const diffuseTexture = scenePass.getTexture('diffuseColor')
     diffuseTexture.type = UnsignedByteType
-    gi = ssgi(color, preDepth, preNormal, camera as PerspectiveCamera)
-    gi.sliceCount.value = PASS_SETTINGS.giSlices.standard
-    gi.stepCount.value = PASS_SETTINGS.giSteps.standard
+    const gi = ssgi(color, preDepth, preNormal, camera as PerspectiveCamera)
+    gi.sliceCount.value = spec.gi.slices
+    gi.stepCount.value = spec.gi.steps
     gi.radius.value = 6
     gi.thickness.value = 0.6
     gi.giIntensity.value = 1.4
@@ -153,20 +163,9 @@ export function createPipeline(
     pipeline.outputNode = vec4(vec3(occlusion.getTextureNode().sample(screenUV).r), 1)
   if (debug === 'normal')
     pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
-  const settle = PASS_SETTINGS.settle[quality]
-  const result: Pipeline = {
+  return {
     render: () => pipeline.render(),
     dispose: () => disposables.forEach((d) => d.dispose()),
-    settleFrames: settle.standard,
-    rest: (boost) => {
-      const mode = boost ? 'rest' : 'standard'
-      occlusion.samples.value = PASS_SETTINGS.aoSamples[mode]
-      if (gi) {
-        gi.sliceCount.value = PASS_SETTINGS.giSlices[mode]
-        gi.stepCount.value = PASS_SETTINGS.giSteps[mode]
-      }
-      result.settleFrames = settle[mode]
-    },
+    settleFrames: spec.settleFrames,
   }
-  return result
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Config } from './config'
-import type { Quality } from '../render/quality'
-import { sceneProgress } from '../render/progress'
+import type { Quality } from '@fury/viewer360'
+import { sceneProgress } from '@fury/viewer360'
 
 /** Longest an "updating" notice stays up if the scene never draws (hidden, or failed). */
 const GIVE_UP_MS = 20_000

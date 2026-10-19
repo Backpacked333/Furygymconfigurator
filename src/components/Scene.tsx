@@ -1,58 +1,51 @@
-import { Component, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Html, OrbitControls } from '@react-three/drei'
-import { Euler, PerspectiveCamera, Vector3 } from 'three'
+import { memo, useCallback, useMemo } from 'react'
+import { Html } from '@react-three/drei'
 import type { WebGPURenderer } from 'three/webgpu'
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import { TIERS, type Backend, type Quality, type Verdict } from '@fury/viewer360'
+import {
+  OrbitRig,
+  RenderLoop,
+  Viewer,
+  backendOf,
+  gpuKey,
+  type CameraPose,
+} from '@fury/viewer360/3d'
 import { distance, productHeight, type Config, type Unit } from '../lib/config'
 import { effectiveLights } from '../lib/lighting'
 import { CAMERA_PRESETS, coverFov, stillPose, type AngleId } from '../lib/cameras'
 import { StudioModel } from './StudioModel'
 import { Landscape } from './Landscape'
-import { RenderEffects } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
 import { Prewarm } from './Prewarm'
 import { TextureUpgrade } from './TextureUpgrade'
-import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
-import { sceneProgress } from '../render/progress'
 import { SceneLoadingStatus } from './SceneLoading'
 
-/** Renderer rebuilds after device loss before the scene gives up and offers the floor plan. */
-const MAX_RENDERER_REBUILDS = 3
-function DeviceUnstable(): never {
-  throw new Error('The graphics device keeps getting lost.')
+/** Orbit limits around a unit: never inside it, never below the ground. */
+const LIMITS = {
+  minDistance: 12,
+  maxDistance: 170,
+  minPolarAngle: 0.1,
+  maxPolarAngle: Math.PI / 2 - 0.015,
 }
+const LABEL =
+  'Interactive 360 view. Arrow keys rotate; plus and minus zoom. Inside: arrows look around.'
 
-class GraphicsBoundary extends Component<
-  { children: ReactNode; onFallback: () => void; onFailure: () => void },
-  { failed: boolean }
-> {
-  state = { failed: false }
-  static getDerivedStateFromError() {
-    return { failed: true }
-  }
-  componentDidCatch() {
-    this.props.onFailure()
-  }
-  render() {
-    if (this.state.failed)
-      return (
-        <div className="graphics-fallback">
-          <strong>Your design is still here.</strong>
-          <p>
-            3D graphics aren’t available in this browser. All configuration, pricing, and floor-plan
-            tools still work.
-          </p>
-          <button className="primary" onClick={this.props.onFallback}>
-            Open the floor plan
-          </button>
-        </div>
-      )
-    return this.props.children
-  }
+function GraphicsFallback({ onFallback }: { onFallback: () => void }) {
+  return (
+    <div className="graphics-fallback">
+      <strong>Your design is still here.</strong>
+      <p>
+        3D graphics aren’t available in this browser. All configuration, pricing, and floor-plan
+        tools still work.
+      </p>
+      <button className="primary" onClick={onFallback}>
+        Open the floor plan
+      </button>
+    </div>
+  )
 }
 function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
   const z = c.addons.deck ? 14 : 6
@@ -85,178 +78,9 @@ function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
   )
 }
 /**
- * The camera. Showing a still, it sits exactly where the still was rendered from, with the field
- * of view cropped like the image, so the live picture and the still match. In the 360 view it
- * starts from that pose: orbiting outside, looking around inside.
- */
-function CameraRig({
-  config: c,
-  angle,
-  interactive,
-  reset,
-  autoRotate,
-}: {
-  config: Config
-  angle: AngleId
-  interactive: boolean
-  reset: number
-  autoRotate: boolean
-}) {
-  const { camera, size, gl, invalidate } = useThree()
-  const view = CAMERA_PRESETS[angle].view
-  // Only these inputs move the camera; a finish or flooring change must not re-frame the view.
-  const framing = useMemo(
-    () => ({ family: c.family, length: c.length, addons: c.addons }),
-    [c.family, c.length, c.addons],
-  )
-  const controls = useRef<OrbitControlsImpl>(null)
-  const targetPosition = useRef(new Vector3()),
-    targetLook = useRef(new Vector3()),
-    moving = useRef(false),
-    stalled = useRef(0)
-  const yaw = useRef(-1.25),
-    pitch = useRef(0)
-  const easing = useRef(false)
-  easing.current = interactive
-  useEffect(() => {
-    const p = camera as PerspectiveCamera
-    const pose = stillPose(framing, angle)
-    p.fov = coverFov(pose.fov, size.width / size.height)
-    p.updateProjectionMatrix()
-    targetPosition.current.set(...pose.position)
-    targetLook.current.set(...pose.target)
-    const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
-    yaw.current = Math.atan2(-direction.x, -direction.z)
-    pitch.current = Math.asin(direction.y)
-    stalled.current = 0
-    if (easing.current) moving.current = true
-    else {
-      // A still swaps instantly; only the 360 view travels between poses.
-      moving.current = false
-      camera.position.copy(targetPosition.current)
-      camera.lookAt(targetLook.current)
-      if (controls.current) {
-        controls.current.target.copy(targetLook.current)
-        controls.current.update()
-      }
-    }
-    invalidate()
-  }, [camera, size.width, size.height, framing, angle, reset, invalidate])
-  useEffect(() => {
-    if (!interactive) return
-    const el = gl.domElement
-    let drag = false,
-      lastX = 0,
-      lastY = 0
-    const down = (e: PointerEvent) => {
-      moving.current = false
-      drag = true
-      lastX = e.clientX
-      lastY = e.clientY
-    }
-    const move = (e: PointerEvent) => {
-      if (!drag || view !== 'interior') return
-      yaw.current -= (e.clientX - lastX) * 0.005
-      pitch.current = Math.max(-0.7, Math.min(0.7, pitch.current - (e.clientY - lastY) * 0.005))
-      lastX = e.clientX
-      lastY = e.clientY
-      camera.quaternion.setFromEuler(new Euler(pitch.current, yaw.current, 0, 'YXZ'))
-      invalidate()
-    }
-    const up = () => {
-      drag = false
-    }
-    const key = (e: KeyboardEvent) => {
-      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '-', '='].includes(e.key))
-        return
-      e.preventDefault()
-      moving.current = false
-      if (view === 'interior') {
-        yaw.current += e.key === 'ArrowLeft' ? 0.12 : e.key === 'ArrowRight' ? -0.12 : 0
-        pitch.current = Math.max(
-          -0.7,
-          Math.min(
-            0.7,
-            pitch.current + (e.key === 'ArrowUp' ? 0.08 : e.key === 'ArrowDown' ? -0.08 : 0),
-          ),
-        )
-        camera.quaternion.setFromEuler(new Euler(pitch.current, yaw.current, 0, 'YXZ'))
-      } else if (controls.current) {
-        const offset = camera.position.clone().sub(controls.current.target)
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
-          offset.applyAxisAngle(new Vector3(0, 1, 0), e.key === 'ArrowLeft' ? 0.1 : -0.1)
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown')
-          offset.y = Math.max(2, offset.y + (e.key === 'ArrowUp' ? 2 : -2))
-        if (e.key === '+' || e.key === '=') offset.multiplyScalar(0.92)
-        if (e.key === '-') offset.multiplyScalar(1.08)
-        camera.position.copy(controls.current.target).add(offset)
-        controls.current.update()
-      }
-      invalidate()
-    }
-    el.tabIndex = 0
-    el.setAttribute(
-      'aria-label',
-      'Interactive 360 view. Arrow keys rotate; plus and minus zoom. Inside: arrows look around.',
-    )
-    el.addEventListener('pointerdown', down)
-    el.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    el.addEventListener('keydown', key)
-    return () => {
-      el.removeAttribute('tabindex')
-      el.removeEventListener('pointerdown', down)
-      el.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      el.removeEventListener('keydown', key)
-    }
-  }, [camera, gl, view, interactive, invalidate])
-  const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)'), [])
-  useFrame((_, delta) => {
-    if (!moving.current) return
-    // R3F's first delta after an idle stretch is the whole idle time, which made a transition
-    // jump in one frame instead of easing; a frame never advances it more than 1/30 s.
-    const t = reducedMotion.matches ? 1 : 1 - Math.exp(-Math.min(delta, 1 / 30) * 5)
-    const before = camera.position.distanceTo(targetPosition.current)
-    camera.position.lerp(targetPosition.current, t)
-    if (controls.current && view !== 'interior') {
-      controls.current.target.lerp(targetLook.current, t)
-      controls.current.update()
-    } else camera.lookAt(targetLook.current)
-    const after = camera.position.distanceTo(targetPosition.current)
-    // Arrived, or the orbit limits or auto-rotation kept the camera from making the progress the
-    // easing asked for: either way, stop instead of rendering forever. Sliding around the
-    // minimum-distance sphere is progress the straight-line measure undercounts, so it never
-    // counts as held.
-    const pinned =
-      !!controls.current &&
-      view !== 'interior' &&
-      controls.current.getDistance() <= controls.current.minDistance + 1e-3
-    stalled.current = !pinned && after > before - 0.5 * t * before ? stalled.current + 1 : 0
-    if (after < 0.015 || stalled.current >= 8) moving.current = false
-    invalidate()
-  })
-  return (
-    <OrbitControls
-      ref={controls}
-      makeDefault
-      enabled={interactive && view !== 'interior'}
-      enablePan={false}
-      minDistance={12}
-      maxDistance={170}
-      minPolarAngle={0.1}
-      maxPolarAngle={Math.PI / 2 - 0.015}
-      autoRotate={interactive && autoRotate && view === 'exterior'}
-      autoRotateSpeed={0.45}
-      onStart={() => {
-        moving.current = false
-      }}
-    />
-  )
-}
-/**
- * Memoized: the app shell re-renders for panel tabs, toasts, and dialogs, which never change the
- * scene; re-rendering it would still reconcile the whole 3D tree.
+ * The Fury product on the viewer360 framework: the unit, its surroundings, and its lighting,
+ * framed by the still presets. Memoized: the app shell re-renders for panel tabs, toasts, and
+ * dialogs, which never change the scene; re-rendering it would still reconcile the whole 3D tree.
  */
 export default memo(function Scene({
   active,
@@ -268,10 +92,12 @@ export default memo(function Scene({
   reset,
   autoRotate,
   quality,
+  promote = false,
   onCaptureReady,
   onFallback,
   onBackend,
-  onSlow,
+  onGpu,
+  onVerdict,
   onUnavailable,
 }: {
   /** False while hidden under the floor plan: nothing renders until the scene shows again. */
@@ -286,10 +112,14 @@ export default memo(function Scene({
   reset: number
   autoRotate: boolean
   quality: Quality
+  /** Whether this device may be promoted to the next tier when it proves fast. */
+  promote?: boolean
   onCaptureReady: (capture: (() => string) | null) => void
   onFallback: () => void
   onBackend?: (backend: Backend) => void
-  onSlow?: () => void
+  /** This GPU's name, to remember the tier it settles on. */
+  onGpu?: (key: string) => void
+  onVerdict?: (verdict: Exclude<Verdict, null>) => void
   /** 3D graphics failed for good in this browser (no WebGPU or WebGL, or a lost device). */
   onUnavailable?: () => void
 }) {
@@ -297,112 +127,69 @@ export default memo(function Scene({
   // The scene draws the lights as they are seen: always on by day, by choice after dark.
   const lights = effectiveLights(config)
   config = useMemo(() => ({ ...config, lights }), [config, lights])
-  // A lost GPU device (driver reset, GPU process crash, the OS reclaiming memory) would leave a
-  // frozen canvas. Rebuild the renderer instead, a few times per session at most.
-  const [generation, setGeneration] = useState(0)
-  // The scene stays mounted under the floor plan, so coming back from it would not remount a
-  // failed 3D view the way it once did. Coming back starts a fresh attempt instead.
-  const [attempt, setAttempt] = useState(0)
-  const [failed, setFailed] = useState(false)
-  const [shown, setShown] = useState(active)
-  if (active !== shown) {
-    setShown(active)
-    if (active && (failed || generation > MAX_RENDERER_REBUILDS)) {
-      setFailed(false)
-      setGeneration(0)
-      setAttempt(attempt + 1)
-    }
-  }
-  // The renderer that is mounted, or null while the scene is torn down.
-  const mounted = `${attempt}:${generation}`
-  const live = useRef<string | null>(null)
-  useEffect(() => {
-    live.current = mounted
-    return () => {
-      live.current = null
-    }
-  }, [mounted])
+  // Only these inputs move the camera; a finish or flooring change must not re-frame the view.
+  const { family, length, addons } = config
+  const pose = useMemo<CameraPose>(
+    () => stillPose({ family, length, addons }, angle),
+    [family, length, addons, angle],
+  )
+  const onRenderer = useCallback(
+    (renderer: WebGPURenderer) => {
+      setMaxAnisotropy(renderer.getMaxAnisotropy())
+      onBackend?.(backendOf(renderer))
+      onGpu?.(gpuKey(renderer))
+    },
+    [onBackend, onGpu],
+  )
   return (
-    <GraphicsBoundary
-      key={attempt}
-      onFallback={onFallback}
-      onFailure={() => {
-        setFailed(true)
-        onUnavailable?.()
-      }}
-    >
-      {generation > MAX_RENDERER_REBUILDS ? (
-        <DeviceUnstable />
-      ) : (
-        <Canvas
-          key={generation}
-          shadows="percentage"
-          // Temporal AA resolves edges, so screen-space GI need not pay for full Retina density.
-          dpr={quality === 'lite' ? 1 : [1, 1.5]}
-          frameloop={active ? 'demand' : 'never'}
-          camera={{ position: [30, 18, 35], fov: 34, near: 0.1, far: 2000 }}
-          gl={async ({ canvas }) => {
-            // Scans uploaded by a previous renderer released their decoded pixels; R3F renders
-            // nothing until this factory resolves, so no frame can see a released map.
-            sceneProgress.set('renderer')
-            // Only the live renderer recovers, never one that is being torn down.
-            const rebuild = () => {
-              if (live.current === mounted) setGeneration(generation + 1)
-            }
-            const [renderer] = await Promise.all([
-              createRenderer(canvas as HTMLCanvasElement).then((renderer) => {
-                // Watch for loss as soon as the renderer exists, not after the scans are restored.
-                const report = renderer.onDeviceLost
-                renderer.onDeviceLost = (info) => {
-                  report.call(renderer, info)
-                  rebuild()
-                }
-                return renderer
-              }),
-              restoreTextures(),
-            ])
-            // Lost while it was still being set up, before anything listened.
-            if ((renderer as unknown as { _isDeviceLost?: boolean })._isDeviceLost) rebuild()
-            setMaxAnisotropy(renderer.getMaxAnisotropy())
-            // The first frame compiles every shader in view.
-            sceneProgress.set('shaders')
-            return renderer
-          }}
-          onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
-        >
-          <Atmosphere config={config} quality={quality} view={view} />
-          <Landscape config={config} quality={quality} />
-          <StudioModel config={config} quality={quality} />
-          {dimensions && <Dimensions config={config} unit={unit} />}
-          <CameraRig
-            config={config}
-            angle={angle}
-            interactive={interactive}
-            reset={reset}
-            autoRotate={autoRotate}
-          />
-          <InteriorProbe config={config} quality={quality} />
-          <Prewarm config={config} />
-          <TextureUpgrade enabled={interactive && quality !== 'lite'} />
-          <RenderEffects
-            quality={quality}
-            refine={interactive && !autoRotate}
-            onCaptureReady={onCaptureReady}
-            onSlow={onSlow}
-          />
-          <SceneRefresh
-            active={active}
-            config={config}
-            view={view}
-            interactive={interactive}
-            dimensions={dimensions}
-            unit={unit}
-            quality={quality}
-            autoRotate={autoRotate}
-          />
-        </Canvas>
-      )}
+    <>
+      <Viewer
+        active={active}
+        quality={quality}
+        // Scans uploaded by a previous renderer released their decoded pixels; no frame may see
+        // a released map, so they are restored before the first one.
+        prepare={restoreTextures}
+        onRenderer={onRenderer}
+        onUnavailable={onUnavailable}
+        fallback={<GraphicsFallback onFallback={onFallback} />}
+      >
+        <Atmosphere config={config} quality={quality} view={view} />
+        <Landscape config={config} quality={quality} />
+        <StudioModel config={config} quality={quality} />
+        {dimensions && <Dimensions config={config} unit={unit} />}
+        <OrbitRig
+          pose={pose}
+          mode={view === 'interior' ? 'look' : 'orbit'}
+          interactive={interactive}
+          reset={reset}
+          autoRotate={autoRotate}
+          limits={LIMITS}
+          fitFov={coverFov}
+          label={LABEL}
+        />
+        <InteriorProbe config={config} />
+        <Prewarm config={config} />
+        <TextureUpgrade enabled={interactive} />
+        <RenderLoop
+          quality={quality}
+          spec={TIERS[quality]}
+          interactive={interactive}
+          promote={promote}
+          onCaptureReady={onCaptureReady}
+          onVerdict={onVerdict}
+        />
+        <SceneRefresh
+          active={active}
+          config={config}
+          view={view}
+          interactive={interactive}
+          dimensions={dimensions}
+          unit={unit}
+          quality={quality}
+          autoRotate={autoRotate}
+        />
+      </Viewer>
       <SceneLoadingStatus />
-    </GraphicsBoundary>
+    </>
   )
 })

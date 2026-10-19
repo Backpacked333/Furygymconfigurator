@@ -10,17 +10,26 @@ import {
 } from '../render/architecture'
 import { deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
 import { batch, type Part } from '../render/parts'
-import { sceneProgress } from '../render/progress'
+import { sceneProgress } from '@fury/viewer360'
 import { equipmentBatches } from '../render/equipment'
-import { whenIdle } from '../lib/idle'
+import { whenIdle } from '@fury/viewer360'
 
 const idle = (callback: () => void) => whenIdle(callback, 4000)
+/** Quiet time after the scene's first picture before preparing anything. */
+const START_AFTER_MS = 3000
+
+/** Devices with little memory prepare nothing ahead: each choice compiles when made. */
+function canPrewarm() {
+  return ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) > 2
+}
 
 /**
- * Prepares what the visitor has not picked yet, so choosing it in the 360 view never stalls on
- * shader compilation: when the scene is idle, every catalog item, addition, finish and floor of
- * this product is drawn once, out of sight below the ground, then dropped. Built from the same
- * builders and material library the scene uses, so the compiled pipelines are the ones reused.
+ * Prepares what the visitor has not picked yet, so choosing it never stalls on shader
+ * compilation: a few seconds after the scene's first picture, each group of options (catalog
+ * items, each finish, each floor, the additions) is drawn once in its own idle moment, out of
+ * sight below the ground, then dropped. One small group per frame keeps every compile short
+ * instead of one long stall. Built from the same builders and material library the scene uses,
+ * so the compiled pipelines are the ones reused.
  */
 export function Prewarm({ config }: { config: Config }) {
   const { scene, invalidate } = useThree()
@@ -46,6 +55,7 @@ export function Prewarm({ config }: { config: Config }) {
           for (const b of equipmentBatches(item.id)) {
             const mesh = new Mesh(b.geometry, b.material)
             mesh.frustumCulled = false
+            mesh.userData.noProbe = true
             group.add(mesh)
           }
       },
@@ -74,27 +84,35 @@ export function Prewarm({ config }: { config: Config }) {
       },
     ]
     let next = 0
+    let cancelDraw = () => {}
+    let timer: ReturnType<typeof setTimeout> | undefined
     const run = () => {
-      if (cancelled) return
-      if (next < steps.length) {
-        steps[next++]()
+      if (cancelled || next >= steps.length) return
+      group.clear()
+      steps[next++]()
+      if (!group.children.length) {
         idle(run)
         return
       }
-      // One frame through the live pipeline compiles everything, then it all goes.
+      // One frame through the live pipeline compiles this group, then it goes.
       scene.add(group)
       invalidate()
       cancelDraw = sceneProgress.afterNextDraw(() => {
         scene.remove(group)
         invalidate()
+        idle(run)
       })
     }
-    let cancelDraw = () => {}
-    // Waits for the scene's own first picture before adding work.
-    const start = sceneProgress.afterNextDraw(() => idle(run))
+    // Waits for the scene's own first picture, then a quiet moment, before adding work.
+    const start = canPrewarm()
+      ? sceneProgress.afterNextDraw(() => {
+          timer = setTimeout(() => idle(run), START_AFTER_MS)
+        })
+      : () => {}
     return () => {
       cancelled = true
       start()
+      clearTimeout(timer)
       cancelDraw()
       scene.remove(group)
       disposable.forEach((mesh) => mesh.geometry.dispose())

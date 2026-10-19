@@ -39,8 +39,8 @@ import {
   sunlightAt,
   type Vec3,
 } from '../lib/visuals'
-import type { Quality } from '../render/quality'
-import { FRAME_ENVIRONMENT } from '../render/renderer'
+import type { Quality } from '@fury/viewer360'
+import { FRAME_ENVIRONMENT, reusable, useTier } from '@fury/viewer360/3d'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
 
@@ -133,6 +133,7 @@ export function Atmosphere({
   view: View
 }) {
   const { gl, scene, invalidate } = useThree()
+  const { spec } = useTier()
   const renderer = gl as unknown as WebGPURenderer
   const { environment } = config
   const time = sceneTime(config)
@@ -204,7 +205,19 @@ export function Atmosphere({
     scene.environmentIntensity = environment === 'studio' ? 0.9 : 1
     environmentStale.current = true
     invalidate()
-  }, [background, capture, environment, time, quality, generator, scene, fog, backdrop, invalidate])
+  }, [
+    background,
+    capture,
+    environment,
+    time,
+    quality,
+    spec,
+    generator,
+    scene,
+    fog,
+    backdrop,
+    invalidate,
+  ])
 
   // The image-based lighting is captured at the start of the next frame, for the latest settings,
   // rather than on every change: a time-of-day drag can commit several changes between frames.
@@ -213,9 +226,9 @@ export function Atmosphere({
     environmentStale.current = false
     // Captured only when lighting or surroundings change, never per frame: High and Ultra can
     // afford sharp sky reflections in glass and polished metal.
-    const size = quality === 'lite' ? 128 : 512
-    // A target is reused only at its own cube size; Lite and High/Ultra differ.
-    if (target.current && target.current.height !== 4 * size) {
+    const size = spec.environmentSize
+    // A target is reused only at its own cube size, which differs per tier.
+    if (target.current && !reusable(target.current, size)) {
       target.current.dispose()
       target.current = null
     }
@@ -242,6 +255,8 @@ export function Atmosphere({
 }
 
 function SunLight({ config, quality }: { config: Config; quality: Quality }) {
+  const { spec } = useTier()
+  const shadowSize = spec.shadowMapSize
   const preset = SKY_PRESETS[config.environment]
   const time = sceneTime(config)
   const sunlight = sunlightAt(time, preset)
@@ -260,7 +275,7 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
         color={sunColor}
         intensity={SUN_INTENSITY * sunlight.intensity}
         castShadow
-        shadow-mapSize={quality === 'lite' ? [1024, 1024] : [4096, 4096]}
+        shadow-mapSize={[shadowSize, shadowSize]}
         shadow-camera-left={-extent}
         shadow-camera-right={extent}
         shadow-camera-top={extent}

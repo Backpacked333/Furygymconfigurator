@@ -30,7 +30,7 @@ npm run dev
 
 Open the URL printed by Vite. If you do not use nvm, install Node 24 and run the npm commands directly. No API keys, database, or third-party accounts are required. The one optional environment variable, `VITE_STILLS_BASE`, points at published pre-rendered stills (see [Stills](#stills)); without it, the live 3D view draws every still. Fonts, models, textures, and scripts are bundled or generated locally; there are no remote model, texture, or font requests at runtime.
 
-Optional URL parameters help when comparing devices or debugging: `?renderer=webgl` forces the WebGL 2 backend, `?quality=ultra|high|lite` fixes the render tier (and disables the automatic step-down), and `?debug=ao` or `?debug=normal` shows the ambient-occlusion or normal buffer on High and Ultra.
+Optional URL parameters help when comparing devices or debugging: `?renderer=webgl` forces the WebGL 2 backend, `?quality=ultra|high|lite` fixes the render tier (and disables the automatic tier changes), `?debug=perf` shows frame times and the governor's decisions, and `?debug=ao` or `?debug=normal` shows the ambient-occlusion or normal buffer on High and Ultra.
 
 ```sh
 npm run typecheck
@@ -77,26 +77,25 @@ src/
   App.tsx                     Workspace, dialogs, camera modes, history shortcuts, quality governor
   components/
     ConfigPanel.tsx           Four-step selection interface
-    Scene.tsx                 Async WebGPU canvas, camera, dimensions, graphics fallback
-    RenderEffects.tsx         Drives the TSL pipeline, settle frames, captures, frame-time governor
+    Scene.tsx                 The Fury product on viewer360: content, still framing, fallback
     Atmosphere.tsx            Physical sky, fog, image-based lighting, sun and moon, exposure
-    InteriorProbe.tsx         Radiance probe captured inside the room for interior surfaces
+    InteriorProbe.tsx         Interior radiance probe (viewer360 CubeProbe) for interior surfaces
     InteriorLights.tsx        Downlights, cove and toe-kick area lights, fixtures
     StudioModel.tsx           Shell, interior, glazing, add-ons, signature, mirror, equipment
     Equipment.tsx             Batched equipment models shared by every placed copy
     Landscape.tsx             Courtyard, studio floor, and the switch between surroundings
     environments/             Backyard and rooftop settings; shared ground, trees, hedge, grass
     stills/                   Still stage (stacked layers, decode-then-fade) and angle strip
-    Prewarm.tsx               Compiles unchosen items, finishes and floors while the 360 view idles
-    Mirror.tsx                Planar reflector (High/Ultra) or probe-lit metal (Lite)
+    Prewarm.tsx               Compiles unchosen items, finishes and floors, one group per idle frame
+    Mirror.tsx                Planar reflector (High/Ultra, held during motion) or probe-lit metal
     Parts.tsx                 Renders a part list as merged, per-material meshes
     FloorPlan.tsx             Read-only SVG floor plan of the chosen package
     Dialogs.tsx               Saved comparisons, quote checklist, sharing, brief form
     Modal.tsx                 Native dialog lifecycle
+  viewer/                     viewer360, the reusable 3D/360 framework (see src/viewer/README.md)
+    index.ts                  Light entry: tiers, device detection, governor, progress (no three.js)
+    3d.ts                     3D entry: renderer, pipelines, Viewer, RenderLoop, OrbitRig, CubeProbe
   render/
-    renderer.ts               WebGPURenderer creation, area-light tables, texture-view shim
-    pipeline.ts               TSL render pipelines per quality tier
-    quality.ts                Tiers, backend selection, defaults (no three.js imports)
     materials.ts              Material library over the scanned texture sets
     palette.ts                Named physically based materials (powder coat, vinyl, glass...)
     geometry.ts               Geometry helpers with UVs in feet, corrugation, tubes, lathes
@@ -105,7 +104,6 @@ src/
     addons.ts                 Deck, pergola, roof deck, stairs, timber accent
     equipment.ts              Ten equipment models at real-world dimensions
     vegetation.ts             Leaf atlas, trees, grass, foliage materials
-    progress.ts               Material streaming progress (no three.js imports)
     useResource.ts            StrictMode-safe GPU resource lifetime
   lib/
     config.ts                 Domain model, rules, estimates, URLs, persistence
@@ -162,20 +160,34 @@ The page opens on pre-rendered stills, not the 3D engine. Seven angles per build
 
 The scene renders with three.js r186's `WebGPURenderer`. It runs natively on WebGPU and falls back to its WebGL 2 backend automatically, so every material and post effect is written once in TSL (three's shading language) and works on both. React Three Fiber creates the renderer asynchronously. The renderer badge in the scene status line shows the active backend and tier.
 
-| Tier  | Pipeline                                                                                                                                        |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ultra | High plus screen-space global illumination (one diffuse bounce of on-screen light)                                                              |
-| High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, emissive bloom, temporal reprojection anti-aliasing, 4096-pixel sun shadows |
-| Lite  | One 4× MSAA pass, 1024-pixel sun shadows, probe-lit mirror                                                                                      |
+The live view is built on **viewer360** (`src/viewer/`), a product-agnostic framework that other products can import. See [its README](src/viewer/README.md).
 
-Laptop-width screens start on Ultra, tablets on High, and phones on Lite. If back-to-back frames stay slow, the app steps down one tier and says so, unless a tier was chosen explicitly. Rendering is on demand: after any change it keeps drawing for a short settle window (about 28–40 frames) so temporal anti-aliasing, AO, and GI converge into a clean still, then stops.
+| Tier  | Pipeline at rest                                                                                                                | While moving                     |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Ultra | High plus screen-space global illumination (one diffuse bounce of on-screen light), pixel ratio up to 1.5                       | One pass, native pixels, 2× MSAA |
+| High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, emissive bloom, temporal AA, 2048-pixel sun shadows, ≤1.25× | One pass, native pixels, 2× MSAA |
+| Lite  | One 4× MSAA pass at native pixels, 1024-pixel sun shadows, probe-lit mirror, a quarter of the grass                             | The same pass                    |
+
+**Choosing the tier:**
+
+- The tier follows the device, not the screen. Phones, tablets, and machines with 4 GB of memory or 4 cores or fewer start on Lite; everything else starts on High.
+- The frame-time governor steps a device down when its motion frames or settles are slow, and says so. It promotes a fast High device to Ultra once.
+- The decision is remembered per GPU. A tier chosen in the panel, or set with `?quality=`, is never overridden.
+
+**Rendering is on demand.**
+
+- While the camera moves, the light motion pipeline draws.
+- 120 ms after it stops, the tier's pipeline converges in 14 frames (High) or 20 (Ultra), then stops.
+- Late textures and probe captures extend that run instead of restarting it.
+
+`?debug=perf` shows the tier, frame times, triangle counts, and governor decisions.
 
 Lighting:
 
 - **Surroundings:** a walled courtyard, a suburban backyard (cedar fence, patio, the house beyond with lit windows at night), an urban rooftop terrace (parapet and glass rail, plant, planters, and instanced towers whose windows light up at night), or a photo-studio floor.
 - **Sky and sun:** a Preetham daylight sky with clouds is both the visible background and the image-based lighting (captured into a PMREM cube). Day is a late-afternoon sun; Night is the blue hour after sunset. The studio is always lit as day. Sun color comes from atmospheric extinction along the sun path. A multiple-scattering fill keeps the zenith-to-horizon ratio near measured clear skies. Fog matches the horizon. After dark, exposure adapts, moonlight takes over, and airglow keeps the sky deep blue. The sun follows an artistic summer path (sunrise 06:00, sunset 20:30, 60° at noon), not a location-based study.
-- **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. It is captured twice per change to approximate a second bounce. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
-- **Mirror:** High and Ultra render a true planar reflection; Lite uses a probe-lit polished surface.
+- **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. The live view captures it once per change (pre-rendered stills three times, for extra bounces), reusing its targets and the current shadow maps. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
+- **Mirror:** High and Ultra render a true planar reflection, held still while the camera moves; Lite uses a probe-lit polished surface.
 
 Materials come from 18 CC0 photo-scanned PBR sets from [Poly Haven](https://polyhaven.com/) (albedo, OpenGL normal, and packed AO/roughness/metalness), plus baked powder-coat, brushed-steel, and knurl detail maps. `public/textures/sources.json` records each set's authors, physical size, and role; `scripts/build-textures.py` (Python 3, Pillow, NumPy) reproduces them. Every model carries UVs measured in feet, so each texture appears at its true physical scale. The ground blends two scales of its scan with noise so it never visibly repeats. Textures stream in after the scene appears, with a progress indicator. The library is about 17 MB of WebP; only the sets a view needs are downloaded, and the live view loads 1K copies of the four 2K scans (about 7.5 MB less).
 

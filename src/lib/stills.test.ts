@@ -26,8 +26,8 @@ describe('render keys', () => {
   it('stay stable for the default build (a change here means every still is re-rendered)', () => {
     expect(keys(studio(), 'hero')).toMatchInlineSnapshot(`
       [
-        "0e8ed5524b2928bec74256dae804d2bd",
-        "2784a84bca2a36058a5cdfdfacfb9645",
+        "d2b2795c2cf67fe6fca3592591546d6c",
+        "18832353395403d9365f2442af54470c",
       ]
     `)
   })

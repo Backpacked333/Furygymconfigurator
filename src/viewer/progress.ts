@@ -67,3 +67,28 @@ export const sceneWork = {
   idle: () => outstanding.size === 0,
   pending: () => [...outstanding],
 }
+
+/**
+ * What changed in the scene outside React's render: streamed textures, a light probe capture, an
+ * environment map. The render loop redraws for each, but only `content` restarts convergence;
+ * the others arrive mid-settle and simply extend it.
+ */
+export type SceneChange = 'content' | 'textures' | 'probe' | 'environment'
+const changeListeners = new Set<(change: SceneChange) => void>()
+export const sceneChanges = {
+  subscribe(listener: (change: SceneChange) => void) {
+    changeListeners.add(listener)
+    return () => {
+      changeListeners.delete(listener)
+    }
+  },
+  notify(change: SceneChange) {
+    changeListeners.forEach((listener) => listener(change))
+  },
+}
+
+/**
+ * Whether the frame being drawn is a motion frame. Costly extras that can lag a moment (planar
+ * reflections, secondary views) skip their update while it is true and catch up at rest.
+ */
+export const viewerMotion = { active: false }

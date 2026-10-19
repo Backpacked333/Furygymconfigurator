@@ -201,8 +201,7 @@ export function treeShape(seed: number, biome: Biome, leafCount: number): TreeSh
 }
 
 /** One arching grass blade, tapering to a point. */
-export function grassBlade(height = 1, bend = 0.35, width = 0.035) {
-  const segments = 5
+export function grassBlade(height = 1, bend = 0.35, width = 0.035, segments = 5) {
   const positions: number[] = []
   const index: number[] = []
   for (let i = 0; i <= segments; i++) {

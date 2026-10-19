@@ -5,7 +5,7 @@ import { FLOOR_Y, interiorBounds } from '../render/architecture'
 import { cylinder, lathe, box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
-import type { Quality } from '../render/quality'
+import type { Quality } from '@fury/viewer360'
 import { Parts } from './Parts'
 
 /** 2700 K warm-white architectural LEDs. */

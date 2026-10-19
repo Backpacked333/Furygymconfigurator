@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import type { Config, Unit, View } from '../lib/config'
-import type { Quality } from '../render/quality'
-import { invalidateShadows } from '../render/shadows'
+import type { Quality } from '@fury/viewer360'
+import { invalidateShadows } from '@fury/viewer360/3d'
 
 export function SceneRefresh({
   active,

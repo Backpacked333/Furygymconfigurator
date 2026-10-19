@@ -17,6 +17,24 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
+  // viewer360 is a framework other products import: it may depend on three, React, and R3F, never
+  // on the product around it (see src/viewer/README.md).
+  {
+    files: ['src/viewer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../*', '@fury/*'],
+              message: 'viewer360 must stay product-agnostic: import only from within src/viewer.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Build and render tooling runs in Node.
   {
     files: ['scripts/**/*.{js,mjs}', 'render/**/*.ts'],

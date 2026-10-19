@@ -1,7 +1,7 @@
 import type { Config } from '../lib/config'
 import type { AngleId } from '../lib/cameras'
 import type { LayerKind } from '../lib/stills'
-import type { Quality } from '../render/quality'
+import type { Quality } from '@fury/viewer360'
 
 /**
  * One still layer for the headless harness (`?render`) to draw. Shared by the page and the Node

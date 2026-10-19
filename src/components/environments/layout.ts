@@ -2,10 +2,20 @@ import { noise } from '../../lib/visuals'
 import { cylinder } from '../../render/geometry'
 import { palette } from '../../render/palette'
 import { part, type Part } from '../../render/parts'
-import type { Quality } from '../../render/quality'
+import { TIERS, type Quality } from '@fury/viewer360'
 
-/** Share of foliage and grass instances drawn at each quality tier. */
-export const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
+/** Share of foliage and grass instances drawn at each quality tier (the tier's density). */
+export const DENSITY: Record<Quality, number> = {
+  ultra: TIERS.ultra.density,
+  high: TIERS.high.density,
+  lite: TIERS.lite.density,
+}
+/**
+ * The lawn: clumps per full-density tier, blades per clump, and segments per blade. Short blades
+ * read as curved with three segments; with the ground scan beneath, a fifth of the old blade
+ * count (about 90k triangles at full density, 470k before) still reads as a lawn.
+ */
+export const LAWN = { blades: 7, segments: 3 } as const
 /** Module-level so the lawn's grass material is not rebuilt on every render. */
 export const LAWN_COLORS: [string, string] = ['#3d5126', '#93a258']
 

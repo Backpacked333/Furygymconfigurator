@@ -17,14 +17,26 @@ import {
   setMaxAnisotropy,
   loadFullResolutionTextures,
 } from '../render/materials'
-import { createPipeline, type Pipeline } from '../render/pipeline'
-import { sceneWork, textureProgress } from '../render/progress'
-import { FRAME_BEGIN, backendOf, beginFrame, createRenderer } from '../render/renderer'
-import { invalidateShadows, refreshShadows } from '../render/shadows'
+import { STILL_TIER, TIERS, sceneWork, textureProgress, type TierSpec } from '@fury/viewer360'
+import {
+  FRAME_BEGIN,
+  TierProvider,
+  backendOf,
+  beginFrame,
+  createPipeline,
+  createRenderer,
+  invalidateShadows,
+  refreshShadows,
+  type Pipeline,
+} from '@fury/viewer360/3d'
 import { MATTE_GREY, type HarnessApi, type RenderCapture, type RenderJob } from './job'
 
 // Published stills use every scan at full resolution.
 loadFullResolutionTextures()
+
+/** Stills drawn at Ultra get every knob at its best: time is free offline. */
+const stillSpec = (job: RenderJob): TierSpec =>
+  job.quality === 'ultra' ? STILL_TIER : TIERS[job.quality]
 
 /** Consecutive ready frames before accumulation starts (environment and probe captures land). */
 const READY_FRAMES = 3
@@ -116,12 +128,12 @@ function StillDriver({
     [scene, invalidate],
   )
   useEffect(() => {
-    pipeline.current = createPipeline(renderer, scene, camera, job.quality)
+    pipeline.current = createPipeline(renderer, scene, camera, stillSpec(job))
     return () => {
       pipeline.current?.dispose()
       pipeline.current = null
     }
-  }, [renderer, scene, camera, job.quality])
+  }, [renderer, scene, camera, job])
 
   useEffect(() => {
     window.__fury!.debug = () => ({
@@ -149,9 +161,7 @@ function StillDriver({
       if (p.frames >= READY_FRAMES) {
         // A fresh pipeline: temporal AA and GI history start from this job's first frame.
         pipeline.current.dispose()
-        pipeline.current = createPipeline(renderer, scene, camera, job.quality)
-        // Stills always get the at-rest settings: time is free offline.
-        pipeline.current.rest(true)
+        pipeline.current = createPipeline(renderer, scene, camera, stillSpec(job))
         invalidateShadows(scene)
         phase.current = { name: 'accumulate', frames: 0 }
         window.__fury!.state = 'accumulating'
@@ -218,7 +228,7 @@ function HarnessScene({
   const backstop = useRef<Mesh | null>(null)
   const interiorView = CAMERA_PRESETS[job.angle].view === 'interior'
   return (
-    <>
+    <TierProvider quality={job.quality} spec={stillSpec(job)}>
       <Atmosphere
         config={config}
         quality={job.quality}
@@ -227,10 +237,10 @@ function HarnessScene({
       <Landscape config={config} quality={job.quality} />
       <StudioModel config={config} quality={job.quality} glazing={job.kind !== 'interior'} />
       <Backstop config={config} mesh={backstop} />
-      <InteriorProbe config={config} quality={job.quality} debounce={0} passes={3} />
+      <InteriorProbe config={config} debounce={0} />
       <StillCamera job={job} />
       <StillDriver pending={pending} backstop={backstop} onDone={onDone} />
-    </>
+    </TierProvider>
   )
 }
 

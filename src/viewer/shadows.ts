@@ -29,3 +29,8 @@ export function refreshShadows(scene: Object3D) {
   })
   return true
 }
+
+/** Whether shadow maps wait for a redraw: light probes capture only once they are current. */
+export function shadowsPending(scene: Object3D) {
+  return dirty.has(scene)
+}

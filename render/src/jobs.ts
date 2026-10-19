@@ -1,6 +1,6 @@
 import { STILL_ASPECT } from '../../src/lib/cameras'
 import type { Layer } from '../../src/lib/stills'
-import type { Quality } from '../../src/render/quality'
+import type { Quality } from '../../src/viewer/quality'
 import type { RenderJob } from './renderers/types'
 
 export type JobSettings = {

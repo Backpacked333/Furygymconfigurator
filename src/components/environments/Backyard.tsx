@@ -6,11 +6,11 @@ import { box, roundedBox } from '../../render/geometry'
 import { material } from '../../render/materials'
 import { palette } from '../../render/palette'
 import { part, type Part } from '../../render/parts'
-import type { Quality } from '../../render/quality'
+import type { Quality } from '@fury/viewer360'
 import { grassPalette } from '../../render/vegetation'
 import { Parts } from '../Parts'
 import { Ground, Hedge, Tree, Tufts } from './common'
-import { DENSITY, LAWN_COLORS, bollard, lawnPlacer } from './layout'
+import { DENSITY, LAWN, LAWN_COLORS, bollard, lawnPlacer } from './layout'
 
 /** Fence line: back at FENCE_BACK, sides SIDE feet beyond the unit's ends. */
 const FENCE_BACK = -16
@@ -156,17 +156,19 @@ export function Backyard({ config: c, quality }: { config: Config; quality: Qual
           place={bedPlace}
           variant={k}
           colors={colors}
-          shadow={quality !== 'lite'}
+          shadow={false}
         />
       ))}
       <Tufts
-        count={Math.round(6200 * density)}
-        blades={9}
+        count={Math.round(2600 * density)}
+        blades={LAWN.blades}
+        segments={LAWN.segments}
         height={0.4}
         bend={0.12}
         place={lawnPlace}
         colors={LAWN_COLORS}
         shadow={false}
+        receiveShadow={false}
       />
       <Tree
         position={[-L / 2 - 10, 0, -9]}

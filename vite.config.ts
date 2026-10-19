@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -32,8 +33,17 @@ function fiberUsesWebGPUBuild(): Plugin {
   }
 }
 
+const viewer = (entry: string) => fileURLToPath(new URL(`./src/viewer/${entry}`, import.meta.url))
+
 export default defineConfig({
   plugins: [fiberUsesWebGPUBuild(), react()],
+  // The 3D viewer framework, imported like the package it can become (see src/viewer/README.md).
+  resolve: {
+    alias: [
+      { find: /^@fury\/viewer360\/3d$/, replacement: viewer('3d.ts') },
+      { find: /^@fury\/viewer360$/, replacement: viewer('index.ts') },
+    ],
+  },
   server: { host: '0.0.0.0', allowedHosts: true },
   build: {
     target: 'es2022',

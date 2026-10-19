@@ -6,13 +6,13 @@ import { box, cylinder, roundedBox } from '../render/geometry'
 import { material, prefetchTextures } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
-import type { Quality } from '../render/quality'
+import type { Quality } from '@fury/viewer360'
 import { grassPalette } from '../render/vegetation'
 import { Parts } from './Parts'
 import { Backyard } from './environments/Backyard'
 import { Rooftop } from './environments/Rooftop'
 import { Ground, Hedge, Tree, Tufts } from './environments/common'
-import { DENSITY, LAWN_COLORS, bollard, lawnPlacer } from './environments/layout'
+import { DENSITY, LAWN, LAWN_COLORS, bollard, lawnPlacer } from './environments/layout'
 
 // --- Courtyard ----------------------------------------------------------------------------
 
@@ -98,18 +98,20 @@ function Courtyard({ config: c, quality }: { config: Config; quality: Quality })
           place={bedPlace}
           variant={k}
           colors={colors}
-          shadow={quality !== 'lite'}
+          shadow={false}
         />
       ))}
       <Hedge length={L + 20} quality={quality} />
       <Tufts
-        count={Math.round(5200 * density)}
-        blades={9}
+        count={Math.round(2200 * density)}
+        blades={LAWN.blades}
+        segments={LAWN.segments}
         height={0.42}
         bend={0.12}
         place={lawnPlace}
         colors={LAWN_COLORS}
         shadow={false}
+        receiveShadow={false}
       />
       {[-1, 1].map((side) => (
         <group key={side}>

@@ -4,6 +4,7 @@ import {
   type Material,
   DataTexture,
   DataUtils,
+  EquirectangularReflectionMapping,
   FrontSide,
   HalfFloatType,
   LinearFilter,
@@ -24,7 +25,7 @@ import {
 } from 'three'
 import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
 import { float, normalView, pmremTexture, positionViewDirection } from 'three/tsl'
-import { textureProgress } from './progress'
+import { sceneChanges, textureProgress } from '@fury/viewer360'
 
 /**
  * Physical sizes (feet per tile) of the bundled CC0 Poly Haven scans plus three baked
@@ -272,25 +273,43 @@ function load(set: TextureSet): Promise<Maps> {
 // --- Material library ----------------------------------------------------------
 
 const materials = new Map<string, MeshStandardNodeMaterial>()
-const interiorMaterials = new Set<MeshStandardNodeMaterial>()
 /**
  * One environment node shared by every interior material. Node materials resolve `envMap` into a
  * fixed texture when their shader is built, so swapping probe captures through `envMap` would be
  * ignored; updating this node's value rebinds every interior material without recompiling.
  */
 let interiorEnvironment: ReturnType<typeof pmremTexture> | null = null
+let placeholderEnvironment: DataTexture | null = null
+/**
+ * Bound to interior materials from their first frame, until the first probe capture: a dim,
+ * even surround. Swapping the capture in later only changes the node's value, so the interior
+ * shaders are compiled once, with their final shape, instead of again when the probe arrives.
+ */
+function interiorEnvironmentNode() {
+  if (!interiorEnvironment) {
+    const width = 64,
+      height = 32
+    const data = new Uint8Array(width * height * 4).fill(46)
+    for (let i = 3; i < data.length; i += 4) data[i] = 255
+    placeholderEnvironment = new DataTexture(data, width, height, RGBAFormat, UnsignedByteType)
+    placeholderEnvironment.mapping = EquirectangularReflectionMapping
+    placeholderEnvironment.colorSpace = SRGBColorSpace
+    placeholderEnvironment.needsUpdate = true
+    interiorEnvironment = pmremTexture(placeholderEnvironment)
+  }
+  return interiorEnvironment
+}
 export type MaterialChange = 'textures' | 'probe'
-const changeListeners = new Set<(change: MaterialChange) => void>()
 
 /** Notified when textures arrive or the interior probe changes, so demand rendering redraws. */
 export function onMaterialsChanged(listener: (change: MaterialChange) => void) {
-  changeListeners.add(listener)
-  return () => {
-    changeListeners.delete(listener)
-  }
+  return sceneChanges.subscribe((change) => {
+    if (change === 'textures' || change === 'probe') listener(change)
+  })
 }
+/** Reported through the viewer, whose render loop redraws (and converges) for it. */
 function changed(change: MaterialChange) {
-  changeListeners.forEach((listener) => listener(change))
+  sceneChanges.notify(change)
 }
 
 /**
@@ -406,10 +425,7 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
       })
     }
   }
-  if (spec.interior) {
-    interiorMaterials.add(m)
-    if (interiorEnvironment) m.envNode = interiorEnvironment
-  }
+  if (spec.interior) m.envNode = interiorEnvironmentNode()
   if (spec.set) {
     let list = libraryUsers.get(spec.set)
     if (!list) libraryUsers.set(spec.set, (list = []))
@@ -475,16 +491,8 @@ export async function upgradeLiveTextures(
 
 /** Point every interior material at the latest captured interior radiance probe. */
 export function setInteriorEnvironment(texture: Texture | null) {
-  if (texture && interiorEnvironment) {
-    interiorEnvironment.value = texture
-  } else if (texture !== null || interiorEnvironment !== null) {
-    // Adding or removing the probe changes the shader: rebuild once.
-    interiorEnvironment = texture ? pmremTexture(texture) : null
-    interiorMaterials.forEach((m) => {
-      m.envNode = interiorEnvironment
-      m.needsUpdate = true
-    })
-  }
+  // A value swap: same shader for the placeholder and every capture.
+  if (interiorEnvironment) interiorEnvironment.value = texture ?? placeholderEnvironment!
   changed('probe')
 }
 

@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import type { Material, Mesh } from 'three/webgpu'
 import { onMaterialsChanged, upgradeLiveTextures } from '../render/materials'
-import { sceneProgress } from '../render/progress'
-import { whenIdle } from '../lib/idle'
+import { sceneProgress, whenIdle } from '@fury/viewer360'
+import { useTier } from '@fury/viewer360/3d'
 
 const idle = (callback: () => void) => whenIdle(callback, 3000)
 
@@ -19,12 +19,14 @@ function canUpgrade() {
 /**
  * In the 360 view, once the scene has drawn and the page is idle, swaps the live view's 1K
  * copies for the full 2K scans. Sets that load later (another floor, other surroundings) are
- * upgraded on a later idle moment. Never on Lite, which keeps the lighter maps.
+ * upgraded on a later idle moment. Only on a tier that asks for full textures (Ultra, which a
+ * device reaches by proving fast); every other tier keeps the lighter maps.
  */
 export function TextureUpgrade({ enabled }: { enabled: boolean }) {
   const scene = useThree((state) => state.scene)
+  const full = useTier().spec.textures === 'full'
   useEffect(() => {
-    if (!enabled || !canUpgrade()) return
+    if (!enabled || !full || !canUpgrade()) return
     let cancelled = false,
       running = false,
       again = false
@@ -63,6 +65,6 @@ export function TextureUpgrade({ enabled }: { enabled: boolean }) {
       cancelStart()
       stop()
     }
-  }, [enabled, scene])
+  }, [enabled, full, scene])
   return null
 }

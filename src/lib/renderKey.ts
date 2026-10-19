@@ -10,7 +10,7 @@ export const RENDERER_ID = 'webgpu-three-r186'
  * Bump on any change to how the scene looks (geometry, materials, lighting, post-processing,
  * textures). CI's scene-version guard fails when render code changes without a bump.
  */
-export const SCENE_VERSION = 1
+export const SCENE_VERSION = 2
 
 /** JSON with object keys sorted at every level, so key order never changes a hash. */
 export function canonicalJson(value: unknown): string {

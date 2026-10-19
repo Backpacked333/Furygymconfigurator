@@ -14,6 +14,7 @@ const RECORD = join(root, 'render/scene-version.json')
 const INPUTS = [
   'src/render',
   'src/render-harness',
+  'src/viewer',
   'src/components/Atmosphere.tsx',
   'src/components/Equipment.tsx',
   'src/components/InteriorLights.tsx',

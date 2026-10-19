@@ -37,7 +37,7 @@ import {
   type PackageId,
   type Unit,
 } from '../lib/config'
-import { QUALITY_DETAILS, type Quality } from '../render/quality'
+import { QUALITY_DETAILS, type Quality } from '@fury/viewer360'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,

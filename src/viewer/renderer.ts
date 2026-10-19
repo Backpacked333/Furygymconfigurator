@@ -107,3 +107,26 @@ export async function createRenderer(canvas: HTMLCanvasElement) {
 export function backendOf(renderer: WebGPURenderer): Backend {
   return (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'webgpu' : 'webgl2'
 }
+
+/**
+ * A stable name for this device's GPU, used to remember the tier it settled on. WebGPU reports
+ * vendor and architecture; WebGL the unmasked renderer string where the browser exposes it.
+ */
+export function gpuKey(renderer: WebGPURenderer): string {
+  const backend = renderer.backend as {
+    isWebGPUBackend?: boolean
+    device?: { adapterInfo?: { vendor?: string; architecture?: string; device?: string } }
+    gl?: WebGL2RenderingContext
+  }
+  try {
+    if (backend.isWebGPUBackend) {
+      const info = backend.device?.adapterInfo
+      return `webgpu:${info?.vendor ?? ''}:${info?.architecture ?? ''}:${info?.device ?? ''}`
+    }
+    const gl = backend.gl
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info')
+    return `webgl:${ext && gl ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''}`
+  } catch {
+    return 'unknown'
+  }
+}

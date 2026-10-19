@@ -60,12 +60,20 @@ import { CAMERA_PRESETS, type AngleId } from './lib/cameras'
 import { prefetchChoice, stillImage, useStillsMode } from './lib/stillImages'
 import { useShareFragment } from './lib/useShareFragment'
 import { useStagedScene } from './lib/useStagedScene'
-import { whenIdle } from './lib/idle'
 import { productFamily } from './lib/products'
-import { defaultQuality, type Backend, type Quality } from './render/quality'
-import { sceneProgress, textureProgress } from './render/progress'
+import {
+  PerfHud,
+  preloadViewer,
+  sceneProgress,
+  textureProgress,
+  useAdaptiveQuality,
+  whenIdle,
+  type Backend,
+  type QualityChange,
+} from '@fury/viewer360'
 
-const Scene = lazy(() => import('./components/Scene'))
+const loadScene = () => import('./components/Scene')
+const Scene = lazy(loadScene)
 type Mode = 'stills' | '360' | 'plan'
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
 
@@ -76,10 +84,7 @@ export default function App() {
     [angle, setAngle] = useState<AngleId>('hero'),
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
-    [quality, setQuality] = useState<Quality>(() => defaultQuality()),
     [backend, setBackend] = useState<Backend | null>(null)
-  // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
-  const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
   const [dialog, setDialog] = useState<Dialog>(null),
     [toast, setToast] = useState(initialNotice),
     [reset, setReset] = useState(0)
@@ -93,18 +98,23 @@ export default function App() {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setToast(''), 6500)
   }, [])
-  const chooseQuality = useCallback((next: Quality) => {
-    qualityChosen.current = true
-    setQuality(next)
-  }, [])
-  const onSlow = useCallback(() => {
-    if (qualityChosen.current || quality === 'lite') return
-    const next = quality === 'ultra' ? 'high' : 'lite'
-    setQuality(next)
-    notify(
-      `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
-    )
-  }, [quality, notify])
+  // The tier follows the device, then what it measures; a choice in the panel is final.
+  const onQualityChange = useCallback(
+    ({ to, reason }: QualityChange) => {
+      if (reason === 'slow')
+        notify(
+          `Switched to ${to === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
+        )
+    },
+    [notify],
+  )
+  const {
+    quality,
+    choose: chooseQuality,
+    identify: onGpu,
+    verdict: onVerdict,
+    promote,
+  } = useAdaptiveQuality(onQualityChange)
   const onCaptureReady = useCallback((capture: (() => string) | null) => {
     captureRef.current = capture
   }, [])
@@ -123,6 +133,8 @@ export default function App() {
   const [sceneMounted, setSceneMounted] = useState(sceneWanted)
   if (sceneWanted && !sceneMounted) setSceneMounted(true)
   const onStillShown = useCallback(() => {
+    // The 3D code downloads once the first still is up, so entering 360 never waits on it.
+    preloadViewer(loadScene)
     if (warm || !canWarmUp()) return
     whenIdle(() => setWarm(true))
   }, [warm])
@@ -314,7 +326,9 @@ export default function App() {
                     onCaptureReady={onCaptureReady}
                     onFallback={onSceneFailed}
                     onBackend={setBackend}
-                    onSlow={onSlow}
+                    onGpu={onGpu}
+                    onVerdict={onVerdict}
+                    promote={promote}
                     onUnavailable={onSceneUnavailable}
                   />
                 </Suspense>
@@ -442,6 +456,7 @@ export default function App() {
             </div>
           )}
           {mode !== 'plan' && !showImages && <SceneActivity updating={staged.updating} />}
+          <PerfHud />
           {mode === '360' && showImages && (
             <div className="scene-activity" role="status">
               <i className="activity-spinner" aria-hidden="true" />

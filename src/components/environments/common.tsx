@@ -27,8 +27,8 @@ import { box, cylinder, mergeGeometries } from '../../render/geometry'
 import { DENSITY } from './layout'
 import { material, textureMaps, type TextureSet } from '../../render/materials'
 import { part, type Part } from '../../render/parts'
-import type { Quality } from '../../render/quality'
-import { sceneWork } from '../../render/progress'
+import type { Quality } from '@fury/viewer360'
+import { sceneWork } from '@fury/viewer360'
 import {
   grassBlade,
   grassMaterial,
@@ -186,6 +186,7 @@ export const Tree = memo(function Tree({
         args={[card, leaves, shape.leaves.length]}
         castShadow
         receiveShadow
+        userData={{ noProbe: true }}
       />
     </group>
   )
@@ -273,6 +274,8 @@ export function Tufts({
   variant = 0,
   colors,
   shadow,
+  receiveShadow = true,
+  segments = 5,
 }: {
   count: number
   blades: number
@@ -281,12 +284,21 @@ export function Tufts({
   place: (i: number, variant: number) => [number, number] | null
   variant?: number
   colors: [string, string]
+  /** Whether the clumps cast shadows (each caster redraws with every shadow map update). */
   shadow: boolean
+  receiveShadow?: boolean
+  /** Segments per blade: short lawn blades need few to look curved. */
+  segments?: number
 }) {
   const geometry = useMemo(() => {
     const parts: BufferGeometry[] = []
     for (let b = 0; b < blades; b++) {
-      const g = grassBlade(height * (0.65 + noise(b, 91) * 0.5), bend * (0.6 + noise(b, 92) * 0.8))
+      const g = grassBlade(
+        height * (0.65 + noise(b, 91) * 0.5),
+        bend * (0.6 + noise(b, 92) * 0.8),
+        undefined,
+        segments,
+      )
       g.rotateY((b / blades) * Math.PI * 2 + noise(b, 93))
       g.translate((noise(b, 94) - 0.5) * 0.12, 0, (noise(b, 95) - 0.5) * 0.12)
       parts.push(g.toNonIndexed())
@@ -294,7 +306,7 @@ export function Tufts({
     const merged = mergeGeometries(parts)
     merged.computeVertexNormals()
     return merged
-  }, [blades, height, bend])
+  }, [blades, height, bend, segments])
   const grass = useMemo(() => grassMaterial(colors[0], colors[1]), [colors])
   // Grass materials are shared for the session; only the geometry belongs to this clump.
   useEffect(() => () => geometry.dispose(), [geometry])
@@ -327,7 +339,7 @@ export function Tufts({
       ref={mesh}
       args={[geometry, grass, Math.max(1, count)]}
       castShadow={shadow}
-      receiveShadow
+      receiveShadow={receiveShadow}
       userData={{ noProbe: true }}
     />
   )

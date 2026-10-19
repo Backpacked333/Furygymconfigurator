@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { sceneProgress, type ScenePhase } from '../render/progress'
+import { sceneProgress, type ScenePhase } from '@fury/viewer360'
 
 const STEPS: { phase: Exclude<ScenePhase, 'ready'>; label: string }[] = [
   { phase: 'engine', label: 'Downloading the 3D engine' },

@@ -11,7 +11,7 @@ vi.mock('@react-three/fiber', () => ({
     selector({ invalidate, scene }),
 }))
 const { invalidateShadows } = vi.hoisted(() => ({ invalidateShadows: vi.fn() }))
-vi.mock('../render/shadows', () => ({ invalidateShadows }))
+vi.mock('@fury/viewer360/3d', () => ({ invalidateShadows }))
 
 describe('on-demand scene redraw', () => {
   let container: HTMLDivElement

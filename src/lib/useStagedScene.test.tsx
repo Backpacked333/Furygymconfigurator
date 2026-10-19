@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG, type Config } from './config'
 import { useStagedScene } from './useStagedScene'
-import { sceneProgress } from '../render/progress'
-import type { Quality } from '../render/quality'
+import { sceneProgress } from '@fury/viewer360'
+import type { Quality } from '@fury/viewer360'
 
 let seen: ReturnType<typeof useStagedScene>
 function Probe({ config, quality }: { config: Config; quality: Quality }) {
