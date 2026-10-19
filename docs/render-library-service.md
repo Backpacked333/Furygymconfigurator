@@ -11,7 +11,7 @@ register a recipe, enable rendering, approve spend, run migrations or start the 
 
 The integration includes the following shared-package/config changes:
 
-1. **`sharp: "0.34.5"`** is a locked production dependency. Include its
+1. **`sharp: "0.35.5"`** is a locked production dependency. Include its
    Linux native/optional dependencies in the Vercel installation; it is not a browser dependency.
 2. `api` is included in `tsconfig.json`'s checked sources. Server tests also import all handlers.
 3. Existing static asset headers in `vercel.json` are preserved alongside:
