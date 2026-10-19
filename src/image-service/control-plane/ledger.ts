@@ -307,7 +307,7 @@ export class SqliteLedger implements Ledger {
       opened = new DatabaseSync(this.path)
       this.db = opened
       opened.exec(
-        'PRAGMA busy_timeout=50; PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;',
+        'PRAGMA busy_timeout=250; PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;',
       )
       // No WAL readers holding obsolete checkpoints; DELETE journal commits are FULL-synchronous.
       const journal = opened.prepare('PRAGMA journal_mode=DELETE').get()
