@@ -10,6 +10,7 @@ import { STRICT_REFERENCE_SETTINGS } from '../strictReference'
 import { P03_EXECUTION_POLICY } from '../p03Contract'
 import { TEXTURE_SETS, type TextureSet } from '../../textureSets'
 import type { MaterialSpec } from '../../materials'
+import type { resolvePrivateThreeCamera } from '../privateScene'
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url))
 const hex = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
@@ -67,7 +68,10 @@ export function worldGeometry(source: BufferGeometry, matrix: Matrix4): Buffer {
   }
 }
 
-export function compileCyclesConstruction(design: unknown) {
+export function compileCyclesConstruction(
+  design: unknown,
+  cameraOverride?: ReturnType<typeof resolvePrivateThreeCamera>,
+) {
   const prepared = preparePrototypeScene(design)
   const blobs = new Map<string, { bytes: Buffer; kind: 'geometry' | 'texture' }>()
   const add = (bytes: Buffer, kind: 'geometry' | 'texture') => {
@@ -154,7 +158,7 @@ export function compileCyclesConstruction(design: unknown) {
       matrix: identity,
       materials: [prepared.manifest.instances[i].materialId],
     }))
-    const camera = prepared.manifest.rendererInput.camera
+    const camera = cameraOverride ?? prepared.manifest.rendererInput.camera
     const pose = new PerspectiveCamera(camera.fov)
     pose.position.fromArray(camera.position)
     pose.up.fromArray(camera.up)

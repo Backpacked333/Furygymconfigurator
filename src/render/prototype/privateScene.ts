@@ -11,6 +11,20 @@ export function resolvePrivateThreeCamera(input: unknown) {
   const design = parseDesign(input)
   const config = projectDesignToConfig(design)
   const selected = resolveCamera(design.presentation.cameraRef)
+  return {
+    ...galleryCamera(config, selected.previewAngle, design.presentation.aspect),
+    up: [0, 1, 0] as [0, 1, 0],
+    near: 0.1 as const,
+    far: 2000 as const,
+    units: 'feet' as const,
+  }
+}
+
+/** Native release 2 is independent of the historical G1/private-Three camera contract. */
+export function resolveNativeCamera(input: unknown) {
+  const design = parseDesign(input)
+  const config = projectDesignToConfig(design)
+  const selected = resolveCamera(design.presentation.cameraRef)
   let camera = galleryCamera(config, selected.previewAngle, design.presentation.aspect)
   if (selected.ref === 'entry-draft@1') {
     const bounds = interiorBounds(config)
@@ -30,11 +44,8 @@ export function resolvePrivateThreeCamera(input: unknown) {
     camera = candidates.sort((a, b) => score(b) - score(a))[0]
   }
   return {
+    ...resolvePrivateThreeCamera(design),
     ...camera,
-    up: [0, 1, 0] as [0, 1, 0],
-    near: 0.1 as const,
-    far: 2000 as const,
-    units: 'feet' as const,
   }
 }
 

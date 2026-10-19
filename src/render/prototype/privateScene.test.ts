@@ -3,7 +3,7 @@ import { defaultDesign, parseDesign, projectDesignToConfig } from '../../domain/
 import { CUSTOMER_CAMERA_REFS } from '../../domain/presentation'
 import { interiorBounds } from '../envelope'
 import { galleryCamera } from '../gallery'
-import { resolvePrivateThreeCamera } from './privateScene'
+import { resolveNativeCamera } from './privateScene'
 
 describe('native room-overview camera', () => {
   it.each([
@@ -19,7 +19,7 @@ describe('native room-overview camera', () => {
         presentation: { ...base.presentation, aspect, cameraRef: 'entry-draft@1' },
       })
       const bounds = interiorBounds(projectDesignToConfig(design))
-      const camera = resolvePrivateThreeCamera(design)
+      const camera = resolveNativeCamera(design)
       expect(Math.abs(camera.position[0])).toBeGreaterThan(bounds.halfWidth * 0.9)
       expect(Math.abs(camera.position[0])).toBeLessThan(bounds.halfWidth)
       expect(camera.position[1]).toBeLessThan(bounds.ceiling)
@@ -36,7 +36,7 @@ describe('native room-overview camera', () => {
       const design = parseDesign({ ...base, presentation: { ...base.presentation, cameraRef } })
       const angle = cameraRef.replace('-draft@1', '') as
         'front-left' | 'front' | 'left' | 'rear-left'
-      expect(resolvePrivateThreeCamera(design)).toMatchObject(
+      expect(resolveNativeCamera(design)).toMatchObject(
         galleryCamera(projectDesignToConfig(design), angle, design.presentation.aspect),
       )
     }

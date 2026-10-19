@@ -18,6 +18,7 @@ import {
 import { verifyWorkerClaim } from '../src/render-library/server/validation'
 import { IMAGE_DIMENSIONS } from '../src/render-library/contracts'
 import { nativeScenery } from './native-render-scenery'
+import { resolveNativeCamera } from '../src/render/prototype/privateScene'
 
 const hash = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex')
 export async function prepareNativeClaim(
@@ -160,7 +161,7 @@ export async function prepareNativeClaim(
       ...claim.design,
       presentation: { ...claim.design.presentation, cameraRef: view.cameraRef },
     })
-    const compiled = compileCyclesConstruction(design)
+    const compiled = compileCyclesConstruction(design, resolveNativeCamera(design))
     for (const [key, blob] of compiled.blobs) nativeBlobs.set(key, blob.bytes)
     const { width, height } = IMAGE_DIMENSIONS[design.presentation.aspect]
     const scene = {
