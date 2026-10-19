@@ -172,6 +172,66 @@ it('skips the crossfade for reduced motion and does not hold a redundant lease',
     h.close()
   }
 })
+
+it('does not cut a cached-image fade short when the background set lookup finishes', async () => {
+  vi.useFakeTimers()
+  calls.library.mockReturnValue({ checking: true, snapshot: null })
+  calls.find.mockImplementation((design: DesignEnvelope) => ({ design, imageSha256: 'verified' }))
+  const release = vi.fn()
+  calls.decode
+    .mockResolvedValueOnce({ src: 'blob:a', release })
+    .mockResolvedValueOnce({ src: 'blob:b', release: vi.fn() })
+  const h = harness(),
+    b = defaultDesign({ family: 'container', lengthFt: 40 })
+  try {
+    await h.render(defaultDesign())
+    await h.render(b)
+    expect(h.image.previous?.src).toBe('blob:a')
+    calls.library.mockReturnValue({
+      checking: false,
+      snapshot: {
+        views: [
+          { cameraRef: b.presentation.cameraRef, status: 'ready', image: { sha256: 'verified' } },
+        ],
+      },
+    })
+    await h.render(b)
+    expect(h.image.previous?.src).toBe('blob:a')
+    expect(h.image.current).toBe(true)
+    expect(calls.decode).toHaveBeenCalledTimes(2)
+    expect(calls.dynamic).not.toHaveBeenCalled()
+    expect(release).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(550))
+    expect(release).toHaveBeenCalledTimes(1)
+  } finally {
+    h.close()
+  }
+})
+
+it('shows the assembly state rather than a substitute image while a new view is GPU rendering', async () => {
+  const release = vi.fn()
+  calls.decode.mockResolvedValueOnce({ src: 'blob:a', release })
+  const h = harness(),
+    b = defaultDesign({ family: 'container', lengthFt: 40 })
+  try {
+    await h.render(defaultDesign())
+    calls.find.mockReturnValue(undefined)
+    calls.library.mockReturnValue({
+      checking: false,
+      snapshot: {
+        job: { stage: 'rendering' },
+        views: [{ cameraRef: b.presentation.cameraRef, status: 'pending' }],
+      },
+    })
+    await h.render(b)
+    expect(h.image.shown).toBeNull()
+    expect(h.image.current).toBe(false)
+    expect(h.image.library.snapshot?.job?.stage).toBe('rendering')
+    expect(release).toHaveBeenCalledTimes(1)
+  } finally {
+    h.close()
+  }
+})
 it('does not reload a verified image when an equivalent design object is reconstructed', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   const release = vi.fn()

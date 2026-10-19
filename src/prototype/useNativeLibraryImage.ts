@@ -61,6 +61,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
   if (selection.key !== key) setSelection({ key, generation: selection.generation + 1 })
   const { generation } = selection
   const active = useRef(0)
+  const delivered = useRef<{ generation: number; attempt: number } | null>(null)
   const held = useRef<{ shown: ShownImage | null; previous: ShownImage | null }>({
     shown: null,
     previous: null,
@@ -92,11 +93,22 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     const design = parseDesign(JSON.parse(key))
     const token = ++active.current
     const controller = new AbortController()
+    const descriptor = dynamicRef.current
+    const artifact = held.current.shown?.reply.artifact
+    const shownHash = artifact && ('sha256' in artifact ? artifact.sha256 : artifact.imageSha256)
+    if (
+      delivered.current?.generation === generation &&
+      delivered.current.attempt === attempt &&
+      held.current.shown?.key === key &&
+      (!descriptor || descriptor.sha256 === shownHash)
+    )
+      return
     const update = (progress: NativeProgress, release: () => void = () => {}) => {
       if (active.current !== token || controller.signal.aborted) {
         release()
         return
       }
+      delivered.current = progress.state === 'ready' ? { generation, attempt } : null
       clearTimeout(fadeTimer.current)
       const retained = held.current
       retained.previous?.release()
@@ -129,7 +141,6 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     }
     update({ state: 'pending' })
     void (async () => {
-      const descriptor = dynamicRef.current
       if (descriptor) {
         const decoded = await decodeLibraryImage(descriptor, design, controller.signal)
         if (controller.signal.aborted) {
