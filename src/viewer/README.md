@@ -17,14 +17,14 @@ The aliases are set in `vite.config.ts` and `tsconfig.json`. ESLint stops anythi
 
 - **The tier follows the device, not the screen** (`quality.ts`, `governor.ts`, `useAdaptiveQuality.ts`).
   - Lite on touch devices, ≤ 4 GB memory, ≤ 4 cores or Save-Data. High elsewhere. Ultra is never the default.
-  - The governor watches real frames: motion frames slower than about 22 ms, or slow settles, step the tier down. A High device whose motion frames take under 9 ms and settled frames under 10 ms is promoted to Ultra once.
+  - The governor watches real frames: Ultra steps down when motion frames take over about 22 ms, and High when they take over about 40 ms (real stutter, not a 30 fps power-saving cap). A product can let a fast High device be promoted to Ultra (`promote`). Fury doesn't, because Ultra's extra passes compile every shader again.
   - The decision is remembered per GPU in localStorage. A user's choice, or `?quality=`, is never overridden.
 - **Moving is always cheap** (`RenderLoop.tsx`, `pipeline.ts`).
-  - While the camera moves (drag, damping, auto-rotate, transitions), a one-pass motion pipeline draws: native pixel ratio, 2× MSAA. Its cost barely depends on the tier.
+  - On Ultra, while the camera moves (drag, damping, auto-rotate, transitions), a one-pass motion pipeline draws at native pixel ratio with 2× MSAA.
   - The tier's full pipeline (AO, TRAA, bloom, plus GI on Ultra) takes over 120 ms after the camera stops.
   - Planar reflections and similar extras hold their last picture during motion frames (`viewerMotion`).
 - **Converging is short and never restarts for nothing** (`convergence.ts`).
-  - High settles in 14 frames, Ultra in 20.
+  - High and Lite are single-pass tiers: one frame per change, and the same pipeline while moving, so every shader compiles once. Ultra settles in 20 frames.
   - Textures, probe captures and environment maps arriving mid-settle extend the current run instead of restarting it.
 - **Shadows are drawn once per change, never per frame** (`shadows.ts`). Content calls `invalidateShadows(scene)` when casters or lights change.
 - **Light probes are cheap** (`CubeProbe.tsx`).
@@ -33,7 +33,7 @@ The aliases are set in `vite.config.ts` and `tsconfig.json`. ESLint stops anythi
 - **Content scales with the tier.** `useTier().spec` carries `density`, `shadowMapSize`, `probe`, `environmentSize` and `textures` (see `tiers.ts`), so the product's grass, foliage and texture sizes scale with the renderer.
 - **First load.** `preloadViewer(load)` fetches the 3D chunk once the page has painted (in Fury, after the first still is shown), so entering 3D never waits on a download.
 - **Reliability.**
-  - `<Viewer>` rebuilds the renderer after a lost GPU device, up to 3 times. After that, or when no 3D backend exists, it shows `fallback` and calls `onUnavailable`.
+  - `<Viewer>` rebuilds the renderer on WebGL 2 after a lost GPU device, up to 3 times. After that, or when no 3D backend exists, it shows `fallback` and calls `onUnavailable`.
   - The idle requestAnimationFrame loop of WebGPURenderer is stopped, so an idle page draws nothing.
 
 ## Using it

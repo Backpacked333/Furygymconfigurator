@@ -4,8 +4,8 @@ import type { Quality } from './quality'
  * Picks the tier a device can sustain from the frames it actually draws. Pure: fed frame
  * intervals, answers with a verdict, so the policy is unit-tested without a GPU.
  *
- * - Motion frames (drawn while the camera moves) decide smoothness: when even the light motion
- *   pipeline misses ~45 fps, the tier steps down.
+ * - Motion frames (drawn while the camera moves) decide smoothness: when they miss the tier's
+ *   budget, the tier steps down.
  * - Rest frames (the settle run after the camera stops) decide how long the picture takes to
  *   sharpen: slow ones step down too.
  * - A High device that draws both comfortably fast is promoted to Ultra, once.
@@ -15,7 +15,9 @@ export type Verdict = 'promote' | 'demote' | null
 
 /** Median interval (ms) above which a tier counts as too heavy. */
 export const DEMOTE_ABOVE: Record<FrameKind, Record<Quality, number>> = {
-  motion: { ultra: 22, high: 22, lite: Infinity },
+  // Ultra steps down to the cheap single-pass High as soon as motion misses ~45 fps; High only
+  // when it is really stuttering (~25 fps), not because a browser caps frames at 30 to save power.
+  motion: { ultra: 22, high: 40, lite: Infinity },
   rest: { ultra: 30, high: 34, lite: Infinity },
 }
 /** High is promoted when its rest and motion medians are both under these. */

@@ -113,7 +113,6 @@ export default function App() {
     choose: chooseQuality,
     identify: onGpu,
     verdict: onVerdict,
-    promote,
   } = useAdaptiveQuality(onQualityChange)
   const onCaptureReady = useCallback((capture: (() => string) | null) => {
     captureRef.current = capture
@@ -328,7 +327,6 @@ export default function App() {
                     onBackend={setBackend}
                     onGpu={onGpu}
                     onVerdict={onVerdict}
-                    promote={promote}
                     onUnavailable={onSceneUnavailable}
                   />
                 </Suspense>

@@ -18,7 +18,6 @@ import { Landscape } from './Landscape'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
-import { Prewarm } from './Prewarm'
 import { TextureUpgrade } from './TextureUpgrade'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
 import { SceneLoadingStatus } from './SceneLoading'
@@ -168,7 +167,6 @@ export default memo(function Scene({
           label={LABEL}
         />
         <InteriorProbe config={config} />
-        <Prewarm config={config} />
         <TextureUpgrade enabled={interactive} />
         <RenderLoop
           quality={quality}

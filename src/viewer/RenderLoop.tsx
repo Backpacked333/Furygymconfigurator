@@ -188,7 +188,10 @@ export function RenderLoop({
     sceneProgress.drawn()
     const more = c.drawn()
     if (more) invalidate()
-    measure('rest', eventful || compiles, more)
+    // A single-pass tier draws motion with its own pipeline: frames while the camera moves are
+    // motion frames for the governor, and the controls keep requesting them back to back.
+    const moving = now - lastMove.current < REFINE_AFTER_MS
+    measure(moving ? 'motion' : 'rest', eventful || compiles, more || moving)
   }, 1)
   return null
 }

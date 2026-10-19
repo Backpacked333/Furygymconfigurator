@@ -55,7 +55,7 @@ export function isConstrained(d: DeviceSignals) {
 
 /**
  * Starting tier: `?quality=` wins, otherwise the device decides, never the screen size. Ultra is
- * never a starting tier: a device earns it by drawing High quickly (see governor.ts).
+ * never a starting tier: it is chosen, or (where a product allows it) earned (see governor.ts).
  */
 export function defaultQuality(
   device: DeviceSignals = readDeviceSignals(),
@@ -65,7 +65,8 @@ export function defaultQuality(
 }
 
 export const QUALITY_DETAILS: Record<Quality, string> = {
-  ultra: 'Screen-space global illumination, ambient occlusion, temporal anti-aliasing, bloom.',
-  high: 'Ambient occlusion, temporal anti-aliasing, and bloom.',
-  lite: 'Multisampled direct rendering for older or battery-powered devices.',
+  ultra:
+    'Ambient occlusion, global illumination, temporal anti-aliasing and bloom. Heavier to load and draw: for fast graphics cards.',
+  high: 'Sharp multisampled rendering at up to 1.5× pixel density. Fast on any laptop or desktop.',
+  lite: 'Multisampled rendering at native resolution, for phones, tablets and older devices.',
 }

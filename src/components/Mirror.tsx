@@ -10,8 +10,9 @@ type MirrorSurface = {
 }
 
 /**
- * Silvered glass. High and Ultra render a true planar reflection of the live scene (held still
- * while the camera moves); Lite falls back to a polished metal surface lit by the interior probe.
+ * Silvered glass. Ultra renders a true planar reflection of the live scene (held still while the
+ * camera moves): a second full scene render, with its own shaders. High and Lite use a polished
+ * metal surface lit by the interior probe, which costs nothing extra.
  */
 export function Mirror({
   width,
@@ -23,11 +24,11 @@ export function Mirror({
   quality: Quality
 }) {
   const surface = useResource<MirrorSurface>(() => {
-    if (quality === 'lite') {
+    if (quality !== 'ultra') {
       const m = new MeshStandardMaterial({ color: '#c9d1cc', metalness: 1, roughness: 0.04 })
       return { material: m, target: null, dispose: () => m.dispose() }
     }
-    const reflection = reflector({ resolutionScale: quality === 'ultra' ? 0.75 : 0.5 })
+    const reflection = reflector({ resolutionScale: 0.75 })
     // A reflection redraws the whole scene. While the camera moves it keeps its last picture,
     // which halves the cost of a drag past the mirror; it catches up on the first frame at rest.
     const base = reflection.reflector as unknown as { updateBefore: (frame: unknown) => unknown }

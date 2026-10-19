@@ -45,8 +45,8 @@ export function TierProvider({
 /**
  * The canvas: a WebGPU renderer (WebGL 2 fallback) at the tier's pixel ratio, rendering on demand
  * and only while `active`. A lost GPU device (driver reset, GPU process crash, the OS reclaiming
- * memory) rebuilds the renderer a few times per session; past that, or when no 3D backend exists
- * at all, `fallback` shows and `onUnavailable` fires.
+ * memory) rebuilds the renderer on WebGL 2, a few times per session; past that, or when no 3D
+ * backend exists at all, `fallback` shows and `onUnavailable` fires.
  */
 export function Viewer({
   active = true,
@@ -122,15 +122,19 @@ export function Viewer({
             }
             // R3F renders nothing until this factory resolves.
             const [renderer] = await Promise.all([
-              createRenderer(canvas as HTMLCanvasElement).then((renderer) => {
-                // Watch for loss as soon as the renderer exists, not after the product's setup.
-                const report = renderer.onDeviceLost
-                renderer.onDeviceLost = (info) => {
-                  report.call(renderer, info)
-                  rebuild()
-                }
-                return renderer
-              }),
+              // After a lost device, rebuild on WebGL 2: a WebGPU device that was lost once (a driver
+              // reset, the browser reclaiming memory) tends to be lost again.
+              createRenderer(canvas as HTMLCanvasElement, { forceWebGL: generation > 0 }).then(
+                (renderer) => {
+                  // Watch for loss as soon as the renderer exists, not after the product's setup.
+                  const report = renderer.onDeviceLost
+                  renderer.onDeviceLost = (info) => {
+                    report.call(renderer, info)
+                    rebuild()
+                  }
+                  return renderer
+                },
+              ),
               prepare?.(),
             ])
             // Lost while it was still being set up, before anything listened.

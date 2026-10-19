@@ -84,15 +84,16 @@ export function shareInstancedShaders(renderer: WebGPURenderer) {
 /**
  * One renderer for both GPU APIs: three's WebGPURenderer runs natively on WebGPU and falls back
  * to its WebGL 2 backend automatically, so every material and post effect is authored once in TSL.
+ * `forceWebGL` skips WebGPU, the more robust choice after a WebGPU device was lost.
  */
-export async function createRenderer(canvas: HTMLCanvasElement) {
+export async function createRenderer(canvas: HTMLCanvasElement, { forceWebGL = false } = {}) {
   installTextureViewShim()
   const renderer = new WebGPURenderer({
     canvas,
     antialias: false,
     alpha: false,
     powerPreference: 'high-performance',
-    forceWebGL: requestedBackend() === 'webgl2',
+    forceWebGL: forceWebGL || requestedBackend() === 'webgl2',
   })
   await renderer.init()
   stopIdleLoop(renderer)

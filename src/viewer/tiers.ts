@@ -42,12 +42,14 @@ export const TIERS: Record<Quality, TierSpec> = {
     textures: 'live',
     density: 0.25,
   },
+  // One forward pass, like Lite, at a sharper pixel ratio: every shader compiles once, and the
+  // same pass draws while moving, so there is never a second compile on the first drag.
   high: {
-    dpr: 1.25,
-    motion: { dpr: 1, samples: 2 },
+    dpr: 1.5,
+    motion: { dpr: 1, samples: 4 },
     samples: 4,
-    settleFrames: 14,
-    ao: { samples: 16 },
+    settleFrames: 1,
+    ao: null,
     gi: null,
     shadowMapSize: 2048,
     probe: { size: 128, passes: 1 },
@@ -55,6 +57,8 @@ export const TIERS: Record<Quality, TierSpec> = {
     textures: 'live',
     density: 0.6,
   },
+  // The full post-processing pipeline: a depth/normal pre-pass, AO, bloom, temporal AA and GI.
+  // Each pass compiles the scene's shaders again, so it is opt-in (and what stills render with).
   ultra: {
     dpr: 1.5,
     motion: { dpr: 1, samples: 2 },

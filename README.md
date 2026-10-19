@@ -86,8 +86,7 @@ src/
     Landscape.tsx             Courtyard, studio floor, and the switch between surroundings
     environments/             Backyard and rooftop settings; shared ground, trees, hedge, grass
     stills/                   Still stage (stacked layers, decode-then-fade) and angle strip
-    Prewarm.tsx               Compiles unchosen items, finishes and floors, one group per idle frame
-    Mirror.tsx                Planar reflector (High/Ultra, held during motion) or probe-lit metal
+    Mirror.tsx                Planar reflector (Ultra, held during motion) or probe-lit metal
     Parts.tsx                 Renders a part list as merged, per-material meshes
     FloorPlan.tsx             Read-only SVG floor plan of the chosen package
     Dialogs.tsx               Saved comparisons, quote checklist, sharing, brief form
@@ -162,22 +161,25 @@ The scene renders with three.js r186's `WebGPURenderer`. It runs natively on Web
 
 The live view is built on **viewer360** (`src/viewer/`), a product-agnostic framework that other products can import. See [its README](src/viewer/README.md).
 
-| Tier  | Pipeline at rest                                                                                                                | While moving                     |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Ultra | High plus screen-space global illumination (one diffuse bounce of on-screen light), pixel ratio up to 1.5                       | One pass, native pixels, 2× MSAA |
-| High  | Depth/normal/velocity pre-pass, GTAO applied only to ambient light, emissive bloom, temporal AA, 2048-pixel sun shadows, ≤1.25× | One pass, native pixels, 2× MSAA |
-| Lite  | One 4× MSAA pass at native pixels, 1024-pixel sun shadows, probe-lit mirror, a quarter of the grass                             | The same pass                    |
+| Tier  | Pipeline                                                                                                                                 | While moving                     |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Ultra | Depth/normal/velocity pre-pass, GTAO on ambient light, bloom, temporal AA, screen-space GI, planar mirror, pixel ratio up to 1.5. Opt-in | One pass, native pixels, 2× MSAA |
+| High  | One 4× MSAA pass at up to 1.5× pixel ratio, 2048-pixel sun shadows, probe-lit mirror. Every shader compiles once                         | The same pass                    |
+| Lite  | One 4× MSAA pass at native pixels, 1024-pixel sun shadows, a quarter of the grass                                                        | The same pass                    |
+
+Each extra pass compiles every shader in the scene again. That repeated compiling, not drawing, was what froze loading and the first drag, so the default tiers use a single pass. Ultra's full pipeline is there for fast graphics cards and is what the pre-rendered stills use.
 
 **Choosing the tier:**
 
 - The tier follows the device, not the screen. Phones, tablets, and machines with 4 GB of memory or 4 cores or fewer start on Lite; everything else starts on High.
-- The frame-time governor steps a device down when its motion frames or settles are slow, and says so. It promotes a fast High device to Ultra once.
+- The frame-time governor steps a device down when its frames are really slow, and says so. Ultra is only ever chosen in the panel; it is never switched on automatically.
 - The decision is remembered per GPU. A tier chosen in the panel, or set with `?quality=`, is never overridden.
 
 **Rendering is on demand.**
 
 - While the camera moves, the light motion pipeline draws.
-- 120 ms after it stops, the tier's pipeline converges in 14 frames (High) or 20 (Ultra), then stops.
+- High and Lite draw one frame per change.
+- On Ultra, the full pipeline takes over 120 ms after the camera stops and converges in 20 frames.
 - Late textures and probe captures extend that run instead of restarting it.
 
 `?debug=perf` shows the tier, frame times, triangle counts, and governor decisions.
@@ -187,7 +189,7 @@ Lighting:
 - **Surroundings:** a walled courtyard, a suburban backyard (cedar fence, patio, the house beyond with lit windows at night), an urban rooftop terrace (parapet and glass rail, plant, planters, and instanced towers whose windows light up at night), or a photo-studio floor.
 - **Sky and sun:** a Preetham daylight sky with clouds is both the visible background and the image-based lighting (captured into a PMREM cube). Day is a late-afternoon sun; Night is the blue hour after sunset. The studio is always lit as day. Sun color comes from atmospheric extinction along the sun path. A multiple-scattering fill keeps the zenith-to-horizon ratio near measured clear skies. Fog matches the horizon. After dark, exposure adapts, moonlight takes over, and airglow keeps the sky deep blue. The sun follows an artistic summer path (sunrise 06:00, sunset 20:30, 60° at noon), not a location-based study.
 - **Interior:** a radiance probe captured from the middle of the room lights and reflects interior surfaces with the room itself (daylight through the glazing, luminaires, finishes) rather than the open sky. The live view captures it once per change (pre-rendered stills three times, for extra bounces), reusing its targets and the current shadow maps. Downlights are spot lights; the back-wall cove and toe-kick are rectangular area lights. The interior view meters about +2/3 stop brighter, as a photographer would.
-- **Mirror:** High and Ultra render a true planar reflection, held still while the camera moves; Lite uses a probe-lit polished surface.
+- **Mirror:** Ultra renders a true planar reflection, held still while the camera moves. High and Lite use a probe-lit polished surface.
 
 Materials come from 18 CC0 photo-scanned PBR sets from [Poly Haven](https://polyhaven.com/) (albedo, OpenGL normal, and packed AO/roughness/metalness), plus baked powder-coat, brushed-steel, and knurl detail maps. `public/textures/sources.json` records each set's authors, physical size, and role; `scripts/build-textures.py` (Python 3, Pillow, NumPy) reproduces them. Every model carries UVs measured in feet, so each texture appears at its true physical scale. The ground blends two scales of its scan with noise so it never visibly repeats. Textures stream in after the scene appears, with a progress indicator. The library is about 17 MB of WebP; only the sets a view needs are downloaded, and the live view loads 1K copies of the four 2K scans (about 7.5 MB less).
 
