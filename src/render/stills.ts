@@ -1282,12 +1282,18 @@ export class StillSession {
   }
 
   retry() {
-    this.drop('exterior')
-    this.drop('interior')
-    for (const open of this.prefetchOpen.values()) open.abort.abort()
-    this.prefetchOpen.clear()
     if (this.state) {
       const key = this.keys[this.state.angle]
+      const inFlight = this.inFlight[partOf(this.state.angle)]
+      for (const tier of ['thumb', 'still', 'export'] as const) {
+        const id = `${key}|${tier}`
+        inFlight.get(id)?.abort.abort()
+        inFlight.delete(id)
+      }
+      this.prefetchOpen.get(key)?.abort.abort()
+      if (this.prefetchOpen.delete(key)) this.prefetchVersion++
+      this.focused = ''
+      if (this.exportWanted) this.exportSeq++
       const stored = this.frames.get(key)
       if (stored) for (const image of Object.values(stored)) this.revoke(image.url)
       this.frames.delete(key)
