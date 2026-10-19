@@ -54,6 +54,22 @@ export const TEXTURE_SETS = {
 } as const satisfies Record<string, { size: number; detailOnly?: boolean; metallic?: boolean }>
 export type TextureSet = keyof typeof TEXTURE_SETS
 
+/**
+ * Sets scanned at 2K that also ship 1K copies (scripts/build-live-textures.py). The live view
+ * loads the copies, a quarter of the download and GPU memory; pre-rendered stills use the full maps.
+ */
+const LIVE_COPIES = new Set<TextureSet>([
+  'rubber_tiles',
+  'laminate_floor_02',
+  'granite_tile_04',
+  'concrete_pavement',
+])
+let fullResolution = false
+/** Stills only: load every scan at full resolution. Call before anything requests a texture. */
+export function loadFullResolutionTextures() {
+  fullResolution = true
+}
+
 export type Maps = { albedo?: Texture; normal: Texture; arm: Texture }
 
 export type MaterialSpec = {
@@ -209,7 +225,9 @@ function load(set: TextureSet): Promise<Maps> {
   textureProgress.update(names.length, 0)
   pending = Promise.allSettled(
     names.map((name) =>
-      fetchTexture(`${base}${set}/${name}.webp`)
+      fetchTexture(
+        `${base}${set}/${!fullResolution && LIVE_COPIES.has(set) ? '1k/' : ''}${name}.webp`,
+      )
         // A map that never arrives still counts as settled, so the progress bar always finishes.
         .finally(() => textureProgress.update(0, 1))
         .then((texture) => [name, configure(texture, info.size, name === 'albedo')] as const),

@@ -1,19 +1,7 @@
 import { useState } from 'react'
 import type { PlacedItem } from '../lib/config'
 import { FLOOR_Y } from '../render/architecture'
-import { equipmentParts } from '../render/equipment'
-import { batch, type Batch } from '../render/parts'
-
-/** Merged geometry per catalog item, shared by every placed copy for the session. */
-const batches = new Map<PlacedItem['sku'], Batch[]>()
-function equipmentBatches(sku: PlacedItem['sku']) {
-  let merged = batches.get(sku)
-  if (!merged) {
-    merged = batch(equipmentParts(sku))
-    batches.set(sku, merged)
-  }
-  return merged
-}
+import { equipmentBatches } from '../render/equipment'
 
 export function Equipment({ item }: { item: PlacedItem }) {
   return (

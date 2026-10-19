@@ -11,12 +11,20 @@ import { InteriorProbe } from '../components/InteriorProbe'
 import { Landscape } from '../components/Landscape'
 import { StudioModel } from '../components/StudioModel'
 import { FLOOR_Y, interiorBounds } from '../render/architecture'
-import { onMaterialsChanged, restoreTextures, setMaxAnisotropy } from '../render/materials'
+import {
+  onMaterialsChanged,
+  restoreTextures,
+  setMaxAnisotropy,
+  loadFullResolutionTextures,
+} from '../render/materials'
 import { createPipeline, type Pipeline } from '../render/pipeline'
 import { sceneWork, textureProgress } from '../render/progress'
 import { FRAME_BEGIN, backendOf, beginFrame, createRenderer } from '../render/renderer'
 import { invalidateShadows, refreshShadows } from '../render/shadows'
 import { MATTE_GREY, type HarnessApi, type RenderCapture, type RenderJob } from './job'
+
+// Published stills use every scan at full resolution.
+loadFullResolutionTextures()
 
 /** Consecutive ready frames before accumulation starts (environment and probe captures land). */
 const READY_FRAMES = 3

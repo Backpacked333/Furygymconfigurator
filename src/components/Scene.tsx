@@ -13,6 +13,7 @@ import { RenderEffects } from './RenderEffects'
 import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe } from './InteriorProbe'
+import { Prewarm } from './Prewarm'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
 import { sceneProgress } from '../render/progress'
@@ -370,7 +371,13 @@ export default memo(function Scene({
             autoRotate={autoRotate}
           />
           <InteriorProbe config={config} quality={quality} />
-          <RenderEffects quality={quality} onCaptureReady={onCaptureReady} onSlow={onSlow} />
+          <Prewarm config={config} />
+          <RenderEffects
+            quality={quality}
+            refine={interactive && !autoRotate}
+            onCaptureReady={onCaptureReady}
+            onSlow={onSlow}
+          />
           <SceneRefresh
             active={active}
             config={config}

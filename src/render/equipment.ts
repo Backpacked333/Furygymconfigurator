@@ -21,7 +21,7 @@ import {
 } from './geometry'
 import { material } from './materials'
 import { palette } from './palette'
-import { part, place, type Part, type V3 } from './parts'
+import { batch, part, place, type Batch, type Part, type V3 } from './parts'
 
 /**
  * Generic, procedurally modeled equipment at real-world dimensions (feet). Local origin is the
@@ -906,4 +906,15 @@ export function equipmentParts(sku: PlacedItem['sku']) {
     cache.set(sku, parts)
   }
   return parts
+}
+
+/** Merged geometry per catalog item, shared by every placed copy for the session. */
+const batches = new Map<PlacedItem['sku'], Batch[]>()
+export function equipmentBatches(sku: PlacedItem['sku']) {
+  let merged = batches.get(sku)
+  if (!merged) {
+    merged = batch(equipmentParts(sku))
+    batches.set(sku, merged)
+  }
+  return merged
 }

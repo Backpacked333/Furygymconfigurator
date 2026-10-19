@@ -16,6 +16,12 @@ import { invalidateShadows, refreshShadows } from '../render/shadows'
  */
 const STILL = 1e-6
 
+/**
+ * In the 360 view, the camera draws with the fast Lite pipeline while it moves and switches to the
+ * full tier this long after it stops, then converges as usual: smooth while dragging, sharp at rest.
+ */
+const REFINE_AFTER_MS = 150
+
 /** Median frame time (ms) of a settle run above which a tier is too heavy for this device. */
 const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infinity }
 
@@ -25,10 +31,13 @@ const SLOW_FRAME_MS: Record<Quality, number> = { ultra: 50, high: 75, lite: Infi
  */
 export function RenderEffects({
   quality,
+  refine = false,
   onCaptureReady,
   onSlow,
 }: {
   quality: Quality
+  /** Draw with Lite while the camera moves and refine at rest (the 360 view). */
+  refine?: boolean
   onCaptureReady: (capture: (() => string) | null) => void
   /** Called once per tier when consecutive frames are consistently slow. */
   onSlow?: () => void
@@ -37,6 +46,8 @@ export function RenderEffects({
   const renderer = gl as unknown as WebGPURenderer
   const pipeline = useRef<Pipeline | null>(null)
   const settle = useRef(0)
+  const fast = useRef<{ pipeline: Pipeline; warmed: boolean } | null>(null)
+  const lastMove = useRef(-Infinity)
   const lastView = useRef({ position: new Vector3(Infinity, 0, 0), quaternion: new Quaternion() })
   const timing = useRef({
     last: 0,
@@ -58,6 +69,18 @@ export function RenderEffects({
       created.dispose()
     }
   }, [renderer, scene, camera, quality, invalidate])
+
+  // The fast pipeline for motion. Its shaders compile with the first refined frame (see below), so
+  // the first drag never stalls on them.
+  useEffect(() => {
+    if (!refine || quality === 'lite') return
+    const created = createPipeline(renderer, scene, camera, 'lite')
+    fast.current = { pipeline: created, warmed: false }
+    return () => {
+      fast.current = null
+      created.dispose()
+    }
+  }, [renderer, scene, camera, quality, refine])
 
   // Streamed textures change surfaces, and each interior probe capture redraws shadow maps with
   // foliage and glazing hidden, so both also refresh the shadows.
@@ -98,9 +121,26 @@ export function RenderEffects({
       last.position.copy(camera.position)
       last.quaternion.copy(camera.quaternion)
     }
+    const now = performance.now()
+    if (moved) lastMove.current = now
+    const motion = fast.current
+    if (motion && now - lastMove.current < REFINE_AFTER_MS) {
+      refreshShadows(scene)
+      motion.pipeline.render()
+      sceneProgress.drawn()
+      // Keeps drawing until the refine delay has passed, then the full tier takes over.
+      timing.current.last = 0
+      invalidate()
+      return
+    }
     // A frame right after a change, a streamed texture, or a probe capture also compiles
     // shaders, uploads textures, and redraws shadows: one-off work, not the cost of the tier.
     const eventful = refreshShadows(scene)
+    if (motion && !motion.warmed) {
+      // Draw the fast pipeline once, under this frame, to compile its shaders ahead of a drag.
+      motion.warmed = true
+      motion.pipeline.render()
+    }
     active.render()
     sceneProgress.drawn()
     settle.current--
@@ -109,12 +149,12 @@ export function RenderEffects({
     // after a pipeline is built, and eventful frames with the one after them (whose interval
     // still carries their GPU work), are ignored.
     const t = timing.current
-    const now = performance.now()
+    const end = performance.now()
     t.frames++
     const steady = !eventful && !t.eventful
     t.eventful = eventful
     if (chained && steady && t.last && t.frames > 8 && !t.reported) {
-      t.samples.push(now - t.last)
+      t.samples.push(end - t.last)
       if (t.samples.length >= 16) {
         const sorted = [...t.samples].sort((a, b) => a - b)
         if (sorted[sorted.length >> 1] > SLOW_FRAME_MS[quality]) {
@@ -124,7 +164,7 @@ export function RenderEffects({
         t.samples = []
       }
     }
-    t.last = now
+    t.last = end
   }, 1)
   return null
 }
