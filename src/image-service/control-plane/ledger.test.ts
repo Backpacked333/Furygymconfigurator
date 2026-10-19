@@ -1009,6 +1009,45 @@ describe('kill, streams, restart, clock and durable-store failure', () => {
     rmSync(`${options().path}.p04-identity`)
     expectError(() => open(), 503)
   })
+  it('waits for a brief independent write lock without losing or duplicating the reservation', async () => {
+    const ledger = open()
+    const child = spawn(
+      node,
+      [
+        '--input-type=module',
+        '--eval',
+        `
+      import { DatabaseSync } from 'node:sqlite';
+      const db = new DatabaseSync(${JSON.stringify(options().path)});
+      db.exec('BEGIN IMMEDIATE');
+      process.stdout.write('LOCKED\\n');
+      process.stdin.once('data', () => setTimeout(() => {
+        db.exec('ROLLBACK'); db.close(); process.exit(0);
+      }, 150));
+    `,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    )
+    const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.stdout.once('data', () => resolve())
+        child.stderr.resume()
+        child.once('error', reject)
+        child.once('exit', (code) => reject(new Error(`Lock holder exited early: ${code}`)))
+      })
+      await new Promise<void>((resolve, reject) =>
+        child.stdin.write('release\n', (error) => (error ? reject(error) : resolve())),
+      )
+      expect(admit(ledger).disposition).toBe('created')
+      expect(ledger.snapshot().global.uniqueMisses).toBe(1)
+      expect(ledger.snapshot().global.reservedMicro).toBe(worstCaseQuote(ledger.policy).total)
+      expect(ledger.events().filter((event) => event.kind === 'reserved')).toHaveLength(1)
+    } finally {
+      if (child.exitCode === null) child.kill()
+      await exited
+    }
+  })
   it('a real independent SQLite write lock returns bounded 503 and cannot partially reserve or duplicate events', () => {
     const ledger = open()
     const blocker = new DatabaseSync(options().path)
@@ -1166,7 +1205,7 @@ async function raceAdmissions(ledger: SqliteLedger, requests: Admission[]) {
     import ts from ${JSON.stringify(compiler)};
     registerHooks({
       resolve(specifier, context, next) { try { return next(specifier, context) } catch (error) {
-        if (specifier.startsWith('.') && context.parentURL?.endsWith('.ts')) return next(specifier + '.ts', context);
+        if (specifier.startsWith('.') && context.parentURL?.endsWith('.ts')) return next(specifier.replace(/\\.js$/, '') + '.ts', context);
         throw error;
       } },
       load(url, context, next) { if (url.endsWith('.ts')) return { format:'module', shortCircuit:true,
@@ -1276,7 +1315,10 @@ describe('cross-process atomic races', () => {
       admission(ledger),
       admission(ledger, { auth: other }),
     ])
-    expect(results.map((r) => r.status)).toEqual(['ok', 'ok'])
+    expect(
+      results.map((r) => r.status),
+      JSON.stringify(results),
+    ).toEqual(['ok', 'ok'])
     expect(new Set(results.map((r) => r.jobId)).size).toBe(1)
     expect(results.map((r) => r.disposition).sort()).toEqual(['coalesced', 'created'])
     expect(ledger.snapshot().jobs).toBe(1)
@@ -1289,7 +1331,10 @@ describe('cross-process atomic races', () => {
       admission(ledger),
       admission(ledger, { auth: other, design: designs[3] }),
     ])
-    expect(results.filter((r) => r.status === 'ok')).toHaveLength(1)
+    expect(
+      results.filter((r) => r.status === 'ok'),
+      JSON.stringify(results),
+    ).toHaveLength(1)
     expect(results.filter((r) => r.status === 429 && r.code === 'budget-exceeded')).toHaveLength(1)
     expect(ledger.snapshot().jobs).toBe(1)
     expect(ledger.snapshot().interests).toBe(1)
