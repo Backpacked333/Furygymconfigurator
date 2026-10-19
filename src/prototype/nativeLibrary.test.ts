@@ -39,6 +39,12 @@ const library: NativeLibrary = {
   entries: [entry],
 }
 afterEach(() => vi.unstubAllGlobals())
+function webpBytes() {
+  const bytes = new Uint8Array(1000)
+  bytes.set(new TextEncoder().encode('RIFF'), 0)
+  bytes.set(new TextEncoder().encode('WEBP'), 8)
+  return bytes
+}
 
 it('matches the full configuration, view, lighting and aspect instead of reusing a finish image', () => {
   expect(findNativeImage(library, design)).toBe(entry)
@@ -69,7 +75,12 @@ it('matches the full configuration, view, lighting and aspect instead of reusing
 
 it('rejects corrupt image bytes without constructing a display URL', async () => {
   vi.stubGlobal('crypto', webcrypto)
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Uint8Array(1000))))
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockResolvedValue(new Response(webpBytes(), { headers: { 'content-type': 'image/webp' } })),
+  )
   await expect(decodeNativeImage(entry, new AbortController().signal)).rejects.toThrow(
     'verification failed',
   )
@@ -77,9 +88,11 @@ it('rejects corrupt image bytes without constructing a display URL', async () =>
 
 it('decodes a verified image once and reuses its exact cached bytes', async () => {
   vi.stubGlobal('crypto', webcrypto)
-  const data = new Uint8Array(1000)
+  const data = webpBytes()
   const valid = { ...entry, imageSha256: await bytesSha256(data) }
-  const fetch = vi.fn().mockResolvedValue(new Response(data))
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(new Response(data, { headers: { 'content-type': 'image/webp' } }))
   vi.stubGlobal('fetch', fetch)
   vi.stubGlobal('URL', {
     createObjectURL: () => 'blob:verified-test-image',
@@ -96,11 +109,13 @@ it('decodes a verified image once and reuses its exact cached bytes', async () =
       }
     },
   )
-  expect((await decodeNativeImage(valid, new AbortController().signal)).src).toBe(
-    'blob:verified-test-image',
-  )
-  expect((await decodeNativeImage(valid, new AbortController().signal)).src).toBe(
-    'blob:verified-test-image',
-  )
+  const first = await decodeNativeImage(valid, new AbortController().signal)
+  expect(first.src).toBe('blob:verified-test-image')
+  const second = await decodeNativeImage(valid, new AbortController().signal)
+  expect(second.src).toBe('blob:verified-test-image')
   expect(fetch).toHaveBeenCalledTimes(1)
+  first.release()
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  second.release()
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:verified-test-image')
 })

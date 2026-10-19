@@ -54,7 +54,7 @@ export function DesignPanel({
       notices={
         <p className="inline-notice">
           {renderedLibrary
-            ? 'GPU-rendered design study. Exact images appear for covered selections; other combinations are clearly marked. Quote and engineering review required.'
+            ? 'Your design, in five exact views. Existing images load instantly; request missing views when rendering is available. Draft preview · Quote and engineering review required.'
             : 'DRAFT design study. Selections do not update the historical reference or approve a current design image. Quote required; engineering, rights and art review remain open.'}
         </p>
       }
@@ -135,7 +135,7 @@ export function DesignPanel({
           />
           <p className="muted small">
             {renderedLibrary
-              ? 'This collection includes Studio Day views and a Studio Night front three-quarter view. Outdoor choices stay in your design, but do not have rendered images yet.'
+              ? 'Each scene has its own five-view set. Choose Day or Night; existing views are reused, and missing views require your explicit request.'
               : 'Four landscapes with Day or Night lighting. These authored looks still require art approval; historical imagery does not follow these choices.'}
           </p>
           <div className="setting-row">
@@ -172,7 +172,7 @@ export function DesignPanel({
           )}
           <p className="muted small">
             {renderedLibrary
-              ? 'Native GPU images are cached at 1920 × 1200. Live 360° and strict reference exports are not enabled; no GPU jobs start from this page.'
+              ? 'Native masters: 1920 × 1200 landscape or 1200 × 1500 portrait. Changing options never starts a render. Live 360° and strict reference exports are unavailable.'
               : 'Mock diagnostic only. Render quality, path tracing, live 360° and strict image/PDF exports are unavailable here.'}
           </p>
         </>

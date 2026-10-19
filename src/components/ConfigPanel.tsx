@@ -31,7 +31,8 @@ import { usePendingChoice } from '../render/stillStatus'
 import { boostOption, focusSection, showSections, type PrefetchField } from '../render/prefetch'
 import { STUDIO_LAYOUTS, productFamily } from '../lib/products'
 import { Elevation } from './Elevation'
-import { TimeOfDay } from './TimeOfDay'
+import { DayNightSetting } from './DayNightSetting'
+import { SCENE_LANDSCAPES } from '../domain/presentation'
 import { ConfigPanelView, ConfigPanelToggle, type ConfigPanelChange } from './ConfigPanelView'
 
 /** Renderer interest remains exclusively in this legacy adapter. */
@@ -309,7 +310,9 @@ export default function ConfigPanel({
           ))}
         </details>
       }
-      sceneChoices={ENVIRONMENTS.map((env) => ({
+      sceneChoices={ENVIRONMENTS.filter((env) =>
+        SCENE_LANDSCAPES.some(({ id }) => id === env.id),
+      ).map((env) => ({
         ...env,
         environment: env.id,
         onChoose: () => onChange({ ...c, environment: env.id }),
@@ -317,7 +320,7 @@ export default function ConfigPanel({
       selectedScene={c.environment}
       sceneControls={
         <>
-          <TimeOfDay
+          <DayNightSetting
             label="Chase the light"
             time={c.time}
             onChange={(time) => onChange({ ...c, time })}

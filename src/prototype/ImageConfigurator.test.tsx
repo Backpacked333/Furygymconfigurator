@@ -149,7 +149,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     mount()
     expect(host.querySelector('.brand')?.textContent).toContain('FURY')
     expect(host.querySelectorAll('[role=tab]')).toHaveLength(4)
-    expect(host.querySelectorAll('[aria-label="Seven draft cameras"] button')).toHaveLength(7)
+    expect(host.querySelectorAll('[aria-label="Five draft cameras"] button')).toHaveLength(5)
     expect(host.querySelector('canvas')).toBeNull()
     expect(write).not.toHaveBeenCalled()
     expect(host.querySelector('img')?.getAttribute('src')).toBe(HISTORICAL_REFERENCE.src)
@@ -247,7 +247,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     )
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
     expect(document.activeElement).toBe(button('Adjust scene'))
-    click('Interior centre DRAFT · interior')
+    click('Interior entry DRAFT · interior')
     tab('Setting')
     click('Portrait')
     expect(host.querySelector('.still-stage')?.classList.contains('is-tall')).toBe(true)
@@ -267,7 +267,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     const current = exported()
     expect(current.presentation).toMatchObject({
       lookRef: 'desert-night-draft@1',
-      cameraRef: 'centre-draft@1',
+      cameraRef: 'entry-draft@1',
       aspect: 'tall',
     })
     expect(host.querySelector('canvas')).toBeNull()
@@ -324,7 +324,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     click('Night')
     click('Portrait')
     click('Thumbnail diagnostic')
-    click('Interior centre DRAFT · interior')
+    click('Interior entry DRAFT · interior')
     const design = exported()
     expect(design.config.appearance).toEqual({
       finish: 'cloud',
@@ -336,7 +336,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     expect(design.config.structure.addons).toEqual(['deck'])
     expect(design.presentation).toMatchObject({
       lookRef: 'desert-night-draft@1',
-      cameraRef: 'centre-draft@1',
+      cameraRef: 'entry-draft@1',
       aspect: 'tall',
     })
     expect(design.outputProfile).toBe('web-thumbnail')
@@ -804,7 +804,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     click('Desert retreat')
     click('Night')
     click('Portrait')
-    click('Interior centre DRAFT · interior')
+    click('Interior entry DRAFT · interior')
     await act(async () => vi.advanceTimersByTimeAsync(120))
     const calls = vi.mocked(fetch).mock.calls
     expect(calls).toHaveLength(1)
@@ -815,7 +815,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     expect(selected.presentation).toMatchObject({
       lookRef: 'desert-night-draft@1',
       aspect: 'tall',
-      cameraRef: 'centre-draft@1',
+      cameraRef: 'entry-draft@1',
     })
     expect(host.querySelector('img')).toBeNull()
     expect(button('Display candidate export unavailable').disabled).toBe(true)

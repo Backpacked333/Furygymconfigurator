@@ -23,8 +23,11 @@ import {
   type DesignAction,
   type DesignTransition,
 } from '../domain/designTransitions'
-import { defaultDesign, parseDesign, type DesignEnvelope } from '../domain/design'
-import { DRAFT_CAMERAS, resolveCamera, type CameraRef } from '../domain/presentation'
+import { defaultDesign, type DesignEnvelope } from '../domain/design'
+import { resolveCamera, resolveLook, type CameraRef } from '../domain/presentation'
+import { CUSTOMER_CAMERAS, normalizeCustomerDesign } from '../render-library/views'
+import { LibrarySetStatus } from './LibrarySetStatus'
+import { LibraryThumbnail } from './LibraryThumbnail'
 import { SceneLookControls } from './SceneLookControls'
 import { FINISHES, area, distance, type Unit } from '../lib/config'
 import { DesignPanel } from './DesignPanel'
@@ -50,7 +53,13 @@ import {
   LOCAL_RENDER_LABEL,
   LOCAL_RENDER_PROFILE,
 } from '../image-service/localRenderProtocol'
-import { designHistory, downloadPrototypeFile, initialHistory } from './state'
+import {
+  designHistory,
+  downloadPrototypeFile,
+  initialHistory,
+  initialNativeHistory,
+  rememberNativeSelection,
+} from './state'
 import './prototype.css'
 
 // A fixed, local aesthetic reference, NOT a lookup by the selected design/camera/finish.
@@ -133,19 +142,15 @@ function ImageConfiguratorContents({
   const displayLabel = cloudDisplay ? CLOUD_DISPLAY_LABEL : DISPLAY_LABEL
   const verifiedMode = nativeLibrary || localReal || privateDisplay
   const catalog = useNativeCatalog(nativeLibrary)
-  const [history, dispatch] = useReducer(designHistory, undefined, () => {
-    const initial = initialHistory()
-    return nativeLibrary
-      ? {
-          ...initial,
-          present: parseDesign({
-            ...initial.present,
-            presentation: { ...initial.present.presentation, lookRef: 'studio-day-draft@1' },
-          }),
-        }
-      : initial
-  })
+  const [history, dispatch] = useReducer(
+    designHistory,
+    undefined,
+    nativeLibrary ? initialNativeHistory : initialHistory,
+  )
   const design = history.present
+  useEffect(() => {
+    if (nativeLibrary) rememberNativeSelection(design)
+  }, [nativeLibrary, design])
   const [unit, setUnit] = useState<Unit>('ft')
   const [proposal, setProposal] = useState<DesignTransition | null>(null)
   const [notice, setNotice] = useState(
@@ -170,8 +175,9 @@ function ImageConfiguratorContents({
     interior: 'entry-draft@1',
   })
   const image = useImage(design)
+  const setState = 'library' in image ? image.library : undefined
   const unavailable = nativeLibrary
-    ? '360° and strict exports are not part of the rendered library. No live GPU work starts from this page.'
+    ? 'Live 360° and strict exports are not available. New images require an explicit render request and operator approval.'
     : privateDisplay
       ? DISPLAY_UNAVAILABLE
       : localReal
@@ -179,7 +185,7 @@ function ImageConfiguratorContents({
         : UNAVAILABLE
   const notify = useCallback((message: string) => setNotice(message), [])
   const load = useCallback((next: DesignEnvelope) => {
-    dispatch({ type: 'commit', design: next })
+    dispatch({ type: 'commit', design: normalizeCustomerDesign(next) })
     setProposal(null)
   }, [])
   useEffect(() => {
@@ -321,7 +327,7 @@ function ImageConfiguratorContents({
           : 'Mock preview — not a current design image'
   const source = nativeLibrary
     ? nativeShown && image.current
-      ? `1920 × 1200 · Cycles OptiX · 1,024 samples · ${finish.name} · ${design.presentation.lookRef.includes('night') ? 'Studio Night' : 'Studio Day'}`
+      ? `${nativeShown.artifact.width} × ${nativeShown.artifact.height} · Cycles OptiX · 1,024 samples · ${finish.name} · ${resolveLook(design.presentation.lookRef).name.replace('DRAFT — ', '')}`
       : 'No exact image available for the selected combination. No substitute is shown.'
     : privateDisplay
       ? `${displayProfile.id} · ${displayProfile.width}×${displayProfile.height} / Ultra / AgX / sRGB / DPR 1${image.current && displayShown ? ` · ${finish.name} · selected request ${displayBinding!.requested.requestDigest.slice(7, 23)}` : ' · requested profile; no matching verified image displayed'}`
@@ -343,7 +349,7 @@ function ImageConfiguratorContents({
               src: image.shown.src,
               width: nativeShown.artifact.width,
               height: nativeShown.artifact.height,
-              alt: `${product.family} ${product.lengthFt}, ${finish.name}, ${selectedCamera.name.replace('DRAFT — ', '')}, ${design.presentation.lookRef.includes('night') ? 'Studio Night' : 'Studio Day'}. Exact rendered design preview.`,
+              alt: `${product.family} ${product.lengthFt}, ${finish.name}, ${selectedCamera.name.replace('DRAFT — ', '')}, ${resolveLook(design.presentation.lookRef).name.replace('DRAFT — ', '')}. Exact rendered design preview.`,
             },
           },
         ]
@@ -609,11 +615,11 @@ function ImageConfiguratorContents({
               {!plan && (
                 <>
                   <StageFilmstrip
-                    label={nativeLibrary ? 'Rendered camera views' : 'Seven draft cameras'}
+                    label={nativeLibrary ? 'Rendered camera views' : 'Five draft cameras'}
                     aspect={aspect}
                     selected={design.presentation.cameraRef}
                     onPick={pickCamera}
-                    items={DRAFT_CAMERAS.map((camera) => ({
+                    items={CUSTOMER_CAMERAS.map((camera) => ({
                       id: camera.ref,
                       label: camera.name.replace('DRAFT — ', ''),
                       accessibleLabel: `${camera.name.replace('DRAFT — ', '')} DRAFT · ${camera.group}`,
@@ -628,14 +634,38 @@ function ImageConfiguratorContents({
                               return entry ? nativeThumbUrl(entry) : undefined
                             })()
                           : undefined,
-                      placeholder: (
-                        <span className="prototype-camera-placeholder">
-                          {camera.name.replace('DRAFT — ', '')}
-                          <small>{nativeLibrary ? 'Not rendered' : 'DRAFT'}</small>
-                        </span>
-                      ),
+                      placeholder: (() => {
+                        const view = setState?.snapshot?.views.find(
+                          (view) => view.cameraRef === camera.ref,
+                        )
+                        if (view?.status === 'ready') return <LibraryThumbnail image={view.image} />
+                        return (
+                          <span className="prototype-camera-placeholder">
+                            {camera.name.replace('DRAFT — ', '')}
+                            <small>
+                              {nativeLibrary
+                                ? view?.status === 'missing'
+                                  ? 'Not yet rendered'
+                                  : view?.status === 'pending'
+                                    ? 'In progress'
+                                    : view?.status === 'failed'
+                                      ? 'Stopped'
+                                      : 'Checking availability'
+                                : 'DRAFT'}
+                            </small>
+                          </span>
+                        )
+                      })(),
                     }))}
                   />
+                  {setState && (
+                    <LibrarySetStatus
+                      design={design}
+                      library={setState}
+                      catalog={catalog}
+                      hasImage={image.current}
+                    />
+                  )}
                   <div className="prototype-image-status">
                     {!verifiedMode && (
                       <div className="view-switch" role="group" aria-label="Image source">
@@ -838,9 +868,10 @@ function ImageConfiguratorContents({
             <section className="prototype-local-provenance">
               <p>
                 This library contains real Blender/Cycles images rendered privately on Modal L40S
-                GPUs. Studio Day has seven views per build; Studio Night currently has the front
-                three-quarter view. The other three landscapes and combinations outside the library
-                remain editable but have no image in this batch.
+                GPUs. Each exact design and scene has five customer views: four exterior views and
+                one interior entry. The original Studio Day collection supplies five views; its
+                Studio Night sets start with one front three-quarter view. Only an explicit request
+                can complete missing images, when rendering is enabled. No paid backfill runs here.
               </p>
               <p>
                 Art direction, fonts, materials and engineering remain draft. These are not strict
@@ -849,11 +880,19 @@ function ImageConfiguratorContents({
               </p>
               {nativeShown && image.current && (
                 <dl>
-                  {Object.entries({
-                    imageChecksum: nativeShown.artifact.imageSha256,
-                    recipeDigest: nativeShown.artifact.recipeDigest,
-                    originalRenderSeconds: nativeShown.artifact.renderSeconds.toFixed(2),
-                  }).map(([label, value]) => (
+                  {Object.entries(
+                    'imageSha256' in nativeShown.artifact
+                      ? {
+                          imageChecksum: nativeShown.artifact.imageSha256,
+                          historicalRecipeDigest: nativeShown.artifact.recipeDigest,
+                          originalRenderSeconds: nativeShown.artifact.renderSeconds.toFixed(2),
+                        }
+                      : {
+                          imageChecksum: nativeShown.artifact.sha256,
+                          recipeRelease: nativeShown.artifact.recipeRelease.id,
+                          provenance: nativeShown.artifact.provenance.kind,
+                        },
+                  ).map(([label, value]) => (
                     <div key={label}>
                       <dt>{label}</dt>
                       <dd>{value}</dd>

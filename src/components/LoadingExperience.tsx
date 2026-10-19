@@ -15,7 +15,7 @@ export function BuildAnimation({ config, still = false }: { config?: Config; sti
     <div className="build-animation" aria-hidden="true">
       {!paused && (
         <iframe
-          src={`${import.meta.env.BASE_URL}builds/${buildAnimation(config)}.html?theme=color&site=0&interactive=0${still ? '&still=1' : ''}`}
+          src={`${import.meta.env.BASE_URL}builds/${buildAnimation(config)}.html?theme=light&site=0&interactive=0${still ? '&still=1' : ''}`}
           title="Illustrative Fury gym assembly"
           tabIndex={-1}
           sandbox="allow-scripts"
