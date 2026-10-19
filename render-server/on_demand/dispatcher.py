@@ -225,9 +225,7 @@ class Dispatcher:
 
     def new_job(self):
         self.active()
-        dispatch = self.service.rpc(
-            "claim_dispatch", {"dispatcherId": self.policy["dispatcherId"]}
-        )
+        dispatch = self.service.rpc("claim_dispatch", {"dispatcherId": self.policy["dispatcherId"]})
         if dispatch is None:
             return None
         row = {
@@ -240,15 +238,12 @@ class Dispatcher:
         self.journal.save(row)
         # Claim once. An ambiguous claim is NOT retried. No GPU exists on these paths.
         try:
-            claim = self.service.claim(
-                row["dispatch"], self.policy["recipe"]["workerBuildSha256"]
-            )
+            claim = self.service.claim(row["dispatch"], self.policy["recipe"]["workerBuildSha256"])
             if claim is None:
                 raise RuntimeError("worker-claim-unavailable")
             row["claim"] = validate_claim(claim, self.policy["recipe"])
             if any(
-                claim[k] != row["dispatch"][k]
-                for k in ("contractVersion", "jobId", "dispatchId")
+                claim[k] != row["dispatch"][k] for k in ("contractVersion", "jobId", "dispatchId")
             ):
                 raise RuntimeError("dispatch-binding")
             self.journal.save(row)
@@ -301,9 +296,7 @@ class Dispatcher:
             # Input is single-send too: a restart never resends an ambiguous transfer.
             row["phase"] = "input-started"
             self.journal.save(row)
-            self.provider.call(
-                "send", row["control"], timeout=claim["limits"]["startupSeconds"]
-            )
+            self.provider.call("send", row["control"], timeout=claim["limits"]["startupSeconds"])
             row["phase"] = "running"
             self.journal.save(row)
         except Exception:
@@ -339,9 +332,7 @@ class Dispatcher:
 
     def event(self, row, sequence, kind, **values):
         claim = row["claim"]
-        event = {
-            k: claim[k] for k in ("contractVersion", "jobId", "attemptId", "fence")
-        }
+        event = {k: claim[k] for k in ("contractVersion", "jobId", "attemptId", "fence")}
         event.update(
             eventId=str(uuid.uuid5(uuid.UUID(claim["attemptId"]), str(sequence))),
             sequence=sequence,
@@ -367,8 +358,7 @@ class Dispatcher:
                     if (
                         receipt
                         or frame["stage"] not in ("rendering", "saving", "verifying")
-                        or frame["cameraRef"]
-                        not in {v["cameraRef"] for v in row["claim"]["views"]}
+                        or frame["cameraRef"] not in {v["cameraRef"] for v in row["claim"]["views"]}
                     ):
                         raise RuntimeError("invalid-progress")
                     sequence += 1
@@ -388,9 +378,7 @@ class Dispatcher:
                         raise RuntimeError("interleaved-artifact")
                     receipt = frame["receipt"]
                     view = next(
-                        v
-                        for v in row["prepared"]["views"]
-                        if v["imageKey"] == receipt["imageKey"]
+                        v for v in row["prepared"]["views"] if v["imageKey"] == receipt["imageKey"]
                     )
                     verify_receipt(receipt, row["claim"], view)
                     if receipt["imageKey"] in completed:
@@ -403,17 +391,11 @@ class Dispatcher:
                         raise RuntimeError("chunk-without-artifact")
                     chunk = base64.b64decode(frame["data"], validate=True)
                     size += len(chunk)
-                    if len(chunk) > CHUNK_BYTES or size > min(
-                        MAX_IMAGE_BYTES, receipt["bytes"]
-                    ):
+                    if len(chunk) > CHUNK_BYTES or size > min(MAX_IMAGE_BYTES, receipt["bytes"]):
                         raise RuntimeError("chunk-cap")
                     output.write(chunk)
                 elif kind == "artifact-end":
-                    if (
-                        not receipt
-                        or not output
-                        or frame["sha256"] != receipt["sha256"]
-                    ):
+                    if not receipt or not output or frame["sha256"] != receipt["sha256"]:
                         raise RuntimeError("artifact-end-binding")
                     output.flush()
                     os.fsync(output.fileno())
@@ -448,9 +430,7 @@ class Dispatcher:
                             "terminal",
                             outcome=frame["outcome"],
                             error=(
-                                None
-                                if frame["outcome"] == "complete"
-                                else error("worker-failed")
+                                None if frame["outcome"] == "complete" else error("worker-failed")
                             ),
                         ),
                     )
@@ -594,6 +574,7 @@ def main():
         os.environ["FURY_WORKER_TOKEN"],
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        os.environ.get("VERCEL_OIDC_TOKEN"),
     )
     worker = Dispatcher(service, Provider(root, work), journal, policy, root, work)
     worker.verify_source()

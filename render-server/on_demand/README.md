@@ -18,6 +18,8 @@ browser scene, renderer, arbitrary path or executable. Only missing views are
 prepared; the selected camera comes first. A named single-use L40S Sandbox receives
 the prepared package over private stdin, without service or provider credentials,
 network access, secrets, public ports, HTTP endpoints or mounted storage. It runs
+as UID/GID 10001: the supervisor drops supplementary groups and root privileges
+before reading input because Modal ignores image `USER` instructions. It runs
 Blender 4.5.0/Cycles/OptiX, rejects CPU ray-tracing fallback, and requires 1024
 non-adaptive samples, a completion handler and final-sample log evidence.
 CPU denoising is intentional; it is not CPU path-tracing fallback.
@@ -96,6 +98,10 @@ builds and live image execution have **not** been validated in this implementati
 4. Supply CPU-only environment: `FURY_SERVICE_ORIGIN`, `FURY_WORKER_TOKEN`,
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`.
    Never bake these into images, policy files, logs or GPU environment.
+   Protected Vercel previews may additionally use a short-lived `VERCEL_OIDC_TOKEN`
+   from the linked project's development environment. It is sent only to the configured
+   worker API origin, never to Supabase, signed uploads or GPU containers. Refresh it
+   before expiry; do not disable Deployment Protection to run a preview trial.
 5. Create a root/operator-owned policy JSON, readable by the daemon:
 
    ```json

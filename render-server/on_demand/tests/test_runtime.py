@@ -16,14 +16,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from on_demand.dispatcher import Dispatcher, kill_tree
 from on_demand.journal import Journal
-from on_demand.sandbox_runner import extract, clean_env
+from on_demand.sandbox_runner import extract, clean_env, ensure_non_root
 from on_demand.validation import validate_claim, verify_receipt, verify_webp, digest
 from on_demand.transport import Service
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = json.loads(
-    (ROOT / "src/render-library/fixtures/worker-adapter.json").read_text()
-)
+FIXTURE = json.loads((ROOT / "src/render-library/fixtures/worker-adapter.json").read_text())
 
 
 class ServiceDouble:
@@ -51,8 +49,7 @@ class ServiceDouble:
         if name == "record_dispatch":
             result = args["result"]
             if self.dispatch_result not in (None, result) and not (
-                self.dispatch_result["status"] == "uncertain"
-                and result["status"] == "accepted"
+                self.dispatch_result["status"] == "uncertain" and result["status"] == "accepted"
             ):
                 raise RuntimeError("TEST DOUBLE dispatch already recorded")
             self.dispatch_result = copy.deepcopy(result)
@@ -110,9 +107,7 @@ class ProviderDouble:
             assert any(k == "worker_claim" for k, _ in self.service.calls)
             assert self.journal.jobs()[0]["phase"] == "creating"
             if self.crash:
-                raise KeyboardInterrupt(
-                    "TEST DOUBLE process crash after remote acceptance"
-                )
+                raise KeyboardInterrupt("TEST DOUBLE process crash after remote acceptance")
             if self.create_error:
                 raise TimeoutError("TEST DOUBLE accepted then disconnected")
             return {"id": "sb-offline-test"}
@@ -190,9 +185,7 @@ class RuntimeTests(unittest.TestCase):
         self.provider.exit_code = 1
         self.worker.recover(row)
         self.assertEqual(row["phase"], "settled")
-        evidence = [
-            args for key, args in self.service.calls if key == "reconcile_terminal"
-        ][0]
+        evidence = [args for key, args in self.service.calls if key == "reconcile_terminal"][0]
         self.assertEqual(evidence["evidence"]["kind"], "provider-terminal")
         self.assertEqual(evidence["chargedMicroUsd"], self.service.reserved)
         self.worker.recover(row)
@@ -229,9 +222,7 @@ class RuntimeTests(unittest.TestCase):
         self.policy["maxJobLiabilityMicroUsd"] = ceiling
         self.policy["globalBudgetMicroUsd"] = 20000
         row = self.worker.new_job()
-        row["liabilityMicroUsd"] = (
-            ceiling  # Old journals must not determine settlement.
-        )
+        row["liabilityMicroUsd"] = ceiling  # Old journals must not determine settlement.
         self.journal.save(row)
         self.policy["maxJobLiabilityMicroUsd"] = 18000
         self.policy["enabled"] = False
@@ -288,9 +279,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.provider.actions.count("create"), 1)
         before = len([1 for k, _ in self.service.calls if k == "upload"])
         self.worker.recover(self.journal.jobs()[0])
-        self.assertEqual(
-            len([1 for k, _ in self.service.calls if k == "upload"]), before
-        )
+        self.assertEqual(len([1 for k, _ in self.service.calls if k == "upload"]), before)
 
     def test_published_artifact_acknowledgement_recovers_after_expiry_without_file_or_upload(
         self,
@@ -321,9 +310,7 @@ class RuntimeTests(unittest.TestCase):
         row = self.worker.new_job()
         self.worker.recover(row)
         self.assertEqual(self.provider.actions, [])
-        proof = [
-            args for key, args in self.service.calls if key == "reconcile_terminal"
-        ][0]
+        proof = [args for key, args in self.service.calls if key == "reconcile_terminal"][0]
         self.assertEqual(proof["chargedMicroUsd"], 0)
         self.assertEqual(proof["evidence"]["kind"], "never-submitted")
 
@@ -379,9 +366,7 @@ class RuntimeTests(unittest.TestCase):
         self.worker.recover(self.journal.jobs()[0])
         events = list(self.service.accepted.values())
         self.assertEqual([e["sequence"] for e in events], [1, 2, 3])
-        self.assertEqual(
-            [e["kind"] for e in events], ["progress", "artifact", "terminal"]
-        )
+        self.assertEqual([e["kind"] for e in events], ["progress", "artifact", "terminal"])
         self.assertEqual(self.provider.actions.count("create"), 1)
         self.assertEqual(events[1]["receipt"]["sha256"], digest(data))
 
@@ -440,9 +425,7 @@ class RuntimeTests(unittest.TestCase):
                 tempfile.TemporaryDirectory() as target,
                 self.assertRaises((RuntimeError, FileExistsError)),
             ):
-                extract(
-                    io.BytesIO(stream.getvalue()), Path(target), len(stream.getvalue())
-                )
+                extract(io.BytesIO(stream.getvalue()), Path(target), len(stream.getvalue()))
 
     def test_child_environment_excludes_provider_and_service_credentials(self):
         with patch.dict(
@@ -510,6 +493,64 @@ class RuntimeTests(unittest.TestCase):
             ticket["overwrite"] = True
             with self.assertRaises(RuntimeError):
                 service.upload({"receipt": receipt}, artifact)
+
+
+class DeploymentAuthTests(unittest.TestCase):
+    def test_root_bootstrap_drops_groups_gid_uid_before_accepting_input(self):
+        calls = []
+        with (
+            patch("on_demand.sandbox_runner.os.getuid", side_effect=[0, 10001]),
+            patch(
+                "on_demand.sandbox_runner.os.setgroups",
+                side_effect=lambda value: calls.append(("groups", value)),
+            ),
+            patch(
+                "on_demand.sandbox_runner.os.setgid",
+                side_effect=lambda value: calls.append(("gid", value)),
+            ),
+            patch(
+                "on_demand.sandbox_runner.os.setuid",
+                side_effect=lambda value: calls.append(("uid", value)),
+            ),
+        ):
+            ensure_non_root()
+        self.assertEqual(calls, [("groups", []), ("gid", 10001), ("uid", 10001)])
+
+    def test_failed_privilege_drop_never_continues_as_root(self):
+        with (
+            patch("on_demand.sandbox_runner.os.getuid", return_value=0),
+            patch("on_demand.sandbox_runner.os.setgroups"),
+            patch("on_demand.sandbox_runner.os.setgid"),
+            patch("on_demand.sandbox_runner.os.setuid"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "non-root"):
+                ensure_non_root()
+
+    def test_deployment_token_is_only_sent_to_worker_api(self):
+        service = Service(
+            "https://app.example", "worker", "https://storage.example", "service", "oidc-test"
+        )
+        with patch("on_demand.transport.post", return_value={"claim": None}) as request:
+            service.claim({}, "build")
+            service.event({})
+            service.rpc("claim_dispatch", {})
+        calls = request.call_args_list
+        self.assertEqual(calls[0].kwargs, {"deployment_token": "oidc-test"})
+        self.assertEqual(calls[1].kwargs, {"deployment_token": "oidc-test"})
+        self.assertEqual(calls[2].kwargs, {})
+        self.assertTrue(calls[2].args[0].startswith("https://storage.example/"))
+
+    def test_deployment_header_preserves_worker_bearer(self):
+        from on_demand.transport import post
+
+        with patch("on_demand.transport.http.client.HTTPSConnection") as connection:
+            response = connection.return_value.getresponse.return_value
+            response.status = 200
+            response.read.return_value = b"{}"
+            post("https://app.example/worker", "worker", {}, deployment_token="oidc-test")
+            headers = connection.return_value.request.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer worker")
+        self.assertEqual(headers["x-vercel-trusted-oidc-idp-token"], "oidc-test")
 
 
 if __name__ == "__main__":

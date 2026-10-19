@@ -75,12 +75,7 @@ def extract(stream, root, length):
             )
             total += member.size
             count += 1
-            if (
-                not allowed
-                or not member.isfile()
-                or total > 550 * 1024 * 1024
-                or count > 50000
-            ):
+            if not allowed or not member.isfile() or total > 550 * 1024 * 1024 or count > 50000:
                 raise RuntimeError("invalid-package-member")
             target = root / name
             target.parent.mkdir(exist_ok=True)
@@ -94,9 +89,9 @@ def run(root):
     job = json.loads((root / "job.json").read_text())
     recipe = json.loads(Path("/opt/fury/recipe.json").read_text())
     claim = validate_claim(job["claim"], recipe)
-    if {v["imageKey"] for v in job["views"]} != {
-        v["imageKey"] for v in claim["views"]
-    } or len(job["views"]) != len(claim["views"]):
+    if {v["imageKey"] for v in job["views"]} != {v["imageKey"] for v in claim["views"]} or len(
+        job["views"]
+    ) != len(claim["views"]):
         raise RuntimeError("prepared-view-set")
     for view in job["views"]:
         budget = min(
@@ -105,9 +100,7 @@ def run(root):
         )
         if budget <= 0:
             raise RuntimeError("deadline")
-        frame(
-            {"kind": "progress", "stage": "rendering", "cameraRef": view["cameraRef"]}
-        )
+        frame({"kind": "progress", "stage": "rendering", "cameraRef": view["cameraRef"]})
         proc = None
         log = root / "blender.log"
         try:
@@ -133,18 +126,14 @@ def run(root):
             with log.open("rb") as source:
                 source.seek(max(0, log.stat().st_size - 4 * 1024 * 1024))
                 completed_samples = bool(
-                    re.search(
-                        rb"Sample\s+1024\s*/\s*1024", source.read(4 * 1024 * 1024)
-                    )
+                    re.search(rb"Sample\s+1024\s*/\s*1024", source.read(4 * 1024 * 1024))
                 )
             if not completed_samples:
                 raise RuntimeError("completed-samples-unproven")
             receipt = json.loads((root / "receipt.json").read_text())
             verify_receipt(receipt, claim, view)
             verify_webp(root / "image.webp", receipt)
-            frame(
-                {"kind": "progress", "stage": "saving", "cameraRef": view["cameraRef"]}
-            )
+            frame({"kind": "progress", "stage": "saving", "cameraRef": view["cameraRef"]})
             frame({"kind": "artifact-start", "receipt": receipt})
             with (root / "image.webp").open("rb") as source:
                 while chunk := source.read(CHUNK_BYTES):
@@ -167,9 +156,17 @@ def run(root):
     frame({"kind": "done", "outcome": "complete"})
 
 
-def main():
+def ensure_non_root():
+    if os.getuid() == 0:
+        os.setgroups([])
+        os.setgid(10001)
+        os.setuid(10001)
     if os.getuid() == 0:
         raise RuntimeError("non-root-Sandbox-required")
+
+
+def main():
+    ensure_non_root()
 
     def timeout(*_):
         raise TimeoutError("startup-deadline")

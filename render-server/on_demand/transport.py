@@ -22,7 +22,7 @@ def secure_url(value):
     return url
 
 
-def post(url, token, body, apikey=None):
+def post(url, token, body, apikey=None, deployment_token=None):
     parsed = secure_url(url)
     connection = http.client.HTTPSConnection(parsed.hostname, timeout=30)
     try:
@@ -32,6 +32,8 @@ def post(url, token, body, apikey=None):
         }
         if apikey:
             headers["apikey"] = apikey
+        if deployment_token:
+            headers["x-vercel-trusted-oidc-idp-token"] = deployment_token
         connection.request(
             "POST",
             parsed.path,
@@ -48,9 +50,10 @@ def post(url, token, body, apikey=None):
 
 
 class Service:
-    def __init__(self, origin, worker_token, supabase_url, service_key):
+    def __init__(self, origin, worker_token, supabase_url, service_key, deployment_token=None):
         self.origin, self.worker_token = origin.rstrip("/"), worker_token
         self.supabase_url, self.service_key = supabase_url.rstrip("/"), service_key
+        self.deployment_token = deployment_token
         for url in (origin, supabase_url):
             parsed = secure_url(url)
             if parsed.path not in ("", "/") or parsed.query:
@@ -76,17 +79,24 @@ class Service:
             self.origin + "/api/render-library/worker/claim",
             self.worker_token,
             {**dispatch, "workerBuildSha256": build},
+            deployment_token=self.deployment_token,
         )["claim"]
 
     def event(self, event):
         return post(
-            self.origin + "/api/render-library/worker/events", self.worker_token, event
+            self.origin + "/api/render-library/worker/events",
+            self.worker_token,
+            event,
+            deployment_token=self.deployment_token,
         )
 
     def upload(self, event, path):
         receipt = event["receipt"]
         ticket = post(
-            self.origin + "/api/render-library/worker/uploads", self.worker_token, event
+            self.origin + "/api/render-library/worker/uploads",
+            self.worker_token,
+            event,
+            deployment_token=self.deployment_token,
         )
         key = f"{receipt['jobId']}/{receipt['attemptId']}/{receipt['imageKey']}/{receipt['sha256']}.webp"
         url = secure_url(ticket["uploadUrl"])
@@ -97,8 +107,7 @@ class Service:
             or ticket["maxBytes"] < receipt["bytes"]
             or timestamp(ticket["expiresAt"]) <= time.time()
             or url.hostname != secure_url(self.supabase_url).hostname
-            or unquote(url.path)
-            != f"/storage/v1/object/upload/sign/render-library-staging/{key}"
+            or unquote(url.path) != f"/storage/v1/object/upload/sign/render-library-staging/{key}"
         ):
             raise RuntimeError("upload-ticket-binding")
         connection = http.client.HTTPSConnection(url.hostname, timeout=30)
