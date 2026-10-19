@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { DesignEnvelope } from '../../domain/design'
-import { CUSTOMER_CAMERA_REFS } from '../../domain/presentation'
+import type { DesignEnvelope } from '../../domain/design.js'
+import { CUSTOMER_CAMERA_REFS } from '../../domain/presentation.js'
 import {
   CONTRACT_VERSION,
   imageDescriptorSchema,
@@ -14,8 +14,8 @@ import {
   type RetryJobRequest,
   type SetIdentity,
   type SetSnapshot,
-} from '../contracts'
-import { canonicalJson, computeSetIdentity, verifyImageDescriptor } from '../identity'
+} from '../contracts.js'
+import { canonicalJson, computeSetIdentity, verifyImageDescriptor } from '../identity.js'
 import {
   artifactEventSchema,
   claimRequestSchema,
@@ -24,18 +24,18 @@ import {
   type ArtifactEvent,
   type ClaimRequest,
   type WorkerEvent,
-} from '../workerProtocol'
+} from '../workerProtocol.js'
 import type {
   AdmissionContext,
   AdmissionPolicy,
   RenderLibraryRepository,
   RenderLibraryService,
   WorkerServicePort,
-} from './ports'
-import { checksum, SupabaseArtifacts, verifyPixels } from './artifacts'
-import { ServiceError } from './httpSafety'
-import { SupabaseRepository } from './supabase'
-import { verifyArtifactReceipt, verifyWorkerClaim } from './validation'
+} from './ports.js'
+import { checksum, SupabaseArtifacts, verifyPixels } from './artifacts.js'
+import { ServiceError } from './httpSafety.js'
+import { SupabaseRepository } from './supabase.js'
+import { verifyArtifactReceipt, verifyWorkerClaim } from './validation.js'
 
 export interface SeedSource {
   images(design: DesignEnvelope): Promise<readonly ImageDescriptor[]>

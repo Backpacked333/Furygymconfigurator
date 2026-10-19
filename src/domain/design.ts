@@ -7,9 +7,18 @@ import {
   RAILINGS,
   configSchema,
   type Config,
-} from '../lib/config'
-import { CONTAINER_OPENINGS, OPENING_INFILLS, STUDIO_DOORS, STUDIO_LAYOUTS } from '../lib/products'
-import { ARRANGEMENT_CATALOG_VERSION, arrangementEquipment, arrangementFor } from './arrangements'
+} from '../lib/config.js'
+import {
+  CONTAINER_OPENINGS,
+  OPENING_INFILLS,
+  STUDIO_DOORS,
+  STUDIO_LAYOUTS,
+} from '../lib/products.js'
+import {
+  ARRANGEMENT_CATALOG_VERSION,
+  arrangementEquipment,
+  arrangementFor,
+} from './arrangements.js'
 import {
   defaultPresentation,
   outputProfileSchema,
@@ -17,7 +26,7 @@ import {
   resolveCamera,
   resolveLook,
   PRESENTATION_CATALOG_VERSION,
-} from './presentation'
+} from './presentation.js'
 
 export const DESIGN_SCHEMA_VERSION = 4 as const
 export const DESIGN_CATALOG_VERSION = 'fury-design-draft-1' as const

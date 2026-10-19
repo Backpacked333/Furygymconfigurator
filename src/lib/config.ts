@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import LZString from 'lz-string'
-import { archiveRawValue } from './recovery'
+import { archiveRawValue } from './recovery.js'
 import {
   CONTAINER_OPENINGS,
   OPENING_INFILLS,
@@ -9,7 +9,7 @@ import {
   STUDIO_LAYOUTS,
   productFamily,
   type ProductFamily,
-} from './products'
+} from './products.js'
 
 export const FINISHES = [
   { id: 'obsidian', name: 'Obsidian', color: '#262927' },

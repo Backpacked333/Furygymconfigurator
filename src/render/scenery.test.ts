@@ -380,7 +380,7 @@ describe('the scenery layout', () => {
       for (const [, kind, from] of source.matchAll(/^import (type )?[^;]*? from '([^']+)'/gms)) {
         if (kind) continue
         expect(from, `${path} imports ${from}`).not.toMatch(/^three|@react-three/)
-        if (from.startsWith('.')) visit(join(dirname(path), `${from}.ts`))
+        if (from.startsWith('.')) visit(join(dirname(path), `${from.replace(/\.js$/, '')}.ts`))
       }
     }
     visit(join(root, 'gallery.ts'))

@@ -1,5 +1,5 @@
-import { catalogItem, type PlacedItem } from '../lib/config'
-import type { ProductFamily } from '../lib/products'
+import { catalogItem, type PlacedItem } from '../lib/config.js'
+import type { ProductFamily } from '../lib/products.js'
 
 export const ARRANGEMENT_CATALOG_VERSION = 'fury-arrangements-draft-1'
 

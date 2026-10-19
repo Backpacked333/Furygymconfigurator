@@ -1,4 +1,4 @@
-import type { DesignEnvelope } from '../../domain/design'
+import type { DesignEnvelope } from '../../domain/design.js'
 import type {
   CreateJobRequest,
   ImageDescriptor,
@@ -8,7 +8,7 @@ import type {
   SafeError,
   SetIdentity,
   SetSnapshot,
-} from '../contracts'
+} from '../contracts.js'
 import type {
   ArtifactReceipt,
   ArtifactEvent,
@@ -19,7 +19,7 @@ import type {
   WorkerClaim,
   WorkerEvent,
   UploadTicket,
-} from '../workerProtocol'
+} from '../workerProtocol.js'
 
 export type AdmissionContext = Readonly<{
   sessionHash: string

@@ -1,12 +1,12 @@
-import { serializeDesign } from '../../domain/design'
-import { canonicalJson, computeSetIdentity } from '../identity'
+import { serializeDesign } from '../../domain/design.js'
+import { canonicalJson, computeSetIdentity } from '../identity.js'
 import {
   artifactReceiptSchema,
   workerClaimSchema,
   type ArtifactReceipt,
   type WorkerClaim,
-} from '../workerProtocol'
-import type { RecipeRegistration } from './ports'
+} from '../workerProtocol.js'
+import type { RecipeRegistration } from './ports.js'
 
 /** Trusted registration is loaded from the immutable DB row, never from the worker/request. */
 export async function verifyWorkerClaim(

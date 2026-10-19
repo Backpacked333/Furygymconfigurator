@@ -1,20 +1,20 @@
 import { z } from 'zod'
-import type { DesignEnvelope } from '../../domain/design'
-import { setSnapshotSchema, sha256Schema, uuidSchema, type SetIdentity } from '../contracts'
+import type { DesignEnvelope } from '../../domain/design.js'
+import { setSnapshotSchema, sha256Schema, uuidSchema, type SetIdentity } from '../contracts.js'
 import {
   artifactEventSchema,
   eventResponseSchema,
   workerClaimSchema,
   type ArtifactEvent,
-} from '../workerProtocol'
-import { canonicalJson } from '../identity'
+} from '../workerProtocol.js'
+import { canonicalJson } from '../identity.js'
 import type {
   AdmissionPolicy,
   RecipeRegistration,
   RenderLibraryRepository,
   RenderLibraryRpc,
-} from './ports'
-import { boundedBytes, httpsOrigin, ServiceError } from './httpSafety'
+} from './ports.js'
+import { boundedBytes, httpsOrigin, ServiceError } from './httpSafety.js'
 
 export const registrationSchema = z
   .object({

@@ -1,13 +1,13 @@
 import { z } from 'zod'
-import { artifactEventSchema, claimRequestSchema, workerEventSchema } from '../workerProtocol'
+import { artifactEventSchema, claimRequestSchema, workerEventSchema } from '../workerProtocol.js'
 import {
   createJobRequestSchema,
   lookupRequestSchema,
   retryJobRequestSchema,
   uuidSchema,
-} from '../contracts'
-import { canonicalJson } from '../identity'
-import { StaticSeedSource, SupabaseArtifacts } from './artifacts'
+} from '../contracts.js'
+import { canonicalJson } from '../identity.js'
+import { StaticSeedSource, SupabaseArtifacts } from './artifacts.js'
 import {
   boundedJson,
   errorResponse,
@@ -17,9 +17,9 @@ import {
   ServiceError,
   SessionSecurity,
   unavailable,
-} from './httpSafety'
-import { LibraryService, WorkerService } from './service'
-import { SupabaseRepository, SupabaseTransport } from './supabase'
+} from './httpSafety.js'
+import { LibraryService, WorkerService } from './service.js'
+import { SupabaseRepository, SupabaseTransport } from './supabase.js'
 
 export function createRuntime(env: Record<string, string | undefined> = process.env) {
   const origin = env.RENDER_LIBRARY_PUBLIC_ORIGIN && httpsOrigin(env.RENDER_LIBRARY_PUBLIC_ORIGIN)

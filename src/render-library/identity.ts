@@ -1,5 +1,5 @@
-import { parseDesign, serializeDesign } from '../domain/design'
-import { CUSTOMER_CAMERA_REFS } from '../domain/presentation'
+import { parseDesign, serializeDesign } from '../domain/design.js'
+import { CUSTOMER_CAMERA_REFS } from '../domain/presentation.js'
 import {
   CONTRACT_VERSION,
   RECIPE_RELEASE,
@@ -8,8 +8,8 @@ import {
   identitySchema,
   type ImageDescriptor,
   type SetIdentity,
-} from './contracts'
-import { fiveViewDesigns } from './views'
+} from './contracts.js'
+import { fiveViewDesigns } from './views.js'
 
 /** Sorted UTF-8 JSON. Contract values are finite JSON primitives; arrays keep their order. */
 export function canonicalJson(value: unknown): string {

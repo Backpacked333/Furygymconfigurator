@@ -287,7 +287,7 @@ export async function preparePortablePackage(): Promise<PortablePackage> {
       if (ts.isExportDeclaration(node) && node.isTypeOnly) continue
       const specifier = node.moduleSpecifier
       if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith('.')) continue
-      const base = resolve(root, dirname(name), specifier.text)
+      const base = resolve(root, dirname(name), specifier.text.replace(/\.js$/, ''))
       let path: string | undefined
       for (const candidate of /\.(ts|tsx|json)$/.test(base)
         ? [base]

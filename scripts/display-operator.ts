@@ -70,6 +70,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     resolve(specifier, context, nextResolve) {
       if (specifier.startsWith('.') && context.parentURL?.startsWith(root.href)) {
         const url = new URL(specifier, context.parentURL)
+        if (
+          url.pathname.endsWith('.js') &&
+          !existsSync(fileURLToPath(url)) &&
+          existsSync(fileURLToPath(url.href.slice(0, -3) + '.ts'))
+        )
+          url.pathname = url.pathname.slice(0, -3) + '.ts'
         if (!/\.[a-z]+$/i.test(url.pathname) && existsSync(fileURLToPath(`${url.href}.ts`)))
           url.pathname += '.ts'
         if (url.pathname.endsWith('.ts')) return { url: url.href, shortCircuit: true }

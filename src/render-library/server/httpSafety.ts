@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { CONTRACT_VERSION, safeError, type SafeError } from '../contracts'
-import type { AdmissionContext } from './ports'
+import { CONTRACT_VERSION, safeError, type SafeError } from '../contracts.js'
+import type { AdmissionContext } from './ports.js'
 
 export class ServiceError extends Error {
   constructor(

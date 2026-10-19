@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Config } from '../lib/config'
+import type { Config } from '../lib/config.js'
 
 /** Proposals only. These scalar recipes are NOT a calibrated or approved content release. */
 export const PRESENTATION_CATALOG_VERSION = 'fury-presentation-draft-1' as const

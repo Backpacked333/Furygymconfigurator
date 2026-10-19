@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { designEnvelopeSchema } from '../domain/design'
-import { CUSTOMER_CAMERA_REFS, LOOK_REFS, presentationSchema } from '../domain/presentation'
+import { designEnvelopeSchema } from '../domain/design.js'
+import { CUSTOMER_CAMERA_REFS, LOOK_REFS, presentationSchema } from '../domain/presentation.js'
 
 export const CONTRACT_VERSION = 'fury.render-library@1' as const
 export const RENDER_CTA = 'Bring your vision to life' as const

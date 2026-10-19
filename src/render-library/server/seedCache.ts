@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { serializeDesign, type DesignEnvelope } from '../../domain/design'
-import { nativeLibrarySchema, type NativeLibrary } from '../seedManifest'
+import { serializeDesign, type DesignEnvelope } from '../../domain/design.js'
+import { nativeLibrarySchema, type NativeLibrary } from '../seedManifest.js'
 import {
   CONTRACT_VERSION,
   RECIPE_RELEASE,
@@ -9,8 +9,8 @@ import {
   cameraRefSchema,
   imageDescriptorSchema,
   type ImageDescriptor,
-} from '../contracts'
-import { computeSetIdentity } from '../identity'
+} from '../contracts.js'
+import { computeSetIdentity } from '../identity.js'
 
 /** Import these EXACT historical receipts, not an editable manifest with a matching design. */
 export function verifySeedManifest(bytes: Uint8Array): NativeLibrary {

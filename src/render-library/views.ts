@@ -1,12 +1,12 @@
-import { parseDesign, type DesignEnvelope } from '../domain/design'
+import { parseDesign, type DesignEnvelope } from '../domain/design.js'
 import {
   CUSTOMER_CAMERA_REFS,
   type CameraRef,
   type CustomerCameraRef,
-} from '../domain/presentation'
+} from '../domain/presentation.js'
 
-export { CUSTOMER_CAMERAS, CUSTOMER_CAMERA_REFS } from '../domain/presentation'
-export type { CustomerCameraRef } from '../domain/presentation'
+export { CUSTOMER_CAMERAS, CUSTOMER_CAMERA_REFS } from '../domain/presentation.js'
+export type { CustomerCameraRef } from '../domain/presentation.js'
 
 export const CUSTOMER_ANGLES = ['front-left', 'front', 'left', 'rear-left', 'entry'] as const
 export type CustomerAngle = (typeof CUSTOMER_ANGLES)[number]

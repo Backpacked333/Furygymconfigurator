@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { designEnvelopeSchema, serializeDesign } from '../domain/design'
+import { designEnvelopeSchema, serializeDesign } from '../domain/design.js'
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/)
 export const nativeEntrySchema = z.object({

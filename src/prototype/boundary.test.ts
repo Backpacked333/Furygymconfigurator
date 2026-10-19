@@ -168,9 +168,13 @@ describe('prototype runtime source dependency boundary', () => {
           expect(path).not.toMatch(/cloud/i)
         if (!path.startsWith('.') || path.endsWith('.css')) continue
         const base = resolve(dirname(file), path)
-        const next = [base, base + '.ts', base + '.tsx', base + '.json'].find((candidate) =>
-          existsSync(candidate),
-        )
+        const next = [
+          base,
+          base + '.ts',
+          base + '.tsx',
+          base + '.json',
+          base.replace(/\.js$/, '.ts'),
+        ].find((candidate) => existsSync(candidate))
         expect(next, `Missing dependency ${path}`).toBeDefined()
         if (next && !next.endsWith('.json')) inspect(next)
       }

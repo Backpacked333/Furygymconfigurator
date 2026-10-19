@@ -12,7 +12,7 @@ import {
   safeErrorSchema,
   sha256Schema,
   uuidSchema,
-} from './contracts'
+} from './contracts.js'
 
 export const WORKER_API_PATHS = Object.freeze({
   claim: '/api/render-library/worker/claim',
