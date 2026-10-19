@@ -61,7 +61,7 @@ def validate_claim(claim, recipe):
         if claim[key] != recipe[key] or not re.fullmatch("[a-f0-9]{64}", claim[key]):
             raise ValueError("release-mismatch")
     release = claim["identity"]["recipeRelease"]
-    if release["id"] != recipe["releaseId"] or release["id"] != "fury-native-five@1":
+    if release["id"] != recipe["releaseId"] or release["id"] != "fury-native-five@2":
         raise ValueError("recipe-mismatch")
     if identity(claim["design"], "set", release) != claim["identity"]["setKey"]:
         raise ValueError("set-mismatch")

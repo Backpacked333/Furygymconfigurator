@@ -233,7 +233,7 @@ describe('native manifest compatibility and immutable descriptors', () => {
     expect(manifest.entries).toHaveLength(400)
     expect(() => verifySeedManifest(Buffer.concat([manifestBytes, Buffer.from('\n')]))).toThrow()
     const images = await seedImagesForSet(manifestBytes, design)
-    expect(images).toHaveLength(5)
+    expect(images).toHaveLength(4)
     for (const image of images) {
       expect(image.provenance.kind).toBe('seed-cache')
       if (image.provenance.kind !== 'seed-cache') throw new Error('wrong seed provenance')
@@ -246,7 +246,7 @@ describe('native manifest compatibility and immutable descriptors', () => {
       expect(await verifyImageDescriptor(image, image.design, [])).toEqual(image)
     }
   })
-  it('preserves all 50 complete Day sets and only one Night hero per build', async () => {
+  it('preserves four Day exteriors and one Night hero without reusing old interior pixels', async () => {
     const manifest = verifySeedManifest(manifestBytes)
     const heroes = manifest.entries.filter(
       (entry) => entry.design.presentation.cameraRef === 'front-left-draft@1',
@@ -254,7 +254,10 @@ describe('native manifest compatibility and immutable descriptors', () => {
     expect(heroes).toHaveLength(100)
     for (const hero of heroes) {
       const images = await seedImagesForSet(manifestBytes, hero.design)
-      expect(images).toHaveLength(hero.design.presentation.lookRef === 'studio-day-draft@1' ? 5 : 1)
+      expect(images).toHaveLength(hero.design.presentation.lookRef === 'studio-day-draft@1' ? 4 : 1)
+      expect(images.some((image) => image.design.presentation.cameraRef === 'entry-draft@1')).toBe(
+        false,
+      )
     }
   }, 30000)
   it.each([{ lookRef: 'desert-day-draft@1' }, { aspect: 'tall' }, { doorPose: 'open' }])(

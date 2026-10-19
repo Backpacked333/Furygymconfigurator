@@ -75,6 +75,8 @@ export async function verifyImageDescriptor(
   )
     throw new Error('Wrong image identity.')
   if (image.provenance.kind === 'seed-cache') {
+    if (design.presentation.cameraRef === 'entry-draft@1')
+      throw new Error('Historical interior pixels do not match the room-overview camera.')
     if (image.url !== `/native-library/${image.sha256}.webp`) throw new Error('Wrong seed URL.')
   } else {
     const url = new URL(image.url)

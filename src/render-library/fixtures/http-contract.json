@@ -34,27 +34,27 @@
     "outputProfile": "web-hero"
   },
   "identity": {
-    "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+    "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
     "recipeRelease": {
-      "id": "fury-native-five@1",
+      "id": "fury-native-five@2",
       "geometry": "fury-fixed-arrangement-geometry@1",
       "materials": "fury-native-materials@1",
-      "cameras": "fury-native-five-cameras@1",
+      "cameras": "fury-native-five-cameras@2",
       "renderer": "blender-4.5.0-cycles-optix-l40s@1",
       "studio": "fury-corrected-cyclorama-raycast@1",
       "environments": "fury-selected-landscape-day-night@1",
       "encoding": "webp-q95-1920x1200-1200x1500@1"
     },
     "imageKeys": {
-      "front-left-draft@1": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
-      "front-draft@1": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
-      "left-draft@1": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
-      "rear-left-draft@1": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
-      "entry-draft@1": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93"
+      "front-left-draft@1": "img_bdc6bd791b563307ca14610bcab6b97d4160bf8bb48369842197aeae4f34b686",
+      "front-draft@1": "img_30c9f32c96e36f8e529286d1429cab9abbf936f04361fcaef0a3d6a90791579b",
+      "left-draft@1": "img_3090970b1e397ce999de1d833cc833fdc4867fa7140e341f0e9fefe9f5e97e93",
+      "rear-left-draft@1": "img_6557133a5a0a8fb3ee635cc6f207622ae1308d86e8694ec17e455c89f1b4dc65",
+      "entry-draft@1": "img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9"
     }
   },
-  "canonicalSet": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"set\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@1\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@1\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
-  "canonicalImage": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"cameraRef\":\"front-left-draft@1\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"image\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@1\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@1\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
+  "canonicalSet": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"set\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@2\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
+  "canonicalImage": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"cameraRef\":\"front-left-draft@1\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"image\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@2\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
   "lookup": {
     "contractVersion": "fury.render-library@1",
     "design": {
@@ -131,35 +131,35 @@
     "contractVersion": "fury.render-library@1",
     "status": "ok",
     "identity": {
-      "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+      "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
       "recipeRelease": {
-        "id": "fury-native-five@1",
+        "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
         "materials": "fury-native-materials@1",
-        "cameras": "fury-native-five-cameras@1",
+        "cameras": "fury-native-five-cameras@2",
         "renderer": "blender-4.5.0-cycles-optix-l40s@1",
         "studio": "fury-corrected-cyclorama-raycast@1",
         "environments": "fury-selected-landscape-day-night@1",
         "encoding": "webp-q95-1920x1200-1200x1500@1"
       },
       "imageKeys": {
-        "front-left-draft@1": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
-        "front-draft@1": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
-        "left-draft@1": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
-        "rear-left-draft@1": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
-        "entry-draft@1": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93"
+        "front-left-draft@1": "img_bdc6bd791b563307ca14610bcab6b97d4160bf8bb48369842197aeae4f34b686",
+        "front-draft@1": "img_30c9f32c96e36f8e529286d1429cab9abbf936f04361fcaef0a3d6a90791579b",
+        "left-draft@1": "img_3090970b1e397ce999de1d833cc833fdc4867fa7140e341f0e9fefe9f5e97e93",
+        "rear-left-draft@1": "img_6557133a5a0a8fb3ee635cc6f207622ae1308d86e8694ec17e455c89f1b4dc65",
+        "entry-draft@1": "img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9"
       }
     },
     "coverage": "complete",
     "views": [
       {
         "cameraRef": "front-left-draft@1",
-        "imageKey": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
+        "imageKey": "img_bdc6bd791b563307ca14610bcab6b97d4160bf8bb48369842197aeae4f34b686",
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
-          "imageKey": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
+          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "imageKey": "img_bdc6bd791b563307ca14610bcab6b97d4160bf8bb48369842197aeae4f34b686",
           "design": {
             "config": {
               "schemaVersion": 4,
@@ -193,10 +193,10 @@
             "outputProfile": "web-hero"
           },
           "recipeRelease": {
-            "id": "fury-native-five@1",
+            "id": "fury-native-five@2",
             "geometry": "fury-fixed-arrangement-geometry@1",
             "materials": "fury-native-materials@1",
-            "cameras": "fury-native-five-cameras@1",
+            "cameras": "fury-native-five-cameras@2",
             "renderer": "blender-4.5.0-cycles-optix-l40s@1",
             "studio": "fury-corrected-cyclorama-raycast@1",
             "environments": "fury-selected-landscape-day-night@1",
@@ -230,12 +230,12 @@
       },
       {
         "cameraRef": "front-draft@1",
-        "imageKey": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
+        "imageKey": "img_30c9f32c96e36f8e529286d1429cab9abbf936f04361fcaef0a3d6a90791579b",
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
-          "imageKey": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
+          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "imageKey": "img_30c9f32c96e36f8e529286d1429cab9abbf936f04361fcaef0a3d6a90791579b",
           "design": {
             "config": {
               "schemaVersion": 4,
@@ -269,10 +269,10 @@
             "outputProfile": "web-hero"
           },
           "recipeRelease": {
-            "id": "fury-native-five@1",
+            "id": "fury-native-five@2",
             "geometry": "fury-fixed-arrangement-geometry@1",
             "materials": "fury-native-materials@1",
-            "cameras": "fury-native-five-cameras@1",
+            "cameras": "fury-native-five-cameras@2",
             "renderer": "blender-4.5.0-cycles-optix-l40s@1",
             "studio": "fury-corrected-cyclorama-raycast@1",
             "environments": "fury-selected-landscape-day-night@1",
@@ -306,12 +306,12 @@
       },
       {
         "cameraRef": "left-draft@1",
-        "imageKey": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
+        "imageKey": "img_3090970b1e397ce999de1d833cc833fdc4867fa7140e341f0e9fefe9f5e97e93",
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
-          "imageKey": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
+          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "imageKey": "img_3090970b1e397ce999de1d833cc833fdc4867fa7140e341f0e9fefe9f5e97e93",
           "design": {
             "config": {
               "schemaVersion": 4,
@@ -345,10 +345,10 @@
             "outputProfile": "web-hero"
           },
           "recipeRelease": {
-            "id": "fury-native-five@1",
+            "id": "fury-native-five@2",
             "geometry": "fury-fixed-arrangement-geometry@1",
             "materials": "fury-native-materials@1",
-            "cameras": "fury-native-five-cameras@1",
+            "cameras": "fury-native-five-cameras@2",
             "renderer": "blender-4.5.0-cycles-optix-l40s@1",
             "studio": "fury-corrected-cyclorama-raycast@1",
             "environments": "fury-selected-landscape-day-night@1",
@@ -382,12 +382,12 @@
       },
       {
         "cameraRef": "rear-left-draft@1",
-        "imageKey": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
+        "imageKey": "img_6557133a5a0a8fb3ee635cc6f207622ae1308d86e8694ec17e455c89f1b4dc65",
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
-          "imageKey": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
+          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "imageKey": "img_6557133a5a0a8fb3ee635cc6f207622ae1308d86e8694ec17e455c89f1b4dc65",
           "design": {
             "config": {
               "schemaVersion": 4,
@@ -421,10 +421,10 @@
             "outputProfile": "web-hero"
           },
           "recipeRelease": {
-            "id": "fury-native-five@1",
+            "id": "fury-native-five@2",
             "geometry": "fury-fixed-arrangement-geometry@1",
             "materials": "fury-native-materials@1",
-            "cameras": "fury-native-five-cameras@1",
+            "cameras": "fury-native-five-cameras@2",
             "renderer": "blender-4.5.0-cycles-optix-l40s@1",
             "studio": "fury-corrected-cyclorama-raycast@1",
             "environments": "fury-selected-landscape-day-night@1",
@@ -458,12 +458,12 @@
       },
       {
         "cameraRef": "entry-draft@1",
-        "imageKey": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93",
+        "imageKey": "img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9",
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
-          "imageKey": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93",
+          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "imageKey": "img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9",
           "design": {
             "config": {
               "schemaVersion": 4,
@@ -497,18 +497,18 @@
             "outputProfile": "web-hero"
           },
           "recipeRelease": {
-            "id": "fury-native-five@1",
+            "id": "fury-native-five@2",
             "geometry": "fury-fixed-arrangement-geometry@1",
             "materials": "fury-native-materials@1",
-            "cameras": "fury-native-five-cameras@1",
+            "cameras": "fury-native-five-cameras@2",
             "renderer": "blender-4.5.0-cycles-optix-l40s@1",
             "studio": "fury-corrected-cyclorama-raycast@1",
             "environments": "fury-selected-landscape-day-night@1",
             "encoding": "webp-q95-1920x1200-1200x1500@1"
           },
-          "url": "/native-library/21cdb18d327aac283179ab6d46c490bad46f6fb0f9d4db1873b3bdadbae0b9ea.webp",
-          "sha256": "21cdb18d327aac283179ab6d46c490bad46f6fb0f9d4db1873b3bdadbae0b9ea",
-          "bytes": 118112,
+          "url": "https://storage.example/storage/v1/object/public/render-library/set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7/img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9/0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245.webp",
+          "sha256": "0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245",
+          "bytes": 60776,
           "width": 1920,
           "height": 1200,
           "mime": "image/webp",
@@ -516,15 +516,12 @@
           "adaptiveSampling": false,
           "quality": 95,
           "provenance": {
-            "kind": "seed-cache",
-            "compatibilityRule": "native-library-400-exact@1",
-            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
-            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
-            "entryId": "design-01-6",
-            "requestKey": "39e694c8f81d2022bdcdc67f9859b921ffe5526fcb4dd5331b40469e2084f92f",
-            "historicalRecipeDigest": "e2efb4b3ac228cb701b6e4ce22ba4188d65409cc3abf43da78e44ad111f95883",
-            "historicalManifestSha256": "df5ed7a21528100c17dc5b0845f4cb8bf963bdca78ed970029c352ea029f7f9e",
-            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            "kind": "native-worker",
+            "jobId": "00000000-0000-4000-8000-000000000001",
+            "attemptId": "00000000-0000-4000-8000-000000000003",
+            "workerBuildSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "recipeBundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "receiptSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
           },
           "productionAllowed": false,
           "visuallyQualified": false,
@@ -547,35 +544,35 @@
     "contractVersion": "fury.render-library@1",
     "status": "ok",
     "identity": {
-      "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+      "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
       "recipeRelease": {
-        "id": "fury-native-five@1",
+        "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
         "materials": "fury-native-materials@1",
-        "cameras": "fury-native-five-cameras@1",
+        "cameras": "fury-native-five-cameras@2",
         "renderer": "blender-4.5.0-cycles-optix-l40s@1",
         "studio": "fury-corrected-cyclorama-raycast@1",
         "environments": "fury-selected-landscape-day-night@1",
         "encoding": "webp-q95-1920x1200-1200x1500@1"
       },
       "imageKeys": {
-        "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-        "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-        "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-        "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-        "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+        "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+        "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+        "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+        "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
       }
     },
     "coverage": "partial",
     "views": [
       {
         "cameraRef": "front-left-draft@1",
-        "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+        "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "design": {
             "config": {
               "schemaVersion": 4,
@@ -609,10 +606,10 @@
             "outputProfile": "web-hero"
           },
           "recipeRelease": {
-            "id": "fury-native-five@1",
+            "id": "fury-native-five@2",
             "geometry": "fury-fixed-arrangement-geometry@1",
             "materials": "fury-native-materials@1",
-            "cameras": "fury-native-five-cameras@1",
+            "cameras": "fury-native-five-cameras@2",
             "renderer": "blender-4.5.0-cycles-optix-l40s@1",
             "studio": "fury-corrected-cyclorama-raycast@1",
             "environments": "fury-selected-landscape-day-night@1",
@@ -646,22 +643,22 @@
       },
       {
         "cameraRef": "front-draft@1",
-        "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+        "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
         "status": "missing"
       },
       {
         "cameraRef": "left-draft@1",
-        "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+        "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
         "status": "missing"
       },
       {
         "cameraRef": "rear-left-draft@1",
-        "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+        "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
         "status": "missing"
       },
       {
         "cameraRef": "entry-draft@1",
-        "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+        "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
         "status": "missing"
       }
     ],
@@ -679,50 +676,50 @@
     "contractVersion": "fury.render-library@1",
     "status": "ok",
     "identity": {
-      "setKey": "set_543de9078721268e96d4dd1e88c7f7f6343b523a035e7617b69b0520f0974f9d",
+      "setKey": "set_43c2924b2c1a7505e3f987d7c8eab4a88c637a02cb664d9f699d456c2b2263d2",
       "recipeRelease": {
-        "id": "fury-native-five@1",
+        "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
         "materials": "fury-native-materials@1",
-        "cameras": "fury-native-five-cameras@1",
+        "cameras": "fury-native-five-cameras@2",
         "renderer": "blender-4.5.0-cycles-optix-l40s@1",
         "studio": "fury-corrected-cyclorama-raycast@1",
         "environments": "fury-selected-landscape-day-night@1",
         "encoding": "webp-q95-1920x1200-1200x1500@1"
       },
       "imageKeys": {
-        "front-left-draft@1": "img_17b6ff07c84a5098ae78c7dfff587b8c64c418d2c9a72564e3f284b0ffc477f3",
-        "front-draft@1": "img_1b9636a1d3eb92fac44131862c7ef0ca102681bffca53cd81142a48c1eaac26b",
-        "left-draft@1": "img_1eec0eb118416457bb9ce4cd665d168e29a7b299f64e2a84013b6a107d2315ed",
-        "rear-left-draft@1": "img_96df8c9221c0e8e90ec6992c4d1bf3151f967bdc63a526ace9545c67981d7e3f",
-        "entry-draft@1": "img_f93cc7b227873683aeb8db2e07104b5956eb6bf250f42401b1b7edac7f0b369f"
+        "front-left-draft@1": "img_b4ede088b1e7a24a824c3d05f786cd761093cdfe667c8d44b0f3a9e5c2e08078",
+        "front-draft@1": "img_e90e185d7c395f6f1ff2380f588f4ae86c20e023bc90eefd26b6725eed55b16c",
+        "left-draft@1": "img_5a28fabe556eade139e4d7f32f4a23628af4e9874bfab5c2ff54868d6d9c68c7",
+        "rear-left-draft@1": "img_0e672f58ba80a11f7cd824e24905368edce02eb9834336afd2db6fc6997e42eb",
+        "entry-draft@1": "img_f62bc2595efef1f6c271e852c83d9b9772b6e45abf080417cb21e36d5697587b"
       }
     },
     "coverage": "missing",
     "views": [
       {
         "cameraRef": "front-left-draft@1",
-        "imageKey": "img_17b6ff07c84a5098ae78c7dfff587b8c64c418d2c9a72564e3f284b0ffc477f3",
+        "imageKey": "img_b4ede088b1e7a24a824c3d05f786cd761093cdfe667c8d44b0f3a9e5c2e08078",
         "status": "missing"
       },
       {
         "cameraRef": "front-draft@1",
-        "imageKey": "img_1b9636a1d3eb92fac44131862c7ef0ca102681bffca53cd81142a48c1eaac26b",
+        "imageKey": "img_e90e185d7c395f6f1ff2380f588f4ae86c20e023bc90eefd26b6725eed55b16c",
         "status": "missing"
       },
       {
         "cameraRef": "left-draft@1",
-        "imageKey": "img_1eec0eb118416457bb9ce4cd665d168e29a7b299f64e2a84013b6a107d2315ed",
+        "imageKey": "img_5a28fabe556eade139e4d7f32f4a23628af4e9874bfab5c2ff54868d6d9c68c7",
         "status": "missing"
       },
       {
         "cameraRef": "rear-left-draft@1",
-        "imageKey": "img_96df8c9221c0e8e90ec6992c4d1bf3151f967bdc63a526ace9545c67981d7e3f",
+        "imageKey": "img_0e672f58ba80a11f7cd824e24905368edce02eb9834336afd2db6fc6997e42eb",
         "status": "missing"
       },
       {
         "cameraRef": "entry-draft@1",
-        "imageKey": "img_f93cc7b227873683aeb8db2e07104b5956eb6bf250f42401b1b7edac7f0b369f",
+        "imageKey": "img_f62bc2595efef1f6c271e852c83d9b9772b6e45abf080417cb21e36d5697587b",
         "status": "missing"
       }
     ],
@@ -741,35 +738,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -803,10 +800,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -840,25 +837,25 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "pending",
           "stage": "queued"
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "pending",
           "stage": "queued"
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "pending",
           "stage": "queued"
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "pending",
           "stage": "queued"
         }
@@ -886,35 +883,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -948,10 +945,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -985,25 +982,25 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "pending",
           "stage": "preparing"
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "pending",
           "stage": "preparing"
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "pending",
           "stage": "preparing"
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "pending",
           "stage": "preparing"
         }
@@ -1031,35 +1028,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -1093,10 +1090,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -1130,25 +1127,25 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "pending",
           "stage": "rendering"
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "pending",
           "stage": "rendering"
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "pending",
           "stage": "rendering"
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "pending",
           "stage": "rendering"
         }
@@ -1176,35 +1173,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -1238,10 +1235,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -1275,25 +1272,25 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "pending",
           "stage": "saving"
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "pending",
           "stage": "saving"
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "pending",
           "stage": "saving"
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "pending",
           "stage": "saving"
         }
@@ -1321,35 +1318,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -1383,10 +1380,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -1420,25 +1417,25 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "pending",
           "stage": "verifying"
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "pending",
           "stage": "verifying"
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "pending",
           "stage": "verifying"
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "pending",
           "stage": "verifying"
         }
@@ -1466,35 +1463,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -1528,10 +1525,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -1565,7 +1562,7 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "failed",
           "error": {
             "code": "worker-failed",
@@ -1576,7 +1573,7 @@
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "failed",
           "error": {
             "code": "worker-failed",
@@ -1587,7 +1584,7 @@
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "failed",
           "error": {
             "code": "worker-failed",
@@ -1598,7 +1595,7 @@
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "failed",
           "error": {
             "code": "worker-failed",
@@ -1635,35 +1632,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -1697,10 +1694,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -1734,7 +1731,7 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "failed",
           "error": {
             "code": "rendering-disabled",
@@ -1745,7 +1742,7 @@
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "failed",
           "error": {
             "code": "rendering-disabled",
@@ -1756,7 +1753,7 @@
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "failed",
           "error": {
             "code": "rendering-disabled",
@@ -1767,7 +1764,7 @@
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "failed",
           "error": {
             "code": "rendering-disabled",
@@ -1804,35 +1801,35 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
         "recipeRelease": {
-          "id": "fury-native-five@1",
+          "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
           "materials": "fury-native-materials@1",
-          "cameras": "fury-native-five-cameras@1",
+          "cameras": "fury-native-five-cameras@2",
           "renderer": "blender-4.5.0-cycles-optix-l40s@1",
           "studio": "fury-corrected-cyclorama-raycast@1",
           "environments": "fury-selected-landscape-day-night@1",
           "encoding": "webp-q95-1920x1200-1200x1500@1"
         },
         "imageKeys": {
-          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+          "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+          "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+          "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+          "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+          "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
         }
       },
       "coverage": "partial",
       "views": [
         {
           "cameraRef": "front-left-draft@1",
-          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
-            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
                 "schemaVersion": 4,
@@ -1866,10 +1863,10 @@
               "outputProfile": "web-hero"
             },
             "recipeRelease": {
-              "id": "fury-native-five@1",
+              "id": "fury-native-five@2",
               "geometry": "fury-fixed-arrangement-geometry@1",
               "materials": "fury-native-materials@1",
-              "cameras": "fury-native-five-cameras@1",
+              "cameras": "fury-native-five-cameras@2",
               "renderer": "blender-4.5.0-cycles-optix-l40s@1",
               "studio": "fury-corrected-cyclorama-raycast@1",
               "environments": "fury-selected-landscape-day-night@1",
@@ -1903,7 +1900,7 @@
         },
         {
           "cameraRef": "front-draft@1",
-          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
           "status": "failed",
           "error": {
             "code": "dispatch-uncertain",
@@ -1914,7 +1911,7 @@
         },
         {
           "cameraRef": "left-draft@1",
-          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
           "status": "failed",
           "error": {
             "code": "dispatch-uncertain",
@@ -1925,7 +1922,7 @@
         },
         {
           "cameraRef": "rear-left-draft@1",
-          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
           "status": "failed",
           "error": {
             "code": "dispatch-uncertain",
@@ -1936,7 +1933,7 @@
         },
         {
           "cameraRef": "entry-draft@1",
-          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e",
           "status": "failed",
           "error": {
             "code": "dispatch-uncertain",

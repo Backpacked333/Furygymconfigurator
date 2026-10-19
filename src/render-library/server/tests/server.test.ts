@@ -88,7 +88,7 @@ const policy = {
   maxImageLiabilityMicroUsd: 1000,
   startupLiabilityMicroUsd: 500,
   recipe: {
-    releaseId: 'fury-native-five@1',
+    releaseId: 'fury-native-five@2',
     workerBuildSha256: workerFixture.claim.workerBuildSha256,
     recipeBundleSha256: workerFixture.claim.recipeBundleSha256,
     geometrySha256: '3'.repeat(64),

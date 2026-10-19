@@ -18,7 +18,7 @@ import { boundedBytes, httpsOrigin, ServiceError } from './httpSafety.js'
 
 export const registrationSchema = z
   .object({
-    releaseId: z.literal('fury-native-five@1'),
+    releaseId: z.literal('fury-native-five@2'),
     workerBuildSha256: sha256Schema,
     recipeBundleSha256: sha256Schema,
     geometrySha256: sha256Schema,

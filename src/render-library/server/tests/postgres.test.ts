@@ -59,7 +59,7 @@ async function parallelRpc(name: string, value: unknown) {
 const session = 'a'.repeat(64),
   network = 'b'.repeat(64)
 const registration = {
-  releaseId: 'fury-native-five@1' as const,
+  releaseId: 'fury-native-five@2' as const,
   workerBuildSha256: '1'.repeat(64),
   recipeBundleSha256: '2'.repeat(64),
   geometrySha256: '3'.repeat(64),
@@ -145,7 +145,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       startupLiabilityMicroUsd: 500,
       recipe: registration,
     }
-    run(`insert into public.render_library_recipes(release_id,registration) values('fury-native-five@1',${encoded(registration)});
+    run(`insert into public.render_library_recipes(release_id,registration) values('fury-native-five@2',${encoded(registration)});
       insert into public.render_library_approvals(id,enabled,expires_at,budget_micro_usd,policy) values(${quote(approvalId)},true,${quote(expiresAt)},100000,${encoded(policy)});`)
     touch(session)
     const design = customerDesignSchema.parse(contract.create.design)

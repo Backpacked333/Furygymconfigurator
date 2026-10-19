@@ -50,6 +50,21 @@ export async function contractFixtures(root: string) {
   })
   const bytes = readFileSync(resolve(root, 'public/native-library/manifest.json'))
   const images = await seedImagesForSet(bytes, design)
+  const interiorKey = identity.imageKeys['entry-draft@1']
+  const syntheticInterior = imageDescriptorSchema.parse({
+    ...images[0],
+    imageKey: interiorKey,
+    design: { ...design, presentation: { ...design.presentation, cameraRef: 'entry-draft@1' } },
+    url: `https://storage.example/storage/v1/object/public/render-library/${identity.setKey}/${interiorKey}/${images[0].sha256}.webp`,
+    provenance: {
+      kind: 'native-worker',
+      jobId,
+      attemptId,
+      workerBuildSha256: 'a'.repeat(64),
+      recipeBundleSha256: 'b'.repeat(64),
+      receiptSha256: 'c'.repeat(64),
+    },
+  })
   const disabled = {
     status: 'unavailable',
     reason: {
@@ -63,7 +78,7 @@ export async function contractFixtures(root: string) {
     status: 'ok',
     identity,
     coverage: 'complete',
-    views: images.map((image) => ({
+    views: [...images, syntheticInterior].map((image) => ({
       cameraRef: image.design.presentation.cameraRef,
       imageKey: image.imageKey,
       status: 'ready',

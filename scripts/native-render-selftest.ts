@@ -11,7 +11,7 @@ import { equirectRadiance } from '../src/lib/visuals'
 
 const fixture = JSON.parse(readFileSync('src/render-library/fixtures/worker-adapter.json', 'utf8'))
 const recipe = {
-  releaseId: 'fury-native-five@1' as const,
+  releaseId: 'fury-native-five@2' as const,
   workerBuildSha256: fixture.claim.workerBuildSha256,
   recipeBundleSha256: fixture.claim.recipeBundleSha256,
   geometrySha256: '0'.repeat(64),

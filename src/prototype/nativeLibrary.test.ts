@@ -87,6 +87,19 @@ it('matches the full configuration, view, lighting and aspect instead of reusing
   ).toBeUndefined()
 })
 
+it('does not reuse the historical close-up for the new interior overview', () => {
+  const interior = parseDesign({
+    ...design,
+    presentation: { ...design.presentation, cameraRef: 'entry-draft@1' },
+  })
+  expect(
+    findNativeImage(
+      { ...library, entries: [{ ...entry, design: designEnvelopeSchema.parse(interior) }] },
+      interior,
+    ),
+  ).toBeUndefined()
+})
+
 it('rejects corrupt image bytes without constructing a display URL', async () => {
   vi.stubGlobal('crypto', webcrypto)
   vi.stubGlobal(

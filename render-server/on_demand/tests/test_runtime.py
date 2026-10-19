@@ -134,7 +134,7 @@ class RuntimeTests(unittest.TestCase):
         self.service = ServiceDouble()
         self.provider = ProviderDouble(self.service, self.journal)
         self.recipe = {
-            "releaseId": "fury-native-five@1",
+            "releaseId": "fury-native-five@2",
             "workerBuildSha256": "a" * 64,
             "recipeBundleSha256": "b" * 64,
         }

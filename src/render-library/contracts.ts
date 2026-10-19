@@ -29,10 +29,10 @@ export const uuidSchema = z.uuid()
 
 /** Source IDs are immutable releases, not permission to render or proof of pixel qualification. */
 export const RECIPE_RELEASE = Object.freeze({
-  id: 'fury-native-five@1',
+  id: 'fury-native-five@2',
   geometry: 'fury-fixed-arrangement-geometry@1',
   materials: 'fury-native-materials@1',
-  cameras: 'fury-native-five-cameras@1',
+  cameras: 'fury-native-five-cameras@2',
   renderer: 'blender-4.5.0-cycles-optix-l40s@1',
   studio: 'fury-corrected-cyclorama-raycast@1',
   environments: 'fury-selected-landscape-day-night@1',

@@ -75,7 +75,7 @@ def package(output):
         encode({k: v for k, v in files.items() if k.startswith(prefixes)})
     )
     recipe = {
-        "releaseId": "fury-native-five@1",
+        "releaseId": "fury-native-five@2",
         "workerBuildSha256": checksum(encode(files)),
         "recipeBundleSha256": subset(
             (

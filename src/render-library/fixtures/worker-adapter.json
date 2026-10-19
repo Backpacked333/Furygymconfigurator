@@ -45,23 +45,23 @@
       "outputProfile": "web-hero"
     },
     "identity": {
-      "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+      "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
       "recipeRelease": {
-        "id": "fury-native-five@1",
+        "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
         "materials": "fury-native-materials@1",
-        "cameras": "fury-native-five-cameras@1",
+        "cameras": "fury-native-five-cameras@2",
         "renderer": "blender-4.5.0-cycles-optix-l40s@1",
         "studio": "fury-corrected-cyclorama-raycast@1",
         "environments": "fury-selected-landscape-day-night@1",
         "encoding": "webp-q95-1920x1200-1200x1500@1"
       },
       "imageKeys": {
-        "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
-        "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
-        "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
-        "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
-        "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        "front-left-draft@1": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
+        "front-draft@1": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
+        "left-draft@1": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9",
+        "rear-left-draft@1": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec",
+        "entry-draft@1": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
       }
     },
     "workerBuildSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -69,19 +69,19 @@
     "views": [
       {
         "cameraRef": "front-draft@1",
-        "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884"
+        "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a"
       },
       {
         "cameraRef": "left-draft@1",
-        "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3"
+        "imageKey": "img_083a0a32cf4a50130118937937d76ff13e44e4f059ce985463b76951863f78b9"
       },
       {
         "cameraRef": "rear-left-draft@1",
-        "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc"
+        "imageKey": "img_badf52c17a7c64a389c0a5143cb5bb131fa4317b3ef08f18115a5eccc9095bec"
       },
       {
         "cameraRef": "entry-draft@1",
-        "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        "imageKey": "img_d28e697d894f72ff9cfadc58ceaa7fa1083d0923244d88297bfd0b0c32631a1e"
       }
     ],
     "limits": {
@@ -114,7 +114,7 @@
     "contractVersion": "fury.render-library@1",
     "jobId": "00000000-0000-4000-8000-000000000001",
     "attemptId": "00000000-0000-4000-8000-000000000003",
-    "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+    "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
     "design": {
       "config": {
         "schemaVersion": 4,
@@ -148,10 +148,10 @@
       "outputProfile": "web-hero"
     },
     "recipeRelease": {
-      "id": "fury-native-five@1",
+      "id": "fury-native-five@2",
       "geometry": "fury-fixed-arrangement-geometry@1",
       "materials": "fury-native-materials@1",
-      "cameras": "fury-native-five-cameras@1",
+      "cameras": "fury-native-five-cameras@2",
       "renderer": "blender-4.5.0-cycles-optix-l40s@1",
       "studio": "fury-corrected-cyclorama-raycast@1",
       "environments": "fury-selected-landscape-day-night@1",
@@ -189,7 +189,7 @@
       "contractVersion": "fury.render-library@1",
       "jobId": "00000000-0000-4000-8000-000000000001",
       "attemptId": "00000000-0000-4000-8000-000000000003",
-      "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+      "imageKey": "img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a",
       "design": {
         "config": {
           "schemaVersion": 4,
@@ -223,10 +223,10 @@
         "outputProfile": "web-hero"
       },
       "recipeRelease": {
-        "id": "fury-native-five@1",
+        "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
         "materials": "fury-native-materials@1",
-        "cameras": "fury-native-five-cameras@1",
+        "cameras": "fury-native-five-cameras@2",
         "renderer": "blender-4.5.0-cycles-optix-l40s@1",
         "studio": "fury-corrected-cyclorama-raycast@1",
         "environments": "fury-selected-landscape-day-night@1",
@@ -255,8 +255,8 @@
   },
   "uploadTicket": {
     "bucket": "render-library-staging",
-    "objectKey": "00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000003/img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.webp",
-    "uploadUrl": "https://storage.example/storage/v1/object/upload/sign/render-library-staging/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000003/img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.webp?token=TEST_ONLY",
+    "objectKey": "00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000003/img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.webp",
+    "uploadUrl": "https://storage.example/storage/v1/object/upload/sign/render-library-staging/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000003/img_9719e654c15c790e5cdfdcb91cddbd3b49aa762bf4f546da81c339462820e93a/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.webp?token=TEST_ONLY",
     "expiresAt": "2030-01-01T00:00:00.000Z",
     "maxBytes": 1000,
     "overwrite": false

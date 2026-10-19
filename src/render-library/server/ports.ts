@@ -28,7 +28,7 @@ export type AdmissionContext = Readonly<{
   csrfVerified: true
 }>
 export type RecipeRegistration = Readonly<{
-  releaseId: 'fury-native-five@1'
+  releaseId: 'fury-native-five@2'
   workerBuildSha256: string
   recipeBundleSha256: string
   geometrySha256: string

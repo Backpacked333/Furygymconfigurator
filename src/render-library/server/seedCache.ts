@@ -39,7 +39,7 @@ export async function seedImagesForSet(
   const images: ImageDescriptor[] = []
   for (const entry of manifest.entries) {
     const camera = cameraRefSchema.safeParse(entry.design.presentation.cameraRef)
-    if (!camera.success) continue
+    if (!camera.success || camera.data === 'entry-draft@1') continue
     const selectedView = {
       ...requested,
       presentation: { ...requested.presentation, cameraRef: camera.data },

@@ -13,6 +13,7 @@ export const nativeThumbUrl = (entry: NativeEntry) =>
   `/native-library/${entry.imageSha256}-thumb.webp`
 const nativeDesignIndexes = new WeakMap<NativeLibrary, Map<string, NativeEntry>>()
 export function findNativeImage(library: NativeLibrary, design: DesignEnvelope) {
+  if (design.presentation.cameraRef === 'entry-draft@1') return undefined
   let index = nativeDesignIndexes.get(library)
   if (!index) {
     index = new Map()

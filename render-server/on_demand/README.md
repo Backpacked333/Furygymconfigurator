@@ -1,6 +1,11 @@
 # Private native render worker
 
-Source-level adapter for `fury.render-library@1` / reserved `fury-native-five@1`.
+Source-level adapter for `fury.render-library@1` / `fury-native-five@2`.
+
+Release 2 replaces the interior close-up with an end-corner room overview. Release 1
+and its stored objects remain immutable. The four unchanged exterior seed cameras
+remain compatible; historical interior pixels are deliberately excluded from both
+server imports and browser fallback. New interior images require an explicit render.
 **Not deployed, pixel-qualified, registered or authorized to spend.** Importing these
 modules, packaging source and running the tests do not invoke Modal, Blender or Supabase.
 The retired gateway and `render-server/modal_app.py` remain disabled.

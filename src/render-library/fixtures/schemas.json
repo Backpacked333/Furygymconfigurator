@@ -495,7 +495,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "const": "fury-native-five@1"
+                    "const": "fury-native-five@2"
                   },
                   "geometry": {
                     "type": "string",
@@ -507,7 +507,7 @@
                   },
                   "cameras": {
                     "type": "string",
-                    "const": "fury-native-five-cameras@1"
+                    "const": "fury-native-five-cameras@2"
                   },
                   "renderer": {
                     "type": "string",
@@ -888,7 +888,7 @@
                           "properties": {
                             "id": {
                               "type": "string",
-                              "const": "fury-native-five@1"
+                              "const": "fury-native-five@2"
                             },
                             "geometry": {
                               "type": "string",
@@ -900,7 +900,7 @@
                             },
                             "cameras": {
                               "type": "string",
-                              "const": "fury-native-five-cameras@1"
+                              "const": "fury-native-five-cameras@2"
                             },
                             "renderer": {
                               "type": "string",
@@ -1657,7 +1657,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "const": "fury-native-five@1"
+            "const": "fury-native-five@2"
           },
           "geometry": {
             "type": "string",
@@ -1669,7 +1669,7 @@
           },
           "cameras": {
             "type": "string",
-            "const": "fury-native-five-cameras@1"
+            "const": "fury-native-five-cameras@2"
           },
           "renderer": {
             "type": "string",
@@ -2316,7 +2316,7 @@
                     "properties": {
                       "id": {
                         "type": "string",
-                        "const": "fury-native-five@1"
+                        "const": "fury-native-five@2"
                       },
                       "geometry": {
                         "type": "string",
@@ -2328,7 +2328,7 @@
                       },
                       "cameras": {
                         "type": "string",
-                        "const": "fury-native-five-cameras@1"
+                        "const": "fury-native-five-cameras@2"
                       },
                       "renderer": {
                         "type": "string",
@@ -2778,7 +2778,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "const": "fury-native-five@1"
+                "const": "fury-native-five@2"
               },
               "geometry": {
                 "type": "string",
@@ -2790,7 +2790,7 @@
               },
               "cameras": {
                 "type": "string",
-                "const": "fury-native-five-cameras@1"
+                "const": "fury-native-five-cameras@2"
               },
               "renderer": {
                 "type": "string",
@@ -3320,7 +3320,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "const": "fury-native-five@1"
+                    "const": "fury-native-five@2"
                   },
                   "geometry": {
                     "type": "string",
@@ -3332,7 +3332,7 @@
                   },
                   "cameras": {
                     "type": "string",
-                    "const": "fury-native-five-cameras@1"
+                    "const": "fury-native-five-cameras@2"
                   },
                   "renderer": {
                     "type": "string",
@@ -3821,7 +3821,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "const": "fury-native-five@1"
+            "const": "fury-native-five@2"
           },
           "geometry": {
             "type": "string",
@@ -3833,7 +3833,7 @@
           },
           "cameras": {
             "type": "string",
-            "const": "fury-native-five-cameras@1"
+            "const": "fury-native-five-cameras@2"
           },
           "renderer": {
             "type": "string",
@@ -4245,7 +4245,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "const": "fury-native-five@1"
+                "const": "fury-native-five@2"
               },
               "geometry": {
                 "type": "string",
@@ -4257,7 +4257,7 @@
               },
               "cameras": {
                 "type": "string",
-                "const": "fury-native-five-cameras@1"
+                "const": "fury-native-five-cameras@2"
               },
               "renderer": {
                 "type": "string",
