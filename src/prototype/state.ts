@@ -56,10 +56,20 @@ export function initialNativeHistory(): DesignHistory {
   }
 }
 export function rememberNativeSelection(design: DesignEnvelope) {
+  const serialized = serializeDesign(normalizeCustomerDesign(design))
   try {
-    localStorage.setItem(NATIVE_SELECTION_KEY, serializeDesign(normalizeCustomerDesign(design)))
+    localStorage.setItem(NATIVE_SELECTION_KEY, serialized)
   } catch {
     /* Saving a convenience selection cannot authorize or cancel work. */
+  }
+  try {
+    if (readPrototypeShare(window.location.hash).status === 'invalid') return
+    const url = new URL(window.location.href)
+    url.hash = PROTOTYPE_SHARE_PREFIX + encodeURIComponent(serialized)
+    if (url.href !== window.location.href)
+      window.history.replaceState(window.history.state, '', url.href)
+  } catch {
+    /* The saved selection remains usable when history updates are unavailable. */
   }
 }
 export function designHistory(state: DesignHistory, action: HistoryAction): DesignHistory {

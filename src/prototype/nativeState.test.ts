@@ -54,3 +54,25 @@ it('keeps malformed/future local selections non-authoritative and handles unavai
   expect(() => rememberNativeSelection(defaultDesign())).not.toThrow()
   expect(initialNativeHistory().present).toEqual(defaultDesign())
 })
+it('returns to the edited design rather than the old shared URL after leaving and reloading', () => {
+  const original = defaultDesign()
+  window.location.hash = '#fury-v4=' + encodeURIComponent(serializeDesign(original))
+  expect(initialNativeHistory().present).toEqual(original)
+  const edited = parseDesign({
+    ...original,
+    config: {
+      ...original.config,
+      appearance: { ...original.config.appearance, finish: 'bronze' },
+    },
+    presentation: { ...original.presentation, cameraRef: 'entry-draft@1' },
+  })
+  rememberNativeSelection(edited)
+  expect(initialNativeHistory().present).toEqual(edited)
+  localStorage.clear()
+  expect(initialNativeHistory().present).toEqual(edited)
+})
+it('does not overwrite unsupported shared data when remembering the current selection', () => {
+  window.location.hash = '#fury-v4=%broken'
+  rememberNativeSelection(defaultDesign())
+  expect(window.location.hash).toBe('#fury-v4=%broken')
+})
