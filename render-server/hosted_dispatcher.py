@@ -71,7 +71,8 @@ def durable_journal(path, volume):
 
 
 def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
-    from on_demand.dispatcher import Dispatcher, Provider
+    from on_demand.dispatcher import Dispatcher
+    from hosted_transfer import HostedProvider
     from on_demand.transport import Service
 
     db = Database()
@@ -95,7 +96,7 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
         service = Service(os.environ['FURY_SERVICE_ORIGIN'], os.environ['FURY_WORKER_TOKEN'],
                           os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'],
                           deployment_token())
-        worker = Dispatcher(service, Provider(root, work), journal, policy, root, work)
+        worker = Dispatcher(service, HostedProvider(root, work), journal, policy, root, work)
         worker.verify_source()
         pending = [row for row in journal.jobs() if row['phase'] != 'settled']
         active = [row for row in pending if row['phase'] != 'uncertain']

@@ -33,7 +33,7 @@ class HostedJournalTests(unittest.TestCase):
                 patch('hosted_dispatcher.durable_journal', return_value=journal), \
                 patch('hosted_dispatcher.deployment_token', return_value='test'), \
                 patch('on_demand.dispatcher.Dispatcher', return_value=worker), \
-                patch('on_demand.dispatcher.Provider'), patch('on_demand.transport.Service'):
+                patch('hosted_transfer.HostedProvider'), patch('on_demand.transport.Service'):
             self.assertEqual(drain(Mock())['status'], 'processed')
             self.assertEqual(drain(Mock())['status'], 'idle')
         self.assertEqual(worker.new_job.call_count, 2)

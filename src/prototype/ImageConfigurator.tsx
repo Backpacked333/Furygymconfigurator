@@ -265,6 +265,8 @@ function ImageConfiguratorContents({
       : displayShown?.binding
   const displayProfile = displayProfileFor(design)
   const progress = image.progress
+  const nativeTransition = 'finishTransition' in image ? image : undefined
+  const previousNative = nativeTransition?.previous
   const stateLabel =
     nativeLibrary && image.current
       ? 'Image ready'
@@ -341,17 +343,35 @@ function ImageConfiguratorContents({
             ? `Source ${shown.artifact.provenance.generatorVersion} · ${image.current ? 'selected' : 'PREVIOUS'} request ${shown.requested.requestDigest.slice(7, 23)}`
             : 'No decoded mock diagnostic yet. No photorealistic output is being generated.'
   const layers: StageImageLayer[] = nativeLibrary
-    ? image.current && nativeShown && image.shown && 'src' in image.shown
+    ? nativeShown && image.shown && 'src' in image.shown
       ? [
+          ...(previousNative
+            ? [
+                {
+                  key: previousNative.src,
+                  role: 'is-shown',
+                  image: {
+                    className: 'prototype-local-render',
+                    src: previousNative.src,
+                    alt: '',
+                    'aria-hidden': true as const,
+                  },
+                },
+              ]
+            : []),
           {
             key: image.shown.src,
-            role: 'is-shown',
+            role: previousNative ? 'is-entering' : 'is-shown',
             image: {
               className: 'prototype-local-render',
               src: image.shown.src,
               width: nativeShown.artifact.width,
               height: nativeShown.artifact.height,
-              alt: `${product.family} ${product.lengthFt}, ${finish.name}, ${selectedCamera.name.replace('DRAFT — ', '')}, ${resolveLook(design.presentation.lookRef).name.replace('DRAFT — ', '')}. Exact rendered design preview.`,
+              alt: image.current
+                ? `${product.family} ${product.lengthFt}, ${finish.name}, ${selectedCamera.name.replace('DRAFT — ', '')}, ${resolveLook(design.presentation.lookRef).name.replace('DRAFT — ', '')}. Exact rendered design preview.`
+                : 'Previous design — loading the selected view.',
+              onAnimationEnd: (event) =>
+                nativeTransition?.finishTransition(event.currentTarget.src),
             },
           },
         ]
@@ -517,7 +537,7 @@ function ImageConfiguratorContents({
               <StageFrame
                 frameRef={frame}
                 aspect={aspect}
-                box={nativeLibrary && !image.current && !plan ? undefined : box}
+                box={nativeLibrary && !layers.length && !plan ? undefined : box}
               >
                 {!plan && (
                   <>
@@ -527,7 +547,9 @@ function ImageConfiguratorContents({
                         nativeLibrary
                           ? image.current
                             ? 'current-native-library'
-                            : progress.state
+                            : layers.length
+                              ? 'previous-native-library'
+                              : progress.state
                           : privateDisplay
                             ? image.current
                               ? cloudDisplay
@@ -553,6 +575,11 @@ function ImageConfiguratorContents({
                         layers={layers}
                         busy={(verifiedMode || display === 'mock') && progress.state === 'pending'}
                         current={nativeLibrary && image.current}
+                        previous={
+                          nativeLibrary && !image.current && layers.length
+                            ? 'Previous design · Loading selected view'
+                            : undefined
+                        }
                       >
                         {!layers.length &&
                           (nativeLibrary && setState ? (

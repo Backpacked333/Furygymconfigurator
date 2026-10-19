@@ -19,6 +19,7 @@ image = (
         'cd /opt/fury && npm ci --no-audit --no-fund',
     )
     .add_local_file(source / 'hosted_dispatcher.py', '/opt/host/hosted_dispatcher.py', copy=True)
+    .add_local_file(source / 'hosted_transfer.py', '/opt/host/hosted_transfer.py', copy=True)
     .env({'PYTHONPATH': '/opt/host:/opt/fury/render-server', 'HOME': '/tmp',
           'SSL_CERT_FILE': '/etc/ssl/certs/ca-certificates.crt'})
     .workdir('/opt/fury')
