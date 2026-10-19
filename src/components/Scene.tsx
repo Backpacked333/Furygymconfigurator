@@ -6,6 +6,7 @@ import type { WebGPURenderer } from 'three/webgpu'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
 import { effectiveLights } from '../lib/lighting'
+import { CAMERA_PRESETS, exteriorFraming, interiorFraming } from '../lib/cameras'
 import { StudioModel } from './StudioModel'
 import { Landscape } from './Landscape'
 import { RenderEffects } from './RenderEffects'
@@ -93,8 +94,11 @@ function CameraRig({
   autoRotate: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
-  const shellHeight = productHeight(c)
-  const hasOutdoor = c.addons.deck || c.addons.gazebo || c.addons.stairs
+  // Only these inputs move the camera; a finish or flooring change must not re-frame the view.
+  const framing = useMemo(
+    () => ({ family: c.family, length: c.length, addons: c.addons }),
+    [c.family, c.length, c.addons],
+  )
   const controls = useRef<OrbitControlsImpl>(null)
   const targetPosition = useRef(new Vector3()),
     targetLook = useRef(new Vector3()),
@@ -107,40 +111,26 @@ function CameraRig({
     p.fov = view === 'interior' ? 68 : 32
     p.updateProjectionMatrix()
     if (view === 'interior') {
-      targetPosition.current.set(c.length / 2 - 2.2, 5.8, 1.4)
-      targetLook.current.set(-c.length / 4, 4.6, -0.7)
+      const pose = interiorFraming(framing, 'interiorHero')
+      targetPosition.current.set(...pose.position)
+      targetLook.current.set(...pose.target)
       const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
       yaw.current = Math.atan2(-direction.x, -direction.z)
       pitch.current = Math.asin(direction.y)
     } else {
-      const width = c.length + (c.addons.stairs ? 6 : 2),
-        depth = hasOutdoor ? 17 : 10
-      const v = (p.fov * Math.PI) / 360,
-        h = Math.atan((Math.tan(v) * size.width) / size.height)
-      const height = c.addons.roof || c.addons.stairs ? 14 : shellHeight
-      const radius = Math.sqrt(width * width + depth * depth + height * height) / 2
-      const d = (radius / Math.sin(Math.min(v, h))) * 0.94
-      targetLook.current.set(c.addons.stairs ? 2 : 0, c.addons.roof ? 5 : 3.5, hasOutdoor ? 2.2 : 0)
-      targetPosition.current
-        .copy(targetLook.current)
-        .addScaledVector(new Vector3(0.48, 0.24, 0.84).normalize(), d)
+      const pose = exteriorFraming(
+        framing,
+        p.fov,
+        size.width / size.height,
+        CAMERA_PRESETS.hero.direction!,
+      )
+      targetLook.current.set(...pose.target)
+      targetPosition.current.set(...pose.position)
     }
     moving.current = true
     stalled.current = 0
     invalidate()
-  }, [
-    camera,
-    size.width,
-    size.height,
-    c.length,
-    shellHeight,
-    hasOutdoor,
-    c.addons.roof,
-    c.addons.stairs,
-    view,
-    reset,
-    invalidate,
-  ])
+  }, [camera, size.width, size.height, framing, view, reset, invalidate])
   useEffect(() => {
     const el = gl.domElement
     let drag = false,
