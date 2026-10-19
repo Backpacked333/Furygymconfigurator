@@ -291,22 +291,19 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       expect(ledger().reserved_micro_usd).toBe(0)
     },
   )
-  it('imports immutable historical seed receipts without jobs or budget and makes cache admission free', async () => {
+  it('imports unchanged exteriors without jobs or budget and reserves only the new interior', async () => {
     const bytes = readFileSync('public/native-library/manifest.json')
     const design = customerDesignSchema.parse(verifySeedManifest(bytes).entries[0].design)
     const identity = await computeSetIdentity(design)
     const images = await seedImagesForSet(bytes, design)
-    expect(images).toHaveLength(5)
+    expect(images).toHaveLength(4)
     run(
       `select public.render_library_import_seed(${encoded(design)},${encoded(identity)},${encoded(images)});`,
     )
     run(
       `select public.render_library_import_seed(${encoded(design)},${encoded(identity)},${encoded(images)});`,
     )
-    expect(snapshot(identity).coverage).toBe('complete')
-    const result = reserve({ ...command, identity, request: { ...command.request, design } })
-    expect(result.status).toBe('cached')
-    expect(result.snapshot.job).toBeNull()
+    expect(snapshot(identity).coverage).toBe('partial')
     expect(run('select count(*) from public.render_library_jobs')).toBe('0')
     expect(ledger().reserved_micro_usd).toBe(0)
     const corrupt = images.map((image, i) => (i ? image : { ...image, sha256: '0'.repeat(64) }))
@@ -315,6 +312,17 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
         `select public.render_library_import_seed(${encoded(design)},${encoded(identity)},${encoded(corrupt)});`,
       ),
     ).toThrow()
+    const result = reserve({ ...command, identity, request: { ...command.request, design } })
+    expect(result.status).toBe('admitted')
+    expect(
+      result.snapshot.views.filter((view: { status: string }) => view.status === 'ready'),
+    ).toHaveLength(4)
+    expect(ledger().reserved_micro_usd).toBe(1500)
+    const claimed = dispatch()
+    const work = workerClaim(claimed.dispatch)
+    expect(work.views.map((view: { cameraRef: string }) => view.cameraRef)).toEqual([
+      'entry-draft@1',
+    ])
   })
   it('bounds concurrent distinct designs to two globally and one per session', async () => {
     reserve()
