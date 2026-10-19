@@ -144,8 +144,19 @@ operator/provider reconciliation. Job expiry, a worker terminal event, a kill re
 a local exception or missing process is not termination evidence. The daemon polls
 provider status independently; only an observed provider exit creates a timestamped,
 hashed proof retained in the journal and permits terminal reconciliation. It charges
-the original configured reservation ceiling conservatively, not an invented measured
-bill. A later audited billing adjustment is outside this worker.
+the exact durable per-job reservation conservatively, obtained through the fenced
+`dispatch_reservation` RPC, not the current policy ceiling or a value in an old journal.
+Missing reservation data blocks settlement. A later audited billing adjustment is
+outside this worker.
+
+Apply `202610190003_render_library_recovery.sql` before running this dispatcher. It adds
+the service-only reservation read and permits only fenced `uncertain` → `accepted`
+resolution to the discovered provider ID, never a new creation or provider replacement.
+Artifact replay is best-effort and cannot block provider polling, termination requests
+or independently proven settlement. An already-published artifact is acknowledged via
+its exact event before any file read/upload, including after the claim deadline. Expired,
+unpublished artifacts cannot publish; retained journal entries are not proof of a saved
+library image. Settled jobs replay acknowledgements only, never uploads or renders.
 
 If the journal/disk is lost, startup **refuses to initialize**. Disable service
 admission and stop dispatchers. Inventory database dispatches/provider IDs and the
@@ -160,11 +171,12 @@ require provider support/administrative audit rather than automatic recovery.
 
 CPU uses quoted PostgREST RPC argument names, confirmed with the service builder:
 
-| RPC                                 | JSON arguments                       |
-| ----------------------------------- | ------------------------------------ |
-| `render_library_claim_dispatch`     | `{dispatcherId}`                     |
-| `render_library_record_dispatch`    | `{dispatchId, claimToken, result}`   |
-| `render_library_reconcile_terminal` | `{jobId, evidence, chargedMicroUsd}` |
+| RPC                                   | JSON arguments                       |
+| ------------------------------------- | ------------------------------------ |
+| `render_library_claim_dispatch`       | `{dispatcherId}`                     |
+| `render_library_record_dispatch`      | `{dispatchId, claimToken, result}`   |
+| `render_library_dispatch_reservation` | `{dispatchId, claimToken}`           |
+| `render_library_reconcile_terminal`   | `{jobId, evidence, chargedMicroUsd}` |
 
 Worker claim/uploads/events use the three `WORKER_API_PATHS` with bearer auth.
 Upload preparation and event posting bind the same entire artifact-event body.

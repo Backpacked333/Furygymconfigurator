@@ -84,7 +84,7 @@ platform IP source, not a request header accepted on faith.
 
 ## Database and Storage installation (operator approval required)
 
-Apply the two migrations to a chosen Supabase project only after review:
+Apply the three migrations in order to a chosen Supabase project only after review:
 
 - `202610190001_render_library.sql`: durable ledger, mutation RPCs, immutable identity/asset
   triggers, RLS and privilege revocation. Every mutation RPC serializes on one advisory lock;
@@ -92,6 +92,9 @@ Apply the two migrations to a chosen Supabase project only after review:
 - `202610190002_render_library_storage.sql`: public `render-library` and private
   `render-library-staging`, WebP-only, 8 MiB maximum. Existing buckets with incompatible
   settings cause migration failure rather than silently weakening access.
+- `202610190003_render_library_recovery.sql`: fenced uncertain-to-accepted dispatch
+  resolution and service-only reads of the actual per-job reservation. Apply before
+  starting the updated dispatcher; do not derive settlement from current policy limits.
 
 `anon`, `authenticated` and `PUBLIC` have no table or RPC privileges on the ledger.
 `service_role` gets table DML and RPC execution; this credential is an administrative trust
@@ -166,7 +169,9 @@ customer click while the dispatcher is healthy.
    opaque `providerCallId` (the Modal `sb-...` Sandbox ID), uncertain, or definitely-not-submitted.
    A timeout/lost response after the possible spawn boundary is **uncertain**, never proof
    of failure. Do not retry Sandbox creation, even if a provider's name lookup is temporarily
-   empty. The token fences acknowledgements; no provider IDs are exposed publicly.
+   empty. The token fences acknowledgements and permits only `uncertain` → `accepted`
+   resolution to a discovered provider. Accepted IDs cannot change or be downgraded;
+   identical replays remain idempotent. No provider IDs are exposed publicly.
 5. Stream monotonic `sequence` events with stable UUID event IDs per attempt. Before upload,
    call `worker/uploads` with the **same complete artifact event** later sent to `worker/events`.
    The server verifies claim/recipe/design/camera/sample metadata and records a private
@@ -182,10 +187,16 @@ customer click while the dispatcher is healthy.
    independently identify the dispatch-named Sandbox first. Hash the retained evidence, not
    an invented acknowledgement. This reconciliation RPC is never exposed as worker HTTP.
 7. If provider charges are not known, conservatively settle the whole reserved worst-case
-   amount rather than inventing zero. A definitely-not-submitted result can be reconciled
+   amount read from `render_library_dispatch_reservation({dispatchId,claimToken})`, not
+   a policy ceiling or a local journal's historical estimate. That read is service-only
+   and fenced; failure retains liability. A definitely-not-submitted result can be reconciled
    with `never-submitted` evidence and zero charge only when no spawn was possible. The
    service cannot independently call Modal; the separately privileged reconciler is trusted
    to establish provider evidence and enforce these rules.
+   Provider polling and termination precede artifact replay. Replay failures cannot block
+   terminal settlement; exact published events can be acknowledged even after expiry without
+   uploading again. New publication still rejects expired/settled claims, and settled jobs
+   replay acknowledgements only. Saved images remain immutable through failures and retries.
 8. After verified settlement, an explicit retry reserves only missing images and supersedes
    the prior failed job. Completed images remain immutable/reusable. Stable retry idempotency
    keys replay the same job. Old attempts cannot overwrite new ownership. Unknown providers

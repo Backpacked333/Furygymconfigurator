@@ -395,7 +395,14 @@ describe('independent artifact decoding and immutable storage', () => {
     expect(artifact.image.provenance.receiptSha256).toMatch(/^[a-f0-9]{64}$/)
     fetcher.mockClear()
     replay = true
-    expect(await worker.recordEvent(event)).toEqual({ accepted: true })
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(workerFixture.claim.deadlineAt).getTime() + 1000)
+    try {
+      await expect(worker.prepareUpload(event)).rejects.toThrow()
+      expect(await worker.recordEvent(event)).toEqual({ accepted: true })
+    } finally {
+      vi.useRealTimers()
+    }
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('/storage/'))).toBe(false)
     replay = false
     fetcher.mockClear()

@@ -103,6 +103,23 @@ function snapshot(identity: SetIdentity) {
   return setSnapshotSchema.parse(rpc('render_library_snapshot', [encoded(identity)]))
 }
 
+function reservedAmount(claim: { dispatch: { dispatchId: string }; claimToken: string }) {
+  return rpc('render_library_dispatch_reservation', [
+    quote(claim.dispatch.dispatchId),
+    quote(claim.claimToken),
+  ])
+}
+
+function terminalEvidence(dispatchId: string) {
+  return {
+    kind: 'provider-terminal',
+    dispatchId,
+    providerCallId: 'sb-test',
+    observedAt: new Date().toISOString(),
+    evidenceSha256: '7'.repeat(64),
+  }
+}
+
 describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', () => {
   beforeAll(() => {
     if (!container || !/^[a-zA-Z0-9_-]+$/.test(container))
@@ -111,6 +128,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       'drop schema public cascade; create schema public; grant usage on schema public to service_role,anon,authenticated;',
     )
     run(readFileSync('supabase/migrations/202610190001_render_library.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610190003_render_library_recovery.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -343,6 +361,88 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       reserve({ ...command, request: { ...command.request, idempotencyKey: randomUUID() } }).status,
     ).toBe('joined')
   })
+  it('settles the durable full-set reservation, not a larger or subsequently changed policy ceiling', () => {
+    reserve()
+    const claimed = dispatch()
+    workerClaim(claimed.dispatch)
+    recordDispatch(claimed, { status: 'accepted', providerCallId: 'sb-test' })
+    expect(command.policy.maxJobLiabilityMicroUsd).toBe(6000)
+    expect(reservedAmount(claimed)).toBe(5500)
+    expect(() => reservedAmount({ ...claimed, claimToken: randomUUID() })).toThrow()
+    run(
+      "update public.render_library_approvals set enabled=false,policy=jsonb_set(policy,'{maxJobLiabilityMicroUsd}','18000');",
+    )
+    expect(reservedAmount(claimed)).toBe(5500)
+    const evidence = terminalEvidence(claimed.dispatch.dispatchId)
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(claimed.dispatch.jobId),
+        encoded(evidence),
+        '6000',
+      ]),
+    ).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    for (let i = 0; i < 2; i++) {
+      expect(
+        rpc('render_library_reconcile_terminal', [
+          quote(claimed.dispatch.jobId),
+          encoded(evidence),
+          String(reservedAmount(claimed)),
+        ]).retrySafe,
+      ).toBe(true)
+    }
+    expect(ledger().reserved_micro_usd).toBe(0)
+    expect(ledger().charged_micro_usd).toBe(5500)
+  })
+  it('resolves uncertain dispatch exactly once with its fence and never changes provider or downgrades', () => {
+    reserve()
+    const claimed = dispatch()
+    workerClaim(claimed.dispatch)
+    const uncertain = workerFixture.uncertain
+    recordDispatch(claimed, uncertain)
+    recordDispatch(claimed, uncertain)
+    expect(() => recordDispatch(claimed, { status: 'definitely-not-submitted' })).toThrow()
+    const accepted = { status: 'accepted', providerCallId: 'sb-test' }
+    expect(() => recordDispatch({ ...claimed, claimToken: randomUUID() }, accepted)).toThrow()
+    expect(() => recordDispatch(claimed, { ...accepted, providerCallId: '' })).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    recordDispatch(claimed, accepted)
+    recordDispatch(claimed, accepted)
+    expect(snapshot(command.identity).job?.stage).toBe('preparing')
+    for (const invalid of [
+      uncertain,
+      { status: 'definitely-not-submitted' },
+      { ...accepted, providerCallId: 'sb-another' },
+    ]) {
+      expect(() => recordDispatch(claimed, invalid)).toThrow()
+    }
+    expect(dispatch()).toBeNull()
+    expect(
+      rpc('render_library_claim_worker', [
+        encoded(claimed.dispatch),
+        quote(registration.workerBuildSha256),
+      ]),
+    ).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    const evidence = terminalEvidence(claimed.dispatch.dispatchId)
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(claimed.dispatch.jobId),
+        encoded({ ...evidence, providerCallId: 'sb-another' }),
+        '5500',
+      ]),
+    ).toThrow()
+    expect(
+      rpc('render_library_reconcile_terminal', [
+        quote(claimed.dispatch.jobId),
+        encoded(evidence),
+        String(reservedAmount(claimed)),
+      ]).retrySafe,
+    ).toBe(true)
+    recordDispatch(claimed, accepted)
+    expect(() => recordDispatch(claimed, uncertain)).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(0)
+  })
   it('prioritizes selected camera and fences duplicate/out-of-order progress', () => {
     command.request.design.presentation.cameraRef = 'entry-draft@1'
     reserve()
@@ -485,6 +585,19 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       outcome: 'failed',
       error: null,
     }
+    run(
+      `update public.render_library_jobs set deadline_at=now()-interval '1 second' where id=${quote(work.jobId)};`,
+    )
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
+    expect(rpc('render_library_prepare_artifact', [encoded(event)]).accepted).toBe(true)
+    expect(
+      rpc('render_library_prepare_artifact', [
+        encoded({ ...event, eventId: randomUUID(), sequence: 2 }),
+      ]).accepted,
+    ).toBe(false)
+    expect(snapshot(command.identity).views.filter((view) => view.status === 'ready')).toHaveLength(
+      1,
+    )
     expect(rpc('render_library_record_event', [encoded(terminal)]).accepted).toBe(true)
     expect(ledger().reserved_micro_usd).toBe(5500)
     const retry = {
@@ -536,7 +649,8 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     expect(retried.status).toBe('admitted')
     expect(retried.snapshot.job.completedImages).toBe(1)
     expect(ledger().reserved_micro_usd).toBe(4500)
-    expect(workerClaim(dispatch().dispatch).views).toHaveLength(4)
+    const partial = dispatch()
+    expect(workerClaim(partial.dispatch).views).toHaveLength(4)
     const replay = rpc('render_library_retry_failed', [
       quote(work.jobId),
       encoded(retry),
@@ -544,6 +658,32 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       encoded(command.policy),
     ])
     expect(replay.snapshot.job.id).toBe(retried.snapshot.job.id)
+    recordDispatch(partial, { status: 'accepted', providerCallId: 'sb-test' })
+    expect(reservedAmount(partial)).toBe(4500)
+    const partialEvidence = terminalEvidence(partial.dispatch.dispatchId)
+    expect(() =>
+      rpc('render_library_reconcile_terminal', [
+        quote(partial.dispatch.jobId),
+        encoded(partialEvidence),
+        '5500',
+      ]),
+    ).toThrow()
+    expect(ledger().reserved_micro_usd).toBe(4500)
+    expect(
+      rpc('render_library_reconcile_terminal', [
+        quote(partial.dispatch.jobId),
+        encoded(partialEvidence),
+        String(reservedAmount(partial)),
+      ]).retrySafe,
+    ).toBe(true)
+    expect(ledger().reserved_micro_usd).toBe(0)
+    expect(ledger().charged_micro_usd).toBe(5800)
+    expect(
+      snapshot(command.identity)
+        .views.filter((view) => view.status === 'ready')
+        .map((view) => view.image),
+    ).toEqual([image])
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
   })
   it('denies anon/authenticated reads and writes and grants only privileged RPCs', () => {
     expect(

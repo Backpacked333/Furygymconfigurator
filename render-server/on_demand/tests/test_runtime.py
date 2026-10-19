@@ -32,6 +32,11 @@ class ServiceDouble:
         self.claimed = False
         self.accepted = {}
         self.fail_event_once = False
+        self.fail_ack_once = False
+        self.uploaded = set()
+        self.reject_upload = False
+        self.reserved = 90
+        self.dispatch_result = None
 
     def rpc(self, name, args):
         self.calls.append((name, copy.deepcopy(args)))
@@ -43,7 +48,22 @@ class ServiceDouble:
                 "dispatch": copy.deepcopy(FIXTURE["dispatch"]),
                 "claimToken": "00000000-0000-4000-8000-000000000004",
             }
+        if name == "record_dispatch":
+            result = args["result"]
+            if self.dispatch_result not in (None, result) and not (
+                self.dispatch_result["status"] == "uncertain"
+                and result["status"] == "accepted"
+            ):
+                raise RuntimeError("TEST DOUBLE dispatch already recorded")
+            self.dispatch_result = copy.deepcopy(result)
+        if name == "dispatch_reservation":
+            assert args == {
+                "dispatchId": FIXTURE["dispatch"]["dispatchId"],
+                "claimToken": "00000000-0000-4000-8000-000000000004",
+            }
+            return self.reserved
         if name == "reconcile_terminal":
+            assert 0 <= args["chargedMicroUsd"] <= self.reserved
             return {"retrySafe": True}
 
     def claim(self, *_):
@@ -55,12 +75,23 @@ class ServiceDouble:
         if self.fail_event_once:
             self.fail_event_once = False
             raise TimeoutError("TEST DOUBLE lost acknowledgement")
+        if event["eventId"] in self.accepted:
+            assert self.accepted[event["eventId"]] == event
+            return {"accepted": True}
+        if event["kind"] == "artifact" and event["eventId"] not in self.uploaded:
+            return {"accepted": False}
         self.accepted[event["eventId"]] = event
+        if self.fail_ack_once:
+            self.fail_ack_once = False
+            raise TimeoutError("TEST DOUBLE committed but lost acknowledgement")
         return {"accepted": True}
 
     def upload(self, event, path):
         self.calls.append(("upload", event))
+        if self.reject_upload:
+            raise RuntimeError("TEST DOUBLE expired upload claim")
         verify_webp(path, event["receipt"])
+        self.uploaded.add(event["eventId"])
 
 
 class ProviderDouble:
@@ -163,7 +194,7 @@ class RuntimeTests(unittest.TestCase):
             args for key, args in self.service.calls if key == "reconcile_terminal"
         ][0]
         self.assertEqual(evidence["evidence"]["kind"], "provider-terminal")
-        self.assertEqual(evidence["chargedMicroUsd"], 100)
+        self.assertEqual(evidence["chargedMicroUsd"], self.service.reserved)
         self.worker.recover(row)
         self.assertEqual(self.provider.actions.count("create"), 1)
 
@@ -187,6 +218,100 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.provider.actions.count("create"), 1)
         self.assertNotIn("send", self.provider.actions)
         self.assertIn("poll", self.provider.actions)
+        self.assertEqual(
+            self.service.dispatch_result,
+            {"status": "accepted", "providerCallId": "sb-offline-test"},
+        )
+        self.assertEqual(self.journal.jobs()[0]["phase"], "settled")
+
+    def assert_durable_settlement(self, actual, ceiling):
+        self.service.reserved = actual
+        self.policy["maxJobLiabilityMicroUsd"] = ceiling
+        self.policy["globalBudgetMicroUsd"] = 20000
+        row = self.worker.new_job()
+        row["liabilityMicroUsd"] = (
+            ceiling  # Old journals must not determine settlement.
+        )
+        self.journal.save(row)
+        self.policy["maxJobLiabilityMicroUsd"] = 18000
+        self.policy["enabled"] = False
+        self.worker.recover(self.journal.jobs()[0])
+        proof = [a for k, a in self.service.calls if k == "reconcile_terminal"][-1]
+        self.assertEqual(proof["chargedMicroUsd"], actual)
+        self.assertEqual(self.journal.jobs()[0]["phase"], "settled")
+        self.assertEqual(self.provider.actions.count("create"), 1)
+
+    def test_full_set_settlement_uses_durable_reservation_after_restart_and_policy_change(
+        self,
+    ):
+        self.assert_durable_settlement(5500, 6000)
+
+    def test_partial_set_settlement_uses_durable_reservation_after_restart_and_policy_change(
+        self,
+    ):
+        self.assert_durable_settlement(4500, 5500)
+
+    def test_missing_durable_reservation_never_releases_liability(self):
+        row = self.worker.new_job()
+        self.service.reserved = None
+        with self.assertRaisesRegex(RuntimeError, "durable-reservation-required"):
+            self.worker.recover(row)
+        self.assertFalse(any(k == "reconcile_terminal" for k, _ in self.service.calls))
+        self.assertNotEqual(row["phase"], "settled")
+
+    def queue_artifact(self, row):
+        from PIL import Image
+
+        path = self.root / "pending.webp"
+        Image.new("RGB", (1920, 1200), (45, 50, 55)).save(path, "WEBP", quality=95)
+        receipt = copy.deepcopy(FIXTURE["receipt"])
+        receipt.update(bytes=path.stat().st_size, sha256=digest(path.read_bytes()))
+        event = self.worker.event(row, 1, "artifact", receipt=receipt)
+        self.journal.queue(row["dispatch"]["dispatchId"], event, path)
+        return event, path
+
+    def test_expired_artifact_replay_cannot_block_termination_or_settlement(self):
+        row = self.worker.new_job()
+        event, _ = self.queue_artifact(row)
+        row["claim"]["deadlineAt"] = "2000-01-01T00:00:00Z"
+        self.journal.save(row)
+        self.service.reject_upload = True
+        self.provider.exit_code = None
+        self.worker.recover(self.journal.jobs()[0])
+        self.assertIn("terminate", self.provider.actions)
+        self.assertFalse(any(k == "reconcile_terminal" for k, _ in self.service.calls))
+        self.provider.exit_code = 0
+        self.worker.recover(self.journal.jobs()[0])
+        self.assertEqual(self.journal.jobs()[0]["phase"], "settled")
+        self.assertEqual(len(self.journal.pending(row["dispatch"]["dispatchId"])), 1)
+        self.assertNotIn(event["eventId"], self.service.accepted)
+        self.assertEqual(self.provider.actions.count("create"), 1)
+        before = len([1 for k, _ in self.service.calls if k == "upload"])
+        self.worker.recover(self.journal.jobs()[0])
+        self.assertEqual(
+            len([1 for k, _ in self.service.calls if k == "upload"]), before
+        )
+
+    def test_published_artifact_acknowledgement_recovers_after_expiry_without_file_or_upload(
+        self,
+    ):
+        row = self.worker.new_job()
+        event, path = self.queue_artifact(row)
+        self.service.upload(event, path)
+        self.service.fail_ack_once = True
+        with self.assertRaises(TimeoutError):
+            self.service.event(event)
+        path.unlink()
+        row["claim"]["deadlineAt"] = "2000-01-01T00:00:00Z"
+        self.journal.save(row)
+        self.service.reject_upload = True
+        self.service.calls.clear()
+        self.worker.recover(self.journal.jobs()[0])
+        self.assertFalse(self.journal.pending(row["dispatch"]["dispatchId"]))
+        self.assertEqual(self.service.accepted[event["eventId"]], event)
+        self.assertFalse(any(k == "upload" for k, _ in self.service.calls))
+        self.assertEqual(self.journal.jobs()[0]["phase"], "settled")
+        self.assertEqual(self.provider.actions.count("create"), 1)
 
     def test_preparation_failure_is_never_submitted(self):
         def fail(*_):
@@ -311,8 +436,9 @@ class RuntimeTests(unittest.TestCase):
                     info.type = kind
                     info.size = 2
                     archive.addfile(info, io.BytesIO(b"{}"))
-            with tempfile.TemporaryDirectory() as target, self.assertRaises(
-                (RuntimeError, FileExistsError)
+            with (
+                tempfile.TemporaryDirectory() as target,
+                self.assertRaises((RuntimeError, FileExistsError)),
             ):
                 extract(
                     io.BytesIO(stream.getvalue()), Path(target), len(stream.getvalue())
@@ -374,8 +500,9 @@ class RuntimeTests(unittest.TestCase):
         service = Service(
             "https://app.example", "TEST_ONLY", "https://storage.example", "TEST_ONLY"
         )
-        with patch("on_demand.transport.post", return_value=ticket), patch(
-            "on_demand.transport.http.client.HTTPSConnection", Connection
+        with (
+            patch("on_demand.transport.post", return_value=ticket),
+            patch("on_demand.transport.http.client.HTTPSConnection", Connection),
         ):
             service.upload({"receipt": receipt}, artifact)
             self.assertEqual(max(map(len, connections[0].chunks)), 16384)

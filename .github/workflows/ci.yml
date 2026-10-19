@@ -8,6 +8,17 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: fury_library_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,7 +29,13 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
+      - name: Initialize isolated local test roles
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker exec "$POSTGRES_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;'
       - run: npm test
+        env:
+          RENDER_LIBRARY_TEST_CONTAINER: ${{ job.services.postgres.id }}
       - run: npm run build
       # Without baked stills, which a local bake may have put under public/stills (full bakes
       # belong in Vercel Blob): the artifact is the app.
@@ -53,3 +70,4 @@ jobs:
       - run: pip install -r requirements.txt pytest
       - run: pip install --require-hashes -r on_demand/requirements-cpu.lock
       - run: python -m pytest -q
+      - run: python -m unittest discover -s on_demand/tests

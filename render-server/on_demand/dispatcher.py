@@ -236,7 +236,6 @@ class Dispatcher:
             "claim": None,
             "result": None,
             "provider": None,
-            "liabilityMicroUsd": self.policy["maxJobLiabilityMicroUsd"],
         }
         self.journal.save(row)
         # Claim once. An ambiguous claim is NOT retried. No GPU exists on these paths.
@@ -317,14 +316,26 @@ class Dispatcher:
             self.journal.save(row)
         return row
 
-    def flush(self, row):
+    def flush(self, row, best_effort=False, acknowledgement_only=False):
         for event, artifact in self.journal.pending(row["dispatch"]["dispatchId"]):
-            if artifact:
-                verify_webp(artifact, event["receipt"])
-                self.service.upload(event, artifact)
-            if self.service.event(event).get("accepted") is not True:
-                raise RuntimeError("event-not-accepted")
-            self.journal.delivered(event["eventId"])
+            try:
+                if artifact and not acknowledgement_only:
+                    # Publication may have committed before its acknowledgement was lost.
+                    try:
+                        accepted = self.service.event(event).get("accepted") is True
+                    except Exception:
+                        accepted = False
+                    if accepted:
+                        self.journal.delivered(event["eventId"])
+                        continue
+                    verify_webp(artifact, event["receipt"])
+                    self.service.upload(event, artifact)
+                if self.service.event(event).get("accepted") is not True:
+                    raise RuntimeError("event-not-accepted")
+                self.journal.delivered(event["eventId"])
+            except Exception:
+                if not best_effort:
+                    raise
 
     def event(self, row, sequence, kind, **values):
         claim = row["claim"]
@@ -335,7 +346,7 @@ class Dispatcher:
             eventId=str(uuid.uuid5(uuid.UUID(claim["attemptId"]), str(sequence))),
             sequence=sequence,
             kind=kind,
-            **values
+            **values,
         )
         return event
 
@@ -454,6 +465,7 @@ class Dispatcher:
 
     def recover(self, row):
         if row.get("phase") == "settled":
+            self.flush(row, best_effort=True, acknowledgement_only=True)
             return
         if row["phase"] == "claimed":
             row["phase"] = "never-submitted"
@@ -486,17 +498,20 @@ class Dispatcher:
             }
             charge = 0
         else:
-            self.flush(row)
+            # Provider lifecycle must not depend on artifact delivery or an expired upload claim.
+            observed = self.provider.call("poll", row["control"])
+            if observed["exitCode"] is None and time.time() >= timestamp(
+                row["claim"]["deadlineAt"]
+            ):
+                self.provider.call("terminate", row["control"])
+                return
+            self.flush(row, best_effort=True)
             if not row.get("logsComplete"):
                 try:
                     self.consume(row)
                 except Exception:
                     pass  # Metadata/artifacts replay later, never re-render.
-            # Independent provider poll, never worker-reported terminal or a wall-clock guess.
-            observed = self.provider.call("poll", row["control"])
             if observed["exitCode"] is None:
-                if time.time() >= timestamp(row["claim"]["deadlineAt"]):
-                    self.provider.call("terminate", row["control"])
                 return
             if not row.get("logsComplete"):
                 # A hard provider stop can leave no worker terminal frame. Keep valid earlier images.
@@ -518,7 +533,7 @@ class Dispatcher:
                 self.journal.queue(row["dispatch"]["dispatchId"], terminal)
                 row["logsComplete"] = True
                 self.journal.save(row)
-            self.flush(row)
+            self.flush(row, best_effort=True)
             if "evidence" not in row:
                 at = iso_now()
                 record = {
@@ -536,7 +551,15 @@ class Dispatcher:
                 row["providerObservation"] = record
                 self.journal.save(row)
             evidence = row["evidence"]
-            charge = row["liabilityMicroUsd"]
+            charge = self.service.rpc(
+                "dispatch_reservation",
+                {
+                    "dispatchId": row["dispatch"]["dispatchId"],
+                    "claimToken": row["claimToken"],
+                },
+            )
+            if type(charge) is not int or not 0 < charge <= 9007199254740991:
+                raise RuntimeError("durable-reservation-required")
         self.service.rpc(
             "reconcile_terminal",
             {

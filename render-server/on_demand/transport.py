@@ -57,7 +57,12 @@ class Service:
                 raise ValueError("origin-not-path")
 
     def rpc(self, name, args):
-        if name not in {"claim_dispatch", "record_dispatch", "reconcile_terminal"}:
+        if name not in {
+            "claim_dispatch",
+            "record_dispatch",
+            "dispatch_reservation",
+            "reconcile_terminal",
+        }:
             raise ValueError("RPC-not-allowed")
         return post(
             f"{self.supabase_url}/rest/v1/rpc/render_library_{name}",
