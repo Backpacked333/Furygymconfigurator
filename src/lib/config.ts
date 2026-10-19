@@ -819,7 +819,7 @@ export function initialConfig(): { config: Config; notice: string } {
     /* Storage is optional in private browsing. */
   }
   return {
-    config: DEFAULT_CONFIG,
+    config: { ...DEFAULT_CONFIG, environment: 'studio', time: 12, lights: true },
     notice: invalidShare
       ? 'This share link is invalid or unsupported. No saved draft was available.'
       : '',

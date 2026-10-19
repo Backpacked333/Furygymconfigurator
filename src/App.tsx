@@ -35,6 +35,7 @@ import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './compo
 import { PILL_DELAY_MS, RenderStatus } from './components/RenderStatus'
 import { BuildAnimation, WorkProgress, LoadingExperience } from './components/LoadingExperience'
 import { StageToolbar } from './components/StageToolbar'
+import { customerAngle } from './render-library/views'
 import { Filmstrip, StillLayers } from './components/StillStage'
 import { pngOf } from './lib/image'
 import { stillLabel, useReducedMotion, useStillStage } from './components/useStillStage'
@@ -234,9 +235,12 @@ export default function App() {
     const pose = freezeCanvas.current ? await freezeLiveView(freezeCanvas.current) : null
     leaving.current = false
     const group = to ? galleryAngle(to).group : view === 'interior' ? 'interior' : 'exterior'
-    const next =
+    const next = customerAngle(
       to ??
-      (pose ? nearestAngle(staged.config, group, pose, aspect, camera) : lastAngles.current[group])
+        (pose
+          ? nearestAngle(staged.config, group, pose, aspect, camera)
+          : lastAngles.current[group]),
+    )
     settledAt.current = settledRuns()
     setFreeze(pose ? 'hold' : null)
     setCurtain(null)
@@ -247,7 +251,8 @@ export default function App() {
     setMode('gallery')
   }
   /** Puts an angle on the stage, in the gallery. */
-  const pickAngle = (next: AngleId) => {
+  const pickAngle = (requested: AngleId) => {
+    const next = customerAngle(requested)
     if (mode === 'live') {
       void leaveLive(next)
       return

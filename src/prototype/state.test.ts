@@ -3,13 +3,24 @@ import { defaultDesign, serializeDesign } from '../domain/design'
 import { applyDesignCommand, transitionDesign } from '../domain/designTransitions'
 import { createPresentationFixtures } from '../domain/designFixtures'
 import { designHistory, initialHistory, prototypeLink, readPrototypeShare } from './state'
+import { normalizeCustomerDesign } from '../render-library/views'
 
 describe('full v4 prototype history and share authority', () => {
-  it('round trips every proposed family/size/look/camera/aspect composition', () => {
+  it('round trips every composition while normalizing historical cameras at the customer boundary', () => {
     for (const design of createPresentationFixtures(true)) {
       const link = new URL(prototypeLink(design, 'http://localhost/?cloud=unsafe&bake=1#old'))
       expect(link.search).toBe('?prototype=images')
-      expect(readPrototypeShare(link.hash)).toEqual({ status: 'ready', raw: link.hash, design })
+      expect(readPrototypeShare(link.hash)).toEqual({
+        status: 'ready',
+        raw: link.hash,
+        design: normalizeCustomerDesign(design),
+      })
+      const legacyLink = '#fury-v4=' + encodeURIComponent(serializeDesign(design))
+      expect(readPrototypeShare(legacyLink)).toEqual({
+        status: 'ready',
+        raw: legacyLink,
+        design: normalizeCustomerDesign(design),
+      })
     }
   })
   it.each(['#legacy=raw', '#fury-v4=%ZZ', '#fury-v4=%7B', '#fury-v4=' + 'x'.repeat(65536)])(

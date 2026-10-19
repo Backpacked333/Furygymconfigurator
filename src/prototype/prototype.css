@@ -3,6 +3,115 @@
   align-items: center;
   gap: 7px;
 }
+
+.library-set-status {
+  flex: none;
+  margin: 0 20px 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.04);
+  color: var(--text);
+}
+.library-set-heading {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+}
+.library-set-heading h2 {
+  font-size: 17px;
+  letter-spacing: -0.03em;
+}
+.library-set-heading p,
+.library-set-actions p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+.library-set-count {
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+}
+.library-set-count span {
+  color: var(--muted);
+  font-size: 17px;
+  margin-left: 3px;
+}
+.library-view-statuses {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  list-style: none;
+  gap: 6px;
+  padding: 0;
+  margin: 14px 0 0;
+}
+.library-view-statuses li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  border-top: 2px solid var(--line);
+  padding-top: 7px;
+  font-size: 10px;
+}
+.library-view-statuses li[data-state='ready'] {
+  border-color: var(--accent);
+}
+.library-view-statuses small {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 9px;
+}
+.library-set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+.library-set-actions .primary {
+  padding: 10px 14px;
+  font-size: 11px;
+  min-height: 40px;
+}
+.library-set-actions .text-link {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.library-set-actions p {
+  flex: 1 1 180px;
+  margin: 0;
+}
+.library-set-actions p:empty {
+  display: none;
+}
+.library-set-status .loading-experience {
+  width: 100%;
+}
+.library-set-status .loading-description {
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .library-set-status {
+    margin: 0 12px 14px;
+    padding: 12px;
+  }
+  .library-view-statuses {
+    grid-template-columns: repeat(3, 1fr);
+    row-gap: 10px;
+  }
+  .library-set-actions .primary {
+    width: 100%;
+  }
+}
 .native-library-filters {
   display: flex;
   align-items: end;
@@ -58,7 +167,7 @@
 }
 .native-library-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 4px 16px #26322512;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.07);
 }
 .native-library-card img {
   display: block;
@@ -66,7 +175,7 @@
   height: auto;
   aspect-ratio: 1.6;
   object-fit: cover;
-  background: #33393c;
+  background: var(--surface);
 }
 .native-card-meta {
   display: grid;
@@ -90,7 +199,7 @@
   line-height: 1.5;
 }
 .fury-prototype.fury-native-library .prototype-image-label {
-  background: #f5f6f0e8;
+  background: var(--surface);
 }
 .fury-prototype.fury-native-library .prototype-image-empty {
   background: var(--panel);
@@ -130,8 +239,8 @@
   flex-direction: column;
   gap: 3px;
   padding: 9px 12px;
-  background: #efdda8;
-  color: #28251b;
+  background: var(--surface);
+  color: var(--text);
 }
 .fury-prototype .prototype-image-label strong {
   font-size: 12px;
@@ -176,7 +285,7 @@
   justify-content: center;
   gap: 6px 12px;
   padding: 0 16px 10px;
-  color: #ccd2c2;
+  color: var(--text);
   font-size: 11px;
 }
 .fury-prototype .prototype-camera-placeholder {
@@ -185,24 +294,24 @@
   justify-content: center;
   height: 100%;
   padding: 3px;
-  color: #d7ddcd;
+  color: var(--text);
   font-size: 9px;
   line-height: 1.2;
 }
 .fury-prototype .prototype-camera-placeholder small {
   margin-top: 3px;
   font-size: 7px;
-  color: #efdda8;
+  color: var(--text);
 }
 .fury-prototype .prototype-warning {
-  color: #efdda8;
-  background: #332e22;
-  border-left: 3px solid #cbb368;
+  color: var(--text);
+  background: var(--surface);
+  border-left: 3px solid var(--line);
   padding: 12px;
   line-height: 1.6;
 }
 .fury-prototype .prototype-fine {
-  color: #b7c0ab;
+  color: var(--text);
   font-size: 12px;
   line-height: 1.6;
   margin-top: 12px;
@@ -383,8 +492,8 @@
 }
 @media print {
   .fury-prototype .prototype-image-label {
-    color: #181818;
-    background: #fff;
-    border: 2px solid #181818;
+    color: var(--text);
+    background: var(--surface);
+    border: 2px solid var(--line);
   }
 }

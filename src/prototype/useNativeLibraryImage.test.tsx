@@ -6,6 +6,7 @@ import { defaultDesign, type DesignEnvelope } from '../domain/design'
 import { useNativeLibraryImage } from './useNativeLibraryImage'
 
 const calls = vi.hoisted(() => ({ decode: vi.fn() }))
+vi.mock('./useLibrarySet', () => ({ useLibrarySet: () => ({ snapshot: null }) }))
 vi.mock('./nativeLibrary', () => ({
   getNativeLibrary: async () => ({}),
   findNativeImage: (_library: unknown, design: DesignEnvelope) => ({ design }),

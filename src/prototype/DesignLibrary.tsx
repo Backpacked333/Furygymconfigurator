@@ -17,6 +17,7 @@ import {
   type PrototypeRead,
 } from '../domain/prototypeStorage'
 import { archiveLegacyOriginals } from '../lib/recovery'
+import { normalizeCustomerDesign } from '../render-library/views'
 import { downloadPrototypeFile, prototypeLink, prototypeStorage, readPrototypeShare } from './state'
 
 const originalKeys = ['fury-draft-v1', 'fury-builds-v1', 'fury-fixed-review-v1'] as const
@@ -73,7 +74,7 @@ export function DesignLibrary({
   }
   async function save(replace = false) {
     if (!storage || saving || stored.status === 'storage-error') return
-    const snapshot = design
+    const snapshot = normalizeCustomerDesign(design)
     const expected = stored.raw
     setSaving(true)
     setFeedback('Saving the selected snapshot…')
@@ -111,7 +112,7 @@ export function DesignLibrary({
     const next = readPrototypeDesign(storage)
     setStored(next)
     if (next.status === 'ready' && load) {
-      onLoad(next.design)
+      onLoad(normalizeCustomerDesign(next.design))
       notify('Saved v4 design loaded as one Undo step. No original was migrated or overwritten.')
     } else
       notify(

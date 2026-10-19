@@ -1,8 +1,9 @@
 import { Check } from 'lucide-react'
 import { ENVIRONMENTS, type Config } from '../lib/config'
 import { boostOption, focusSection, leaveSection } from '../render/prefetch'
-import { TimeOfDay } from './TimeOfDay'
+import { DayNightSetting } from './DayNightSetting'
 import { StageToolbarView } from './StageToolbarView'
+import { SCENE_LANDSCAPES } from '../domain/presentation'
 
 function focusEnvironment() {
   focusSection('environment')
@@ -39,21 +40,23 @@ export function StageToolbar({
         <>
           <div className="section-label">Setting</div>
           <div className="scene-settings">
-            {ENVIRONMENTS.map((env) => (
-              <button
-                key={env.id}
-                onPointerEnter={() => boostOption('environment', env.id)}
-                onFocus={() => boostOption('environment', env.id)}
-                aria-pressed={config.environment === env.id}
-                className={config.environment === env.id ? 'selected' : ''}
-                onClick={() => onChange({ ...config, environment: env.id })}
-              >
-                {env.name}
-                {config.environment === env.id && <Check size={13} aria-hidden="true" />}
-              </button>
-            ))}
+            {ENVIRONMENTS.filter((env) => SCENE_LANDSCAPES.some(({ id }) => id === env.id)).map(
+              (env) => (
+                <button
+                  key={env.id}
+                  onPointerEnter={() => boostOption('environment', env.id)}
+                  onFocus={() => boostOption('environment', env.id)}
+                  aria-pressed={config.environment === env.id}
+                  className={config.environment === env.id ? 'selected' : ''}
+                  onClick={() => onChange({ ...config, environment: env.id })}
+                >
+                  {env.name}
+                  {config.environment === env.id && <Check size={13} aria-hidden="true" />}
+                </button>
+              ),
+            )}
           </div>
-          <TimeOfDay
+          <DayNightSetting
             label="Time of day"
             time={config.time}
             onChange={(time) => onChange({ ...config, time })}

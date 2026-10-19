@@ -15,9 +15,9 @@ import {
   type StillFrame,
 } from './cloud'
 import { bench } from './bench'
+import { CUSTOMER_ANGLES } from '../render-library/views'
 import {
   ASPECT_RATIO,
-  GALLERY_ANGLES,
   galleryAngle,
   type AngleId,
   type AspectClass,
@@ -177,7 +177,7 @@ export type SceneKeys = { exterior: string; interior: string }
 type Part = keyof SceneKeys
 const PARTS: Part[] = ['exterior', 'interior']
 const partOf = (angle: AngleId): Part => galleryAngle(angle).group
-const ANGLES = GALLERY_ANGLES.map((a) => a.id)
+const ANGLES = CUSTOMER_ANGLES
 
 const UP = new Vector3(0, 1, 0)
 /** The camera the server renders a gallery angle with, looking at its target. */

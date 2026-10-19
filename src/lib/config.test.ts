@@ -636,6 +636,15 @@ describe('sharing and browser persistence', () => {
     window.location.hash = `#c=${encodeConfig({ ...fresh(), finish: 'olive' })}`
     expect(initialConfig().config.finish).toBe('olive')
   })
+  it('defaults new designs to Studio Day without resetting saved or shared lighting', () => {
+    expect(initialConfig().config).toMatchObject({ environment: 'studio', time: 12, lights: true })
+    const night = { ...fresh(), environment: 'desert' as const, time: 21, lights: false }
+    localStorage.setItem('fury-draft-v1', encodeConfig(night))
+    expect(initialConfig().config).toEqual(night)
+    const courtyard = { ...fresh(), environment: 'residences' as const, time: 9.5 }
+    window.location.hash = `#c=${encodeConfig(courtyard)}`
+    expect(initialConfig().config).toEqual(courtyard)
+  })
   it('restores the draft and explains malformed links', () => {
     localStorage.setItem('fury-draft-v1', encodeConfig({ ...fresh(), finish: 'chalk' }))
     expect(initialConfig().config.finish).toBe('chalk')
@@ -679,7 +688,12 @@ describe('sharing and browser persistence', () => {
         throw new Error('Denied')
       },
     })
-    expect(initialConfig().config).toEqual(fresh())
+    expect(initialConfig().config).toEqual({
+      ...fresh(),
+      environment: 'studio',
+      time: 12,
+      lights: true,
+    })
     expect(readSaved()).toEqual([])
     expect(() => writeSaved([])).toThrow('Denied')
   })

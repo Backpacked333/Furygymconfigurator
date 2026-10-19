@@ -39,7 +39,7 @@ export function NativeLibraryGallery({
       {open && (
         <Modal
           title="Find your starting point"
-          subtitle={`${presets.length} configurations · ${library?.entries.length ?? 0} real GPU images · Studio Day & Night`}
+          subtitle={`${presets.length} starting points · Studio Day 5/5 · Studio Night 1/5 in the original collection`}
           wide
           onClose={() => setOpen(false)}
         >
@@ -63,8 +63,9 @@ export function NativeLibraryGallery({
             <span>{filtered.length} builds</span>
           </div>
           <p className="native-library-intro">
-            Choose a complete build, then explore its cameras and finishes. Changes remain editable;
-            combinations outside this image library are clearly marked.
+            Start with a rendered build, then make it yours. All configuration options stay
+            available. Each exact design and scene has five views; missing views can be requested
+            when rendering is enabled.
           </p>
           <div className="native-library-grid">
             {filtered.map((entry) => {
@@ -96,6 +97,7 @@ export function NativeLibraryGallery({
                       {FLOORS.find((value) => value.id === appearance.floor)?.name}
                       {appearance.accent ? ' · Accent' : ''}
                     </small>
+                    <small>Studio Day · 5/5 views · Night starts at 1/5</small>
                   </span>
                 </button>
               )
@@ -108,8 +110,8 @@ export function NativeLibraryGallery({
             </p>
           )}
           <p className="prototype-fine">
-            Rendered design previews, not engineering approval or strict reference exports. Outdoor
-            landscapes and unlisted combinations are not included in this batch.
+            Draft design previews, not engineering approval or strict reference exports. The live
+            image set checks for newer images; these counts describe the original collection only.
           </p>
         </Modal>
       )}

@@ -1,10 +1,10 @@
 import {
   defaultDesign,
   deserializeDesign,
-  parseDesign,
   serializeDesign,
   type DesignEnvelope,
 } from '../domain/design'
+import { normalizeCustomerDesign } from '../render-library/views'
 
 export const PROTOTYPE_SHARE_PREFIX = '#fury-v4='
 export type ShareRead =
@@ -16,7 +16,7 @@ export function readPrototypeShare(raw: string): ShareRead {
   if (raw.startsWith(PROTOTYPE_SHARE_PREFIX) && raw.length <= 64 * 1024) {
     try {
       const design = deserializeDesign(decodeURIComponent(raw.slice(PROTOTYPE_SHARE_PREFIX.length)))
-      if (design) return { status: 'ready', raw, design }
+      if (design) return { status: 'ready', raw, design: normalizeCustomerDesign(design) }
     } catch {
       /* Preserve the exact unsupported fragment, including malformed percent encoding. */
     }
@@ -28,7 +28,8 @@ export function prototypeLink(design: DesignEnvelope, href: string): string {
   // Do not carry legacy cloud/bake/query options into a prototype link.
   url.search =
     url.searchParams.get('experience') === 'library' ? '?experience=library' : '?prototype=images'
-  url.hash = PROTOTYPE_SHARE_PREFIX + encodeURIComponent(serializeDesign(design))
+  url.hash =
+    PROTOTYPE_SHARE_PREFIX + encodeURIComponent(serializeDesign(normalizeCustomerDesign(design)))
   return url.href
 }
 export type DesignHistory = {
@@ -40,9 +41,30 @@ export type HistoryAction = { type: 'commit'; design: DesignEnvelope } | { type:
 export function initialHistory(): DesignHistory {
   return { past: [], present: defaultDesign(), future: [] }
 }
+const NATIVE_SELECTION_KEY = 'fury-native-selected-v1'
+export function initialNativeHistory(): DesignHistory {
+  const initial = initialHistory()
+  const shared = readPrototypeShare(window.location.hash)
+  if (shared.status === 'ready') return { ...initial, present: shared.design }
+  if (shared.status === 'invalid') return initial
+  try {
+    const raw = localStorage.getItem(NATIVE_SELECTION_KEY)
+    const restored = raw && raw.length <= 64 * 1024 ? deserializeDesign(raw) : null
+    return restored ? { ...initial, present: normalizeCustomerDesign(restored) } : initial
+  } catch {
+    return initial
+  }
+}
+export function rememberNativeSelection(design: DesignEnvelope) {
+  try {
+    localStorage.setItem(NATIVE_SELECTION_KEY, serializeDesign(normalizeCustomerDesign(design)))
+  } catch {
+    /* Saving a convenience selection cannot authorize or cancel work. */
+  }
+}
 export function designHistory(state: DesignHistory, action: HistoryAction): DesignHistory {
   if (action.type === 'commit') {
-    const next = parseDesign(action.design)
+    const next = normalizeCustomerDesign(action.design)
     return serializeDesign(next) === serializeDesign(state.present)
       ? state
       : {

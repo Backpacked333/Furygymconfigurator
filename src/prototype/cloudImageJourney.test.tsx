@@ -96,7 +96,7 @@ describe('cloud image-first journey (jsdom/inert replies; no browser, renderer o
     mount()
     expect(host.querySelector('.brand')?.textContent).toContain('FURY')
     expect(host.querySelectorAll('[role=tab]')).toHaveLength(4)
-    expect(host.querySelectorAll('[aria-label="Seven draft cameras"] button')).toHaveLength(7)
+    expect(host.querySelectorAll('[aria-label="Five draft cameras"] button')).toHaveLength(5)
     expect(host.querySelector('img, canvas')).toBeNull()
     expect(host.textContent).toContain('Private cloud display pending')
     expect(host.textContent).toContain('Ultra')

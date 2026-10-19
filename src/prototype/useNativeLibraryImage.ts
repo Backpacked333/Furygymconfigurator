@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { serializeDesign, type DesignEnvelope } from '../domain/design'
+import type { ImageDescriptor } from '../render-library/contracts'
+import { decodeLibraryImage } from './renderLibraryClient'
+import { useLibrarySet } from './useLibrarySet'
 import {
   decodeNativeImage,
   findNativeImage,
@@ -8,7 +11,7 @@ import {
   type NativeLibrary,
 } from './nativeLibrary'
 
-export type NativeReply = { mode: 'native-library'; artifact: NativeEntry }
+export type NativeReply = { mode: 'native-library'; artifact: NativeEntry | ImageDescriptor }
 type NativeProgress =
   | { state: 'pending' }
   | { state: 'ready'; reply: NativeReply; src: string }
@@ -36,6 +39,13 @@ export function useNativeCatalog(enabled = true) {
 }
 
 export function useNativeLibraryImage(design: DesignEnvelope) {
+  const library = useLibrarySet(design)
+  const view = library.snapshot?.views.find(
+    (view) => view.cameraRef === design.presentation.cameraRef,
+  )
+  const dynamic = view?.status === 'ready' ? view.image : undefined
+  const dynamicRef = useRef(dynamic)
+  dynamicRef.current = dynamic
   const key = serializeDesign(design)
   const [selection, setSelection] = useState({ key, generation: 0 })
   const [attempt, retry] = useState(0)
@@ -50,32 +60,51 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
   useLayoutEffect(() => {
     const token = ++active.current
     const controller = new AbortController()
+    let release: (() => void) | undefined
     const update = (progress: NativeProgress) => {
       if (active.current !== token || controller.signal.aborted) return
-      setSnapshot((previous) => ({
+      setSnapshot({
         generation,
         progress,
         shown:
-          progress.state === 'ready'
-            ? { key, reply: progress.reply, src: progress.src }
-            : previous.shown,
-      }))
+          progress.state === 'ready' ? { key, reply: progress.reply, src: progress.src } : null,
+      })
     }
     update({ state: 'pending' })
     void (async () => {
-      const library = await getNativeLibrary()
+      const descriptor = dynamicRef.current
+      if (descriptor) {
+        const decoded = await decodeLibraryImage(descriptor, design, controller.signal)
+        if (controller.signal.aborted) {
+          decoded.release()
+          return
+        }
+        release = decoded.release
+        update({
+          state: 'ready',
+          reply: { mode: 'native-library', artifact: descriptor },
+          src: decoded.src,
+        })
+        return
+      }
+      const catalog = await getNativeLibrary().catch(() => null)
       if (controller.signal.aborted) return
-      const entry = findNativeImage(library, design)
+      const entry = catalog ? findNativeImage(catalog, design) : undefined
       if (!entry) {
         update({
           state: 'unavailable',
           retryable: false,
           message:
-            'This exact combination is not in the rendered library yet. Your choices are saved in the design. Choose a rendered build, or undo to return to an available image. No GPU job has been started.',
+            'No verified image is available for this selected view. Check the five-view set status below. No substitute is shown.',
         })
         return
       }
       const decoded = await decodeNativeImage(entry, controller.signal)
+      if (controller.signal.aborted) {
+        decoded.release?.()
+        return
+      }
+      release = decoded.release
       update({
         state: 'ready',
         reply: { mode: 'native-library', artifact: entry },
@@ -85,14 +114,18 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
       update({
         state: 'error',
         retryable: true,
-        message: error instanceof Error ? error.message : 'The image could not be loaded.',
+        message:
+          error instanceof Error
+            ? 'The selected image could not be verified or delivered. Retry image delivery; this never starts a render.'
+            : 'The image could not be loaded.',
       }),
     )
     return () => {
       active.current = token + 1
       controller.abort()
+      release?.()
     }
-  }, [design, key, generation, attempt])
+  }, [design, key, generation, attempt, dynamic?.sha256])
   const progress: NativeProgress =
     snapshot.generation === generation && selection.key === key
       ? snapshot.progress
@@ -102,5 +135,6 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     shown: snapshot.shown,
     current: snapshot.shown?.key === key && progress.state === 'ready',
     retry: () => retry((value) => value + 1),
+    library,
   }
 }

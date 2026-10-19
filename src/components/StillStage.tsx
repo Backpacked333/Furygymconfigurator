@@ -9,6 +9,7 @@ import {
   type AngleId,
   type AspectClass,
 } from '../render/gallery'
+import { CUSTOMER_ANGLES } from '../render-library/views'
 import type { StillsSnapshot } from '../render/stillStatus'
 import type { Layer } from './stillStageState'
 import { showsWanted } from './stillStageState'
@@ -196,25 +197,27 @@ export function Filmstrip({
       selected={angle}
       aspect={aspect}
       onPick={onPick}
-      items={GALLERY_ANGLES.map(({ id, label, group }) => {
-        const images = ready ? snapshot.images[id] : undefined
-        const baked = bakedStill(design, angleKey(id, hero), aspect)
-        const fresh = baked?.thumb ?? images?.thumb?.url ?? images?.still?.url
-        if (fresh) held.current.urls[id] = fresh
-        const url = fresh ?? held.current.urls[id]
-        const waiting =
-          id === angle
-            ? stagePending
-            : !baked && snapshot.source === 'cloud' && (!ready || snapshot.pending[id] === true)
-        return {
-          id,
-          label,
-          group,
-          waiting,
-          url,
-          accessibleLabel: `${label} ${group === 'interior' ? 'interior' : 'exterior'} view${waiting ? ', rendering' : ''}`,
-        }
-      })}
+      items={GALLERY_ANGLES.filter(({ id }) => CUSTOMER_ANGLES.some((angle) => angle === id)).map(
+        ({ id, label, group }) => {
+          const images = ready ? snapshot.images[id] : undefined
+          const baked = bakedStill(design, angleKey(id, hero), aspect)
+          const fresh = baked?.thumb ?? images?.thumb?.url ?? images?.still?.url
+          if (fresh) held.current.urls[id] = fresh
+          const url = fresh ?? held.current.urls[id]
+          const waiting =
+            id === angle
+              ? stagePending
+              : !baked && snapshot.source === 'cloud' && (!ready || snapshot.pending[id] === true)
+          return {
+            id,
+            label,
+            group,
+            waiting,
+            url,
+            accessibleLabel: `${label} ${group === 'interior' ? 'interior' : 'exterior'} view${waiting ? ', rendering' : ''}`,
+          }
+        },
+      )}
     />
   )
 }
