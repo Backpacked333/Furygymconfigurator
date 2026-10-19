@@ -9,12 +9,12 @@ register a recipe, enable rendering, approve spend, run migrations or start the 
 
 ## Integration and packaging
 
-The integrator must apply these shared-package/config changes (not owned by the service lane):
+The integration includes the following shared-package/config changes:
 
-1. Add **`sharp: "0.34.5"`** to production dependencies and regenerate the lockfile. Include its
+1. **`sharp: "0.34.5"`** is a locked production dependency. Include its
    Linux native/optional dependencies in the Vercel installation; it is not a browser dependency.
-2. Include `api` in `tsconfig.json`'s `include` array. The server tests also import all handlers.
-3. Preserve existing static asset headers in `vercel.json`, and add:
+2. `api` is included in `tsconfig.json`'s checked sources. Server tests also import all handlers.
+3. Existing static asset headers in `vercel.json` are preserved alongside:
 
    ```json
    {

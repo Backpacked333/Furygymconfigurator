@@ -69,10 +69,17 @@ describe('family-specific presentation', () => {
     expect(neither.on).toBe(false)
     expect(neither.detail).toContain('Needs a browser with WebGPU or a cloud renderer')
   })
-  it('offers all six surroundings', () => {
+  it('offers exactly the four customer scenes', () => {
     const html = panel(DEFAULT_CONFIG, 3)
-    for (const name of ['Residential courtyard', 'Corporate campus', 'Private backyard'])
+    for (const name of [
+      'Studio backdrop',
+      'Residential courtyard',
+      'Corporate campus',
+      'Desert retreat',
+    ])
       expect(html).toContain(name)
+    expect(html).not.toContain('Private backyard')
+    expect(html.match(/class="environment-card /g)).toHaveLength(4)
   })
   it('shows source-backed Container dimensions and no Studio configuration selector', () => {
     const html = panel(setFamily(DEFAULT_CONFIG, 'container'), 0)

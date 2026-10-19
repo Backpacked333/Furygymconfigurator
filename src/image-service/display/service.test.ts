@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { deflateSync } from 'node:zlib'
 import { createServer, request as httpRequest } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -65,7 +66,7 @@ const permit = (): LocalDisplayPermit => ({
   productionAllowed: false,
 })
 function root() {
-  const value = mkdtempSync('/home/ubuntu/Documents/fury-display-handoff/service-test-')
+  const value = mkdtempSync(join(tmpdir(), 'fury-display-service-test-'))
   roots.push(value)
   return value
 }

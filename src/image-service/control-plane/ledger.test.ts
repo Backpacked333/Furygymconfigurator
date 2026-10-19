@@ -33,7 +33,7 @@ import {
 import { SqliteLedger } from './ledger'
 
 import { TEST_ROOT as evidenceRoot } from './testPaths'
-const node = '/home/ubuntu/.nvm/versions/node/v24.22.0/bin/node'
+const node = process.execPath
 const auth: AuthContext = authContextSchema.parse({
   principalId: 'ledger-principal-00001',
   experimentId: 'ledger-experiment-00001',
@@ -1190,7 +1190,7 @@ async function raceAdmissions(ledger: SqliteLedger, requests: Admission[]) {
     spawn(node, ['--input-type=module', '--eval', bootstrap], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
-        PATH: '/home/ubuntu/.nvm/versions/node/v24.22.0/bin:/usr/bin:/bin',
+        PATH: process.env.PATH,
         NODE_NO_WARNINGS: '1',
       },
     }),

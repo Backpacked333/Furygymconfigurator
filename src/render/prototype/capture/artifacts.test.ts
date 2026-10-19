@@ -100,7 +100,7 @@ describe('bounded independent PNG decoder', () => {
       it(`decodes RGB${channels * 8} filter ${filter} using independent synthetic encoding`, async () => {
         const fixture = syntheticPng({ channels, filter })
         const decoded = decodeCapturePng(fixture.png, LOCAL_REVIEW_PROFILES.wide)
-        expect(decoded.rgba).toEqual(fixture.rgba)
+        expect(Buffer.from(decoded.rgba).equals(Buffer.from(fixture.rgba))).toBe(true)
         expect(
           (await validateDecodedArtifact(LOCAL_REVIEW_PROFILES.wide, fixture.png, decoded)).pixels
             .opaquePixels,
@@ -108,7 +108,11 @@ describe('bounded independent PNG decoder', () => {
       })
   it('decodes the independent portrait profile', () => {
     const fixture = syntheticPng({ profile: LOCAL_REVIEW_PROFILES.tall })
-    expect(decodeCapturePng(fixture.png, LOCAL_REVIEW_PROFILES.tall).rgba).toEqual(fixture.rgba)
+    expect(
+      Buffer.from(decodeCapturePng(fixture.png, LOCAL_REVIEW_PROFILES.tall).rgba).equals(
+        Buffer.from(fixture.rgba),
+      ),
+    ).toBe(true)
   })
   it.each([
     ['wrong dimensions', { header: (h: Buffer) => h.writeUInt32BE(600) }],

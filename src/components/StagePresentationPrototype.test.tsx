@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ImageConfigurator, HISTORICAL_REFERENCE } from '../prototype/ImageConfigurator'
 import { usePrototypeImage } from '../prototype/usePrototypeImage'
 import { defaultDesign, type DesignEnvelope } from '../domain/design'
-import { DRAFT_CAMERAS } from '../domain/presentation'
+import { CUSTOMER_CAMERAS } from '../domain/presentation'
 import { createMockArtifact, imageReplyBase } from '../image-service/protocol'
 import { designIdentity } from '../domain/designIdentity'
 import { downloadPrototypeFile } from '../prototype/state'
@@ -74,7 +74,7 @@ describe('v4 adapters on the shared stage (jsdom, not browser visual evidence)',
       ),
     ).not.toBeNull()
     expect(host.querySelectorAll('header nav')).toHaveLength(1)
-    expect(host.querySelectorAll('.filmstrip button')).toHaveLength(7)
+    expect(host.querySelectorAll('.filmstrip button')).toHaveLength(5)
     expect(host.querySelector('.prototype-hero')?.getAttribute('data-image-state')).toBe(
       'historical',
     )
@@ -91,10 +91,10 @@ describe('v4 adapters on the shared stage (jsdom, not browser visual evidence)',
       'Requested: DRAFT — Front three-quarter',
     )
   })
-  it('all seven views emit canonical presentation changes and history restores the whole revision', () => {
+  it('all five customer views emit canonical presentation changes and history restores the whole revision', () => {
     mount()
     const initial = selected!
-    for (const camera of DRAFT_CAMERAS) {
+    for (const camera of CUSTOMER_CAMERAS) {
       click(`${camera.name.replace('DRAFT — ', '')} DRAFT · ${camera.group}`)
       expect(selected!.presentation.cameraRef).toBe(camera.ref)
       expect(selected!.config).toEqual(initial.config)
@@ -106,14 +106,14 @@ describe('v4 adapters on the shared stage (jsdom, not browser visual evidence)',
     }
     const final = selected!
     click('Undo last change')
-    expect(selected!.presentation.cameraRef).toBe('entry-draft@1')
+    expect(selected!.presentation.cameraRef).toBe('rear-left-draft@1')
     click('Redo last change')
     expect(selected!).toEqual(final)
     const exterior = host.querySelector<HTMLButtonElement>(
       '.view-switch[aria-label="Camera views"] button',
     )!
     act(() => exterior.click())
-    expect(selected!.presentation.cameraRef).toBe('top-draft@1')
+    expect(selected!.presentation.cameraRef).toBe('rear-left-draft@1')
   })
   it('replaces the stage with the actual read-only plan and keeps full design unchanged', () => {
     mount()

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { defaultDesign } from '../../../domain/design'
 import { bindCloudRecipe, createCloudDisplayRequest } from '../../../display/cloudContract'
 import { DISPLAY_PROTOCOL, stableDisplayJson } from '../../../display/contract'
@@ -17,7 +18,7 @@ import { verifyDisplayPixels } from '../../display/cache'
 vi.mock('../../display/cache', () => ({ verifyDisplayPixels: vi.fn((_job, receipt) => receipt) }))
 const roots: string[] = []
 function directory() {
-  const path = mkdtempSync('/home/ubuntu/Documents/fury-display-handoff/service-cache-test-')
+  const path = mkdtempSync(join(tmpdir(), 'fury-display-cache-test-'))
   roots.push(path)
   return new DisplayDirectory(path)
 }

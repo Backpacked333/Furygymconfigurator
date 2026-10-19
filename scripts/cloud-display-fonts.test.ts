@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -78,13 +78,20 @@ describe('narrow symlinked font allowlist (in-process config only, no server/bro
       }
     }
     expect(checked).toBeGreaterThanOrEqual(14)
+    // Dependencies inside this checkout are normally Vite-servable. The added font
+    // allowlist must not expose an external symlink target's sibling files.
     const dependencies = realpathSync(join(root, 'node_modules'))
     for (const file of [
       join(dependencies, 'three/package.json'),
       join(dependencies, '@fontsource/manrope/package.json'),
       join(dependencies, '@fontsource/dm-sans/latin-400.css'),
+    ])
+      expect(isFileLoadingAllowed(resolved, file)).toBe(
+        file.startsWith(`${resolve(searchForWorkspaceRoot(root))}/`),
+      )
+    for (const file of [
       join(dirname(root.replace(/\/$/, '')), 'fury-display/src/display/operator.ts'),
-      '/home/ubuntu/unrelated-private-file',
+      join(dirname(root.replace(/\/$/, '')), 'unrelated-private-file'),
     ])
       expect(isFileLoadingAllowed(resolved, file)).toBe(false)
   })

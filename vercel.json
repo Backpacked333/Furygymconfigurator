@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "public/native-library/manifest.json",
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "headers": [
     {
       "source": "/native-library/(.*).webp",

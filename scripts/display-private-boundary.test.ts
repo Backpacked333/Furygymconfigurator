@@ -4,6 +4,10 @@ import { parseDisplayOperatorArgs } from './display-operator'
 
 describe('display private module boundary independent of DEV service flags', () => {
   it.each([
+    '/src/render-library/server/runtime.ts',
+    '/@fs/checkout/src/render-library/server/artifacts.ts?raw',
+    '/%2573rc%252frender-library%252fserver%252fhttpSafety.ts',
+    '/render-server/on_demand/provider.py',
     '/src/render/display/browser/entry.ts',
     '/src//render/display/browser/entry.ts?raw',
     '/src/render/ignored/../display/browser/entry.ts',
@@ -25,6 +29,8 @@ describe('display private module boundary independent of DEV service flags', () 
     '/scripts/cloud-display-worker-verify.ts',
   ])('denies private Vite source URL %s', (path) => expect(isPrivateDisplayPath(path)).toBe(true))
   it.each([
+    '/src/render-library/contracts.ts',
+    '/src/render-library/identity.ts',
     '/src/display/contract.ts',
     '/src/display/cloudContract.ts',
     '/src/prototype/cloudDisplayClient.ts',

@@ -62,17 +62,20 @@ export class StaticSeedSource {
   async images(design: DesignEnvelope): Promise<readonly ImageDescriptor[]> {
     const descriptors = await seedImagesForSet(await readFile(this.manifestPath), design)
     if (descriptors.length && !this.origin) throw new ServiceError('lookup-unavailable', 503)
-    for (const image of descriptors) {
-      const response = await this.fetcher(`${this.origin}${image.url}`, {
-        redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
-      })
-      if (!response.ok) {
-        await response.body?.cancel()
-        throw new ServiceError('lookup-unavailable', 503)
-      }
-      await verifyPixels(await boundedBytes(response, MAX_IMAGE_BYTES), image)
-    }
+    // At most five bounded downloads; serial timeouts can exceed the API's 60s limit.
+    await Promise.all(
+      descriptors.map(async (image) => {
+        const response = await this.fetcher(`${this.origin}${image.url}`, {
+          redirect: 'error',
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (!response.ok) {
+          await response.body?.cancel()
+          throw new ServiceError('lookup-unavailable', 503)
+        }
+        await verifyPixels(await boundedBytes(response, MAX_IMAGE_BYTES), image)
+      }),
+    )
     return descriptors
   }
 }

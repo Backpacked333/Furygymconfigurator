@@ -2,17 +2,15 @@
 import { execFile } from 'node:child_process'
 import { lstat, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { build } from 'esbuild'
 import { expect, it } from 'vitest'
-import {
-  LOCAL_RENDER_HANDOFF,
-  LOCAL_RENDER_HISTORY_DIRECTORY,
-  LOCAL_RENDER_SOURCE_ROOT,
-} from './localRenderPrivate'
+import { LOCAL_RENDER_HISTORY_DIRECTORY, LOCAL_RENDER_SOURCE_ROOT } from './localRenderPrivate'
 
 it('keeps host/runner native, resolves extensionless TS, preserves fixed root/history and deterministic current build', async () => {
-  const root = await mkdtemp(join(LOCAL_RENDER_HANDOFF, 'service-import-check-'))
+  const root = await mkdtemp(join(tmpdir(), 'fury-service-import-check-'))
   const before = await lstat(LOCAL_RENDER_HISTORY_DIRECTORY).catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return null
@@ -39,7 +37,7 @@ it('keeps host/runner native, resolves extensionless TS, preserves fixed root/hi
     await writeFile(
       join(root, 'probe.mjs'),
       `
-import { createLocalRenderBackend, LOCAL_RENDER_SOURCE_ROOT, LOCAL_RENDER_HISTORY_DIRECTORY } from './adapter.mjs';
+import { createLocalRenderBackend, LOCAL_RENDER_SOURCE_ROOT, LOCAL_RENDER_HISTORY_DIRECTORY } from ${JSON.stringify(pathToFileURL(join(LOCAL_RENDER_SOURCE_ROOT, 'src/image-service/localRenderPrivate.ts')).href)};
 const backend = createLocalRenderBackend(LOCAL_RENDER_SOURCE_ROOT);
 const originalEnv = process.env.NODE_ENV;
 const first = await backend.prepare(() => {});
@@ -76,16 +74,12 @@ console.log(JSON.stringify({ sourceRoot: host.SOURCE_ROOT, historyDirectory: run
     )
     const reports = []
     for (const NODE_ENV of ['development', 'production']) {
-      const { stdout } = await promisify(execFile)(
-        '/home/ubuntu/.nvm/versions/node/v24.22.0/bin/node',
-        [join(root, 'probe.mjs')],
-        {
-          cwd: LOCAL_RENDER_SOURCE_ROOT,
-          timeout: 150_000,
-          maxBuffer: 128 * 1024,
-          env: { PATH: process.env.PATH, HOME: process.env.HOME, NODE_NO_WARNINGS: '1', NODE_ENV },
-        },
-      )
+      const { stdout } = await promisify(execFile)(process.execPath, [join(root, 'probe.mjs')], {
+        cwd: LOCAL_RENDER_SOURCE_ROOT,
+        timeout: 150_000,
+        maxBuffer: 128 * 1024,
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, NODE_NO_WARNINGS: '1', NODE_ENV },
+      })
       const report = JSON.parse(stdout.trim()) as Record<string, unknown>
       reports.push(report)
       expect(report).toMatchObject({
@@ -97,7 +91,7 @@ console.log(JSON.stringify({ sourceRoot: host.SOURCE_ROOT, historyDirectory: run
         assetRecords: 78,
       })
       await writeFile(
-        join(LOCAL_RENDER_HANDOFF, 'service-private-import-check.json'),
+        join(root, 'service-private-import-check.json'),
         JSON.stringify(report, null, 2),
       )
       const after = await lstat(LOCAL_RENDER_HISTORY_DIRECTORY).catch(

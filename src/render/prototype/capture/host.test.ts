@@ -1,12 +1,13 @@
 // Real disposable loopback HTTP only. No app/browser/rendering, remote requests or downloaded tooling.
 import { request } from 'node:http'
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   BUILD_PATH,
   PAGE_PATH,
+  SOURCE_ROOT,
   assertOutsideSource,
   assertBrowserModule,
   manifestDigest,
@@ -105,7 +106,6 @@ describe('private immutable loopback allowlist', () => {
 })
 describe('trusted source closure', () => {
   it.each([
-    'fury-p03',
     'fury-real',
     'fury-real-handoff',
     'fury-next',
@@ -113,7 +113,10 @@ describe('trusted source closure', () => {
     'fury-capture',
     'fury-capture-handoff',
   ])('protects other source/ledger roots: %s', (name) => {
-    expect(() => assertOutsideSource(`/home/ubuntu/Documents/${name}/new-output`)).toThrow()
+    expect(() => assertOutsideSource(join(dirname(SOURCE_ROOT), name, 'new-output'))).toThrow()
+  })
+  it('protects the current source tree independently of checkout location', () => {
+    expect(() => assertOutsideSource(join(SOURCE_ROOT, 'new-output'))).toThrow()
   })
   it.each([
     'src/App.tsx',

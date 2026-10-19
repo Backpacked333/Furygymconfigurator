@@ -94,8 +94,10 @@ describe('the stage toolbar', () => {
     expect(dialog).not.toBeNull()
     expect(adjust.getAttribute('aria-expanded')).toBe('true')
     expect(document.activeElement?.textContent).toContain('Residential courtyard')
-    click(button('Private backyard'))
-    expect(on.onChange).toHaveBeenCalledWith({ ...DEFAULT_CONFIG, environment: 'backyard' })
+    expect(dialog.querySelectorAll('.scene-settings button')).toHaveLength(4)
+    expect(dialog.querySelector('input[type="range"]')).toBeNull()
+    click(button('Desert retreat'))
+    expect(on.onChange).toHaveBeenCalledWith({ ...DEFAULT_CONFIG, environment: 'desert' })
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     })

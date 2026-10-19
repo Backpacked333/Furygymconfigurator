@@ -1,6 +1,7 @@
 // SYNTHETIC test fixtures only, not real rendering, not a substitute or production adapter.
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { vi } from 'vitest'
 import {
   createCaptureJob,
@@ -19,15 +20,11 @@ import {
   TEST_BUILD,
 } from '../render/prototype/capture/artifacts-fixtures'
 import { LocalRenderCache } from './localRenderCache'
-import {
-  LOCAL_RENDER_HANDOFF,
-  type LocalRenderBackend,
-  type LocalRenderPrepared,
-} from './localRenderPrivate'
+import type { LocalRenderBackend, LocalRenderPrepared } from './localRenderPrivate'
 import type { LocalRenderSampleId } from './localRenderProtocol'
 
 export async function localRenderFixture() {
-  const root = await mkdtemp(join(LOCAL_RENDER_HANDOFF, 'synthetic-service-test-'))
+  const root = await mkdtemp(join(tmpdir(), 'fury-synthetic-service-test-'))
   const cache = new LocalRenderCache({
     outputs: root,
     index: join(root, 'index'),

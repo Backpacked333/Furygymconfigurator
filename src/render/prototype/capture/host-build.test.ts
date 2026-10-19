@@ -1,5 +1,6 @@
 // Real config-free in-memory build only: no browser, image, remote fetch, app plugin or capture attempt.
 import { expect, it } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import { BUILD_PATH, PAGE_PATH, SOURCE_ROOT, manifestDigest, prepareCaptureBuild } from './host'
 import { HISTORY_DIRECTORY } from './runner'
 import { TEXTURE_SETS } from '../../materials'
@@ -42,7 +43,9 @@ it('builds a fully hashed private closure matching the browser bootstrap and wor
   expect(
     prepared.manifests.sources.some(({ name }) => name === 'src/domain/localRenderSlice.ts'),
   ).toBe(true)
-  expect(SOURCE_ROOT).toBe('/home/ubuntu/Documents/fury-p03')
+  expect(SOURCE_ROOT).toBe(
+    fileURLToPath(new URL('../../../../', import.meta.url)).replace(/\/$/, ''),
+  )
   expect(HISTORY_DIRECTORY).toBe(
     '/home/ubuntu/Documents/fury-capture-handoff/local-three-capture-history',
   )

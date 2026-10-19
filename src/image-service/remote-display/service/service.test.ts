@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync, linkSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { defaultDesign, type DesignEnvelope } from '../../../domain/design'
 import {
   bindCloudRecipe,
@@ -27,7 +28,7 @@ const build: DisplayBuild = {
   threeRevision: '186',
 }
 function root() {
-  const path = mkdtempSync('/home/ubuntu/Documents/fury-display-handoff/service-cloud-test-')
+  const path = mkdtempSync(join(tmpdir(), 'fury-display-cloud-test-'))
   roots.push(path)
   return path
 }

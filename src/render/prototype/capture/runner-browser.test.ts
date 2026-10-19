@@ -181,7 +181,13 @@ async function fakeBrowser() {
       },
       onFailure: (error) => failures.push(error),
     },
-    { spawn: spawned as unknown as typeof spawn, transport: () => transport },
+    {
+      spawn: spawned as unknown as typeof spawn,
+      transport: () => transport,
+      access: async () => {},
+      realpath: async (path) => String(path),
+      socketRoot: root,
+    },
   )
   return { root, browser, transport, controller, failures, spawned, kill }
 }
@@ -214,7 +220,7 @@ describe('owned isolated process/target lifecycle with declared fakes', () => {
       'XDG_CONFIG_HOME',
     ])
     expect(call[2].env.HOME.startsWith(`${fixture.root}/chrome-profile-`)).toBe(true)
-    expect(call[2].env.TMPDIR).toMatch(/^\/home\/ubuntu\/Documents\/fury-p03-handoff\/ct-/)
+    expect(call[2].env.TMPDIR.startsWith(`${fixture.root}/ct-`)).toBe(true)
     expect(
       Buffer.byteLength(`${call[2].env.TMPDIR}/.org.chromium.Chromium.XXXXXX/SingletonSocket`),
     ).toBeLessThan(108)

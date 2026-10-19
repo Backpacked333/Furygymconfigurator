@@ -108,7 +108,7 @@ describe('built next-batch boundaries (no browser or dev server)', () => {
       ).toBe(true)
     for (const id of modules) {
       expect(id).not.toMatch(
-        /node_modules\/(three|@react-three|three-stdlib|jspdf)|\/src\/render\/|\/src\/review\/|\/src\/(App|legacyEntry)\.tsx|node:|__vite-browser-external|\/src\/lib\/(export|useConfig)\.ts|\/src\/components\/(ConfigPanel|StageToolbar|Dialogs)\.tsx/,
+        /node_modules\/(three|@react-three|three-stdlib|jspdf|sharp)|\/src\/render\/|\/src\/render-library\/server\/|\/render-server\/|\/src\/review\/|\/src\/(App|legacyEntry)\.tsx|node:|__vite-browser-external|\/src\/lib\/(export|useConfig)\.ts|\/src\/components\/(ConfigPanel|StageToolbar|Dialogs)\.tsx/,
       )
       if (id.includes('/src/image-service/'))
         expect(id).toMatch(/\/(?:protocol|localRenderProtocol)\.ts$/)
@@ -116,7 +116,7 @@ describe('built next-batch boundaries (no browser or dev server)', () => {
     for (const id of graph.imports)
       expect(id).not.toMatch(/node:|sqlite|three|jspdf|__vite-browser-external/)
     expect(graph.chunks.join('\n')).not.toMatch(
-      /node:sqlite|DatabaseSync|\/warm\b|\/render\b|modal\.run/,
+      /node:sqlite|DatabaseSync|\/(?:warm|render)(?=[/"'?\s]|$)|modal\.run/,
     )
   }, 60_000)
 

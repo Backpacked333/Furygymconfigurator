@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { dirname, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { build as viteBuild, type Plugin } from 'vite'
 import { ExclusiveDirectory, digest, jsonBytes } from './artifacts'
 import {
@@ -11,9 +12,11 @@ import {
   type CaptureBuild,
 } from './contract'
 
-// This unpublished lane is deliberately pinned to the authorized worktree. import.meta.url
-// may name Vite's bundled config in .vite-temp; never resolve source/history relative to that.
-export const SOURCE_ROOT = '/home/ubuntu/Documents/fury-p03'
+// Native-only module: the adapter imports its file URL, never a Vite config bundle.
+export const SOURCE_ROOT = fileURLToPath(new URL('../../../../', import.meta.url)).replace(
+  /\/$/,
+  '',
+)
 export const HANDOFF_ROOT = '/home/ubuntu/Documents/fury-p03-handoff'
 export const BUILD_PATH = '/__capture_bootstrap.json'
 export const PAGE_PATH = '/worker.html?renderer=webgl2'

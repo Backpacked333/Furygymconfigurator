@@ -21,7 +21,7 @@ import { parseWatchdogArguments, runWatchdogCli } from '../../../scripts/p04-wat
 
 import { TEST_ROOT as ROOT } from './testPaths'
 import { REPO_ROOT as REPO } from './testPaths'
-const NODE = '/home/ubuntu/.nvm/versions/node/v24.22.0/bin/node'
+const NODE = process.execPath
 const auth: AuthContext = {
   principalId: 'watchdog-principal-001',
   experimentId: 'watchdog-experiment-001',
@@ -476,7 +476,7 @@ describe('private strict --once CLI and true child-process restart', () => {
     const ledgerPath = join(dir, 'ledger.sqlite')
     const providerPath = join(dir, 'provider.sqlite')
     const childEnv = {
-      PATH: '/home/ubuntu/.nvm/versions/node/v24.22.0/bin:/usr/bin:/bin',
+      PATH: process.env.PATH,
       P04_WORKER_CONTEXT_SECRET: keys.contextSecret,
       P04_PROVIDER_RECEIPT_SECRET: keys.receiptSecret,
       P04_OBJECT_SECRET: keys.objectSecret,

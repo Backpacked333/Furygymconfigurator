@@ -11,7 +11,7 @@ export function isPrivateDisplayPath(url: string) {
   } catch {
     return true
   }
-  return /\/(?:src\/(?:render\/display|image-service\/(?:display|remote-display))(?:\/|$)|src\/display\/(?:session|cloudSession|readiness|operator)(?:\.|$)|scripts\/(?:display-(?:service|renderer|operator)|cloud-display-))/.test(
+  return /\/(?:src\/(?:render\/display|render-library\/server|image-service\/(?:display|remote-display))(?:\/|$)|render-server(?:\/|$)|src\/display\/(?:session|cloudSession|readiness|operator)(?:\.|$)|scripts\/(?:display-(?:service|renderer|operator)|cloud-display-))/.test(
     path,
   )
 }

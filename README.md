@@ -10,24 +10,29 @@ Open **`/?experience=library`** to use the image-first configurator with real, e
 
 - **Rendered builds** opens the visual catalog, filtered by collection and size. Choosing a build loads its complete configuration as one undoable change.
 - The library contains **50 configurations / 400 images**: seven Studio Day cameras and one Studio Night front-three-quarter view for each build. The checked-in manifest is the source of truth for completed coverage.
-- The [render-library integration contract](docs/render-library-contract.md) defines the upcoming five-view customer set, Studio Day new-design default, exact cache identity and private durable worker protocol. Contracts/fixtures are implemented; the new service, worker and customer job UX are **not enabled**. Historical image and receipt bytes remain unchanged.
+- Customers see exactly **five views** (four exterior and one entry interior), four scenes, and Day/Night. New designs start in Studio Day; restored scene/lighting choices remain intact. Historical extra cameras and all image/receipt bytes remain preserved; saved legacy cameras normalize only at the customer boundary.
 - Both Studio and Container families include 20 ft and 40 ft sizes, all seven finishes, and selected floor/interior combinations. Equipment arrangements are fixed.
 - Changing a control updates the design immediately. The client only displays an image when the entire canonical design matches, then verifies its SHA-256, decoded dimensions and format boundary. It never substitutes a finish-only or previous-design image.
 - Images are 1920×1200 WebP, encoded at quality 95 from 1,024-sample native GPU renders. Small gallery/camera thumbnails are separately derived. Hashed assets receive immutable CDN caching; the manifest revalidates. The client retains at most eight decoded-image URLs.
-- **No browser action starts paid rendering.** Unlisted combinations, portrait images and outdoor landscapes honestly show an unavailable state; all controls, undo, saving and the read-only plan remain usable. Four landscapes and Day/Night remain available as design choices.
+- **Rendering is disabled until separately activated.** With an approved, configured service, only **Bring your vision to life** requests missing views for the exact design. Browsing, refresh and status checks never render. Partial results arrive individually with real job stages and a completed-view count; ambiguous delivery never auto-retries. When the service is unavailable, the static library remains browsable and lookup errors are not presented as confirmed cache misses.
+
+The [durable service](docs/render-library-service.md) and [private native worker](render-server/on_demand/README.md) implement the [render-library contract](docs/render-library-contract.md). Postgres owns shared admission, budget reservations, job state and immutable image receipts; Storage owns verified WebP bytes. Server/worker modules are excluded from the library browser bundle. No migrations, provider activation, spend approval or production deployment are performed by installing this repository. Review both guides before activation; the previous experiment is not authorization for new jobs.
 
 These are draft design previews, **not** strict reference exports, engineering approval or final art-direction qualification. Console/signature lettering and material/lighting parity remain incomplete. Native render time is not cached-image delivery time. The batch does not activate the private on-demand services below or change production domains.
 
 ### Run and verify
 
-Use the Node version in `.nvmrc`, then `npm install` and `npm run dev`. Open `/?experience=library`. No Modal credentials, GPU, Blender installation or backend are needed to browse the completed static library.
+Use Node 24 from `.nvmrc`, then `npm ci` and `npm run dev`. Open `/?experience=library`. No Modal credentials, GPU, Blender installation or backend are needed to browse the completed static library. Vite alone does not serve `/api/render-library/*`; see the service guide for the separate Node API configuration and deployment prerequisites.
 
 ```sh
-npx vitest run src/prototype/nativeLibrary.test.ts src/prototype/useNativeLibraryImage.test.tsx src/prototype/entry.test.tsx
+npx vitest run src/render-library src/prototype
+npm run format:check
 npm run typecheck
 npm run lint
 npm run build
 ```
+
+`VITE_RENDER_LIBRARY_STORAGE_ORIGIN` is the only public library setting: the exact HTTPS Supabase origin allowed for completed dynamic images. All `RENDER_LIBRARY_*` keys are server-only and documented in the service guide. Never use a `VITE_` prefix for service-role keys, session secrets, worker tokens or approval settings.
 
 The runtime manifest is `public/native-library/manifest.json`; full-resolution image filenames are their content SHA-256. A missing exact entry is a coverage gap, not permission to dispatch a render or reuse a different image.
 

@@ -1,13 +1,16 @@
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { build } from 'vite'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { isDisplaySelection } from '../src/display/contract'
 import { isLocalRenderSelection } from '../src/image-service/localRenderProtocol'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const cacheDir = mkdtempSync(join(tmpdir(), 'fury-display-client-cache-'))
+afterAll(() => rmSync(cacheDir, { recursive: true, force: true }))
 // In-memory client compilation only. No dev server/browser/private preparation or shared artifacts.
 describe('private display public-module boundary', () => {
   it.each(['displayClient.ts', 'useDisplayImage.ts', 'ImageConfigurator.tsx'])(
@@ -19,7 +22,7 @@ describe('private display public-module boundary', () => {
         envFile: false,
         publicDir: false,
         logLevel: 'silent',
-        cacheDir: '/home/ubuntu/Documents/fury-display-handoff/client-bundle-cache',
+        cacheDir,
         define: { 'import.meta.env.DEV': 'true' },
         esbuild: { jsx: 'automatic' },
         build: {

@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { build } from 'vite'
+
+const cacheDir = mkdtempSync(join(tmpdir(), 'fury-local-client-cache-'))
+afterAll(() => rmSync(cacheDir, { recursive: true, force: true }))
 
 // In-memory bundling only. This never starts Vite, a browser, service, capture or render attempt.
 describe('local-preview browser bundle isolation', () => {
@@ -11,7 +17,7 @@ describe('local-preview browser bundle isolation', () => {
         envFile: false,
         publicDir: false,
         logLevel: 'silent',
-        cacheDir: '/home/ubuntu/Documents/fury-real-handoff/client-bundle-cache',
+        cacheDir,
         esbuild: { jsx: 'automatic' },
         build: {
           write: false,

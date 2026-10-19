@@ -68,7 +68,7 @@ describe('local-only prototype fixture command', () => {
     await cli(['--out', a])
     await cli(['--out', b])
     for (const file of await readdir(a))
-      expect(await readFile(join(a, file))).toEqual(await readFile(join(b, file)))
+      expect((await readFile(join(a, file))).equals(await readFile(join(b, file))), file).toBe(true)
   }, 120000)
 
   it('never overwrites any existing directory or raw legacy/review value', async () => {

@@ -320,14 +320,21 @@ describe('shared Fury ConfigPanel presentation and its two adapters', () => {
     )
   })
 
-  it('retains legacy environments, units, quality and trace callbacks', () => {
+  it('uses four customer scenes and Day/Night while preserving legacy adapter callbacks', () => {
     const c = empty()
     legacy(3, c)
-    for (const env of ENVIRONMENTS) {
+    for (const env of ENVIRONMENTS.filter((env) =>
+      SCENE_LANDSCAPES.some(({ id }) => id === env.id),
+    )) {
       click(env.name)
       expect(onChange).toHaveBeenLastCalledWith({ ...c, environment: env.id })
     }
-    expect(host.querySelector('input[type=range]')).not.toBeNull()
+    expect(host.querySelectorAll('.environment-options button')).toHaveLength(4)
+    expect(host.querySelector('input[type=range]')).toBeNull()
+    click('Night')
+    expect(onChange).toHaveBeenLastCalledWith({ ...c, time: 21 })
+    click('Day')
+    expect(onChange).toHaveBeenLastCalledWith({ ...c, time: 12 })
     click('Architectural lighting')
     expect(onChange).toHaveBeenLastCalledWith({ ...c, lights: !c.lights })
     click('Metric')

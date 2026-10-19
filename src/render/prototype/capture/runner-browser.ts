@@ -221,6 +221,9 @@ export interface OwnedBrowser {
 export type BrowserSeams = {
   spawn?: typeof spawn
   transport?: (input: Writable, output: Readable, fail: (error: Error) => void) => CdpTransport
+  access?: typeof access
+  realpath?: (path: string) => Promise<string>
+  socketRoot?: string
 }
 function browserError(message: string) {
   return new CaptureContractError('scene-failed', message)
@@ -251,7 +254,7 @@ export async function launchOwnedBrowser(
   fence()
   for (const executable of [CHROME_EXECUTABLE, WATCHDOG_EXECUTABLE]) {
     try {
-      await access(executable, constants.X_OK)
+      await (seams.access ?? access)(executable, constants.X_OK)
     } catch {
       throw new CaptureContractError(
         'unsupported-renderer',
@@ -259,7 +262,7 @@ export async function launchOwnedBrowser(
       )
     }
     fence()
-    if ((await realpath(executable)) !== executable)
+    if ((await (seams.realpath ?? realpath)(executable)) !== executable)
       throw browserError('Unexpected executable link.')
   }
   const profile = await mkdtemp(join(options.stateDirectory, 'chrome-profile-'))
@@ -269,7 +272,7 @@ export async function launchOwnedBrowser(
   // browser profile or a changed render/budget namespace.
   let socketDirectory: string
   try {
-    socketDirectory = await mkdtemp(join(HANDOFF_ROOT, 'ct-'))
+    socketDirectory = await mkdtemp(join(seams.socketRoot ?? HANDOFF_ROOT, 'ct-'))
   } catch (error) {
     await rm(profile, { recursive: true, force: true, maxRetries: 0 })
     throw error

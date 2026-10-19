@@ -1,6 +1,8 @@
 // @vitest-environment node
 import sharp from 'sharp'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { lookupSet, readJob, submitSet } from '../../../prototype/renderLibraryClient'
+import { jobId, queued } from '../../../prototype/renderLibraryClient.fixtures'
 import fixture from '../../fixtures/http-contract.json'
 import workerFixture from '../../fixtures/worker-adapter.json'
 import {
@@ -19,7 +21,7 @@ import {
   ServiceError,
   SessionSecurity,
 } from '../httpSafety'
-import { createRuntime, route, type Runtime } from '../runtime'
+import { createRuntime, route, type Route, type Runtime } from '../runtime'
 import { LibraryService, WorkerService } from '../service'
 import { SupabaseRepository, SupabaseTransport } from '../supabase'
 import type { AdmissionPolicy } from '../ports'
@@ -48,6 +50,7 @@ const policy = {
 } as const satisfies AdmissionPolicy
 const seeds = { images: vi.fn(async () => []) }
 let snapshot: SetSnapshot
+afterEach(() => vi.unstubAllGlobals())
 beforeEach(async () => {
   vi.restoreAllMocks()
   seeds.images.mockClear()
@@ -96,6 +99,69 @@ function credentials(runtime: Runtime) {
 }
 
 describe('bounded request and session security', () => {
+  it('connects the real browser client, session cookie, API routes and durable adapter without implicit admission', async () => {
+    // PostgREST double only; the real ledger's concurrency/budget semantics have separate SQL tests.
+    let durable = snapshot
+    const database = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
+      const name = new URL(String(url)).pathname.split('/').at(-1)
+      const args = JSON.parse(String(options?.body))
+      if (name === 'render_library_touch_session') return new Response(null, { status: 204 })
+      if (name === 'render_library_snapshot') {
+        expect(args.identity).toEqual(snapshot.identity)
+        return Response.json(durable)
+      }
+      if (name === 'render_library_reserve_set') {
+        expect(args.command.request.design).toEqual(input.design)
+        expect(args.command.identity).toEqual(snapshot.identity)
+        expect(args.command.context).toMatchObject({ csrfVerified: true, sameOriginVerified: true })
+        durable = queued(snapshot)
+        return Response.json({ status: 'admitted', snapshot: durable })
+      }
+      if (name === 'render_library_get_job') {
+        expect(args.jobId).toBe(jobId)
+        expect(args.sessionHash).toMatch(/^[a-f0-9]{64}$/)
+        return Response.json(durable)
+      }
+      throw new Error(`Unexpected test RPC: ${name}`)
+    })
+    const runtime = testRuntime(database)
+    let cookie = ''
+    const paths: string[] = []
+    vi.stubGlobal('fetch', async (path: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(path)
+      paths.push(url)
+      const endpoint: Route = url.endsWith('/session')
+        ? 'session'
+        : url.endsWith('/lookup')
+          ? 'lookup'
+          : url.endsWith('/jobs')
+            ? 'jobs'
+            : 'status'
+      const headers = new Headers(options?.headers)
+      headers.set('origin', origin)
+      headers.set('sec-fetch-site', 'same-origin')
+      if (cookie) headers.set('cookie', cookie)
+      const response = await route(
+        new Request(`${origin}${url}`, { ...options, headers }),
+        endpoint,
+        () => runtime,
+      )
+      const issued = response.headers.get('set-cookie')
+      if (issued) cookie = issued.split(';')[0]
+      return response
+    })
+    const signal = new AbortController().signal
+    expect((await lookupSet(design, signal)).coverage).toBe('missing')
+    expect(paths).toEqual(['/api/render-library/lookup'])
+    expect((await submitSet(design, input.idempotencyKey, signal)).job?.id).toBe(jobId)
+    expect(paths.slice(1)).toEqual(['/api/render-library/session', '/api/render-library/jobs'])
+    expect((await readJob(jobId, design, signal)).job?.stage).toBe('queued')
+    // A remount/another observer uses the shared set lookup, not a second create request.
+    expect((await lookupSet(design, signal)).job?.id).toBe(jobId)
+    expect(
+      database.mock.calls.filter(([url]) => String(url).endsWith('/render_library_reserve_set')),
+    ).toHaveLength(1)
+  })
   it('signs strict cookie and CSRF, rejects cross-origin, expired, wrong-session and tampered tokens', () => {
     let now = Date.now()
     const security = new SessionSecurity(origin, key, () => now)

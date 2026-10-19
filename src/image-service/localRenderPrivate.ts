@@ -6,7 +6,10 @@ import type { PreparedCapture } from '../render/prototype/capture/host'
 import type { LocalRenderSampleId } from './localRenderProtocol'
 import { createPreparationHost } from './localRenderPreparation.ts'
 
-export const LOCAL_RENDER_SOURCE_ROOT = '/home/ubuntu/Documents/fury-real'
+export const LOCAL_RENDER_SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(
+  /\/$/,
+  '',
+)
 export const LOCAL_RENDER_HANDOFF = '/home/ubuntu/Documents/fury-real-handoff'
 export const LOCAL_RENDER_CACHE_DIRECTORY = `${LOCAL_RENDER_HANDOFF}/local-real-image-cache`
 export const LOCAL_RENDER_HISTORY_DIRECTORY =
