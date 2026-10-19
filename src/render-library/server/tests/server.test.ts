@@ -31,6 +31,29 @@ import type { AdmissionPolicy } from '../ports'
 
 const origin = 'https://fury.example'
 const key = 'test-only-not-a-real-secret-'.repeat(2)
+it('reports safe request timings without logging authentication or exception contents', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+  try {
+    const response = await route(
+      new Request(`${origin}/api/render-library/lookup`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer sensitive-test-token' },
+      }),
+      'lookup',
+      () => {
+        throw new Error('sensitive-test-token')
+      },
+    )
+    expect(response.status).toBe(503)
+    expect(response.headers.get('Server-Timing')).toMatch(/^render-library;dur=\d+$/)
+    const record = JSON.parse(log.mock.calls[0][0])
+    expect(record).toMatchObject({ event: 'render-library.request', route: 'lookup', status: 503 })
+    expect(record.requestId).toBe(response.headers.get('X-Render-Request-Id'))
+    expect(JSON.stringify(log.mock.calls)).not.toContain('sensitive-test-token')
+  } finally {
+    log.mockRestore()
+  }
+})
 it('keeps partial cached sets readable with admissions disabled and protected seed URLs', async () => {
   const manifestBytes = await readFile('public/native-library/manifest.json')
   const manifest = verifySeedManifest(manifestBytes)

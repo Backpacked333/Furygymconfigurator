@@ -1218,7 +1218,13 @@ async function raceAdmissions(ledger: SqliteLedger, requests: Admission[]) {
       buffer += chunk; let index;
       while ((index=buffer.indexOf('\\n')) >= 0) {
         const message=JSON.parse(buffer.slice(0,index)); buffer=buffer.slice(index+1);
-        if (message.kind==='init') { input=message.input; ledger=new SqliteLedger({...message.options,now:()=>message.now}); process.stdout.write('READY\\n'); }
+        if (message.kind==='init') {
+          input=message.input; ledger=new SqliteLedger({...message.options,now:()=>message.now});
+          // Test serialization, not the production 250ms availability deadline (covered separately).
+          // Allow a contending process to be descheduled on a loaded CI runner without losing the race assertion.
+          ledger.db.exec('PRAGMA busy_timeout=5000');
+          process.stdout.write('READY\\n');
+        }
         else { try { const result=ledger.admit(input); process.stdout.write(JSON.stringify({status:'ok',jobId:result.view.job.id,disposition:result.disposition})+'\\n'); }
           catch(error) {process.stdout.write(JSON.stringify({status:error.status,code:error.code})+'\\n');}
           finally {ledger.close();process.exit(0);} }

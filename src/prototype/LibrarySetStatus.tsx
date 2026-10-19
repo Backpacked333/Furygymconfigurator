@@ -150,7 +150,7 @@ export function LibrarySetStatus({
             </button>
           )}
           {submitting && <span role="status">Requesting…</span>}
-          {!checking && (uncertain || terminal || (!snapshot && !hasImage)) && (
+          {!checking && (library.paused || uncertain || terminal || (!snapshot && !hasImage)) && (
             <button className="text-link" onClick={library.refresh} disabled={submitting}>
               <RefreshCw size={13} aria-hidden="true" /> Check status
             </button>

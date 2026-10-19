@@ -83,11 +83,29 @@ const empty = (signature: string): LibrarySetState => ({
 
 export function useLibrarySet(design: DesignEnvelope) {
   const signature = identityPayload(design, 'set')
+  const currentSignature = useRef(signature)
+  currentSignature.current = signature
   const [state, setState] = useState<LibrarySetState>(() => empty(signature))
   const [refreshCount, refresh] = useState(0)
   const [submitting, setSubmitting] = useState<string | null>(null)
   const active = useRef(0)
   const inFlight = useRef(new Set<string>())
+  useEffect(() => {
+    let lastRefresh = -Infinity
+    const reconnect = () => {
+      if (document.hidden || Date.now() - lastRefresh < 1_000) return
+      lastRefresh = Date.now()
+      refresh((value) => value + 1)
+    }
+    window.addEventListener('online', reconnect)
+    window.addEventListener('focus', reconnect)
+    document.addEventListener('visibilitychange', reconnect)
+    return () => {
+      window.removeEventListener('online', reconnect)
+      window.removeEventListener('focus', reconnect)
+      document.removeEventListener('visibilitychange', reconnect)
+    }
+  }, [])
   useEffect(() => {
     const token = ++active.current
     const controller = new AbortController()
@@ -116,16 +134,31 @@ export function useLibrarySet(design: DesignEnvelope) {
       const pointer = readPointer(identity.setKey)
       let memberJobId = pointer.joined ? pointer.jobId : undefined
       update({ uncertain: !!pointer.uncertain })
-      let snapshot: SetSnapshot
-      if (memberJobId) {
-        try {
-          snapshot = await readJob(memberJobId, requestDesign, controller.signal)
-        } catch {
-          controller.signal.throwIfAborted()
-          memberJobId = undefined
-          snapshot = await lookupSet(requestDesign, controller.signal)
+      const read = async () => {
+        if (memberJobId) {
+          try {
+            return await readJob(memberJobId, requestDesign, controller.signal)
+          } catch {
+            controller.signal.throwIfAborted()
+            memberJobId = undefined
+          }
         }
-      } else snapshot = await lookupSet(requestDesign, controller.signal)
+        return lookupSet(requestDesign, controller.signal)
+      }
+      let snapshot: SetSnapshot
+      for (let failures = 0; ; failures++) {
+        try {
+          snapshot = await read()
+          break
+        } catch (error) {
+          controller.signal.throwIfAborted()
+          if (failures >= 2) throw error
+          update({
+            message: 'Reconnecting to the image library. No new render is being requested.',
+          })
+          await pause(1_000 * 2 ** failures, controller.signal)
+        }
+      }
       const apply = (next: SetSnapshot) => {
         const resolved =
           next.coverage === 'complete' ||
@@ -142,8 +175,8 @@ export function useLibrarySet(design: DesignEnvelope) {
       }
       apply(snapshot)
       let failures = 0
-      for (let attempt = 0; activeJob(snapshot) && attempt < 240; attempt++) {
-        await pause(failures ? Math.min(30_000, 2_000 * 2 ** failures) : 10_000, controller.signal)
+      for (let attempt = 0; activeJob(snapshot) && attempt < 1200; attempt++) {
+        await pause(failures ? Math.min(30_000, 2_000 * 2 ** failures) : 2_000, controller.signal)
         try {
           if (memberJobId === snapshot.job!.id) {
             try {
@@ -242,6 +275,8 @@ export function useLibrarySet(design: DesignEnvelope) {
     } finally {
       inFlight.current.delete(signature)
       setSubmitting((previous) => (previous === signature ? null : previous))
+      if (active.current !== token && currentSignature.current === signature)
+        refresh((value) => value + 1)
     }
   }
   return {

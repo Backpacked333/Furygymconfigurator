@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { serializeDesign, type DesignEnvelope } from '../domain/design'
+import { parseDesign, serializeDesign, type DesignEnvelope } from '../domain/design'
 import type { ImageDescriptor } from '../render-library/contracts'
 import { decodeLibraryImage } from './renderLibraryClient'
 import { useLibrarySet } from './useLibrarySet'
@@ -58,6 +58,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     shown: null,
   })
   useLayoutEffect(() => {
+    const design = parseDesign(JSON.parse(key))
     const token = ++active.current
     const controller = new AbortController()
     let release: (() => void) | undefined
@@ -124,7 +125,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
       controller.abort()
       release?.()
     }
-  }, [design, key, generation, attempt, dynamic?.sha256])
+  }, [key, generation, attempt, dynamic?.sha256])
   const progress: NativeProgress =
     snapshot.generation === generation && selection.key === key
       ? snapshot.progress

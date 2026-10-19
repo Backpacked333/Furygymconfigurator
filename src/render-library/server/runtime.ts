@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { artifactEventSchema, claimRequestSchema, workerEventSchema } from '../workerProtocol.js'
 import {
   createJobRequestSchema,
@@ -44,8 +45,10 @@ export function createRuntime(env: Record<string, string | undefined> = process.
     )
       throw unavailable()
     if (!env.RENDER_LIBRARY_APPROVAL_ID) throw new ServiceError('budget-unavailable', 503)
-    const approved = await repository.policy(env.RENDER_LIBRARY_APPROVAL_ID)
-    const registered = await repository.registration()
+    const [approved, registered] = await Promise.all([
+      repository.policy(env.RENDER_LIBRARY_APPROVAL_ID),
+      repository.registration(),
+    ])
     if (canonicalJson(registered) !== canonicalJson(approved.recipe)) throw unavailable()
     return approved
   }
@@ -87,6 +90,25 @@ export async function route(
   endpoint: Route,
   factory: () => Runtime = createRuntime,
 ) {
+  const requestId = randomUUID()
+  const start = performance.now()
+  const response = await handleRoute(request, endpoint, factory)
+  const elapsedMs = Math.round(performance.now() - start)
+  response.headers.set('X-Render-Request-Id', requestId)
+  response.headers.set('Server-Timing', `render-library;dur=${elapsedMs}`)
+  console.info(
+    JSON.stringify({
+      event: 'render-library.request',
+      requestId,
+      route: endpoint,
+      status: response.status,
+      elapsedMs,
+    }),
+  )
+  return response
+}
+
+async function handleRoute(request: Request, endpoint: Route, factory: () => Runtime) {
   try {
     const expected = ['session', 'status'].includes(endpoint) ? 'GET' : 'POST'
     if (request.method !== expected) throw new ServiceError('invalid-request', 400)

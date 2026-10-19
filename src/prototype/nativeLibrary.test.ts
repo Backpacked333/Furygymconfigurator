@@ -114,6 +114,7 @@ it('rejects corrupt image bytes without constructing a display URL', async () =>
 })
 
 it('decodes a verified image once and reuses its exact cached bytes', async () => {
+  vi.useFakeTimers()
   vi.stubGlobal('crypto', webcrypto)
   const data = webpBytes()
   const valid = { ...entry, imageSha256: await bytesSha256(data) }
@@ -144,5 +145,7 @@ it('decodes a verified image once and reuses its exact cached bytes', async () =
   first.release()
   expect(URL.revokeObjectURL).not.toHaveBeenCalled()
   second.release()
+  await vi.advanceTimersByTimeAsync(60_001)
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:verified-test-image')
+  vi.useRealTimers()
 })

@@ -24,6 +24,7 @@ const create = vi.fn(),
   revoke = vi.fn(),
   decode = vi.fn()
 beforeEach(() => {
+  vi.useFakeTimers()
   vi.stubGlobal('crypto', webcrypto)
   create.mockReset().mockImplementation(() => `blob:verified-${create.mock.calls.length}`)
   revoke.mockReset()
@@ -39,7 +40,11 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(async () => {
+  await vi.advanceTimersByTimeAsync(60_001)
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 it('preserves same-origin preview authentication without forwarding cookies cross-origin', async () => {
   const fetch = vi.fn(async (_url: string, options?: RequestInit) =>
     options?.credentials === 'same-origin'
@@ -110,7 +115,7 @@ it('revokes URLs after an aborted decoder settles, even when the decoder ignores
   await rejected
   expect(revoke).toHaveBeenCalledTimes(1)
 })
-it('bounds decoded images and revokes every remaining URL when consumers unmount', async () => {
+it('bounds decoded images and expires idle URLs without evicting active consumers', async () => {
   const held = []
   try {
     for (let i = 1; i <= 8; i++) {
@@ -125,5 +130,61 @@ it('bounds decoded images and revokes every remaining URL when consumers unmount
   } finally {
     held.forEach((image) => image.release())
   }
+  await vi.advanceTimersByTimeAsync(60_001)
   expect(revoke).toHaveBeenCalledTimes(9)
+})
+
+it('reuses verified decoded bytes when switching away and back', async () => {
+  const fetch = vi.fn().mockImplementation(async () => response())
+  vi.stubGlobal('fetch', fetch)
+  const wanted = await descriptor()
+  const first = await deliverImage(wanted, new AbortController().signal)
+  first.release()
+  const second = await deliverImage(wanted, new AbortController().signal)
+  expect(second.src).toBe(first.src)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(decode).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(60_001)
+  expect(revoke).not.toHaveBeenCalled()
+  second.release()
+  second.release()
+  await vi.advanceTimersByTimeAsync(60_001)
+  expect(revoke).toHaveBeenCalledTimes(1)
+})
+
+it('shares an in-flight thumbnail and hero download without coupling consumer cancellation', async () => {
+  let finish!: (value: Response) => void
+  const fetch = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve
+      }),
+  )
+  vi.stubGlobal('fetch', fetch)
+  const wanted = await descriptor()
+  const controller = new AbortController()
+  const first = deliverImage(wanted, controller.signal)
+  const rejected = expect(first).rejects.toMatchObject({ name: 'AbortError' })
+  const second = deliverImage(wanted, new AbortController().signal)
+  controller.abort()
+  await rejected
+  finish(response())
+  const image = await second
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(decode).toHaveBeenCalledTimes(1)
+  image.release()
+})
+
+it('evicts the least recently used idle image before rejecting a new view', async () => {
+  const held = []
+  for (let i = 1; i <= 8; i++) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(bytes(i))))
+    held.push(await deliverImage(await descriptor(bytes(i)), new AbortController().signal))
+  }
+  held[0].release()
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(bytes(9))))
+  const next = await deliverImage(await descriptor(bytes(9)), new AbortController().signal)
+  expect(revoke).toHaveBeenCalledWith(held[0].src)
+  held.forEach((image) => image.release())
+  next.release()
 })

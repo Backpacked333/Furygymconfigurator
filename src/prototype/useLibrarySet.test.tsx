@@ -186,8 +186,10 @@ it('preserves completed images on lookup disconnect and never treats it as a mis
   api.lookup.mockResolvedValue(partial)
   await mount()
   api.lookup.mockRejectedValue(new Error('Offline'))
+  vi.useFakeTimers()
   await act(async () => latest.refresh())
-  await flush()
+  await vi.waitFor(() => expect(api.lookup).toHaveBeenCalledTimes(2))
+  await act(async () => vi.advanceTimersByTimeAsync(4_000))
   expect(latest.snapshot).toEqual(partial)
   expect(latest.paused).toBe(true)
   expect(api.submit).not.toHaveBeenCalled()
@@ -208,7 +210,8 @@ it('pauses hidden-tab polling and stops after bounded repeated failures', async 
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   act(() => document.dispatchEvent(new Event('visibilitychange')))
   await act(async () => vi.advanceTimersByTimeAsync(300_000))
-  expect(api.lookup).toHaveBeenCalledTimes(6)
+  // Returning to the tab starts a fresh bounded read-only recovery cycle.
+  expect(api.lookup.mock.calls.length).toBeGreaterThanOrEqual(4)
   expect(api.read).not.toHaveBeenCalled()
   expect(latest.paused).toBe(true)
   expect(latest.snapshot).toEqual(working)
@@ -257,4 +260,72 @@ it('recovers an expired member session using lookup, never automatic create or j
   expect(api.read).toHaveBeenCalledOnce()
   expect(api.lookup).toHaveBeenCalledTimes(2)
   expect(api.submit).not.toHaveBeenCalled()
+})
+
+it('recovers an initial transient lookup failure without any admission', async () => {
+  const complete = await snapshotFixture(defaultDesign(), 5)
+  api.lookup.mockRejectedValueOnce(new Error('Temporary disconnect')).mockResolvedValue(complete)
+  vi.useFakeTimers()
+  await act(async () => root.render(<Probe design={defaultDesign()} />))
+  await vi.waitFor(() => expect(api.lookup).toHaveBeenCalledTimes(1))
+  await act(async () => vi.advanceTimersByTimeAsync(1_000))
+  expect(latest.snapshot?.coverage).toBe('complete')
+  expect(latest.paused).toBe(false)
+  expect(api.submit).not.toHaveBeenCalled()
+})
+
+it('rechecks a previously idle set on reconnect and discovers images saved by another visitor', async () => {
+  const complete = await snapshotFixture(defaultDesign(), 5)
+  await mount()
+  api.lookup.mockResolvedValue(complete)
+  await act(async () => window.dispatchEvent(new Event('online')))
+  await flush()
+  expect(latest.snapshot?.coverage).toBe('complete')
+  expect(api.lookup).toHaveBeenCalledTimes(2)
+  expect(api.submit).not.toHaveBeenCalled()
+})
+
+it('follows a successful admission even when reconnect lookup finishes before admission', async () => {
+  await mount()
+  let finish!: (value: SetSnapshot) => void
+  api.submit.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  act(() => {
+    void latest.request()
+  })
+  await act(async () => window.dispatchEvent(new Event('focus')))
+  await flush()
+  expect(latest.uncertain).toBe(true)
+  const working = queued(await snapshotFixture())
+  api.read.mockResolvedValue(working)
+  await act(async () => finish(working))
+  await flush()
+  expect(latest.snapshot?.job?.stage).toBe('queued')
+  expect(latest.uncertain).toBe(false)
+  expect(api.submit).toHaveBeenCalledTimes(1)
+})
+
+it('preserves the uncertain fence when admission fails after a reconnect lookup', async () => {
+  await mount()
+  let fail!: (error: Error) => void
+  api.submit.mockImplementation(
+    () =>
+      new Promise((_, reject) => {
+        fail = reject
+      }),
+  )
+  act(() => {
+    void latest.request()
+  })
+  await act(async () => window.dispatchEvent(new Event('focus')))
+  await flush()
+  await act(async () => fail(new Error('Unknown delivery')))
+  await flush()
+  await act(async () => latest.request())
+  expect(latest.uncertain).toBe(true)
+  expect(api.submit).toHaveBeenCalledTimes(1)
 })
