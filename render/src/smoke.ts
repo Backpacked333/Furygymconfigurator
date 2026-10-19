@@ -138,7 +138,9 @@ try {
   }
   {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
-    const errors = await open(page, `${live.url}/`)
+    // Lite: a GPU-less runner draws in software, where the heavier tiers take seconds per
+    // frame. This checks that the live fallback and the 360 view work, not how fast they draw.
+    const errors = await open(page, `${live.url}/?quality=lite`)
     await page.waitForSelector('.scene-layer canvas', { timeout: 60_000 })
     check(true, 'without published stills, the live view draws the still')
     // Software rendering keeps the page busy; the click lands, so don't wait on the page after it.
