@@ -495,7 +495,8 @@ function StudioFloor() {
 
 export function Landscape({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
-  const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
+  // Until their own scenes exist, the rooftop borrows the dry garden and the backyard the courtyard.
+  const biome: Biome = c.environment === 'rooftop' ? 'desert' : 'courtyard'
   const studio = c.environment === 'studio'
   const density = DENSITY[quality]
   const groundSet: TextureSet = biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'

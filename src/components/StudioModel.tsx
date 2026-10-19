@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, SRGBColorSpace } from 'three'
-import type { Config } from '../lib/config'
+import { configItems, type Config } from '../lib/config'
 import {
   containerInterior,
   containerShell,
@@ -109,6 +109,7 @@ export function StudioModel({
   const roofParts = useParts(roofDeck, c, `${size}|${a.stairs}`)
   const stairParts = useParts(stairs, c, shellKey)
   const accentParts = useParts(timberAccent, c, size)
+  const items = configItems(c)
   return (
     <group>
       <Parts parts={shell} />
@@ -122,10 +123,10 @@ export function StudioModel({
       {studio && a.gazebo && <Parts parts={pergolaParts} />}
       {studio && a.roof && <Parts parts={roofParts} />}
       {studio && a.stairs && <Parts parts={stairParts} />}
-      {c.items.map((item) => (
+      {items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}
-      <SaunaLights items={c.items} />
+      <SaunaLights items={items} />
     </group>
   )
 }

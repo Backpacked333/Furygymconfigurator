@@ -51,8 +51,8 @@ describe('on-demand scene redraw', () => {
     expect(invalidate).toHaveBeenCalledTimes(1)
   })
 
-  it('redraws after all equipment is removed', () => {
-    props.config = { ...props.config, items: [] }
+  it('redraws after the equipment package changes', () => {
+    props.config = { ...props.config, package: 'empty' }
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).toHaveBeenCalledTimes(1)
   })
@@ -98,7 +98,7 @@ describe('on-demand scene redraw', () => {
   })
 
   it('redraws shadow maps whenever the scene changes', () => {
-    props.config = { ...props.config, time: 9 }
+    props.config = { ...props.config, lighting: 'night' }
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidateShadows).toHaveBeenCalledTimes(1)
     expect(invalidateShadows).toHaveBeenCalledWith(scene)

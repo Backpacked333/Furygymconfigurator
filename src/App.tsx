@@ -49,7 +49,8 @@ import {
   productName,
   productHeight,
   setFamily,
-  packageItems,
+  configItems,
+  ENVIRONMENTS,
   type Config,
   type Unit,
   type View,
@@ -167,17 +168,13 @@ export default function App() {
         flooring: 'oak',
         mirror: false,
         package: 'recovery',
-        items: packageItems('recovery', 20),
         addons: { deck: true, gazebo: true, roof: false, stairs: false },
-        time: 18,
       },
       flow: {
         ...DEFAULT_CONFIG,
         finish: 'olive',
         flooring: 'oak',
         package: 'movement',
-        items: packageItems('movement', 20),
-        time: 9,
       },
     }
     setConfig(setFamily(templates[id], config.family))
@@ -273,9 +270,7 @@ export default function App() {
               </Suspense>
             </SceneLoadBoundary>
           </div>
-          {view === 'plan' && (
-            <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
-          )}
+          {view === 'plan' && <FloorPlan config={config} unit={unit} />}
           <div className="stage-heading">
             <span className="eyebrow">
               <span className="small-line" />{' '}
@@ -402,11 +397,7 @@ export default function App() {
               </div>
               <button className="environment-quick" onClick={() => setStep(3)}>
                 <Leaf size={14} />
-                {config.environment === 'courtyard'
-                  ? 'The courtyard'
-                  : config.environment === 'desert'
-                    ? 'Desert retreat'
-                    : 'Studio backdrop'}
+                {ENVIRONMENTS.find((e) => e.id === config.environment)!.name}
                 <ChevronDown size={13} />
               </button>
             </div>
@@ -459,7 +450,7 @@ export default function App() {
             <strong>Your {productName(config)}</strong>
             <span>
               {distance(config.length, unit)} × {distance(8, unit)} · {finish.name} ·{' '}
-              {config.items.length} equipment items
+              {configItems(config).length} equipment items
             </span>
           </div>
         </div>
@@ -525,8 +516,8 @@ export default function App() {
               <span>02</span>
               <strong>Find your ritual</strong>
               <p>
-                Start from an interior package. Drag items in the floor plan, use arrow keys to move
-                them, R to rotate, or Delete to remove.
+                Choose an interior planning package, flooring, and a mirror wall, then check how it
+                fits in the floor plan.
               </p>
             </div>
             <div>
@@ -549,8 +540,7 @@ export default function App() {
           </div>
           <p className="muted small">
             Camera: drag / pinch / scroll, or focus the scene and use arrow keys and +/−. Undo:
-            Ctrl/Cmd+Z. Redo: Ctrl/Cmd+Shift+Z. Floor plan: arrow keys move 3 inches; Shift moves 1
-            foot.
+            Ctrl/Cmd+Z. Redo: Ctrl/Cmd+Shift+Z.
           </p>
           <button
             className="secondary full"

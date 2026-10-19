@@ -15,6 +15,7 @@ import {
   FINISHES,
   FLOORS,
   area,
+  configItems,
   distance,
   estimate,
   money,
@@ -116,7 +117,7 @@ export function ShareDialog({
         <span>
           {productName(config)}
           <small>
-            {config.items.length} interior items ·{' '}
+            {configItems(config).length} interior items ·{' '}
             {FINISHES.find((f) => f.id === config.finish)!.name}
           </small>
         </span>
@@ -419,7 +420,7 @@ export function LibraryDialog({
                         .join(', ') || 'None',
                   ],
                   ['Floor', (c: Config) => FLOORS.find((f) => f.id === c.flooring)!.name],
-                  ['Equipment', (c: Config) => `${c.items.length} pieces / ${c.package}`],
+                  ['Equipment', (c: Config) => `${configItems(c).length} pieces / ${c.package}`],
                   [
                     'Opening',
                     (c: Config) =>

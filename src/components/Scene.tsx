@@ -5,6 +5,7 @@ import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import type { WebGPURenderer } from 'three/webgpu'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
+import { effectiveLights } from '../lib/lighting'
 import { StudioModel } from './StudioModel'
 import { Landscape } from './Landscape'
 import { RenderEffects } from './RenderEffects'
@@ -282,6 +283,9 @@ export default memo(function Scene({
   onBackend?: (backend: Backend) => void
   onSlow?: () => void
 }) {
+  // The scene draws the lights as they are seen: always on by day, by choice after dark.
+  const lights = effectiveLights(config)
+  config = useMemo(() => ({ ...config, lights }), [config, lights])
   // A lost GPU device (driver reset, GPU process crash, the OS reclaiming memory) would leave a
   // frozen canvas. Rebuild the renderer instead, a few times per session at most.
   const [generation, setGeneration] = useState(0)

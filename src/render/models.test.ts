@@ -109,7 +109,7 @@ describe('part lists ignore inputs outside their cache keys', () => {
     { finish: 'bronze' },
     { lights: false },
     { mirror: true },
-    { environment: 'desert', time: 9 },
+    { environment: 'rooftop', lighting: 'night' },
     { accent: true },
     { addons: { deck: true, gazebo: true, roof: true, stairs: false } },
     { integratedFinish: true },

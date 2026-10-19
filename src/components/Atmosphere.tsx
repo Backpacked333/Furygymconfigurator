@@ -27,7 +27,11 @@ import {
 } from 'three/tsl'
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js'
 import type { Config, View } from '../lib/config'
+import { sceneTime } from '../lib/lighting'
 import {
+  CLOUDS,
+  GROUND_ALBEDO,
+  NIGHT_SKY,
   SKY_PRESETS,
   horizonRadiance,
   nightAt,
@@ -52,20 +56,18 @@ const SKY_SCALE = 0.13
  */
 const SKY_FILL = 0.12
 const SUN_INTENSITY = 4.2
-const CLOUDS = { courtyard: 0.32, desert: 0.12, studio: 0 }
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
 const INTERIOR_EXPOSURE = 1.6
 
 type Environment = Config['environment']
 
-/** Airglow and scattered starlight keep a moonless sky deep blue rather than black. */
-const NIGHT_SKY: Vec3 = [0.0022, 0.0034, 0.0078]
-
 function configureSky(sky: Sky, environment: Environment, sun: Vec3, night: number) {
   const preset = SKY_PRESETS[environment]
   const horizon = horizonRadiance(sun, preset)
   sky.fill.value.setRGB(
-    ...(horizon.map((v, i) => v * SKY_SCALE * SKY_FILL + NIGHT_SKY[i] * night) as Vec3),
+    ...(horizon.map(
+      (v, i) => v * SKY_SCALE * SKY_FILL + NIGHT_SKY[environment][i] * night,
+    ) as Vec3),
   )
   sky.turbidity.value = preset.turbidity
   sky.rayleigh.value = preset.rayleigh
@@ -132,7 +134,8 @@ export function Atmosphere({
 }) {
   const { gl, scene, invalidate } = useThree()
   const renderer = gl as unknown as WebGPURenderer
-  const { environment, time } = config
+  const { environment } = config
+  const time = sceneTime(config)
   const studio = environment === 'studio'
 
   const background = useMemo(() => createSky(true), [])
@@ -176,10 +179,10 @@ export function Atmosphere({
     configureSky(background, environment, sun, night)
     configureSky(capture.sky, environment, sun, night)
     foliageDaylight.value = Math.min(1, sunlight.intensity / 0.6)
-    const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
+    const groundAlbedo = GROUND_ALBEDO[environment]
     const horizonFill = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL)
     const sky = skyRadiance([0, 1, 0], sun, preset).map(
-      (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[i] * night,
+      (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[environment][i] * night,
     )
     const direct = (SUN_INTENSITY * sunlight.intensity * Math.max(0, sun[1])) / Math.PI
     ;(capture.ground.material as MeshBasicMaterial).color.setRGB(
@@ -238,8 +241,9 @@ export function Atmosphere({
 
 function SunLight({ config, quality }: { config: Config; quality: Quality }) {
   const preset = SKY_PRESETS[config.environment]
-  const sunlight = sunlightAt(config.time, preset)
-  const night = nightAt(config.time)
+  const time = sceneTime(config)
+  const sunlight = sunlightAt(time, preset)
+  const night = nightAt(time)
   const extent = config.length / 2 + 14
   const distance = 80
   const [x, y, z] = sunlight.direction

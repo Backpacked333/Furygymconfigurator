@@ -3,6 +3,7 @@ import {
   FINISHES,
   FLOORS,
   catalogItem,
+  configItems,
   estimate,
   money,
   productName,
@@ -166,7 +167,7 @@ export async function createBrief(
     1.7 * scale,
     'F',
   )
-  for (const item of config.items) {
+  for (const item of configItems(config)) {
     const p = catalogItem(item.sku),
       w = item.rotation === 0 ? p.w : p.d,
       d = item.rotation === 0 ? p.d : p.w
@@ -182,7 +183,7 @@ export async function createBrief(
     `${config.length} ft x 8 ft external footprint of one unit. Shaded zone: planned entry. Equipment positions:`,
     10,
   )
-  for (const item of config.items)
+  for (const item of configItems(config))
     text(
       `${catalogItem(item.sku).name}: x ${item.x} ft, z ${item.z} ft, rotation ${item.rotation} degrees.`,
       9,

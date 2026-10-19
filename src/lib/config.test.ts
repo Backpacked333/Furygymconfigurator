@@ -5,7 +5,8 @@ import {
   CATALOG,
   DEFAULT_CONFIG,
   PACKAGES,
-  addEquipment,
+  configItems,
+  hadCustomLayout,
   configSchema,
   decodeConfig,
   encodeConfig,
@@ -53,25 +54,24 @@ describe('configuration and packages', () => {
   for (const length of [20, 40] as const)
     for (const pack of PACKAGES)
       it(`${length}-foot ${pack.id} preset fits, with unique IDs and a clear entry`, () => {
-        const config = {
-          ...fresh(),
-          length,
-          package: pack.id,
-          items: packageItems(pack.id, length),
-        }
+        const config = { ...fresh(), length, package: pack.id }
         expect(configSchema.safeParse(config).success).toBe(true)
+        expect(new Set(configItems(config).map((i) => i.id)).size).toBe(configItems(config).length)
         expect(layoutIssues(config)).toEqual([])
         expect(decodeConfig(encodeConfig(config))).toEqual(config)
       })
-  it('rejects repeated item IDs, unknown equipment, and unsupported schema versions', () => {
+  it('rejects custom packages, unknown surroundings, and unsupported schema versions', () => {
     const config = fresh()
-    expect(
-      configSchema.safeParse({ ...config, items: [config.items[0], config.items[0]] }).success,
-    ).toBe(false)
-    expect(
-      decodeConfig(encoded({ ...config, items: [{ ...config.items[0], sku: 'invented' }] })),
-    ).toBe(null)
-    expect(decodeConfig(encoded({ ...config, v: 3 }))).toBe(null)
+    expect(configSchema.safeParse({ ...config, package: 'custom' }).success).toBe(false)
+    expect(configSchema.safeParse({ ...config, environment: 'desert' }).success).toBe(false)
+    expect(configSchema.safeParse({ ...config, lighting: 'dusk' }).success).toBe(false)
+    expect(decodeConfig(encoded({ ...config, v: 4 }))).toBe(null)
+  })
+  it('derives equipment from the package, the same array for the same inputs', () => {
+    expect(configItems(fresh())).toEqual(packageItems('strength', 20))
+    const chalk: Config = { ...fresh(), finish: 'chalk' }
+    expect(configItems(fresh())).toBe(configItems(chalk))
+    expect(configItems({ ...fresh(), package: 'empty' })).toEqual([])
   })
   it('rejects cross-family options at the sharing boundary', () => {
     expect(
@@ -86,10 +86,6 @@ describe('configuration and packages', () => {
     expect(
       decodeConfig(encoded({ ...fresh(), family: 'container', studioLayout: 'stacked' })),
     ).toBe(null)
-  })
-  it('detects a layout that cannot be downsized safely', () => {
-    const c = { ...fresh(), items: packageItems('strength', 40) }
-    expect(layoutIssues(c).length).toBeGreaterThan(0)
   })
 })
 describe('independent published add-on transitions', () => {
@@ -115,7 +111,7 @@ describe('independent published add-on transitions', () => {
       noRoof = setAddon(c, 'roof').config
     expect(noDeck.addons.gazebo).toBe(true)
     expect(noRoof.addons.stairs).toBe(true)
-    expect(noDeck.items).toEqual(c.items)
+    expect(noDeck.package).toBe(c.package)
     expect(noRoof.finish).toBe('bronze')
   })
   for (const a of ADDONS)
@@ -128,42 +124,25 @@ describe('independent published add-on transitions', () => {
 describe('placement rules', () => {
   it('rejects wall intersections and entry obstruction', () => {
     const c = fresh(),
-      item = c.items[1]
+      item = configItems(c)[1]
     expect(placementIssue({ ...item, x: 12 }, c)).toContain('usable floor')
     expect(placementIssue({ ...item, x: 0, z: 1 }, c)).toContain('entry')
   })
   it('rejects overlap but not an unchanged position', () => {
     const c = fresh(),
-      item = c.items[1]
+      item = configItems(c)[1]
     expect(placementIssue(item, c)).toBe(null)
     expect(placementIssue({ ...item, x: -5, z: -0.8 }, c)).toContain('overlaps')
   })
   it('rotates the collision footprint', () => {
-    const item = fresh().items[1]
+    const item = configItems(fresh())[1]
     expect(footprint(item)).toEqual({ w: 1.9, d: 4.3 })
     expect(footprint({ ...item, rotation: 90 })).toEqual({ w: 4.3, d: 1.9 })
   })
-  for (const product of CATALOG)
-    it(`finds a valid location for ${product.id}`, () => {
-      const c = addEquipment({ ...fresh(), items: [], package: 'empty' }, product.id)
-      expect(c).not.toBe(null)
-      expect(layoutIssues(c!)).toEqual([])
-      expect(c!.package).toBe('custom')
-    })
-  it('never overfills the room', () => {
-    let c: Config = { ...fresh(), items: [] }
-    for (let i = 0; i < 20; i++) {
-      const next = addEquipment(c, 'sauna')
-      if (!next) break
-      c = next
-    }
-    expect(addEquipment(c, 'sauna')).toBe(null)
-    expect(layoutIssues(c)).toEqual([])
-  })
-  it('rejects invalid layouts supplied through a link', () => {
-    const c = fresh()
-    c.items[0].x = 19
-    expect(decodeConfig(encoded(c))).toBe(null)
+  it('only uses equipment from the catalog', () => {
+    for (const pack of PACKAGES)
+      for (const item of packageItems(pack.id, 40))
+        expect(CATALOG.some((p) => p.id === item.sku)).toBe(true)
   })
 })
 describe('published pricing boundaries', () => {
@@ -210,7 +189,6 @@ describe('product families', () => {
             length,
             containerOpening: opening.id,
             package: pack.id,
-            items: packageItems(pack.id, length),
           }
           expect(layoutIssues(config)).toEqual([])
         })
@@ -233,7 +211,7 @@ describe('product families', () => {
     expect(Object.values(container.addons).some(Boolean)).toBe(false)
     expect(container.accent).toBe(false)
     expect(container.studioLayout).toBe('single')
-    expect(container.items).toEqual(original.items)
+    expect(container.package).toBe(original.package)
     expect(container.finish).toBe(original.finish)
     expect(original.addons.deck).toBe(true)
     const studio = setFamily(
@@ -272,8 +250,12 @@ describe('product families', () => {
       expect(estimate(config).total).toBeNull()
     })
   it('protects the selected partial opening entry rather than a closed wall', () => {
-    const c: Config = { ...setFamily(fresh(), 'container'), containerOpening: 'partial', items: [] }
-    const item = { ...fresh().items[1], x: -5, z: 1.2 }
+    const c: Config = {
+      ...setFamily(fresh(), 'container'),
+      containerOpening: 'partial',
+      package: 'empty',
+    }
+    const item = { ...configItems(fresh())[1], x: -5, z: 1.2 }
     expect(placementIssue(item, c)).toContain('entry')
     expect(placementIssue({ ...item, x: 0 }, c)).toBe(null)
   })
@@ -289,12 +271,48 @@ describe('product families', () => {
   })
 })
 describe('sharing and browser persistence', () => {
+  /** A configuration as version 2 stored it: hand-placeable items and a time of day. */
+  const v2 = (overrides: Record<string, unknown> = {}): Record<string, unknown> => {
+    const value: Record<string, unknown> = {
+      ...fresh(),
+      v: 2,
+      items: packageItems('strength', 20),
+      time: 16.5,
+      ...overrides,
+    }
+    delete value.lighting
+    return value
+  }
   const legacy = () => {
-    const value: Record<string, unknown> = { ...fresh(), v: 1 }
+    const value: Record<string, unknown> = { ...v2(), v: 1 }
     for (const key of ['family', 'studioLayout', 'containerOpening', 'integratedFinish'])
       delete value[key]
     return value
   }
+  it('migrates version 2 surroundings, time of day, and package layouts', () => {
+    expect(decodeConfig(encoded(v2()))).toEqual(fresh())
+    expect(decodeConfig(encoded(v2({ environment: 'desert' })))?.environment).toBe('rooftop')
+    expect(decodeConfig(encoded(v2({ time: 21 })))?.lighting).toBe('night')
+    expect(decodeConfig(encoded(v2({ time: 18 })))?.lighting).toBe('day')
+    expect(decodeConfig(encoded(v2({ time: 6 })))?.lighting).toBe('day')
+    expect(hadCustomLayout(v2())).toBe(false)
+  })
+  it('replaces a hand-arranged layout with the closest package and says so', () => {
+    const custom = v2({
+      package: 'custom',
+      items: [
+        { id: 'a', sku: 'sauna', x: -5, z: -0.9, rotation: 0 },
+        { id: 'b', sku: 'plunge', x: 3, z: -1, rotation: 90 },
+      ],
+    })
+    expect(decodeConfig(encoded(custom))?.package).toBe('recovery')
+    expect(hadCustomLayout(custom)).toBe(true)
+    const moved = v2({ items: [{ ...packageItems('strength', 20)[0], x: -4 }] })
+    expect(decodeConfig(encoded(moved))?.package).toBe('strength')
+    expect(hadCustomLayout(moved)).toBe(true)
+    window.location.hash = `#c=${encoded(custom)}`
+    expect(initialConfig().notice).toContain('closest package')
+  })
   it('migrates version 1 links, drafts, and saved builds as Studios without losing choices', () => {
     const old = {
       ...legacy(),
@@ -313,9 +331,7 @@ describe('sharing and browser persistence', () => {
   })
   it('still validates legacy payloads instead of trusting the migration', () => {
     expect(decodeConfig(encoded({ ...legacy(), length: 50 }))).toBeNull()
-    expect(
-      decodeConfig(encoded({ ...legacy(), items: [{ ...fresh().items[0], x: 100 }] })),
-    ).toBeNull()
+    expect(decodeConfig(encoded({ ...legacy(), environment: 'moon' }))).toBeNull()
   })
   it('saves and reloads different families with their configuration requests', () => {
     const builds = [
@@ -351,7 +367,7 @@ describe('sharing and browser persistence', () => {
     'broken',
     'A'.repeat(12001),
     encoded({}),
-    encoded({ ...DEFAULT_CONFIG, time: 100 }),
+    encoded({ ...DEFAULT_CONFIG, lighting: 'noon' }),
   ])('safely rejects malformed share input', (input) => {
     expect(decodeConfig(input)).toBe(null)
   })
@@ -468,7 +484,7 @@ describe('PDF brief', () => {
     expect(pdf).toContain('NOT FOR CONSTRUCTION')
   })
   it('paginates multiline notes without losing later sections', async () => {
-    const c = { ...fresh(), length: 40 as const, items: packageItems('strength', 40) }
+    const c = { ...fresh(), length: 40 as const }
     const doc = await createBrief(c, null, {
       name: 'A'.repeat(60),
       notes: 'Check this detail.\n'.repeat(100),

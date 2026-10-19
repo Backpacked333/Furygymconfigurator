@@ -43,10 +43,41 @@ export type SkyParams = {
   mieDirectionalG: number
 }
 
-export const SKY_PRESETS: Record<'courtyard' | 'desert' | 'studio', SkyParams> = {
+export type SceneEnvironment = 'courtyard' | 'backyard' | 'rooftop' | 'studio'
+
+export const SKY_PRESETS: Record<SceneEnvironment, SkyParams> = {
   courtyard: { turbidity: 2.4, rayleigh: 1.1, mieCoefficient: 0.004, mieDirectionalG: 0.82 },
-  desert: { turbidity: 4.2, rayleigh: 0.85, mieCoefficient: 0.006, mieDirectionalG: 0.86 },
+  backyard: { turbidity: 2.8, rayleigh: 1.05, mieCoefficient: 0.0045, mieDirectionalG: 0.82 },
+  // Urban haze: more aerosol, a whiter horizon, and a brighter halo around the sun.
+  rooftop: { turbidity: 3.8, rayleigh: 0.95, mieCoefficient: 0.007, mieDirectionalG: 0.85 },
   studio: { turbidity: 2, rayleigh: 1, mieCoefficient: 0.004, mieDirectionalG: 0.8 },
+}
+
+/** Cloud cover of each sky. */
+export const CLOUDS: Record<SceneEnvironment, number> = {
+  courtyard: 0.32,
+  backyard: 0.38,
+  rooftop: 0.22,
+  studio: 0,
+}
+
+/** Average albedo of the ground around the site, for the light it bounces into the scene. */
+export const GROUND_ALBEDO: Record<SceneEnvironment, Vec3> = {
+  courtyard: [0.2, 0.23, 0.15],
+  backyard: [0.19, 0.24, 0.14],
+  rooftop: [0.3, 0.29, 0.27],
+  studio: [0.2, 0.23, 0.15],
+}
+
+/**
+ * Airglow and scattered starlight keep a moonless sky deep blue rather than black; over a city,
+ * sodium and LED light scattered by the haze tints it warmer and brighter.
+ */
+export const NIGHT_SKY: Record<SceneEnvironment, Vec3> = {
+  courtyard: [0.0022, 0.0034, 0.0078],
+  backyard: [0.0022, 0.0034, 0.0078],
+  rooftop: [0.0062, 0.0047, 0.0068],
+  studio: [0.0022, 0.0034, 0.0078],
 }
 
 // Constants of three's SkyMesh (Preetham analytic daylight), mirrored so CPU-side fog, sun color,
