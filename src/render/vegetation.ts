@@ -27,7 +27,7 @@ import {
 } from 'three/tsl'
 import { noise } from '../lib/visuals'
 
-export type Biome = 'courtyard' | 'desert'
+export type Biome = 'courtyard' | 'backyard' | 'rooftop'
 
 /** Sunlight available for leaf translucency (0 at night, 1 in full sun); set by the atmosphere. */
 export const foliageDaylight = uniform(1)
@@ -41,12 +41,22 @@ const PALETTES: Record<Biome, { leaves: string[]; grass: [string, string][] }> =
       ['#3f5129', '#8f9a5c'],
     ],
   },
-  desert: {
+  // Maples and lawn borders: deeper, cooler greens with the odd warm leaf.
+  backyard: {
+    leaves: ['#3f5f2a', '#4c6e30', '#5e7f39', '#365224', '#6d8a3f', '#8a7a3a'],
+    grass: [
+      ['#43562b', '#9fae68'],
+      ['#4f6534', '#b1b876'],
+      ['#3a4d26', '#8a9a58'],
+    ],
+  },
+  // Planter olives and ornamental grasses that suit a windy, sunny roof.
+  rooftop: {
     leaves: ['#7d8a62', '#8e9a72', '#6c7a55', '#9aa47e', '#a6ad88'],
     grass: [
-      ['#7a6c4c', '#d2c294'],
-      ['#6d6a4a', '#c4b98a'],
-      ['#857455', '#dccaa0'],
+      ['#6f6a47', '#d1c48f'],
+      ['#66694a', '#c3bb88'],
+      ['#7a6f4f', '#dacb9c'],
     ],
   },
 }
@@ -62,15 +72,15 @@ function leafAtlas(biome: Biome) {
   const ctx = canvas.getContext('2d')
   const colors = PALETTES[biome].leaves
   if (ctx) {
-    const count = biome === 'desert' ? 70 : 42
+    const count = biome === 'rooftop' ? 70 : 42
     for (let i = 0; i < count; i++) {
       // Leaves cluster toward the card center so card edges never read as squares.
       const a = noise(i, 61) * Math.PI * 2
       const r = Math.sqrt(noise(i, 62)) * size * 0.36
       const x = size / 2 + Math.cos(a) * r
       const y = size / 2 + Math.sin(a) * r
-      const length = biome === 'desert' ? 70 + noise(i, 63) * 40 : 96 + noise(i, 63) * 60
-      const width = length * (biome === 'desert' ? 0.26 : 0.46)
+      const length = biome === 'rooftop' ? 70 + noise(i, 63) * 40 : 96 + noise(i, 63) * 60
+      const width = length * (biome === 'rooftop' ? 0.26 : 0.46)
       const angle = noise(i, 64) * Math.PI * 2
       ctx.save()
       ctx.translate(x, y)
@@ -143,7 +153,7 @@ export type TreeShape = {
   crownHeight: number
 }
 
-/** A deterministic broadleaf (or, in the desert, sparse olive-like) tree in local feet. */
+/** A deterministic broadleaf (or, on the rooftop, sparse olive-like) tree in local feet. */
 export function treeShape(seed: number, biome: Biome, leafCount: number): TreeShape {
   const limbs: TreeShape['limbs'] = []
   const rand = (i: number) => noise(seed * 97 + i, 71)
@@ -152,7 +162,7 @@ export function treeShape(seed: number, biome: Biome, leafCount: number): TreeSh
   limbs.push({ from: new Vector3(0, -0.2, 0), to: mid, r0: 0.3, r1: 0.22 })
   limbs.push({ from: mid, to: trunkTop, r0: 0.22, r1: 0.16 })
   const clusters: { center: Vector3; radius: number }[] = []
-  const branches = biome === 'desert' ? 6 : 8
+  const branches = biome === 'rooftop' ? 6 : 8
   for (let i = 0; i < branches; i++) {
     const a = (i / branches) * Math.PI * 2 + rand(10 + i) * 0.6
     const lift = 0.45 + rand(20 + i) * 0.5
@@ -182,7 +192,7 @@ export function treeShape(seed: number, biome: Biome, leafCount: number): TreeSh
     p.set(Math.cos(phi) * sinT * r, u * r * 0.75, Math.sin(phi) * sinT * r).add(cluster.center)
     e.set(noise(i, 84) * Math.PI, noise(i, 85) * Math.PI * 2, noise(i, 86) * Math.PI)
     q.setFromAxisAngle(e.clone().normalize(), e.length())
-    const scale = (biome === 'desert' ? 0.75 : 0.95) + noise(i, 87) * 0.45
+    const scale = (biome === 'rooftop' ? 0.75 : 0.95) + noise(i, 87) * 0.45
     s.setScalar(scale)
     leaves.push(new Matrix4().compose(p, q, s))
   }

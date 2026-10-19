@@ -1183,10 +1183,15 @@ h3 {
   background: #3d4d31;
   color: #d9e6c7;
 }
-.environment-card.desert {
-  background: #534b36;
-  color: #e1d5b8;
-  border-color: #706548;
+.environment-card.backyard {
+  background: #344a2c;
+  color: #d4e4c4;
+  border-color: #5c7449;
+}
+.environment-card.rooftop {
+  background: #3e4247;
+  color: #d6dae0;
+  border-color: #646b74;
 }
 .environment-card.studio {
   background: #3a4037;
