@@ -147,10 +147,10 @@ export type PlacedItem = {
   rotation: 0 | 90
 }
 export const ENVIRONMENTS = [
-  { id: 'courtyard', name: 'The courtyard' },
-  { id: 'backyard', name: 'Suburban backyard' },
-  { id: 'rooftop', name: 'Urban rooftop' },
-  { id: 'studio', name: 'Studio backdrop' },
+  { id: 'courtyard', name: 'The courtyard', short: 'Courtyard' },
+  { id: 'backyard', name: 'Suburban backyard', short: 'Backyard' },
+  { id: 'rooftop', name: 'Urban rooftop', short: 'Rooftop' },
+  { id: 'studio', name: 'Studio backdrop', short: 'Studio' },
 ] as const
 export const LIGHTINGS = ['day', 'night'] as const
 const currentConfigSchema = z

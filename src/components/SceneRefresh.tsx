@@ -8,6 +8,7 @@ export function SceneRefresh({
   active,
   config,
   view,
+  interactive = false,
   dimensions,
   unit,
   quality,
@@ -16,6 +17,7 @@ export function SceneRefresh({
   active: boolean
   config: Config
   view: View
+  interactive?: boolean
   dimensions: boolean
   unit: Unit
   quality: Quality
@@ -28,6 +30,6 @@ export function SceneRefresh({
   useEffect(() => {
     invalidateShadows(scene)
     invalidate()
-  }, [active, config, view, dimensions, unit, quality, autoRotate, scene, invalidate])
+  }, [active, config, view, interactive, dimensions, unit, quality, autoRotate, scene, invalidate])
   return null
 }

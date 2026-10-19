@@ -144,3 +144,14 @@ export function stillPose(c: FramingConfig, angle: AngleId, aspect = STILL_ASPEC
     ? interiorFraming(c, angle as InteriorAngle)
     : exteriorFraming(c, preset.fov, aspect, preset.direction!, true)
 }
+
+/**
+ * Vertical field of view that shows exactly the part of a 16:9 still visible when it is drawn
+ * with object-fit: cover on a stage of another aspect. The live view uses it so that stepping
+ * from a still into the 360 view starts from the same picture.
+ */
+export function coverFov(fov: number, stageAspect: number) {
+  if (stageAspect <= STILL_ASPECT) return fov
+  const half = (fov * Math.PI) / 360
+  return (Math.atan((Math.tan(half) * STILL_ASPECT) / stageAspect) * 360) / Math.PI
+}

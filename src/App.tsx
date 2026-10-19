@@ -15,16 +15,15 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
-  Expand,
   ExternalLink,
-  Eye,
-  Leaf,
+  Images,
   Maximize,
   Minus,
   Pause,
   Play,
   Plus,
   Redo2,
+  Rotate3d,
   RotateCcw,
   Ruler,
   Share2,
@@ -32,7 +31,9 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
-import ConfigPanel from './components/ConfigPanel'
+import ConfigPanel, { LightingControl } from './components/ConfigPanel'
+import { AngleStrip } from './components/stills/AngleStrip'
+import { StillStage } from './components/stills/StillStage'
 import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
 import { SceneLoadBoundary } from './components/SceneLoadBoundary'
@@ -53,9 +54,10 @@ import {
   ENVIRONMENTS,
   type Config,
   type Unit,
-  type View,
 } from './lib/config'
 import { useConfig } from './lib/useConfig'
+import { CAMERA_PRESETS, type AngleId } from './lib/cameras'
+import { prefetchChoice, stillImage, useStillsMode } from './lib/stillImages'
 import { useShareFragment } from './lib/useShareFragment'
 import { useStagedScene } from './lib/useStagedScene'
 import { productFamily } from './lib/products'
@@ -63,12 +65,14 @@ import { defaultQuality, type Backend, type Quality } from './render/quality'
 import { sceneProgress, textureProgress } from './render/progress'
 
 const Scene = lazy(() => import('./components/Scene'))
+type Mode = 'stills' | '360' | 'plan'
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
 
 export default function App() {
   const { config, encoded, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
   const [step, setStep] = useState(0),
-    [view, setView] = useState<View>('exterior'),
+    [mode, setMode] = useState<Mode>('stills'),
+    [angle, setAngle] = useState<AngleId>('hero'),
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
@@ -103,21 +107,48 @@ export default function App() {
   const onCaptureReady = useCallback((capture: (() => string) | null) => {
     captureRef.current = capture
   }, [])
-  const openPlan = useCallback(() => setView('plan'), [])
   const staged = useStagedScene(config, quality)
-  // The 3D scene stays mounted, hidden and paused, under the floor plan, so returning keeps the
-  // renderer, its compiled shaders, and the camera rather than starting cold. It keeps the last
-  // 3D view meanwhile.
-  const [sceneView, setSceneView] = useState<View>('exterior')
-  if (view !== 'plan' && view !== sceneView) setSceneView(view)
-  const capture = useCallback(() => {
-    if (view === 'plan') return null
+  const stillsMode = useStillsMode()
+  // A still that cannot be loaded hands every still to the live view for the rest of the visit.
+  const [stillsMissing, setStillsMissing] = useState(false)
+  const published = stillsMode === 'published' && !stillsMissing
+  // Entering 360, the still stays up until the live view has drawn its first frame.
+  const scenePhase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
+  const showImages = published && (mode === 'stills' || (mode === '360' && scenePhase !== 'ready'))
+  // The live 3D: drawn as the still when stills are not published, the 360 view, and otherwise
+  // warmed up quietly under the still (shaders compiled, textures in) so entering 360 is instant.
+  const [warm, setWarm] = useState(false)
+  const sceneWanted = mode === '360' || stillsMode === 'live' || stillsMissing || warm
+  const [sceneMounted, setSceneMounted] = useState(sceneWanted)
+  if (sceneWanted && !sceneMounted) setSceneMounted(true)
+  const onStillShown = useCallback(() => {
+    if (warm || !canWarmUp()) return
+    const idle = window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 300))
+    idle(() => setWarm(true))
+  }, [warm])
+  const onStillsMissing = useCallback(() => {
+    setStillsMissing(true)
+    notify('Rendered views are unavailable right now. Showing the live 3D view instead.')
+  }, [notify])
+  const onSceneFailed = useCallback(() => {
+    if (published) {
+      setMode((m) => (m === '360' ? 'stills' : m))
+      notify('The 360 view is not available in this browser. Rendered views still work.')
+    } else setMode('plan')
+  }, [published, notify])
+  const capture = useCallback(async () => {
+    if (mode === 'plan') return null
+    if (published) return stillImage(config, angle)
     try {
       return captureRef.current?.() ?? null
     } catch {
       return null
     }
-  }, [view])
+  }, [mode, published, config, angle])
+  const enter360 = () => {
+    setMode('360')
+    setAutoRotate(false)
+  }
   const close = () => setDialog(null)
   const openShared = useCallback(
     (value: string) => {
@@ -178,12 +209,13 @@ export default function App() {
       },
     }
     setConfig(setFamily(templates[id], config.family))
-    setView('exterior')
+    setAngle('hero')
+    setMode('stills')
     setReset((r) => r + 1)
     notify('Concept layout applied. This is not an official Fury package.')
   }
-  const photo = () => {
-    const image = capture()
+  const photo = async () => {
+    const image = await capture()
     if (!image) {
       notify('Your scene is still getting ready. Try again in a moment.')
       return
@@ -247,30 +279,44 @@ export default function App() {
       </header>
       <main className="workspace">
         <section
-          className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
+          className={`stage ${mode === 'plan' ? 'is-plan' : ''} is-${mode}`}
           aria-label="Gym visualization"
         >
-          <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
-            <SceneLoadBoundary onFallback={openPlan}>
-              <Suspense fallback={<SceneLoading phase="engine" />}>
-                <Scene
-                  active={view !== 'plan'}
-                  config={staged.config}
-                  view={sceneView}
-                  dimensions={dimensions}
-                  unit={unit}
-                  reset={reset}
-                  autoRotate={autoRotate}
-                  quality={staged.quality}
-                  onCaptureReady={onCaptureReady}
-                  onFallback={openPlan}
-                  onBackend={setBackend}
-                  onSlow={onSlow}
-                />
-              </Suspense>
-            </SceneLoadBoundary>
-          </div>
-          {view === 'plan' && <FloorPlan config={config} unit={unit} />}
+          {sceneMounted && (
+            <div className={`scene-layer ${mode === 'plan' ? 'is-hidden' : ''}`}>
+              <SceneLoadBoundary onFallback={onSceneFailed}>
+                <Suspense fallback={showImages ? null : <SceneLoading phase="engine" />}>
+                  <Scene
+                    active={mode !== 'plan'}
+                    config={staged.config}
+                    angle={angle}
+                    interactive={mode === '360'}
+                    dimensions={dimensions && mode === '360'}
+                    unit={unit}
+                    reset={reset}
+                    autoRotate={autoRotate}
+                    quality={staged.quality}
+                    onCaptureReady={onCaptureReady}
+                    onFallback={onSceneFailed}
+                    onBackend={setBackend}
+                    onSlow={onSlow}
+                  />
+                </Suspense>
+              </SceneLoadBoundary>
+            </div>
+          )}
+          {published && mode !== 'plan' && (
+            <div className={`still-layer ${showImages ? '' : 'is-hidden'}`}>
+              <StillStage
+                config={config}
+                angle={angle}
+                label={`${productName(config)}, ${CAMERA_PRESETS[angle].label.toLowerCase()} view`}
+                onMissing={onStillsMissing}
+                onShown={onStillShown}
+              />
+            </div>
+          )}
+          {mode === 'plan' && <FloorPlan config={config} unit={unit} />}
           <div className="stage-heading">
             <span className="eyebrow">
               <span className="small-line" />{' '}
@@ -297,23 +343,23 @@ export default function App() {
               </p>
             )}
           </div>
-          <div className="view-switch" role="group" aria-label="Camera views">
-            {(['exterior', 'interior', 'plan'] as const).map((v, i) => {
-              const icons = [Expand, Eye, Maximize],
+          <div className="view-switch" role="group" aria-label="Views">
+            {(['stills', '360', 'plan'] as const).map((m, i) => {
+              const icons = [Images, Rotate3d, Maximize],
                 Icon = icons[i]
               return (
                 <button
-                  key={v}
-                  aria-pressed={view === v}
-                  className={view === v ? 'active' : ''}
+                  key={m}
+                  aria-pressed={mode === m}
+                  className={mode === m ? 'active' : ''}
                   onClick={() => {
-                    setView(v)
-                    setAutoRotate(false)
-                    if (v === 'plan') setStep(2)
+                    if (m === '360') enter360()
+                    else setMode(m)
+                    if (m === 'plan') setStep(2)
                   }}
                 >
                   <Icon size={14} />
-                  <span>{v === 'plan' ? 'Floor plan' : v[0].toUpperCase() + v.slice(1)}</span>
+                  <span>{m === 'stills' ? 'Gallery' : m === '360' ? '360°' : 'Floor plan'}</span>
                 </button>
               )
             })}
@@ -324,7 +370,7 @@ export default function App() {
               aria-label="Show dimensions"
               aria-pressed={dimensions}
               onClick={() => setDimensions(!dimensions)}
-              disabled={view === 'plan'}
+              disabled={mode !== '360'}
             >
               <Ruler size={18} />
               <span>Dimensions</span>
@@ -332,7 +378,7 @@ export default function App() {
             <button
               aria-label="Reset camera"
               onClick={() => setReset((r) => r + 1)}
-              disabled={view === 'plan'}
+              disabled={mode !== '360'}
             >
               <RotateCcw size={17} />
               <span>Reset view</span>
@@ -341,7 +387,7 @@ export default function App() {
               className={autoRotate ? 'active' : ''}
               aria-label={autoRotate ? 'Pause rotation' : 'Rotate automatically'}
               aria-pressed={autoRotate}
-              disabled={view !== 'exterior'}
+              disabled={mode !== '360' || CAMERA_PRESETS[angle].view !== 'exterior'}
               onClick={() => setAutoRotate(!autoRotate)}
             >
               {autoRotate ? <Pause size={17} /> : <Play size={17} />}
@@ -351,7 +397,7 @@ export default function App() {
             <button
               aria-label="Enter photo mode"
               onClick={() => {
-                setView('exterior')
+                if (mode === 'plan') setMode('stills')
                 setPhotoMode(true)
                 setMobilePanel(false)
               }}
@@ -379,27 +425,67 @@ export default function App() {
               </button>
             </div>
           )}
-          {view !== 'plan' && <SceneActivity updating={staged.updating} />}
-          {view !== 'plan' && (
+          {mode !== 'plan' && !showImages && <SceneActivity updating={staged.updating} />}
+          {mode === '360' && showImages && (
+            <div className="scene-activity" role="status">
+              <i className="activity-spinner" aria-hidden="true" />
+              Loading the 360° view…
+            </div>
+          )}
+          {mode !== 'plan' && (
             <div className="stage-bottom">
+              <div className="stage-dock">
+                <AngleStrip
+                  config={config}
+                  angle={angle}
+                  thumbnails={published}
+                  onChange={setAngle}
+                />
+                <div className="mood-controls">
+                  <div
+                    className="segmented environment-chips"
+                    role="group"
+                    aria-label="Surroundings"
+                  >
+                    {ENVIRONMENTS.map((env) => (
+                      <button
+                        key={env.id}
+                        className={config.environment === env.id ? 'active' : ''}
+                        aria-pressed={config.environment === env.id}
+                        onPointerEnter={() =>
+                          prefetchChoice({ ...config, environment: env.id }, angle)
+                        }
+                        onClick={() => setConfig({ ...config, environment: env.id })}
+                      >
+                        {env.short}
+                      </button>
+                    ))}
+                  </div>
+                  <LightingControl config={config} onChange={setConfig} />
+                  {mode === 'stills' && (
+                    <button className="primary enter-360" onClick={enter360}>
+                      <Rotate3d size={15} /> Explore in 360°
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="scene-status">
                 <span className="status-dot" />
-                <strong>LIVE 3D</strong>
-                {backend && (
+                <strong>{showImages ? 'RENDERED VIEW' : 'LIVE 3D'}</strong>
+                {!showImages && backend && (
                   <span className="render-backend">
                     {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
                   </span>
                 )}
                 <span>Concept visualization · Not manufacturer CAD</span>
+                <span className="scene-hint">
+                  {mode === 'stills'
+                    ? 'Choose a view, or explore in 360°'
+                    : CAMERA_PRESETS[angle].view === 'interior'
+                      ? 'Drag to look around'
+                      : 'Drag to orbit · Scroll to explore'}
+                </span>
               </div>
-              <div className="scene-hint">
-                {view === 'interior' ? 'Drag to look around' : 'Drag to orbit · Scroll to explore'}
-              </div>
-              <button className="environment-quick" onClick={() => setStep(3)}>
-                <Leaf size={14} />
-                {ENVIRONMENTS.find((e) => e.id === config.environment)!.name}
-                <ChevronDown size={13} />
-              </button>
             </div>
           )}
           <div className="history-controls">
@@ -433,9 +519,10 @@ export default function App() {
             setQuality={chooseQuality}
             notify={notify}
             onPlan={() => {
-              setView('plan')
+              setMode('plan')
               setPhotoMode(false)
             }}
+            onPreview={(next) => prefetchChoice(next, angle)}
             onTemplate={template}
           />
         </div>
@@ -551,7 +638,8 @@ export default function App() {
                 )
               ) {
                 setConfig(structuredClone(DEFAULT_CONFIG))
-                setView('exterior')
+                setAngle('hero')
+                setMode('stills')
                 setReset((r) => r + 1)
                 close()
                 notify('Your design is reset. Undo is available.')
@@ -564,6 +652,17 @@ export default function App() {
       )}
     </div>
   )
+}
+/**
+ * Whether to warm up the 360 view under the stills: not when the visitor asked to save data, and
+ * not on devices with little memory, where it loads only when asked for.
+ */
+function canWarmUp() {
+  const nav = navigator as Navigator & {
+    connection?: { saveData?: boolean }
+    deviceMemory?: number
+  }
+  return !nav.connection?.saveData && (nav.deviceMemory ?? 8) > 2
 }
 /**
  * What the 3D view is busy with once it has a picture: applying a change that rebuilds the scene,

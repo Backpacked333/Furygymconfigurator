@@ -163,6 +163,7 @@ export default function ConfigPanel({
   notify,
   onPlan,
   onTemplate,
+  onPreview,
 }: {
   config: Config
   onChange: (c: Config) => void
@@ -175,7 +176,13 @@ export default function ConfigPanel({
   notify: (message: string) => void
   onPlan: () => void
   onTemplate: (id: 'athlete' | 'retreat' | 'flow') => void
+  /** Hovering or focusing a choice: what it would show can be fetched ahead of the click. */
+  onPreview?: (next: Config) => void
 }) {
+  const preview = (next: Config) => ({
+    onPointerEnter: () => onPreview?.(next),
+    onFocus: () => onPreview?.(next),
+  })
   const product = productFamily(c.family)
   const applyPackage = (id: PackageId) => {
     const next = { ...c, package: id }
@@ -410,6 +417,7 @@ export default function ConfigPanel({
                       key={opening.id}
                       aria-pressed={c.containerOpening === opening.id}
                       className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
+                      {...preview({ ...c, containerOpening: opening.id })}
                       onClick={() => {
                         const next = { ...c, containerOpening: opening.id }
                         if (layoutIssues(next).length) {
@@ -449,6 +457,7 @@ export default function ConfigPanel({
                   key={f.id}
                   className={c.finish === f.id ? 'selected' : ''}
                   aria-pressed={c.finish === f.id}
+                  {...preview({ ...c, finish: f.id })}
                   onClick={() => onChange({ ...c, finish: f.id })}
                 >
                   <span className="finish-swatch" style={{ background: f.color }}>
@@ -481,6 +490,7 @@ export default function ConfigPanel({
                         key={addon.id}
                         className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
                         aria-pressed={c.addons[addon.id]}
+                        {...preview(setAddon(c, addon.id).config)}
                         onClick={() => {
                           const result = setAddon(c, addon.id)
                           onChange(result.config)
@@ -535,6 +545,7 @@ export default function ConfigPanel({
                     key={p.id}
                     className={c.package === p.id ? 'selected' : ''}
                     aria-pressed={c.package === p.id}
+                    {...preview({ ...c, package: p.id })}
                     onClick={() => applyPackage(p.id)}
                   >
                     <Icon size={21} strokeWidth={1.4} />
@@ -564,6 +575,7 @@ export default function ConfigPanel({
                   key={f.id}
                   aria-pressed={c.flooring === f.id}
                   className={c.flooring === f.id ? 'selected' : ''}
+                  {...preview({ ...c, flooring: f.id })}
                   onClick={() => onChange({ ...c, flooring: f.id })}
                 >
                   <span style={{ background: f.color }} />
@@ -603,6 +615,7 @@ export default function ConfigPanel({
                     key={env.id}
                     className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}`}
                     aria-pressed={c.environment === env.id}
+                    {...preview({ ...c, environment: env.id })}
                     onClick={() => onChange({ ...c, environment: env.id })}
                   >
                     <Icon size={24} strokeWidth={1} />

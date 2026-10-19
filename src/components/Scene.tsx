@@ -4,9 +4,9 @@ import { Html, OrbitControls } from '@react-three/drei'
 import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import type { WebGPURenderer } from 'three/webgpu'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { distance, productHeight, type Config, type Unit, type View } from '../lib/config'
+import { distance, productHeight, type Config, type Unit } from '../lib/config'
 import { effectiveLights } from '../lib/lighting'
-import { CAMERA_PRESETS, exteriorFraming, interiorFraming } from '../lib/cameras'
+import { CAMERA_PRESETS, coverFov, stillPose, type AngleId } from '../lib/cameras'
 import { StudioModel } from './StudioModel'
 import { Landscape } from './Landscape'
 import { RenderEffects } from './RenderEffects'
@@ -82,18 +82,26 @@ function Dimensions({ config: c, unit }: { config: Config; unit: Unit }) {
     </group>
   )
 }
+/**
+ * The camera. Showing a still, it sits exactly where the still was rendered from, with the field
+ * of view cropped like the image, so the live picture and the still match. In the 360 view it
+ * starts from that pose: orbiting outside, looking around inside.
+ */
 function CameraRig({
   config: c,
-  view,
+  angle,
+  interactive,
   reset,
   autoRotate,
 }: {
   config: Config
-  view: View
+  angle: AngleId
+  interactive: boolean
   reset: number
   autoRotate: boolean
 }) {
   const { camera, size, gl, invalidate } = useThree()
+  const view = CAMERA_PRESETS[angle].view
   // Only these inputs move the camera; a finish or flooring change must not re-frame the view.
   const framing = useMemo(
     () => ({ family: c.family, length: c.length, addons: c.addons }),
@@ -106,32 +114,34 @@ function CameraRig({
     stalled = useRef(0)
   const yaw = useRef(-1.25),
     pitch = useRef(0)
+  const easing = useRef(false)
+  easing.current = interactive
   useEffect(() => {
     const p = camera as PerspectiveCamera
-    p.fov = view === 'interior' ? 68 : 32
+    const pose = stillPose(framing, angle)
+    p.fov = coverFov(pose.fov, size.width / size.height)
     p.updateProjectionMatrix()
-    if (view === 'interior') {
-      const pose = interiorFraming(framing, 'interiorHero')
-      targetPosition.current.set(...pose.position)
-      targetLook.current.set(...pose.target)
-      const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
-      yaw.current = Math.atan2(-direction.x, -direction.z)
-      pitch.current = Math.asin(direction.y)
-    } else {
-      const pose = exteriorFraming(
-        framing,
-        p.fov,
-        size.width / size.height,
-        CAMERA_PRESETS.hero.direction!,
-      )
-      targetLook.current.set(...pose.target)
-      targetPosition.current.set(...pose.position)
-    }
-    moving.current = true
+    targetPosition.current.set(...pose.position)
+    targetLook.current.set(...pose.target)
+    const direction = targetLook.current.clone().sub(targetPosition.current).normalize()
+    yaw.current = Math.atan2(-direction.x, -direction.z)
+    pitch.current = Math.asin(direction.y)
     stalled.current = 0
+    if (easing.current) moving.current = true
+    else {
+      // A still swaps instantly; only the 360 view travels between poses.
+      moving.current = false
+      camera.position.copy(targetPosition.current)
+      camera.lookAt(targetLook.current)
+      if (controls.current) {
+        controls.current.target.copy(targetLook.current)
+        controls.current.update()
+      }
+    }
     invalidate()
-  }, [camera, size.width, size.height, framing, view, reset, invalidate])
+  }, [camera, size.width, size.height, framing, angle, reset, invalidate])
   useEffect(() => {
+    if (!interactive) return
     const el = gl.domElement
     let drag = false,
       lastX = 0,
@@ -185,19 +195,20 @@ function CameraRig({
     el.tabIndex = 0
     el.setAttribute(
       'aria-label',
-      'Interactive gym. Arrow keys rotate; plus and minus zoom. Interior view: arrows look around.',
+      'Interactive 360 view. Arrow keys rotate; plus and minus zoom. Inside: arrows look around.',
     )
     el.addEventListener('pointerdown', down)
     el.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
     el.addEventListener('keydown', key)
     return () => {
+      el.removeAttribute('tabindex')
       el.removeEventListener('pointerdown', down)
       el.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       el.removeEventListener('keydown', key)
     }
-  }, [camera, gl, view, invalidate])
+  }, [camera, gl, view, interactive, invalidate])
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)'), [])
   useFrame((_, delta) => {
     if (!moving.current) return
@@ -211,10 +222,10 @@ function CameraRig({
       controls.current.update()
     } else camera.lookAt(targetLook.current)
     const after = camera.position.distanceTo(targetPosition.current)
-    // Arrived, or the orbit limits (a framing distance beyond them on a narrow screen) or
-    // auto-rotation kept the camera from making the progress the easing asked for: either way,
-    // stop instead of rendering forever. Sliding around the minimum-distance sphere is progress
-    // the straight-line measure undercounts, so it never counts as held.
+    // Arrived, or the orbit limits or auto-rotation kept the camera from making the progress the
+    // easing asked for: either way, stop instead of rendering forever. Sliding around the
+    // minimum-distance sphere is progress the straight-line measure undercounts, so it never
+    // counts as held.
     const pinned =
       !!controls.current &&
       view !== 'interior' &&
@@ -227,13 +238,13 @@ function CameraRig({
     <OrbitControls
       ref={controls}
       makeDefault
-      enabled={view !== 'interior'}
+      enabled={interactive && view !== 'interior'}
       enablePan={false}
       minDistance={12}
       maxDistance={170}
       minPolarAngle={0.1}
       maxPolarAngle={Math.PI / 2 - 0.015}
-      autoRotate={autoRotate && view === 'exterior'}
+      autoRotate={interactive && autoRotate && view === 'exterior'}
       autoRotateSpeed={0.45}
       onStart={() => {
         moving.current = false
@@ -248,7 +259,8 @@ function CameraRig({
 export default memo(function Scene({
   active,
   config,
-  view,
+  angle,
+  interactive,
   dimensions,
   unit,
   reset,
@@ -262,7 +274,10 @@ export default memo(function Scene({
   /** False while hidden under the floor plan: nothing renders until the scene shows again. */
   active: boolean
   config: Config
-  view: View
+  /** The still the camera starts from (and stays at, unless interactive). */
+  angle: AngleId
+  /** The 360 view: orbit outside, look around inside. Otherwise the camera holds the still. */
+  interactive: boolean
   dimensions: boolean
   unit: Unit
   reset: number
@@ -273,6 +288,7 @@ export default memo(function Scene({
   onBackend?: (backend: Backend) => void
   onSlow?: () => void
 }) {
+  const view = CAMERA_PRESETS[angle].view
   // The scene draws the lights as they are seen: always on by day, by choice after dark.
   const lights = effectiveLights(config)
   config = useMemo(() => ({ ...config, lights }), [config, lights])
@@ -346,13 +362,20 @@ export default memo(function Scene({
           <Landscape config={config} quality={quality} />
           <StudioModel config={config} quality={quality} />
           {dimensions && <Dimensions config={config} unit={unit} />}
-          <CameraRig config={config} view={view} reset={reset} autoRotate={autoRotate} />
+          <CameraRig
+            config={config}
+            angle={angle}
+            interactive={interactive}
+            reset={reset}
+            autoRotate={autoRotate}
+          />
           <InteriorProbe config={config} quality={quality} />
           <RenderEffects quality={quality} onCaptureReady={onCaptureReady} onSlow={onSlow} />
           <SceneRefresh
             active={active}
             config={config}
             view={view}
+            interactive={interactive}
             dimensions={dimensions}
             unit={unit}
             quality={quality}
