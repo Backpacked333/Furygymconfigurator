@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { computeSetIdentity } from '../identity'
+import { normalizeCustomerDesign } from '../views'
 import { StaticSeedSource } from './artifacts'
 import { verifySeedManifest } from './seedCache'
 import { SupabaseTransport } from './supabase'
@@ -28,10 +29,11 @@ export async function importSeedLibrary(
   const seen = new Set<string>()
   let imported = 0
   for (const entry of manifest.entries) {
-    const identity = await computeSetIdentity(entry.design)
+    const design = normalizeCustomerDesign(entry.design)
+    const identity = await computeSetIdentity(design)
     if (seen.has(identity.setKey)) continue
-    const images = await source.images(entry.design)
-    await database.call('render_library_import_seed', { design: entry.design, identity, images })
+    const images = await source.images(design)
+    await database.call('render_library_import_seed', { design, identity, images })
     seen.add(identity.setKey)
     imported += images.length
   }
