@@ -210,6 +210,15 @@ already active job can extend the wait. The shorter interval increases idle CPU
 coordination costs, still charged to the same cumulative ledger. GPU sampling,
 image quality, immutable recipe identity and one-shot dispatch are unchanged.
 
+Preview credentials are branch-scoped. Merging or opening a new PR does **not**
+copy that configuration. Before sharing a new preview, provision its exact
+branch with the existing server-only secrets and public storage origin, set
+`RENDER_LIBRARY_PUBLIC_ORIGIN` to its stable protected branch alias, and rebuild.
+Do not broaden credentials to arbitrary preview branches or production. Verify
+the deployed API returns five stored descriptors for a known completed set,
+verify their downloaded hashes, and check an uncached design returns an honest
+miss with enabled admission. A successful build alone does not prove connection.
+
 Apply migrations `202610190004_hosted_dispatcher.sql` and
 `202610190005_dispatcher_headroom.sql` after the existing migrations. CPU cycles
 reserve a conservative maximum in the same cumulative approval ledger as GPU jobs,

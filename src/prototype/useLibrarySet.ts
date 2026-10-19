@@ -83,6 +83,8 @@ const empty = (signature: string): LibrarySetState => ({
 
 export function useLibrarySet(design: DesignEnvelope) {
   const signature = identityPayload(design, 'set')
+  const currentSignature = useRef(signature)
+  currentSignature.current = signature
   const [state, setState] = useState<LibrarySetState>(() => empty(signature))
   const [refreshCount, refresh] = useState(0)
   const [submitting, setSubmitting] = useState<string | null>(null)
@@ -273,6 +275,8 @@ export function useLibrarySet(design: DesignEnvelope) {
     } finally {
       inFlight.current.delete(signature)
       setSubmitting((previous) => (previous === signature ? null : previous))
+      if (active.current !== token && currentSignature.current === signature)
+        refresh((value) => value + 1)
     }
   }
   return {
