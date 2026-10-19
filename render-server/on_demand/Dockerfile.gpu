@@ -1,0 +1,16 @@
+ARG PYTHON_IMAGE
+FROM ${PYTHON_IMAGE}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libegl1 libgl1 libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libsm6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --no-create-home --home-dir /tmp fury
+WORKDIR /opt/fury
+COPY render-server/on_demand/requirements-gpu.lock /opt/fury/requirements.lock
+RUN python -c "import sys; assert sys.version_info[:2] == (3,11)" \
+    && python -m pip install --no-cache-dir --require-hashes -r requirements.lock
+COPY render-server/fury_render/__init__.py render-server/fury_render/blender.py render-server/fury_render/protocol.py /opt/fury/render-server/fury_render/
+COPY render-server/on_demand/__init__.py render-server/on_demand/validation.py render-server/on_demand/native_scene.py render-server/on_demand/renderer.py render-server/on_demand/sandbox_runner.py /opt/fury/render-server/on_demand/
+COPY recipe.json /opt/fury/recipe.json
+ENV PYTHONPATH=/opt/fury/render-server HOME=/tmp
+USER 10001:10001
+CMD ["python", "-m", "on_demand.sandbox_runner"]
