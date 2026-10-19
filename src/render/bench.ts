@@ -21,6 +21,7 @@ export type Mark =
   | 'firstRequest'
   | 'firstThumb'
   | 'firstStill'
+  | 'firstStillPresented'
   | 'firstLocalTrace'
 /**
  * How the cloud is answering: `off` until it has (or none is configured), `cold` when its first
@@ -68,6 +69,7 @@ const fresh = (): BenchStats => ({
     firstRequest: null,
     firstThumb: null,
     firstStill: null,
+    firstStillPresented: null,
     firstLocalTrace: null,
   },
   cloud: 'off',

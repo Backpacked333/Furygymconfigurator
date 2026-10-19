@@ -2692,6 +2692,19 @@ h3 {
   z-index: 2;
   pointer-events: none;
 }
+.still-previous-label {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 14px;
+  max-width: calc(100% - 28px);
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgb(20 26 22 / 85%);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+}
 .still-layer {
   position: absolute;
   inset: 0;

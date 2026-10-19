@@ -31,36 +31,8 @@ import { textureProgress } from './progress'
  * Physical sizes (feet per tile) of the bundled CC0 Poly Haven scans plus three baked
  * procedural detail sets. See public/textures/sources.json and scripts/build-textures.py.
  */
-export const TEXTURE_SETS = {
-  rubber_tiles: { size: 6.562 },
-  laminate_floor_02: { size: 5.577 },
-  granite_tile_04: { size: 6.562 },
-  beige_wall_001: { size: 9.843 },
-  oak_veneer_01: { size: 6.004 },
-  hinoki_planks: { size: 6.201 },
-  teak_veneer: { size: 3.281 },
-  leather_white: { size: 0.984 },
-  rough_linen: { size: 0.889 },
-  rubberized_track: { size: 3.2 },
-  painted_metal_shutter: { size: 6.562 },
-  concrete_pavement: { size: 5.906 },
-  leafy_grass: { size: 6.562 },
-  dry_ground_01: { size: 13.123 },
-  clean_pebbles: { size: 6.562 },
-  bark_platanus: { size: 4.921 },
-  concrete_slab_wall: { size: 7.546 },
-  concrete_wall_001: { size: 4.921 },
-  red_brick_03: { size: 3.281 },
-  herringbone_pavement: { size: 6.562 },
-  concrete_floor_worn_001: { size: 9.843 },
-  plywood: { size: 1.64 },
-  japanese_cedar_planks: { size: 3.707 },
-  white_stucco: { size: 6.555 },
-  powder_coat: { size: 0.25, detailOnly: true },
-  brushed_metal: { size: 1.5, detailOnly: true, metallic: true },
-  knurling: { size: 0.1, detailOnly: true, metallic: true },
-} as const satisfies Record<string, { size: number; detailOnly?: boolean; metallic?: boolean }>
-export type TextureSet = keyof typeof TEXTURE_SETS
+import { TEXTURE_SETS, type TextureSet } from './textureSets'
+export { TEXTURE_SETS, type TextureSet } from './textureSets'
 
 export type Maps = { albedo?: Texture; normal: Texture; arm: Texture }
 

@@ -6,6 +6,18 @@ to get the on-screen panel (and `?traceStats=1` for the console log it summarize
 
 ## What the panel reports
 
+The candidate distinguishes **first image decoded** (including a thumbnail) from **first still
+presentation** (a current, non-thumbnail image, after its crossfade and two animation frames).
+The latter is a browser presentation opportunity, not proof of actual pixels; pair it with a
+screenshot. **First raster frame** only records a draw submission, never usable-image readiness.
+Sample labels are budgets: adaptive sampling and the render time limit can finish below the
+requested count. Report cached image delivery, control feedback, uncached completion and live
+navigation separately. Software graphics timings are not representative-laptop GPU evidence.
+
+The older spin-era field descriptions and measurements below are historical, not measurements
+of this candidate. The current panel also shows `first thumbnail` (receipt), `first image decoded`,
+`first still presentation`, prefetch counts, and local trace timing.
+
 Seconds are from page load (`performance.now()`); `—` is not yet. The store is
 `src/render/bench.ts`, the table `BenchPanel` in `src/App.tsx`.
 

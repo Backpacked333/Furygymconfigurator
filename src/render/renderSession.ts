@@ -3,6 +3,8 @@
  * ask the cloud to start the visitor's GPU before the scene chunk has loaded.
  */
 
+import { legacyDiagnosticUrl } from './traceStatus'
+
 const SESSION_KEY = 'fury-render-session'
 /** What the gateway accepts as a session name (render-server/fury_render/gateway.py). */
 const SESSION_FORM = /^[A-Za-z0-9_-]{8,64}$/
@@ -64,7 +66,7 @@ let warmed = false
  * failure is nothing to report: the renders find out for themselves.
  */
 export function warmCloud(url: string) {
-  if (warmed) return
+  if (!legacyDiagnosticUrl(url) || warmed) return
   warmed = true
   warmth.asked = true
   fetch(`${url}/warm?session=${RENDER_SESSION}`)

@@ -68,7 +68,7 @@ describe('cloud requests', () => {
   it('ask for each channel on a session of its own, so none supersedes another', async () => {
     const fetch = vi.fn().mockImplementation(() => Promise.resolve(finished()))
     vi.stubGlobal('fetch', fetch)
-    const client = new CloudClient('https://gpu.example')
+    const client = new CloudClient('http://127.0.0.1:8787')
     const captured = { scene: {} as never, blobs: new Map() }
     const signal = new AbortController().signal
     await client.frame(captured, still('f'), signal)
@@ -112,7 +112,7 @@ describe('cloud requests', () => {
       ['a'.repeat(64), blob],
       ['b'.repeat(64), blob],
     ])
-    const client = new CloudClient('https://gpu.example')
+    const client = new CloudClient('http://127.0.0.1:8787')
     const signal = new AbortController().signal
     const captured = { scene: {} as never, blobs }
     await Promise.all([
@@ -120,8 +120,8 @@ describe('cloud requests', () => {
       client.frame(captured, still(), signal),
     ])
     expect(puts.sort()).toEqual([
-      `https://gpu.example/blobs/${'a'.repeat(64)}`,
-      `https://gpu.example/blobs/${'b'.repeat(64)}`,
+      `http://127.0.0.1:8787/blobs/${'a'.repeat(64)}`,
+      `http://127.0.0.1:8787/blobs/${'b'.repeat(64)}`,
     ])
   })
 
@@ -139,7 +139,7 @@ describe('cloud requests', () => {
     )
     const request = still()
     const captured = { scene: {} as never, blobs: new Map() }
-    const client = new CloudClient('https://gpu.example')
+    const client = new CloudClient('http://127.0.0.1:8787')
     let outcome: unknown = null
     client.frame(captured, request, new AbortController().signal).catch((error) => {
       outcome = error
@@ -160,7 +160,7 @@ describe('cloud requests', () => {
     expect(aborted).toEqual(new Error('turned away'))
     // A longer frame opened since (an export) may be rendered ahead of it on the session's one
     // GPU: it is allowed that frame's time limit too, and gives up only after it.
-    const patient = new CloudClient('https://gpu.example')
+    const patient = new CloudClient('http://127.0.0.1:8787')
     let waited: unknown = null
     patient.frame(captured, request, new AbortController().signal).catch((error) => {
       waited = error
@@ -189,7 +189,7 @@ describe('cloud requests', () => {
     const captured = { scene: {} as never, blobs }
     const signal = new AbortController().signal
     await expect(
-      new CloudClient('https://gpu.example').frame(captured, still(), signal),
+      new CloudClient('http://127.0.0.1:8787').frame(captured, still(), signal),
     ).rejects.toBeInstanceOf(Busy)
   })
 
@@ -206,7 +206,7 @@ describe('cloud requests', () => {
       },
     })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(frame))
-    const finished = await new CloudClient('https://gpu.example').frame(captured, request, signal)
+    const finished = await new CloudClient('http://127.0.0.1:8787').frame(captured, request, signal)
     expect(finished.tracedKey).toBeCloseTo(-2.46, 4)
     expect(finished.cached).toBe(true)
     expect(finished.renderer).toBe('own')
@@ -220,7 +220,7 @@ describe('cloud requests', () => {
         ),
     )
     expect(
-      (await new CloudClient('https://gpu.example').frame(captured, request, signal)).renderer,
+      (await new CloudClient('http://127.0.0.1:8787').frame(captured, request, signal)).renderer,
     ).toBe('')
     // An older server ignores the frame fields and sends a view's half-float image.
     vi.stubGlobal(
@@ -232,7 +232,7 @@ describe('cloud requests', () => {
       ),
     )
     await expect(
-      new CloudClient('https://gpu.example').frame(captured, request, signal),
+      new CloudClient('http://127.0.0.1:8787').frame(captured, request, signal),
     ).rejects.toBeInstanceOf(Outdated)
   })
 })
@@ -364,9 +364,9 @@ describe('render sessions', () => {
     vi.stubGlobal('fetch', fetch)
     const blobs = new Map([['a'.repeat(64), () => Promise.resolve(new Uint8Array([1]))]])
     const captured = { scene: {} as never, blobs }
-    await new CloudClient('https://gpu.example').frame(captured, still(), signal)
+    await new CloudClient('http://127.0.0.1:8787').frame(captured, still(), signal)
     // A second client on the page (one made after a lost GPU device, say) is the same session.
-    await new CloudClient('https://gpu.example').frame(captured, still(), signal)
+    await new CloudClient('http://127.0.0.1:8787').frame(captured, still(), signal)
     const sessions = fetch.mock.calls.map((call) =>
       new URL(call[0] as string).searchParams.get('session'),
     )
@@ -407,8 +407,8 @@ describe('render sessions', () => {
       )
     vi.stubGlobal('fetch', fetch)
     expect(warmth.asked).toBe(false)
-    warmCloud('https://gpu.example')
-    warmCloud('https://gpu.example')
+    warmCloud('http://127.0.0.1:8787')
+    warmCloud('http://127.0.0.1:8787')
     expect(fetch).toHaveBeenCalledTimes(1)
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit | undefined]
     const asked = new URL(url)
@@ -425,11 +425,11 @@ describe('render sessions', () => {
       vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 503 }))
     vi.stubGlobal('fetch', answer({ error: 'Every cloud GPU is in use', full: true }))
     await expect(
-      new CloudClient('https://gpu.example').frame(captured, still(), signal),
+      new CloudClient('http://127.0.0.1:8787').frame(captured, still(), signal),
     ).rejects.toBeInstanceOf(Full)
     vi.stubGlobal('fetch', answer({ detail: 'Cloud renderer unavailable; try again shortly' }))
     await expect(
-      new CloudClient('https://gpu.example').frame(captured, still(), signal),
+      new CloudClient('http://127.0.0.1:8787').frame(captured, still(), signal),
     ).rejects.toBeInstanceOf(Busy)
   })
 })
@@ -520,11 +520,50 @@ describe('instance and sky blobs', () => {
 })
 
 describe('server address', () => {
-  afterEach(() => vi.unstubAllEnvs())
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
 
-  it('comes from the build and can be switched off', () => {
+  it.each([
+    'https://gpu.example',
+    'http://10.0.0.1:8787',
+    'http://localhost.evil.example',
+    'http://localhost@evil.example',
+    'http://127.0.0.1:8787/?target=https://gpu.example',
+  ])('never warms or uploads to a remote or ambiguous address: %s', (url) => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    expect(() => new CloudClient(url)).toThrow(Full)
+    warmCloud(url)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['https://gpu.example', 'http://127.0.0.1:8787', 'http://localhost:8787'])(
+    'disables even direct legacy clients and loopback overrides in production: %s',
+    (url) => {
+      vi.stubEnv('DEV', false)
+      vi.stubEnv('VITE_CLOUD_RENDER_URL', url)
+      const fetch = vi.fn()
+      vi.stubGlobal('fetch', fetch)
+      expect(cloudUrl('')).toBeNull()
+      expect(cloudUrl(`?cloud=${encodeURIComponent(url)}`)).toBeNull()
+      expect(() => new CloudClient(url)).toThrow(Full)
+      warmCloud(url)
+      expect(fetch).not.toHaveBeenCalled()
+    },
+  )
+
+  it('allows only loopback build configuration in development', () => {
+    vi.stubEnv('DEV', true)
+    vi.stubEnv('VITE_CLOUD_RENDER_URL', 'http://127.0.0.1:8787/')
+    expect(cloudUrl('')).toBe('http://127.0.0.1:8787')
+    expect(cloudUrl('?cloud=off')).toBeNull()
+  })
+
+  it('ignores remote build configuration and can be switched off', () => {
     vi.stubEnv('VITE_CLOUD_RENDER_URL', 'https://example.modal.run/')
-    expect(cloudUrl('')).toBe('https://example.modal.run')
+    expect(cloudUrl('')).toBeNull()
     expect(cloudUrl('?cloud=0')).toBeNull()
   })
 

@@ -70,6 +70,22 @@ describe('an option clicked on the stage', () => {
     return phases
   }
 
+  it('identifies a held image as previous until the requested design is decoded', async () => {
+    await show('d1', snapshot('d1', 'blob:old'))
+    await frames(600)
+    await show('d2', snapshot('d1', 'blob:old'))
+    expect(container.querySelector('.still-previous-label')?.textContent).toContain(
+      'Previous view shown',
+    )
+    expect(container.querySelector('.still-layer.is-shown')?.getAttribute('alt')).toContain(
+      'Previous design:',
+    )
+    await show('d2', snapshot('d2', 'blob:new'))
+    await frames(600)
+    expect(shown()).toBe('blob:new')
+    expect(container.querySelector('.still-previous-label')).toBeNull()
+  })
+
   it('swaps a prefetched still in at once, with no status at all', async () => {
     await show('d1', snapshot('d1', 'blob:obsidian'))
     await frames(600)

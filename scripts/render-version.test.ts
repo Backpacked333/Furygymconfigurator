@@ -72,7 +72,29 @@ describe('the render version', () => {
     const first = version()
     write('src/render/stills.test.ts', 'it("renders twice")\n')
     write('src/App.tsx', 'export default 1\n')
+    write('src/render/bench.ts', 'export const timings = []\n')
+    write('src/render/stillStatus.ts', 'export const status = null\n')
     expect(version()).toBe(first)
+    expect(isRenderSource('src/render/bench.ts')).toBe(false)
+    expect(isRenderSource('src/render/stillStatus.ts')).toBe(false)
+  })
+
+  it('keeps private prototype preparation and receipts out of legacy identity and reloads', () => {
+    const first = version()
+    write('src/render/prototype/prepare.ts', 'export const draft = true\n')
+    write('src/render/prototype/nested/receipt.json', '{"draft":true}\n')
+    expect(version()).toBe(first)
+    expect(isRenderSource('src/render/prototype/prepare.ts')).toBe(false)
+    expect(isRenderSource('src/render/prototype/nested/receipt.json')).toBe(false)
+    expect(renderSources(REPO).some((file) => file.startsWith('src/render/prototype/'))).toBe(false)
+    // Even an accidentally explicit entry must not re-enable the private graph.
+    const explicit = { ...SOURCES, files: [...SOURCES.files, 'src/render/prototype/prepare.ts'] }
+    expect(renderSources(root, explicit)).toEqual(renderSources(root, SOURCES))
+    write('src/render/prototype/prepare.ts', 'export const draft = false\n')
+    expect(version()).toBe(first)
+    write('src/render/prototype-adjacent.ts', 'export const publicRenderer = true\n')
+    expect(version()).not.toBe(first)
+    expect(isRenderSource('src/render/prototype-adjacent.ts')).toBe(true)
   })
 
   it('hashes images byte for byte, and only the pinning lines of a deploy script', () => {

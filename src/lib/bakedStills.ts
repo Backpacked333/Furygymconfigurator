@@ -49,6 +49,8 @@ let manifest: StillsManifest = head
 const broken = new Set<string>()
 const listeners = new Set<() => void>()
 let revision = 0
+let loading = !!head.more
+export const bakedLoading = () => loading
 
 function changed() {
   revision++
@@ -60,9 +62,14 @@ if (head.more)
   void import('virtual:fury-stills/all').then(
     ({ default: all }) => {
       manifest = withRest(manifest, all)
+      loading = false
       changed()
     },
-    (error: unknown) => console.warn('The baked stills could not be loaded.', error),
+    (error: unknown) => {
+      loading = false
+      changed()
+      console.warn('The baked stills could not be loaded.', error)
+    },
   )
 
 /** The manifest as far as it has loaded. */

@@ -185,7 +185,7 @@ describe('path-traced scene capture', () => {
     expect(changed(() => f.scene.add(new Mesh(new BoxGeometry(), f.leaf)))).toContain('structure')
   })
 
-  it('fingerprints the room and the outside apart, and the helpers in neither', () => {
+  it('invalidates both views for edits visible through glazing, but ignores helpers', () => {
     const f = fixture()
     const room = new Group()
     room.userData.interior = true
@@ -197,23 +197,22 @@ describe('path-traced scene capture', () => {
     const outside = () => sceneSignature(f.scene, 'a', 'exterior')
     const inside = () => sceneSignature(f.scene, 'a', 'interior')
     const [out0, in0] = [outside(), inside()]
-    expect(out0).not.toBe(in0)
-    // An edit in the room: a moved bench, a dimmed lamp. The outside is unchanged.
+    expect(out0).toBe(in0)
     bench.position.x = 2
     f.scene.updateMatrixWorld(true)
-    expect(outside()).toBe(out0)
+    expect(outside()).not.toBe(out0)
     expect(inside()).not.toBe(in0)
     const in1 = inside()
     lamp.intensity = 4
-    expect(outside()).toBe(out0)
+    expect(outside()).not.toBe(in1)
     expect(inside()).not.toBe(in1)
     const in2 = inside()
-    // An edit outside: the room is unchanged.
     f.stone.position.y = 3
     f.scene.updateMatrixWorld(true)
-    expect(inside()).toBe(in2)
+    expect(inside()).not.toBe(in2)
     expect(outside()).not.toBe(out0)
     const out1 = outside()
+    const in3 = inside()
     // The dimensions helpers (pathTrace: false) come and go without a frame changing.
     const dimensions = new Group()
     dimensions.userData.pathTrace = false
@@ -221,10 +220,10 @@ describe('path-traced scene capture', () => {
     f.scene.add(dimensions)
     f.scene.updateMatrixWorld(true)
     expect(outside()).toBe(out1)
-    expect(inside()).toBe(in2)
+    expect(inside()).toBe(in3)
     f.helpers.visible = false
     expect(outside()).toBe(out1)
-    expect(inside()).toBe(in2)
+    expect(inside()).toBe(in3)
     // The whole scene's fingerprint, the local tracer's, still sees the room.
     expect(sceneSignature(f.scene, 'a')).not.toBe(out1)
   })
@@ -255,15 +254,15 @@ describe('path-traced scene capture', () => {
     f.scene.updateMatrixWorld(true)
     expect(outside()).not.toBe(out1)
     expect(inside()).not.toBe(in1)
-    // A mesh outside any marked group is still the ring's alone.
+    // The exterior is also visible from inside.
     const [out2, in2] = [outside(), inside()]
     f.stone.position.y = 3
     f.scene.updateMatrixWorld(true)
     expect(outside()).not.toBe(out2)
-    expect(inside()).toBe(in2)
+    expect(inside()).not.toBe(in2)
   })
 
-  it('reads the shape of the shell from inside, never its finish or lights', () => {
+  it('includes the shell finish and lights in interior reflections', () => {
     const f = fixture()
     const room = new Group()
     room.userData.interior = true
@@ -284,22 +283,21 @@ describe('path-traced scene capture', () => {
     const inside = () => sceneSignature(f.scene, 'a', 'interior')
     const [out0, in0] = [outside(), inside()]
     // A new finish: the shell is rebuilt (new meshes, a new material) to the same shape, as
-    // StudioModel rebuilds it. The ring renders again; the panorama keeps.
+    // StudioModel rebuilds it. Both views must refresh.
     shell.remove(door)
     door = new Mesh(leaf(), new MeshStandardNodeMaterial())
     shell.add(door)
     f.scene.updateMatrixWorld(true)
     expect(outside()).not.toBe(out0)
-    expect(inside()).toBe(in0)
+    expect(inside()).not.toBe(in0)
     const out1 = outside()
     door.material.needsUpdate = true
     expect(outside()).not.toBe(out1)
-    expect(inside()).toBe(in0)
-    // A light on the shell is the ring's.
+    expect(inside()).not.toBe(out1)
     const out2 = outside()
     lamp.intensity = 4
     expect(outside()).not.toBe(out2)
-    expect(inside()).toBe(in0)
+    expect(inside()).not.toBe(out2)
     // The door hidden, moved, or of another shape: both.
     const out3 = outside()
     door.visible = false

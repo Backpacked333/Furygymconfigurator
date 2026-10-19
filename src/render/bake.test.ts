@@ -10,6 +10,17 @@ import { QUALITY } from './stills'
 const lens = { near: 0.1, far: 2000 }
 
 describe('a bake', () => {
+  it('can prioritize hero views without reducing their resolution or samples', () => {
+    const jobs = bakeJobs({
+      config: DEFAULT_CONFIG,
+      hero: DEFAULT_CAMERA,
+      aspects: ['wide'],
+      angles: ['front-left', 'entry'],
+      ...lens,
+    })
+    expect(jobs.map((job) => job.angle)).toEqual(['front-left', 'entry'])
+    expect(jobs.every((job) => job.width === 2400 && job.quality === QUALITY.export)).toBe(true)
+  })
   it('asks for every angle at every stage shape, at the export tier', () => {
     const jobs = bakeJobs({
       config: DEFAULT_CONFIG,

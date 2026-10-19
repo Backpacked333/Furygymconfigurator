@@ -1,0 +1,754 @@
+{
+  "contract": "fury.p03-pinned-assets@1",
+  "basis": "Preserved source asset bytes; inventory review is not rights approval. Ordinary validation never regenerates these pins.",
+  "files": [
+    {
+      "path": "public/textures/bark_platanus/albedo.webp",
+      "bytes": 245622,
+      "digest": "sha256:3c4262b9f9ec9872e06e4bc1f6baa54750dfe12f975dc8159ba288578d3eaefe"
+    },
+    {
+      "path": "public/textures/bark_platanus/arm.webp",
+      "bytes": 70830,
+      "digest": "sha256:93db5f823b4fa442e9799f8078ab9ef2e8220edbc6f67d039c58f6c014d4442b"
+    },
+    {
+      "path": "public/textures/bark_platanus/normal.webp",
+      "bytes": 502536,
+      "digest": "sha256:6fd5a837b9d11f7417c95d29c642aaed5dbde554fc3dc2732010ef8132f4a1a1"
+    },
+    {
+      "path": "public/textures/beige_wall_001/albedo.webp",
+      "bytes": 61312,
+      "digest": "sha256:5bec20d59e0a289e19a7424359cb93c372f277818ba97c01a2adcca2790b20f1"
+    },
+    {
+      "path": "public/textures/beige_wall_001/arm.webp",
+      "bytes": 146606,
+      "digest": "sha256:5e43994bcbbfb31bb5e38bcd3abde1ccc3f049d178006cb8839f661662bee510"
+    },
+    {
+      "path": "public/textures/beige_wall_001/normal.webp",
+      "bytes": 877240,
+      "digest": "sha256:b1273e204b3b3c308a534728cba03cc7cf0da100908ebe45cb6f664fa571bd1b"
+    },
+    {
+      "path": "public/textures/brushed_metal/arm.webp",
+      "bytes": 3024,
+      "digest": "sha256:b96e330f7bbc29dd8132d1e4f7bc622c6a62e500927b2d3863573803ea746a2c"
+    },
+    {
+      "path": "public/textures/brushed_metal/normal.webp",
+      "bytes": 23544,
+      "digest": "sha256:0b74b8d0e3bd47008e0d9de6fc4f4b8f76e6e2f3d4cb20e482eea5909889ab20"
+    },
+    {
+      "path": "public/textures/clean_pebbles/albedo.webp",
+      "bytes": 186448,
+      "digest": "sha256:649246d2e2ea9f313b3e41b0536346ce3bb334bdd3a89372cc69a6ae8bac3ee8"
+    },
+    {
+      "path": "public/textures/clean_pebbles/arm.webp",
+      "bytes": 208612,
+      "digest": "sha256:f4b5cd4f0010dd4190a81219e4c3bc52b514db8a3f795fb379b4615aba73b191"
+    },
+    {
+      "path": "public/textures/clean_pebbles/normal.webp",
+      "bytes": 545710,
+      "digest": "sha256:deb92747d2793656b301a4c6d5c2ccd0f87a12a21aea63d9254ad71a2e3af3d2"
+    },
+    {
+      "path": "public/textures/concrete_floor_worn_001/albedo.webp",
+      "bytes": 512558,
+      "digest": "sha256:bf5b21b34570bbc312ef6bdbc4194023edcf9e87c79c06eb4258c70a9c9072f4"
+    },
+    {
+      "path": "public/textures/concrete_floor_worn_001/arm.webp",
+      "bytes": 352342,
+      "digest": "sha256:440b30da09500e5ef66bb1ab8536e55fe6011a4d0c03b10fbf959d769263c9da"
+    },
+    {
+      "path": "public/textures/concrete_floor_worn_001/normal.webp",
+      "bytes": 1003020,
+      "digest": "sha256:74ada99c100c1b54b9dc6910f64087afb3a73a0177cbd2c49afa9913855064f4"
+    },
+    {
+      "path": "public/textures/concrete_pavement/albedo.webp",
+      "bytes": 1469592,
+      "digest": "sha256:a4da4ff21ff02e9c0e6264282872bf181f9fb5cc0f462cdae2c9c75ddee7e68c"
+    },
+    {
+      "path": "public/textures/concrete_pavement/arm.webp",
+      "bytes": 582730,
+      "digest": "sha256:08b8a94a297ec653e9b21c82005563782ecb0d458836728f3dff58733cc51b0f"
+    },
+    {
+      "path": "public/textures/concrete_pavement/normal.webp",
+      "bytes": 2097460,
+      "digest": "sha256:0cb5fdd9644d3213e5004e382844fd805c6ca5b62088b65275b9202091e84aaa"
+    },
+    {
+      "path": "public/textures/concrete_slab_wall/albedo.webp",
+      "bytes": 291382,
+      "digest": "sha256:a297a941c57adc272b163fc92bd31a43104ec7664ca3f570e6f1503b9df9b18b"
+    },
+    {
+      "path": "public/textures/concrete_slab_wall/arm.webp",
+      "bytes": 152466,
+      "digest": "sha256:f26d5d1f597e8e581ada65820464450260134c289adb446f8937e9b897bb6965"
+    },
+    {
+      "path": "public/textures/concrete_slab_wall/normal.webp",
+      "bytes": 997650,
+      "digest": "sha256:fdf3dd1b2b63ff4f9d02af25f1f5100a48f7baa4a6f5da946b5832418aae468d"
+    },
+    {
+      "path": "public/textures/concrete_wall_001/albedo.webp",
+      "bytes": 129890,
+      "digest": "sha256:89657e1347f856560b61a28f5aa09bb0fa3d5f4c442294a23b3e86d3496e0a57"
+    },
+    {
+      "path": "public/textures/concrete_wall_001/arm.webp",
+      "bytes": 210936,
+      "digest": "sha256:f77e14a61ccd941cb7dd6c647913e6aea4a185b64d425df0f6af993bea6a3a21"
+    },
+    {
+      "path": "public/textures/concrete_wall_001/normal.webp",
+      "bytes": 884622,
+      "digest": "sha256:02fcc9f1b960ec63df8ff0ca552eb5222375f61d5a52f922ce07a7d6ae4ae262"
+    },
+    {
+      "path": "public/textures/dry_ground_01/albedo.webp",
+      "bytes": 233812,
+      "digest": "sha256:3f595c245a87f53ee836325c260bc094400e6f411eb33af0a945d7fceb5e3a54"
+    },
+    {
+      "path": "public/textures/dry_ground_01/arm.webp",
+      "bytes": 112138,
+      "digest": "sha256:6685c51025bafc34d8b6b00ce894a6b91618d23b011328bf397b7d6ca4306f5b"
+    },
+    {
+      "path": "public/textures/dry_ground_01/normal.webp",
+      "bytes": 268854,
+      "digest": "sha256:efa934aa30a24e04676f197d066dc9ce94be3dbc13c52ac9db0caef82856d167"
+    },
+    {
+      "path": "public/textures/granite_tile_04/albedo.webp",
+      "bytes": 1643236,
+      "digest": "sha256:09d9353c4833192dcb3a0f36aa06fc1e9149fbfd2a8eb6255c728a475e144097"
+    },
+    {
+      "path": "public/textures/granite_tile_04/arm.webp",
+      "bytes": 920346,
+      "digest": "sha256:8301458f88b2efb2495b5df3dba7733633884ea219ace1cb0bceba4b0b44d87e"
+    },
+    {
+      "path": "public/textures/granite_tile_04/normal.webp",
+      "bytes": 652776,
+      "digest": "sha256:ce8010bdc55f9159466463f0d9eec5d6f14eb92007a24f409771ef9ca20f773c"
+    },
+    {
+      "path": "public/textures/herringbone_pavement/albedo.webp",
+      "bytes": 1683726,
+      "digest": "sha256:df0698cb6f318e2f06f81b4bbb3a437f6fd41e0a1b8670bb3458c46bb5cbb2e0"
+    },
+    {
+      "path": "public/textures/herringbone_pavement/arm.webp",
+      "bytes": 392972,
+      "digest": "sha256:7c60e9816fbd3608df73c35bba31c3b92a0e4572c4eedfea0021ed2e81181ec7"
+    },
+    {
+      "path": "public/textures/herringbone_pavement/normal.webp",
+      "bytes": 1514224,
+      "digest": "sha256:2cf498a0ddbca142ee8f6e4b308090353a86a99c3a03aae3d2c4d6a45e74e369"
+    },
+    {
+      "path": "public/textures/hinoki_planks/albedo.webp",
+      "bytes": 291836,
+      "digest": "sha256:209b510292e467a74d32bb8c0be239df55fdc5ffd8e26b4c78c12ee65018fffe"
+    },
+    {
+      "path": "public/textures/hinoki_planks/arm.webp",
+      "bytes": 71116,
+      "digest": "sha256:b8f5a05d3de7a3c28dae9cbc95fcc0e4c9fd62319eec85acda8f01210dffc273"
+    },
+    {
+      "path": "public/textures/hinoki_planks/normal.webp",
+      "bytes": 298530,
+      "digest": "sha256:9157e8b2a977026f049a05fa3f6edf0bb73c00bc2c6e975c27a0050e249380d4"
+    },
+    {
+      "path": "public/textures/japanese_cedar_planks/albedo.webp",
+      "bytes": 371646,
+      "digest": "sha256:5f87fb0f14651330837c14bbab3cc32d311f534fc321517ee3bda6ea1125ad41"
+    },
+    {
+      "path": "public/textures/japanese_cedar_planks/arm.webp",
+      "bytes": 334392,
+      "digest": "sha256:3860fa24c60ed3f7eb79187e8ca451b65001e592a9935bc80c1606a79a936c99"
+    },
+    {
+      "path": "public/textures/japanese_cedar_planks/normal.webp",
+      "bytes": 1400502,
+      "digest": "sha256:104ac06354ce9e83ca3d98c6d7ee7db0544ae742b9bc9a37f86c32aaf8e8f279"
+    },
+    {
+      "path": "public/textures/knurling/arm.webp",
+      "bytes": 8414,
+      "digest": "sha256:ff49d0130d6ff444c28d6e5419bdc3411c2affd3cbe40b1a092bc5071d1d63a4"
+    },
+    {
+      "path": "public/textures/knurling/normal.webp",
+      "bytes": 27362,
+      "digest": "sha256:29e08464c318e54e6c7b9bebfd8f368ab02bfb43e251a4e21b3e10f6f7a7d90c"
+    },
+    {
+      "path": "public/textures/laminate_floor_02/albedo.webp",
+      "bytes": 850722,
+      "digest": "sha256:34c756d5201e0b189d4d3c3124b1534923c471819eaf0228432b83e7e4fe45e0"
+    },
+    {
+      "path": "public/textures/laminate_floor_02/arm.webp",
+      "bytes": 356408,
+      "digest": "sha256:e12f849cca38eb4f21a661b2e252b06425c3a2edf23555cc7bc43a6e7e2c1c35"
+    },
+    {
+      "path": "public/textures/laminate_floor_02/normal.webp",
+      "bytes": 445486,
+      "digest": "sha256:c5630f2bb85f851489e86bf7ac8bb26a79e1ee909cd9a48473672e614cf553fe"
+    },
+    {
+      "path": "public/textures/leafy_grass/albedo.webp",
+      "bytes": 374648,
+      "digest": "sha256:a5ef24a1ba65b30fd18769f757a2acd17d3eb9a4f275613ba7ba93ccb7d306f8"
+    },
+    {
+      "path": "public/textures/leafy_grass/arm.webp",
+      "bytes": 234916,
+      "digest": "sha256:b7fe4d56dfecedc06ef18f0fcce126556de3d8ba9701fd278837de16d97403c8"
+    },
+    {
+      "path": "public/textures/leafy_grass/normal.webp",
+      "bytes": 603758,
+      "digest": "sha256:76fcc8c604ad0c28e014633d6ae3a368e8b177749795081e49fc6e4a52c97041"
+    },
+    {
+      "path": "public/textures/leather_white/albedo.webp",
+      "bytes": 264816,
+      "digest": "sha256:f0fd207901ac56c385d77fca9386328358ac1526c38d777b5e6d80b14ea1a420"
+    },
+    {
+      "path": "public/textures/leather_white/arm.webp",
+      "bytes": 169874,
+      "digest": "sha256:1657e2c309cacc38d205bc31e61d5c0ab40caf0ae5d81b5feddf582639077697"
+    },
+    {
+      "path": "public/textures/leather_white/normal.webp",
+      "bytes": 142288,
+      "digest": "sha256:f199b418e9e5b1d0f3273a4e2f7bc93ba61c9e95c1f1eee3e2b18b4e30e79027"
+    },
+    {
+      "path": "public/textures/oak_veneer_01/albedo.webp",
+      "bytes": 528822,
+      "digest": "sha256:9dac9a63c18fd2d0ac12e05f5ea972d6437bb67b7866316238de16863704a4c6"
+    },
+    {
+      "path": "public/textures/oak_veneer_01/arm.webp",
+      "bytes": 1219678,
+      "digest": "sha256:288d2d21e2c2607828235b6b29ad40f9ce048611e6ea1dafd8f8fe78b06b059b"
+    },
+    {
+      "path": "public/textures/oak_veneer_01/normal.webp",
+      "bytes": 356930,
+      "digest": "sha256:abae037a26a530860acdddb29cd2cefa6899e6ce7e72291240e494c4bab56586"
+    },
+    {
+      "path": "public/textures/painted_metal_shutter/albedo.webp",
+      "bytes": 616592,
+      "digest": "sha256:fc191124effee04bb67e1e78c73a289aaa338274a2c9d3b7be559f546f2a32c1"
+    },
+    {
+      "path": "public/textures/painted_metal_shutter/arm.webp",
+      "bytes": 242108,
+      "digest": "sha256:6b7869a4d9630f1f310cf2804ebf911388857b40a6577e909ecae209d4033c56"
+    },
+    {
+      "path": "public/textures/painted_metal_shutter/normal.webp",
+      "bytes": 753392,
+      "digest": "sha256:634eddf10a9d401878c71e41a3d3f8d3b7bbbaafb9efc63170bb04185381dd20"
+    },
+    {
+      "path": "public/textures/plywood/albedo.webp",
+      "bytes": 1350604,
+      "digest": "sha256:c1a5eb0b7c18aa4d0aa349a1fb360c3d716da90d0a7a5c59309509eb1fb5afd0"
+    },
+    {
+      "path": "public/textures/plywood/arm.webp",
+      "bytes": 1075856,
+      "digest": "sha256:f6b050d12a716e6d9e5bdd80e81d08063c4ec95ecde1a39829d13a1c2589665f"
+    },
+    {
+      "path": "public/textures/plywood/normal.webp",
+      "bytes": 627946,
+      "digest": "sha256:997e29b0ce88207a976b11e909f1a56f45c234e762f15c4a69db8f15d1bbd880"
+    },
+    {
+      "path": "public/textures/powder_coat/arm.webp",
+      "bytes": 2092,
+      "digest": "sha256:b19a050f0c8eb1d098b8499f56ee017c725edc1c9e320fb2870541f13997240e"
+    },
+    {
+      "path": "public/textures/powder_coat/normal.webp",
+      "bytes": 39868,
+      "digest": "sha256:54e18c29e0e0f09fafd3592d46d38403cb9db67221285aff8fa9e82aacfce8fc"
+    },
+    {
+      "path": "public/textures/red_brick_03/albedo.webp",
+      "bytes": 1411778,
+      "digest": "sha256:b62aac89c8d44dd62fc4857705ecb33679a7889ac54d4b5b23035e2c8513e45a"
+    },
+    {
+      "path": "public/textures/red_brick_03/arm.webp",
+      "bytes": 401952,
+      "digest": "sha256:e90c209be44be8802fda65a486576e8a6e88ef781d2d3d8689cd0a01298fedcd"
+    },
+    {
+      "path": "public/textures/red_brick_03/normal.webp",
+      "bytes": 1463414,
+      "digest": "sha256:37cc4b9e45c88186a08619bb24ee9022f0899e5cf69c5741e1140c9ba7af3824"
+    },
+    {
+      "path": "public/textures/rough_linen/albedo.webp",
+      "bytes": 289444,
+      "digest": "sha256:17d2deee29f58275b390b80df5c56befb12d94e207056d5c59019ce83fc5c76c"
+    },
+    {
+      "path": "public/textures/rough_linen/arm.webp",
+      "bytes": 386312,
+      "digest": "sha256:d1e39dc83ef8869610388c1fa7365ef251a14756182b228e7cb78540eb05e0fa"
+    },
+    {
+      "path": "public/textures/rough_linen/normal.webp",
+      "bytes": 341816,
+      "digest": "sha256:42bf3893c746aaefaf7c4dbccc2578198124e86bb3ff8ade6e974e41aaa12172"
+    },
+    {
+      "path": "public/textures/rubber_tiles/albedo.webp",
+      "bytes": 38248,
+      "digest": "sha256:0a5c3c650f2c00700087fdfbac61cae270fd7a9951381896a0bd139a49547c6e"
+    },
+    {
+      "path": "public/textures/rubber_tiles/arm.webp",
+      "bytes": 302208,
+      "digest": "sha256:0ff61feb158b2ddccebc225d0a7dab1e0df6d51c3db21e50e80cc502a2773c29"
+    },
+    {
+      "path": "public/textures/rubber_tiles/normal.webp",
+      "bytes": 267464,
+      "digest": "sha256:48050b454e7a117b2561697a74983085c2d2a7b258b94fb4f0de7960a4b5857a"
+    },
+    {
+      "path": "public/textures/rubberized_track/albedo.webp",
+      "bytes": 379586,
+      "digest": "sha256:841a7bbcb76865888a36a4e32ced53611fa5e6f34aeef1c8866d368733aa4008"
+    },
+    {
+      "path": "public/textures/rubberized_track/arm.webp",
+      "bytes": 105840,
+      "digest": "sha256:3766e51c303219d2f9f5909e6ea77d1f750af310c6b98e00cebc64ddc02b1168"
+    },
+    {
+      "path": "public/textures/rubberized_track/normal.webp",
+      "bytes": 501464,
+      "digest": "sha256:e0949341724244895a12b9fa07b82392c71d43844cb9631c34704da2091112f2"
+    },
+    {
+      "path": "public/textures/teak_veneer/albedo.webp",
+      "bytes": 336384,
+      "digest": "sha256:bb845330076bd660233c205db569d1a8becfa140cf067fd3cbb6b033de140bd8"
+    },
+    {
+      "path": "public/textures/teak_veneer/arm.webp",
+      "bytes": 587708,
+      "digest": "sha256:062c4069318216ef9a35fad50f3473b4a3789d76309248c51031d76e044fa0ef"
+    },
+    {
+      "path": "public/textures/teak_veneer/normal.webp",
+      "bytes": 198248,
+      "digest": "sha256:f3b5c66c86769c395b61bdcc7f926f6de7846b4fb0f001394e3d2a311ddb2257"
+    },
+    {
+      "path": "public/textures/white_stucco/albedo.webp",
+      "bytes": 316914,
+      "digest": "sha256:87f97f46cb3317124e7a45e83734314db5e960965c49c46319420c0c11075204"
+    },
+    {
+      "path": "public/textures/white_stucco/arm.webp",
+      "bytes": 49942,
+      "digest": "sha256:a0162239bf8784bb163669994f07d33cf8c17983d458698c6e6b33cb772efd87"
+    },
+    {
+      "path": "public/textures/white_stucco/normal.webp",
+      "bytes": 1432110,
+      "digest": "sha256:50bc9c2e9d9243846efea9f06b0ecc4492947ec3036e00a9980bbe44a380c529"
+    },
+    {
+      "path": "public/textures/sources.json",
+      "bytes": 7430,
+      "digest": "sha256:cb2bf105b15dd973f1c8cd5d485669ad98d5909e925d92fa0c17700a25c43bd1"
+    }
+  ],
+  "rights": [
+    {
+      "id": "bark_platanus",
+      "source": "https://polyhaven.com/a/bark_platanus",
+      "authors": ["Dimitrios Savva"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "beige_wall_001",
+      "source": "https://polyhaven.com/a/beige_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "brushed_metal",
+      "source": null,
+      "authors": [],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "clean_pebbles",
+      "source": "https://polyhaven.com/a/clean_pebbles",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "concrete_floor_worn_001",
+      "source": "https://polyhaven.com/a/concrete_floor_worn_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "concrete_pavement",
+      "source": "https://polyhaven.com/a/concrete_pavement",
+      "authors": ["Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "concrete_slab_wall",
+      "source": "https://polyhaven.com/a/concrete_slab_wall",
+      "authors": ["Dimitrios Savva"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "concrete_wall_001",
+      "source": "https://polyhaven.com/a/concrete_wall_001",
+      "authors": ["Dimitrios Savva", "Rico Cilliers"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "dry_ground_01",
+      "source": "https://polyhaven.com/a/dry_ground_01",
+      "authors": ["Rob Tuytel"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "granite_tile_04",
+      "source": "https://polyhaven.com/a/granite_tile_04",
+      "authors": ["Amal Kumar"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "herringbone_pavement",
+      "source": "https://polyhaven.com/a/herringbone_pavement",
+      "authors": ["Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "hinoki_planks",
+      "source": "https://polyhaven.com/a/hinoki_planks",
+      "authors": ["Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "japanese_cedar_planks",
+      "source": "https://polyhaven.com/a/japanese_cedar_planks",
+      "authors": ["Charlotte Baglioni", "Rico Cilliers"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "knurling",
+      "source": null,
+      "authors": [],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "laminate_floor_02",
+      "source": "https://polyhaven.com/a/laminate_floor_02",
+      "authors": ["Dario Barresi", "Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "leafy_grass",
+      "source": "https://polyhaven.com/a/leafy_grass",
+      "authors": ["Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "leather_white",
+      "source": "https://polyhaven.com/a/leather_white",
+      "authors": ["Rob Tuytel"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "oak_veneer_01",
+      "source": "https://polyhaven.com/a/oak_veneer_01",
+      "authors": ["Jenelle van Heerden"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "painted_metal_shutter",
+      "source": "https://polyhaven.com/a/painted_metal_shutter",
+      "authors": ["Dario Barresi", "Rico Cilliers", "Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "plywood",
+      "source": "https://polyhaven.com/a/plywood",
+      "authors": ["Rob Tuytel"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "powder_coat",
+      "source": null,
+      "authors": [],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "red_brick_03",
+      "source": "https://polyhaven.com/a/red_brick_03",
+      "authors": ["Rob Tuytel"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "rough_linen",
+      "source": "https://polyhaven.com/a/rough_linen",
+      "authors": ["colormass", "Rico Cilliers"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "rubber_tiles",
+      "source": "https://polyhaven.com/a/rubber_tiles",
+      "authors": ["Amal Kumar"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "rubberized_track",
+      "source": "https://polyhaven.com/a/rubberized_track",
+      "authors": ["Charlotte Baglioni"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "teak_veneer",
+      "source": "https://polyhaven.com/a/teak_veneer",
+      "authors": ["Jenelle van Heerden"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    },
+    {
+      "id": "white_stucco",
+      "source": "https://polyhaven.com/a/white_stucco",
+      "authors": ["Amal Kumar"],
+      "licenseEvidence": "credited-origin-only-no-byte-to-license-acquisition-receipt",
+      "scopes": [
+        "browser-distribution",
+        "cloud-processing",
+        "streaming",
+        "downloadable-derivatives"
+      ],
+      "status": "held"
+    }
+  ]
+}

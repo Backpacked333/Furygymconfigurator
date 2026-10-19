@@ -74,7 +74,7 @@ function before(environment: string, L: number) {
           [L / 2 + 9, -6, 0, 14, 4, 1.8],
           [-L / 2 - 9, -9, 0, 4, 12, 1.8],
         ],
-        grass: [],
+        grass: [[13, 3, 2.1, 65, 1.3]],
         posts: [],
         shrubs: [],
         trees: [

@@ -1,19 +1,4 @@
-"""HTTP API of the render server.
-
-    GET  /health          device and queue state
-    PUT  /blobs/{sha256}  upload a blob (raw or gzip); stored by the hash of its raw content
-    POST /render          render a view; 200 with a linear half-float image (protocol.py),
-                          gzip transfer-encoded, or a gzip file with "transfer": "file",
-                          409 {"missing": [...]} when blobs must be uploaded first,
-                          409 {"superseded": true} when the same session asked for a newer view
-
-One worker renders at a time. A session's queued requests are dropped the moment it asks for a
-newer view (they answer 409 without waiting for a worker, and give their queue places back at
-once), as is a request for an older view arriving after it, so an orbiting visitor never waits
-behind views they have already left and stale work never holds a queue place. Queued renders go
-by "kind": a quick preview first, then the visitor's view, then pre-rendered orbit views; or by an
-explicit "priority" (0-31, the browser's ring distance from the visitor's view).
-"""
+"""Legacy queue/protocol internals retained for private reuse; HTTP startup is retired."""
 
 from __future__ import annotations
 
@@ -37,8 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from . import finishing
@@ -659,93 +643,7 @@ class Service:
 
 
 def create_app(settings: Settings | None = None, start: bool = True) -> FastAPI:
-    service = Service(settings)
+    """Retired raw-scene factory; even direct ASGI startup cannot create a service."""
+    from .gateway import create_gateway
 
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI):
-        if start:
-            await asyncio.to_thread(service.start)
-        yield
-
-    app = FastAPI(title="Fury Studio renderer", lifespan=lifespan)
-    app.state.service = service
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=service.settings.origins,
-        allow_methods=["GET", "PUT", "POST"],
-        allow_headers=["content-type"],
-        expose_headers=[
-            "x-image-format",
-            "x-image-width",
-            "x-image-height",
-            "x-queue-ms",
-            "x-prepare-ms",
-            "x-render-ms",
-            "x-pack-ms",
-            "x-device",
-            "x-denoise",
-            "x-cache",
-            "x-finish-ms",
-            "x-traced-key",
-        ],
-        max_age=3600,
-    )
-
-    @app.get("/health")
-    async def health():
-        info = service.info
-        return {
-            "ok": True,
-            "device": info.get("device"),
-            "gpus": info.get("gpus", []),
-            "denoise": info.get("denoise"),
-            "blender": info.get("blender"),
-            "workers": len(service.workers),
-            "queue": service.waiting,
-        }
-
-    @app.get("/warm")
-    async def warm():
-        """Answers the page's warm-up call as the gateway does (gateway.py), doing nothing.
-
-        The gateway starts a session's GPU on it; this server is its own, already running, so the
-        page sees the same flow against a local server as against the cloud.
-        """
-        return JSONResponse({"warming": True, "renderer": "own"}, status_code=202)
-
-    async def bounded_body(request: Request, limit: int):
-        data = bytearray()
-        async for chunk in request.stream():
-            if len(data) + len(chunk) > limit:
-                raise HTTPException(413, "too large")
-            data.extend(chunk)
-        return bytes(data)
-
-    @app.put("/blobs/{key}")
-    async def put_blob(key: str, request: Request):
-        if not HASH.match(key):
-            return JSONResponse({"error": "bad hash"}, status_code=400)
-        body = await bounded_body(request, MAX_BLOB_BYTES)
-        if not service.uploads.take(client_key(request), len(body)):
-            return JSONResponse({"error": "upload rate exceeded"}, status_code=429)
-        try:
-            data = await asyncio.to_thread(decompress, body)
-        except (OSError, EOFError, ProtocolError):
-            return JSONResponse({"error": "bad gzip"}, status_code=400)
-        if len(data) > MAX_BLOB_BYTES or digest(data) != key:
-            return JSONResponse({"error": "hash mismatch"}, status_code=400)
-        await asyncio.to_thread(service.store.put, key, data)
-        return Response(status_code=204)
-
-    @app.post("/render")
-    async def render(request: Request):
-        if not service.renders.take(client_key(request)):
-            return JSONResponse({"error": "render rate exceeded"}, status_code=429)
-        raw = await bounded_body(request, 32 << 20)
-        try:
-            body = json.loads(decompress(raw, 32 << 20))
-            return await service.render(body)
-        except (ProtocolError, ValueError, TypeError, AttributeError, OSError, EOFError) as error:
-            return JSONResponse({"error": str(error)}, status_code=400)
-
-    return app
+    return create_gateway()

@@ -58,10 +58,15 @@ describe('bake mode', () => {
   it('lists the default design and the signature builds, then every other finish of each', () => {
     const designs = bakeDesigns()
     const own = designs.filter((d) => !d.variant)
-    expect(own.map((d) => d.id)).toEqual(['default', ...SIGNATURES.map((s) => s.id)])
+    expect(own.map((d) => d.id)).toEqual([
+      'default',
+      'default-container',
+      ...SIGNATURES.map((s) => s.id),
+    ])
     expect(own[0]).toMatchObject({ group: 'default', hero: null, finish: DEFAULT_CONFIG.finish })
     expect(configKey(decodeConfig(own[0].encoded)!)).toBe(configKey(DEFAULT_CONFIG))
-    own.slice(1).forEach((design, i) => {
+    expect(decodeConfig(own[1].encoded)?.family).toBe('container')
+    own.slice(2).forEach((design, i) => {
       expect(design).toMatchObject({ group: 'signature', hero: SIGNATURES[i].camera })
       expect(configKey(decodeConfig(design.encoded)!)).toBe(configKey(SIGNATURES[i].config))
     })

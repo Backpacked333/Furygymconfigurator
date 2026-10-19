@@ -54,6 +54,7 @@ import { requestSiteField, roomInside, setSiteField } from '../render/siteLightN
 import { invalidateShadows } from '../render/shadows'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
+import type { RigObservation } from '../render/display/observation'
 
 /** Half-width of the sun's shadow map in feet, and how far toward the sun it gathers casters. */
 const SHADOW_EXTENT = 64
@@ -153,10 +154,12 @@ export function Atmosphere({
   config,
   quality,
   view,
+  observation,
 }: {
   config: Config
   quality: Quality
   view: View
+  observation?: RigObservation
 }) {
   const { gl, scene, invalidate } = useThree()
   const renderer = gl as unknown as WebGPURenderer
@@ -233,11 +236,13 @@ export function Atmosphere({
   )
   /** The site's light is captured again once changes stop arriving (`SITE_DEBOUNCE_MS`). */
   const recaptureSite = useCallback(() => {
+    if (observation && !observation.active()) return
+    observation?.invalidate('environment')
     site.current.passes = SITE_PASSES
     site.current.due = performance.now() + SITE_DEBOUNCE_MS
     clearTimeout(wake.current)
     wake.current = setTimeout(invalidate, SITE_DEBOUNCE_MS + 1)
-  }, [invalidate])
+  }, [invalidate, observation])
   // What the site looks like changes with its scans arriving and with the unit's length, which
   // moves the buildings around it.
   useEffect(
@@ -248,6 +253,12 @@ export function Atmosphere({
     [recaptureSite],
   )
   useEffect(() => recaptureSite(), [config.length, config.family, recaptureSite])
+  // A private revision always recaptures, including dependency-identical cached scenes.
+  useLayoutEffect(() => {
+    if (!observation) return
+    environmentStale.current = true
+    observation.invalidate('environment')
+  }, [observation])
 
   // Sky, fog, and the image-based lighting captured from them, keyed to time and surroundings.
   useLayoutEffect(() => {
@@ -293,7 +304,11 @@ export function Atmosphere({
   // rather than on every change: a time-of-day drag can commit several changes between frames.
   // The open sky first, at once; outside, the site's own a moment later, lit by it.
   useFrame(() => {
-    if (!generator) return
+    if (
+      !generator ||
+      (observation && (!observation.active() || !observation.permitted('environment')))
+    )
+      return
     const size = quality === 'lite' ? 128 : 256
     // A target is reused only at its own cube size; Lite and High/Ultra differ.
     const sized = (t: RenderTarget | null) => {
@@ -313,8 +328,10 @@ export function Atmosphere({
         { size, renderTarget: sized(target.current) ?? undefined },
       )
       setEnvironment(target.current.texture)
-      if (studio) site.current.passes = 0
-      else recaptureSite()
+      if (studio) {
+        site.current.passes = 0
+        observation?.complete('environment')
+      } else recaptureSite()
       return
     }
     const state = site.current
@@ -365,6 +382,7 @@ export function Atmosphere({
     state.current = next
     state.passes--
     setEnvironment(captured.texture)
+    if (state.passes === 0) observation?.complete('environment')
     // Its shadow maps were drawn for the capture: the view draws its own again.
     invalidateShadows(scene)
     invalidate()
@@ -376,17 +394,24 @@ export function Atmosphere({
   useEffect(() => {
     let current = true
     const design = { ...config, environment, length, family, time }
-    void requestSiteField(design).then((field) => {
-      if (!current) return
-      setSiteField(field, roomInside(design))
-      invalidate()
-    })
+    observation?.invalidate('site-field')
+    void requestSiteField(design, observation?.signal)
+      .then((field) => {
+        if (!current || (observation && !observation.active())) return
+        setSiteField(field, roomInside(design))
+        // Completion follows application, including the explicit studio null-field.
+        observation?.complete('site-field')
+        invalidate()
+      })
+      .catch((error: unknown) => {
+        if (current && observation?.active()) observation.fail(error)
+      })
     return () => {
       current = false
     }
     // The field depends on these alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [environment, length, family, time, invalidate])
+  }, [environment, length, family, time, invalidate, observation])
 
   // The stills' exposure (visuals.ts exposureAt): eyes adapt after dark, and a camera inside
   // opens up for the dimmer room.

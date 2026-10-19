@@ -1,9 +1,10 @@
-import { readFileSync } from 'node:fs'
-import { relative, sep } from 'node:path'
+import { readFileSync, realpathSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, searchForWorkspaceRoot, type Plugin, type UserConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { isRenderSource, renderVersion } from './scripts/render-version.ts'
+import { displayPrivateBoundary } from './scripts/display-private-boundary.ts'
 import {
   EMPTY_MANIFEST,
   heroPreloadScript,
@@ -132,9 +133,53 @@ function bakedStills(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [fiberUsesWebGPUBuild(), bakedStills(), react()],
-  server: { host: '0.0.0.0', allowedHosts: true },
+export default defineConfig(async ({ command, mode, isPreview }): Promise<UserConfig> => ({
+  plugins: [
+    displayPrivateBoundary(),
+    fiberUsesWebGPUBuild(),
+    bakedStills(),
+    react(),
+    // Private display is DEV-only and fail-closed before any broad mock/HTML handling.
+    ...(command === 'serve' &&
+    !isPreview &&
+    mode !== 'production' &&
+    process.env.NODE_ENV !== 'production'
+      ? [
+          // The local handler catches /__fury-display broadly; cloud MUST register first.
+          (await import('./scripts/cloud-display-service-plugin.ts')).cloudDisplayServicePlugin(),
+          (await import('./scripts/display-service-plugin.ts')).displayServicePlugin(),
+        ]
+      : []),
+    // Guard real-mode URLs before the older broad mock namespace. No renderer import when disabled.
+    ...(command === 'serve' &&
+    !isPreview &&
+    mode !== 'production' &&
+    process.env.NODE_ENV !== 'production'
+      ? [(await import('./scripts/local-render-plugin.ts')).localRenderPlugin()]
+      : []),
+    // Never load service/SQLite modules on default v3 development or any build/preview path.
+    ...(command === 'serve' &&
+    !isPreview &&
+    mode !== 'production' &&
+    process.env.NODE_ENV !== 'production' &&
+    process.env.FURY_IMAGE_PROTOTYPE === '1'
+      ? [(await import('./scripts/prototype-image-plugin.ts')).prototypeImagePlugin()]
+      : []),
+  ],
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: true,
+    fs: {
+      strict: true,
+      // Preserve Vite's workspace boundary. Only the two symlink-resolved font asset
+      // directories are added, never the dependency tree, home directory or private sources.
+      allow: [
+        searchForWorkspaceRoot(ROOT),
+        realpathSync(join(ROOT, 'node_modules/@fontsource/manrope/files')),
+        realpathSync(join(ROOT, 'node_modules/@fontsource/dm-sans/files')),
+      ],
+    },
+  },
   build: {
     target: 'es2022',
     rollupOptions: {
@@ -153,4 +198,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

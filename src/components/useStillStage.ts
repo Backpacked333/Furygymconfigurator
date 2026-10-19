@@ -1,5 +1,11 @@
 import { useEffect, useReducer, useRef, useSyncExternalStore } from 'react'
-import { bakedRevision, bakedStill, onBakedChange, type BakedStill } from '../lib/bakedStills'
+import {
+  bakedLoading,
+  bakedRevision,
+  bakedStill,
+  onBakedChange,
+  type BakedStill,
+} from '../lib/bakedStills'
 import { DEFAULT_CAMERA } from '../lib/config'
 import { bench } from '../render/bench'
 import { angleKey, galleryAngle, type AngleId, type AspectClass } from '../render/gallery'
@@ -141,6 +147,8 @@ export function useStillStage({
   return {
     state,
     dispatch,
+    baked: baked?.tier === 'export',
+    assetsLoading: bakedLoading(),
     /** The stage shows the visitor's design at their angle. */
     current: showsWanted(state),
     /**

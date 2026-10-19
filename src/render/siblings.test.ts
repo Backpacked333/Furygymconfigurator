@@ -121,9 +121,8 @@ describe('a sibling design', () => {
         const shot = captureSibling(scene, look, derivation, keys)
         expect(shot).not.toBeNull()
         expect(shot!.keys).toEqual(partKeys(sceneOf(sibling), look))
-        // A finish is seen outside: the exterior's fingerprint changes. A floor only inside.
-        if (sibling.flooring !== base.flooring) expect(shot!.keys.exterior).toBe(keys.exterior)
-        else expect(shot!.keys.exterior).not.toBe(keys.exterior)
+        expect(shot!.keys.exterior).not.toBe(keys.exterior)
+        expect(shot!.keys.interior).not.toBe(keys.interior)
       }
       // Nothing of the live scene changed meanwhile.
       expect(partKeys(scene, look)).toEqual(keys)

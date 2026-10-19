@@ -21,7 +21,7 @@ import { bench } from './bench'
 import { fingerprint } from './hash'
 import { stillInstances } from './instances'
 import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
-import { cloudUrl } from './traceStatus'
+import { cloudUrl, legacyDiagnosticUrl } from './traceStatus'
 
 export { cloudUrl, renderSession, warmCloud, warmth }
 export { fingerprint }
@@ -721,6 +721,8 @@ export class CloudClient {
   private readonly open = new Set<{ timeLimit: number }>()
 
   constructor(url: string) {
+    if (!legacyDiagnosticUrl(url))
+      throw new Full('Legacy cloud rendering is disabled; only development loopback is allowed.')
     this.url = url
   }
 

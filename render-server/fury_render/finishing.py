@@ -4,7 +4,7 @@ The spin viewer shows many pre-rendered frames, so they travel as small WebP ima
 at 1200x827) instead of linear half floats (4 MB). The browser's finishing therefore happens here:
 
 - exposure match (a gain);
-- emissive bloom (three.js BloomNode with strength 0.16, radius 0.5, threshold 1.4);
+- emissive bloom (three.js BloomNode with strength 0.045, radius 0.5, threshold 2.4);
 - AgX tone mapping at the renderer's exposure (three.js r186);
 - sRGB encoding and dither.
 
@@ -21,7 +21,8 @@ import numpy as np
 # Part of a cached frame's name (api.py frame_version): bump it whenever finishing changes, so
 # frames finished the old way are rendered again instead of served. 2: bloom radii scale with
 # the frame's width, and frames twice the reference width and wider bloom on a smaller image.
-FINISHING_VERSION = 2
+# 3: restrained highlight-only glow, preserving material contrast around practical lights.
+FINISHING_VERSION = 3
 
 # three.js ToneMappingFunctions.js. TSL's mat3(a, b, c) takes columns, so with row vectors the
 # product is v @ [a, b, c].
@@ -56,8 +57,8 @@ LUMINANCE = np.array([0.2126, 0.7152, 0.0722], np.float32)
 # radius 0.5 every mip's factor mix(f, 1.2 - f, 0.5) is 0.6. The kernel radii are pixels of each
 # mip, matched to the browser at frames about 1200 px wide; bloom_kernels scales them with the
 # width, so a 1x preview and the full-resolution frame glow alike.
-BLOOM_STRENGTH = 0.16
-BLOOM_THRESHOLD = 1.4
+BLOOM_STRENGTH = 0.045
+BLOOM_THRESHOLD = 2.4
 BLOOM_SMOOTH = 0.01
 BLOOM_KERNELS = (6, 10, 14, 18, 22)
 BLOOM_REFERENCE_WIDTH = 1200

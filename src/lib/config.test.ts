@@ -25,6 +25,7 @@ import {
   studioDoorCenter,
   shareUrl,
   writeSaved,
+  writeDraft,
   type Config,
 } from './config'
 import { configReducer } from './useConfig'
@@ -55,6 +56,97 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('configuration and packages', () => {
+  for (const raw of ['{', '', '{"v":99,"future":"keep me"}', 'null', '42'])
+    it(`archives non-library data before replacing it: ${JSON.stringify(raw)}`, () => {
+      localStorage.setItem('fury-builds-v1', raw)
+      const save = vi.spyOn(localStorage, 'setItem')
+      writeSaved([])
+      const archive = save.mock.calls.find(([key]) => key.startsWith('fury-builds-v1-recovery-'))
+      expect(archive).toBeDefined()
+      expect(localStorage.getItem(archive![0])).toBe(raw)
+      expect(localStorage.getItem('fury-builds-v1')).toBe('[]')
+      expect(save.mock.calls.at(-1)).toEqual(['fury-builds-v1', '[]'])
+      save.mockRestore()
+    })
+
+  it('never replaces a malformed library when recovery fails or silently drops the archive', () => {
+    const originalSave = localStorage.setItem
+    const save = vi.spyOn(localStorage, 'setItem')
+    for (const silent of [false, true]) {
+      originalSave('fury-builds-v1', 'unreadable original')
+      save.mockImplementation((key, value) => {
+        if (key.startsWith('fury-builds-v1-recovery-')) {
+          if (!silent) throw new Error('quota')
+          return
+        }
+        originalSave(key, value)
+      })
+      expect(() => writeSaved([])).toThrow()
+      expect(localStorage.getItem('fury-builds-v1')).toBe('unreadable original')
+    }
+    save.mockRestore()
+  })
+
+  it('retains the raw future entry and entries hidden by the twelve-build display limit', () => {
+    const builds = Array.from({ length: 13 }, (_, i) => ({
+      id: `${i}`,
+      name: `Build ${i}`,
+      date: '',
+      config: fresh(),
+    }))
+    const future = { id: 'future', config: { v: 99 }, extra: 'retain raw' }
+    const raw = JSON.stringify([...builds, future], null, 2)
+    localStorage.setItem('fury-builds-v1', raw)
+    const save = vi.spyOn(localStorage, 'setItem')
+    expect(readSaved()).toHaveLength(12)
+    writeSaved([])
+    const archive = save.mock.calls.find(([key]) => key.startsWith('fury-builds-v1-recovery-'))
+    expect(localStorage.getItem(archive![0])).toBe(raw)
+    expect(JSON.parse(localStorage.getItem('fury-builds-v1')!)).toEqual([future])
+    save.mockRestore()
+  })
+
+  it('does not overwrite a library changed while its recovery copy is being written', () => {
+    localStorage.setItem('fury-builds-v1', '{')
+    const originalSave = localStorage.setItem
+    const save = vi.spyOn(localStorage, 'setItem')
+    save.mockImplementation((key, value) => {
+      originalSave(key, value)
+      if (key.startsWith('fury-builds-v1-recovery-'))
+        originalSave('fury-builds-v1', 'newer external write')
+    })
+    expect(() => writeSaved([])).toThrow('library changed')
+    expect(localStorage.getItem('fury-builds-v1')).toBe('newer external write')
+    save.mockRestore()
+  })
+
+  it('preserves an empty draft and verifies its archive before autosave', () => {
+    localStorage.setItem('fury-draft-v1', '')
+    const save = vi.spyOn(localStorage, 'setItem')
+    writeDraft(encodeConfig(fresh()))
+    const archive = save.mock.calls.find(([key]) => key.startsWith('fury-draft-recovery-'))
+    expect(localStorage.getItem(archive![0])).toBe('')
+    save.mockRestore()
+  })
+
+  it('archives unreadable draft data before autosaving and never overwrites it if recovery storage fails', () => {
+    const save = vi.spyOn(localStorage, 'setItem')
+    localStorage.setItem('fury-draft-v1', 'old-unreadable-design')
+    writeDraft(encodeConfig(fresh()))
+    expect(
+      save.mock.calls.some(
+        ([key, value]) =>
+          key.startsWith('fury-draft-recovery-') && value === 'old-unreadable-design',
+      ),
+    ).toBe(true)
+    localStorage.setItem('fury-draft-v1', 'another-old-design')
+    save.mockImplementation((key) => {
+      if (key.startsWith('fury-draft-recovery-')) throw new Error('storage full')
+    })
+    expect(() => writeDraft(encodeConfig(fresh()))).toThrow('storage full')
+    expect(localStorage.getItem('fury-draft-v1')).toBe('another-old-design')
+    save.mockRestore()
+  })
   it('starts with a valid layout', () => {
     expect(configSchema.parse(fresh())).toEqual(fresh())
     expect(layoutIssues(fresh())).toEqual([])
@@ -154,6 +246,14 @@ describe('placement rules', () => {
     const item = fresh().items[1]
     expect(footprint(item)).toEqual({ w: 1.9, d: 4.3 })
     expect(footprint({ ...item, rotation: 90 })).toEqual({ w: 4.3, d: 1.9 })
+  })
+  it.each(['rack', 'halfrack'] as const)('keeps the %s loaded bar inside walls', (sku) => {
+    const item = { id: 'loaded-rack', sku, x: 6, z: -0.8, rotation: 0 as const }
+    const c = { ...fresh(), items: [item] }
+    expect(footprint(item).w).toBe(7.3)
+    expect(placementIssue(item, c)).toContain('usable floor')
+    expect(placementIssue({ ...item, x: -5 }, c)).toBeNull()
+    expect(placementIssue({ ...item, x: -5, rotation: 90 }, c)).toContain('usable floor')
   })
   for (const product of CATALOG)
     it(`finds a valid location for ${product.id}`, () => {
@@ -541,6 +641,13 @@ describe('sharing and browser persistence', () => {
     expect(initialConfig().config.finish).toBe('chalk')
     window.location.hash = '#c=broken'
     expect(initialConfig().notice).toContain('invalid')
+    expect(initialConfig().config.finish).toBe('chalk')
+    expect(localStorage.getItem('fury-draft-v1')).toBe(
+      encodeConfig({ ...fresh(), finish: 'chalk' }),
+    )
+    window.location.hash = '#c='
+    expect(initialConfig().config.finish).toBe('chalk')
+    expect(initialConfig().notice).toContain('previous draft is safe')
   })
   it('saves named builds and safely rejects corrupted storage', () => {
     const builds = [{ id: 'one', name: 'Courtyard', date: '2026-10-14', config: fresh() }]

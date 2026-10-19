@@ -20,6 +20,7 @@ import {
 import { withoutCircumsolar } from '../render/circumsolar'
 import { shadowOnly } from '../render/shadowOnly'
 import type { Quality } from '../render/quality'
+import type { RigObservation } from '../render/display/observation'
 
 /** Changes arriving faster than this (slider drags) are captured once, after they stop. */
 export const DEBOUNCE_MS = 250
@@ -28,6 +29,7 @@ type ProbeOptions = {
   kind: ProbeKind
   config: Config
   quality: Quality
+  observation?: RigObservation
   /** Capture point, in world feet. */
   center: [number, number, number]
   /** Captures per change; a second capture adds a diffuse bounce of the first. */
@@ -44,7 +46,17 @@ type ProbeOptions = {
  * change, once textures settle; targets ping-pong so a probe is never sampled while it is being
  * written.
  */
-function useRadianceProbe({ kind, config, quality, center, passes, size, exclude }: ProbeOptions) {
+function useRadianceProbe({
+  kind,
+  config,
+  quality,
+  center,
+  passes,
+  size,
+  exclude,
+  observation,
+}: ProbeOptions) {
+  const part = kind === 'interior' ? 'interior-probe' : 'site-probe'
   const { gl, scene, invalidate } = useThree()
   const renderer = gl as unknown as WebGPURenderer
   const state = useRef<{
@@ -92,6 +104,10 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
 
   useEffect(() => {
     if (!state.current) return
+    observation?.invalidate(part)
+    // Private revisions must not seed their bounces with the preceding design's radiance.
+    // Retain generator/targets, but detach old lighting until this revision captures anew.
+    if (observation) setProbeEnvironment(kind, null)
     state.current.passes = passes
     // The first capture in the first frame, before that frame draws: a probe that first exists
     // gives the materials it lights a new shader (materials.ts setProbeEnvironment), which the
@@ -100,21 +116,28 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     // design holds. A change after it is captured once the changes stop: a slider drag is many.
     state.current.due = state.current.captured ? performance.now() + DEBOUNCE_MS : 0
     wakeAt(state.current.due)
-  }, [config, quality, passes, wakeAt])
+  }, [config, quality, passes, wakeAt, observation, part, kind])
   useEffect(
     () =>
       onMaterialsChanged((change) => {
-        if (change !== 'textures' || !state.current) return
+        if (change !== 'textures' || !state.current || (observation && !observation.active()))
+          return
+        observation?.invalidate(part)
         state.current.passes = passes
         state.current.due = performance.now() + DEBOUNCE_MS
         wakeAt(state.current.due)
       }),
-    [passes, wakeAt],
+    [passes, wakeAt, observation, part],
   )
 
   useFrame(() => {
     const probe = state.current
-    if (!probe || probe.passes <= 0) return
+    if (
+      !probe ||
+      probe.passes <= 0 ||
+      (observation && (!observation.active() || !observation.permitted(part)))
+    )
+      return
     if (performance.now() < probe.due) {
       wakeAt(probe.due)
       return
@@ -179,6 +202,7 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
     probe.passes--
     probe.captured = true
     setProbeEnvironment(kind, target.texture)
+    if (probe.passes === 0) observation?.complete(part)
     invalidate()
   }, 0)
 }
@@ -191,9 +215,18 @@ function useRadianceProbe({ kind, config, quality, center, passes, size, exclude
  * light: in a white room most of the light has bounced more than once, and with two the live view
  * read a quarter to a third of a stop darker than the traced stills (docs/benchmarks.md).
  */
-export function InteriorProbe({ config, quality }: { config: Config; quality: Quality }) {
+export function InteriorProbe({
+  config,
+  quality,
+  observation,
+}: {
+  config: Config
+  quality: Quality
+  observation?: RigObservation
+}) {
   useRadianceProbe({
     kind: 'interior',
+    observation,
     config,
     quality,
     center: [0, productHeight(config) * 0.52, 0.3],
@@ -212,12 +245,21 @@ const isUnit = (object: Object3D) => object.userData.unit === true
  * exterior finishes, so they reflect the actual buildings, trees, and paving around them instead of
  * only the open sky, with the paving in the unit's shadow shaded.
  */
-export function SiteProbe({ config, quality }: { config: Config; quality: Quality }) {
+export function SiteProbe({
+  config,
+  quality,
+  observation,
+}: {
+  config: Config
+  quality: Quality
+  observation?: RigObservation
+}) {
   const center: [number, number, number] = [0, productHeight(config) * 0.5, 6]
   // Its look-ups are corrected for where each surface stands relative to this (parallax.ts).
   setSiteProbeCenter(...center)
   useRadianceProbe({
     kind: 'site',
+    observation,
     config,
     quality,
     center,
