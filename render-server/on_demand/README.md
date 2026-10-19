@@ -198,6 +198,60 @@ only the dispatch envelope reaches Modal needs clarification by the integrator:
 the CPU sends a trusted, claim-bound prepared package to the private Sandbox; the
 browser still sends no scene/code/path/URL payload.
 
+## Continuously available private dispatcher
+
+`render-server/deploy_dispatcher.py` hosts the existing dispatcher on Modal; it does
+not expose a public gateway or keep a GPU running. A private scheduled CPU function
+checks the durable outbox every minute and handles one admitted job at a time. A
+click on **Bring your vision to life** is still required. Cache lookup, page reload,
+changing a camera and restoring a shared design never admit work. Queue pickup can
+take up to one minute before preparation starts.
+
+Apply migrations `202610190004_hosted_dispatcher.sql` and
+`202610190005_dispatcher_headroom.sql` after the existing migrations. CPU cycles
+reserve a conservative maximum in the same cumulative approval ledger as GPU jobs,
+then settle measured elapsed time. Crashed cycles keep their maximum charge; do not
+refund them automatically. Configure `dispatcher_headroom_micro_usd=500000` on the
+active approval to leave recovery capacity outside new GPU reservations.
+
+Create the Modal secret `fury-render-library-dispatcher` with these server-only values:
+
+- `FURY_SERVICE_ORIGIN`, `FURY_WORKER_TOKEN`
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `VERCEL_TOKEN`, `FURY_VERCEL_PROJECT`, `FURY_VERCEL_TEAM`
+- `FURY_DISPATCHER_ID`, `FURY_GPU_APP`, `FURY_GPU_IMAGE`
+
+Use the registered immutable native package, not a freshly repackaged source tree
+with a different recipe hash. With the pinned CPU requirements installed:
+
+```sh
+export FURY_NATIVE_PACKAGE=/absolute/path/to/registered-native-package
+python -m modal deploy render-server/deploy_dispatcher.py
+# ONCE, on a new empty persistent volume; never reset a recovery journal:
+python -m modal run render-server/deploy_dispatcher.py::initialize
+```
+
+The journal lives in `fury-render-library-dispatch-journal`, mounted at `/state`.
+Every mutation commits the Volume before proceeding. Missing journal state fails
+closed; ambiguous provider starts remain quarantined, never automatically retried.
+The GPU app can be the deployed private dispatcher app namespace. The GPU image
+must match the registered recipe; GPU Sandboxes receive no service credentials.
+
+The protected preview's development OIDC token is refreshed on each cycle through
+the Vercel API. Keep the service origin aligned with the API's allowed origin.
+Enable the approval only after the journal is initialized and recipe validation
+passes. An enabled idle probe returns `status: idle`; `recovery-pending` requires
+investigation, not a second GPU submission. Observe CPU cycles in
+`render_library_dispatcher_cycles` and dispatch/job state in the existing tables.
+
+The approved $1,000 allowance is cumulative (`budget_micro_usd=1000000000`), not a
+daily reset. Keep the approval enabled after tests. At exhausted compute capacity,
+new GPU jobs are denied and the paid dispatcher stops; Vercel/Supabase cached-image
+reads remain available. Restarting after exhaustion requires a newly authorized
+budget and redeployment, not resetting charged balances. The ledger is conservative
+application accounting, not a verified Modal invoice or an account-wide billing cap;
+unrelated Modal apps, storage, network and hosting bills must be monitored separately.
+
 ## Offline checks and explicit fidelity holds
 
 ```sh

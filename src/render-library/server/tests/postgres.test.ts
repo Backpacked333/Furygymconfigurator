@@ -129,6 +129,8 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     )
     run(readFileSync('supabase/migrations/202610190001_render_library.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610190003_render_library_recovery.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610190004_hosted_dispatcher.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610190005_dispatcher_headroom.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -172,6 +174,41 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     expect(snapshot(command.identity).coverage).toBe('missing')
     expect(run('select count(*) from public.render_library_jobs')).toBe('0')
     expect(ledger().reserved_micro_usd).toBe(0)
+  })
+  it('accounts for hosted CPU cycles inside the same cumulative budget', () => {
+    run('update public.render_library_approvals set budget_micro_usd=1000000')
+    const id = randomUUID()
+    expect(
+      JSON.parse(run(`select to_json(public.render_library_start_cpu_cycle(${quote(id)}))`)),
+    ).toBe(true)
+    expect(ledger().charged_micro_usd).toBe(250000)
+    expect(
+      JSON.parse(run(`select to_json(public.render_library_start_cpu_cycle(${quote(id)}))`)),
+    ).toBe(false)
+    rpc('render_library_finish_cpu_cycle', [quote(id), quote('idle')])
+    const charged = ledger().charged_micro_usd
+    expect(charged).toBeGreaterThanOrEqual(100)
+    expect(charged).toBeLessThan(250000)
+    rpc('render_library_finish_cpu_cycle', [quote(id), quote('idle')])
+    expect(ledger().charged_micro_usd).toBe(charged)
+    run('update public.render_library_approvals set budget_micro_usd=1000')
+    expect(
+      JSON.parse(
+        run(`select to_json(public.render_library_start_cpu_cycle(${quote(randomUUID())}))`),
+      ),
+    ).toBe(false)
+    expect(ledger().charged_micro_usd).toBe(charged)
+    expect(
+      run(
+        "select has_function_privilege('anon','public.render_library_start_cpu_cycle(uuid)','execute')",
+      ),
+    ).toBe('f')
+  })
+  it('leaves configured CPU recovery headroom rather than spending it on a GPU job', () => {
+    run('update public.render_library_approvals set dispatcher_headroom_micro_usd=95000')
+    expect(reserve().error.code).toBe('budget-exhausted')
+    expect(ledger().reserved_micro_usd).toBe(0)
+    expect(run('select count(*) from public.render_library_jobs')).toBe('0')
   })
   it('atomically joins racing sessions and reserves exactly once', async () => {
     const sessions = Array.from({ length: 8 }, (_, i) => String(i).repeat(64))

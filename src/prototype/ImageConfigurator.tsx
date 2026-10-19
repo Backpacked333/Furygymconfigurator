@@ -148,8 +148,10 @@ function ImageConfiguratorContents({
     nativeLibrary ? initialNativeHistory : initialHistory,
   )
   const design = history.present
+  const selectionHash = useRef(window.location.hash)
   useEffect(() => {
-    if (nativeLibrary) rememberNativeSelection(design)
+    if (nativeLibrary)
+      selectionHash.current = rememberNativeSelection(design, selectionHash.current)
   }, [nativeLibrary, design])
   const [unit, setUnit] = useState<Unit>('ft')
   const [proposal, setProposal] = useState<DesignTransition | null>(null)
