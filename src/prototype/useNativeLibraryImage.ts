@@ -94,8 +94,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
         update({
           state: 'unavailable',
           retryable: false,
-          message:
-            'No verified image is available for this selected view. Check the five-view set status below. No substitute is shown.',
+          message: 'No verified image is available for this selected view. No substitute is shown.',
         })
         return
       }

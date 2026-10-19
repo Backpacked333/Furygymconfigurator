@@ -144,6 +144,18 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     })
   }
 
+  it('uses the native image stage itself for the assembly animation without stacked status panels', () => {
+    window.history.replaceState(null, '', '/?experience=library')
+    mount()
+    expect(host.querySelectorAll('.library-set-status')).toHaveLength(1)
+    expect(host.querySelector('.stage-frame .library-set-status iframe')).not.toBeNull()
+    expect(host.querySelector('.prototype-image-status')).toBeNull()
+    expect(host.querySelector('.prototype-image-label')).toBeNull()
+    expect(host.querySelectorAll('[aria-label="Rendered camera views"] button')).toHaveLength(5)
+    click('Image details')
+    expect(host.querySelector('dialog[open]')?.textContent).toContain('Art direction')
+  })
+
   it('keeps the Fury shell, four tabs, reference stage and all controls usable without renderer imports', () => {
     const write = vi.spyOn(Storage.prototype, 'setItem')
     mount()

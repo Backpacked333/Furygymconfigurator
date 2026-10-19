@@ -20,7 +20,11 @@ afterEach(() => {
   act(() => root.unmount())
   vi.unstubAllGlobals()
 })
-async function show(overrides: Partial<ReturnType<typeof useLibrarySet>> = {}, hasImage = false) {
+async function show(
+  overrides: Partial<ReturnType<typeof useLibrarySet>> = {},
+  hasImage = false,
+  imageProps: { imageLoading?: boolean; imageError?: string; onRetryImage?: () => void } = {},
+) {
   const library = {
     signature: 'test',
     snapshot: await snapshotFixture(),
@@ -40,14 +44,18 @@ async function show(overrides: Partial<ReturnType<typeof useLibrarySet>> = {}, h
         library={library}
         catalog={null}
         hasImage={hasImage}
+        {...imageProps}
       />,
     ),
   )
   return library
 }
-it('shows the exact explicit CTA only for an authoritative miss, with five named views', async () => {
+it('puts the assembly animation and explicit CTA on the empty stage without fake progress', async () => {
   const library = await show()
-  expect(host.querySelectorAll('li')).toHaveLength(5)
+  expect(host.querySelector('.is-stage iframe')?.getAttribute('src')).toContain('/builds/')
+  expect(host.querySelector('[role=progressbar]')).toBeNull()
+  expect(host.querySelector('ul')).toBeNull()
+  expect(host.textContent).toContain('Illustrative assembly')
   expect(host.textContent).toContain('not yet rendered')
   const button = [...host.querySelectorAll('button')].find(
     (button) => button.textContent === RENDER_CTA,
@@ -62,15 +70,42 @@ it('never presents lookup failure as a miss or authorizes a render', async () =>
   expect(host.textContent).toContain('not a confirmed cache miss')
   expect(host.textContent).not.toContain(RENDER_CTA)
 })
-it('shows partial per-view readiness and honest count-based progress alongside a ready image', async () => {
+it('shows only count-based progress alongside a ready image, without a second animation or view list', async () => {
   await show({ snapshot: queued(await snapshotFixture(defaultDesign(), 2)) }, true)
-  expect(host.querySelectorAll('li[data-state=ready]')).toHaveLength(2)
+  expect(host.querySelector('.is-summary')).not.toBeNull()
+  expect(host.querySelector('iframe')).toBeNull()
+  expect(host.querySelector('h2')).toBeNull()
+  expect(host.querySelector('ul')).toBeNull()
   expect(host.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')).toBe('40')
   expect(host.querySelector('[role=progressbar]')?.getAttribute('aria-label')).toContain(
     '2/5 images ready',
   )
-  expect(host.textContent).toContain('not GPU telemetry')
   expect(host.textContent).not.toContain(RENDER_CTA)
+})
+it('keeps completed images to one quiet summary without progress or refresh controls', async () => {
+  await show({ snapshot: await snapshotFixture(defaultDesign(), 5) }, true)
+  expect(host.textContent).toContain('Draft preview · 5/5 views ready')
+  expect(host.querySelector('[role=progressbar]')).toBeNull()
+  expect(host.querySelector('iframe')).toBeNull()
+  expect(host.querySelector('button')).toBeNull()
+})
+it('animates image delivery, even after all five views are cached, without claiming GPU work', async () => {
+  await show({ snapshot: await snapshotFixture(defaultDesign(), 5) }, false, { imageLoading: true })
+  expect(host.querySelector('iframe')).not.toBeNull()
+  expect(host.textContent).toContain('No new render is being started')
+  expect(host.querySelector('[role=progressbar]')?.hasAttribute('aria-valuenow')).toBe(false)
+})
+it('keeps failed image delivery retry separate from requesting a render', async () => {
+  const retry = vi.fn()
+  const library = await show({ snapshot: await snapshotFixture(defaultDesign(), 5) }, false, {
+    imageError: 'Image could not be verified',
+    onRetryImage: retry,
+  })
+  expect(host.querySelector('iframe')?.getAttribute('src')).toContain('still=1')
+  expect(host.querySelector('[role=progressbar]')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('button')!.click())
+  expect(retry).toHaveBeenCalledOnce()
+  expect(library.request).not.toHaveBeenCalled()
 })
 it('leaves initial lookup progress indeterminate and disables unavailable or uncertain admission', async () => {
   await show({ snapshot: null, checking: true })

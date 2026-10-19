@@ -491,7 +491,7 @@ function ImageConfiguratorContents({
               }
               note={
                 nativeLibrary
-                  ? 'RENDERED COLLECTION · Fixed equipment arrangements · Design previews'
+                  ? undefined
                   : 'LOCAL DEV · Four fixed DRAFT arrangements · Engineering & rights holds remain open'
               }
               view={view}
@@ -501,16 +501,22 @@ function ImageConfiguratorContents({
               onUndo={() => dispatch({ type: 'undo' })}
               onRedo={() => dispatch({ type: 'redo' })}
               status={
-                <div className="scene-status">
-                  <strong>{plan ? 'READ-ONLY PLAN' : stateLabel}</strong>
-                  <span className="scene-note">
-                    {nativeLibrary ? 'GPU-rendered · Draft design' : 'No approved current image'}
-                  </span>
-                </div>
+                !nativeLibrary && (
+                  <div className="scene-status">
+                    <strong>{plan ? 'READ-ONLY PLAN' : stateLabel}</strong>
+                    <span className="scene-note">
+                      {nativeLibrary ? 'GPU-rendered · Draft design' : 'No approved current image'}
+                    </span>
+                  </div>
+                )
               }
             />
             <div className="stage-body">
-              <StageFrame frameRef={frame} aspect={aspect} box={box}>
+              <StageFrame
+                frameRef={frame}
+                aspect={aspect}
+                box={nativeLibrary && !image.current && !plan ? undefined : box}
+              >
                 {!plan && (
                   <>
                     <figure
@@ -546,17 +552,29 @@ function ImageConfiguratorContents({
                         busy={(verifiedMode || display === 'mock') && progress.state === 'pending'}
                         current={nativeLibrary && image.current}
                       >
-                        {!layers.length && (
-                          <div className="prototype-image-empty">
-                            {verifiedMode
-                              ? status
-                              : display === 'reference'
-                                ? 'Historical reference unavailable. Your design controls still work.'
-                                : `Mock image ${progress.state === 'pending' ? 'pending' : progress.state === 'error' ? 'failed' : 'unavailable'}. No live renderer will start.`}
-                          </div>
-                        )}
+                        {!layers.length &&
+                          (nativeLibrary && setState ? (
+                            <LibrarySetStatus
+                              design={design}
+                              library={setState}
+                              catalog={catalog}
+                              hasImage={false}
+                              imageLoading={progress.state === 'pending'}
+                              imageError={progress.state === 'error' ? progress.message : undefined}
+                              onRetryImage={image.retry}
+                              onDetails={() => setDialog('image')}
+                            />
+                          ) : (
+                            <div className="prototype-image-empty">
+                              {verifiedMode
+                                ? status
+                                : display === 'reference'
+                                  ? 'Historical reference unavailable. Your design controls still work.'
+                                  : `Mock image ${progress.state === 'pending' ? 'pending' : progress.state === 'error' ? 'failed' : 'unavailable'}. No live renderer will start.`}
+                            </div>
+                          ))}
                       </StageImageLayers>
-                      <figcaption className="prototype-image-label">
+                      <figcaption className={nativeLibrary ? 'sr-only' : 'prototype-image-label'}>
                         <strong>{caption}</strong>
                         <span>{source}</span>
                       </figcaption>
@@ -658,93 +676,96 @@ function ImageConfiguratorContents({
                       })(),
                     }))}
                   />
-                  {setState && (
+                  {setState && image.current && (
                     <LibrarySetStatus
                       design={design}
                       library={setState}
                       catalog={catalog}
                       hasImage={image.current}
+                      onDetails={() => setDialog('image')}
                     />
                   )}
-                  <div className="prototype-image-status">
-                    {!verifiedMode && (
-                      <div className="view-switch" role="group" aria-label="Image source">
-                        <button
-                          aria-pressed={display === 'reference'}
-                          className={display === 'reference' ? 'active' : ''}
-                          onClick={() => setDisplay('reference')}
-                        >
-                          Historical reference
-                        </button>
-                        <button
-                          aria-pressed={display === 'mock'}
-                          className={display === 'mock' ? 'active' : ''}
-                          onClick={() => setDisplay('mock')}
-                        >
-                          View mock preview
-                        </button>
-                      </div>
-                    )}
-                    {localReal && (
-                      <button
-                        className="text-link"
-                        onClick={() => {
-                          if (
-                            !window.confirm(
-                              'Use the Studio-20 Obsidian front-left wide preview setup? This replaces only your in-memory design as one Undo step. Saved builds are unchanged.',
-                            )
-                          )
-                            return
-                          load(localRenderDesign('obsidian'))
-                          setPlan(false)
-                          notify(
-                            'Studio-20 preview setup selected. Choose Bronze in Exterior for the second supported finish. Other full designs remain editable but have no matching rendered preview.',
-                          )
-                        }}
-                      >
-                        Use Studio-20 preview setup
-                      </button>
-                    )}
-                    <span role="status" aria-live="polite">
-                      {stateLabel}
-                      {!image.current && (shown || localShown || displayShown)
-                        ? privateDisplay
-                          ? ' · Previous display image hidden; not this configuration'
-                          : localReal
-                            ? ' · Previous local image hidden; not this configuration'
-                            : ' · Previous diagnostic retained'
-                        : ''}
-                      <span
-                        className={
-                          !verifiedMode &&
-                          (progress.state === 'pending' || progress.state === 'ready')
-                            ? 'sr-only'
-                            : undefined
-                        }
-                      >
-                        {' '}
-                        — {status}
-                      </span>
-                    </span>
-                    {!verifiedMode &&
-                      (progress.state === 'error' || progress.state === 'unavailable') && (
+                  {!nativeLibrary && (
+                    <div className="prototype-image-status">
+                      {!verifiedMode && (
+                        <div className="view-switch" role="group" aria-label="Image source">
+                          <button
+                            aria-pressed={display === 'reference'}
+                            className={display === 'reference' ? 'active' : ''}
+                            onClick={() => setDisplay('reference')}
+                          >
+                            Historical reference
+                          </button>
+                          <button
+                            aria-pressed={display === 'mock'}
+                            className={display === 'mock' ? 'active' : ''}
+                            onClick={() => setDisplay('mock')}
+                          >
+                            View mock preview
+                          </button>
+                        </div>
+                      )}
+                      {localReal && (
                         <button
                           className="text-link"
-                          onClick={image.retry}
-                          disabled={!progress.retryable}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                'Use the Studio-20 Obsidian front-left wide preview setup? This replaces only your in-memory design as one Undo step. Saved builds are unchanged.',
+                              )
+                            )
+                              return
+                            load(localRenderDesign('obsidian'))
+                            setPlan(false)
+                            notify(
+                              'Studio-20 preview setup selected. Choose Bronze in Exterior for the second supported finish. Other full designs remain editable but have no matching rendered preview.',
+                            )
+                          }}
                         >
-                          Retry mock preview
+                          Use Studio-20 preview setup
                         </button>
                       )}
-                    <button className="text-link" onClick={() => setDialog('image')}>
-                      Image status & limits
-                    </button>
-                    {nativeLibrary && progress.state === 'error' && (
-                      <button className="text-link" onClick={image.retry}>
-                        Retry image
+                      <span role="status" aria-live="polite">
+                        {stateLabel}
+                        {!image.current && (shown || localShown || displayShown)
+                          ? privateDisplay
+                            ? ' · Previous display image hidden; not this configuration'
+                            : localReal
+                              ? ' · Previous local image hidden; not this configuration'
+                              : ' · Previous diagnostic retained'
+                          : ''}
+                        <span
+                          className={
+                            !verifiedMode &&
+                            (progress.state === 'pending' || progress.state === 'ready')
+                              ? 'sr-only'
+                              : undefined
+                          }
+                        >
+                          {' '}
+                          — {status}
+                        </span>
+                      </span>
+                      {!verifiedMode &&
+                        (progress.state === 'error' || progress.state === 'unavailable') && (
+                          <button
+                            className="text-link"
+                            onClick={image.retry}
+                            disabled={!progress.retryable}
+                          >
+                            Retry mock preview
+                          </button>
+                        )}
+                      <button className="text-link" onClick={() => setDialog('image')}>
+                        Image status & limits
                       </button>
-                    )}
-                  </div>
+                      {nativeLibrary && progress.state === 'error' && (
+                        <button className="text-link" onClick={image.retry}>
+                          Retry image
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
               <ConfiguratorPanelToggle
@@ -866,6 +887,14 @@ function ImageConfiguratorContents({
           </p>
           {nativeLibrary && (
             <section className="prototype-local-provenance">
+              {setState?.message && (
+                <>
+                  <p role="status">{setState.message}</p>
+                  <button className="text-link" onClick={setState.refresh}>
+                    Check status
+                  </button>
+                </>
+              )}
               <p>
                 This library contains real Blender/Cycles images rendered privately on Modal L40S
                 GPUs. Each exact design and scene has five customer views: four exterior views and
