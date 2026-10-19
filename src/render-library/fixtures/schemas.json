@@ -1,0 +1,4460 @@
+{
+  "lookupRequestSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "design": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "type": "number",
+                "const": 4
+              },
+              "catalogVersion": {
+                "type": "string",
+                "const": "fury-design-draft-1"
+              },
+              "product": {
+                "type": "object",
+                "properties": {
+                  "family": {
+                    "type": "string",
+                    "enum": ["studio", "container"]
+                  },
+                  "lengthFt": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 20
+                      },
+                      {
+                        "type": "number",
+                        "const": 40
+                      }
+                    ]
+                  }
+                },
+                "required": ["family", "lengthFt"],
+                "additionalProperties": false
+              },
+              "structure": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "studio"
+                      },
+                      "layout": {
+                        "type": "string",
+                        "const": "single"
+                      },
+                      "door": {
+                        "type": "string",
+                        "enum": ["hinged", "sliding"]
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": ["kind", "layout", "door", "addons", "railing"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "container"
+                      },
+                      "opening": {
+                        "type": "string",
+                        "enum": ["roll-up", "center", "partial", "full"]
+                      },
+                      "infill": {
+                        "type": "string",
+                        "enum": ["none", "glass-overhead", "awning"]
+                      },
+                      "integratedFinish": {
+                        "type": "boolean"
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "opening",
+                      "infill",
+                      "integratedFinish",
+                      "addons",
+                      "railing"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "appearance": {
+                "type": "object",
+                "properties": {
+                  "finish": {
+                    "type": "string",
+                    "enum": [
+                      "obsidian",
+                      "graphite",
+                      "espresso",
+                      "bronze",
+                      "olive",
+                      "cloud",
+                      "chalk"
+                    ]
+                  },
+                  "accent": {
+                    "type": "boolean"
+                  },
+                  "interior": {
+                    "type": "string",
+                    "enum": ["gallery", "slatted", "timber", "birch"]
+                  },
+                  "floor": {
+                    "type": "string",
+                    "enum": ["rubber", "oak", "stone", "concrete"]
+                  },
+                  "mirror": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["finish", "accent", "interior", "floor", "mirror"],
+                "additionalProperties": false
+              },
+              "arrangementRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "catalogVersion",
+              "product",
+              "structure",
+              "appearance",
+              "arrangementRef"
+            ],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "lookRef": {
+                "type": "string",
+                "enum": [
+                  "courtyard-day-draft@1",
+                  "courtyard-night-draft@1",
+                  "campus-day-draft@1",
+                  "campus-night-draft@1",
+                  "desert-day-draft@1",
+                  "desert-night-draft@1",
+                  "studio-day-draft@1",
+                  "studio-night-draft@1"
+                ]
+              },
+              "doorPose": {
+                "type": "string",
+                "enum": ["closed", "open"]
+              },
+              "cameraRef": {
+                "type": "string",
+                "enum": [
+                  "front-left-draft@1",
+                  "front-draft@1",
+                  "left-draft@1",
+                  "rear-left-draft@1",
+                  "entry-draft@1"
+                ]
+              },
+              "aspect": {
+                "type": "string",
+                "enum": ["wide", "tall"]
+              }
+            },
+            "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+            "additionalProperties": false
+          },
+          "outputProfile": {
+            "type": "string",
+            "const": "web-hero"
+          }
+        },
+        "required": ["config", "presentation", "outputProfile"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["contractVersion", "design"],
+    "additionalProperties": false
+  },
+  "createJobRequestSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "design": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "type": "number",
+                "const": 4
+              },
+              "catalogVersion": {
+                "type": "string",
+                "const": "fury-design-draft-1"
+              },
+              "product": {
+                "type": "object",
+                "properties": {
+                  "family": {
+                    "type": "string",
+                    "enum": ["studio", "container"]
+                  },
+                  "lengthFt": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 20
+                      },
+                      {
+                        "type": "number",
+                        "const": 40
+                      }
+                    ]
+                  }
+                },
+                "required": ["family", "lengthFt"],
+                "additionalProperties": false
+              },
+              "structure": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "studio"
+                      },
+                      "layout": {
+                        "type": "string",
+                        "const": "single"
+                      },
+                      "door": {
+                        "type": "string",
+                        "enum": ["hinged", "sliding"]
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": ["kind", "layout", "door", "addons", "railing"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "container"
+                      },
+                      "opening": {
+                        "type": "string",
+                        "enum": ["roll-up", "center", "partial", "full"]
+                      },
+                      "infill": {
+                        "type": "string",
+                        "enum": ["none", "glass-overhead", "awning"]
+                      },
+                      "integratedFinish": {
+                        "type": "boolean"
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "opening",
+                      "infill",
+                      "integratedFinish",
+                      "addons",
+                      "railing"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "appearance": {
+                "type": "object",
+                "properties": {
+                  "finish": {
+                    "type": "string",
+                    "enum": [
+                      "obsidian",
+                      "graphite",
+                      "espresso",
+                      "bronze",
+                      "olive",
+                      "cloud",
+                      "chalk"
+                    ]
+                  },
+                  "accent": {
+                    "type": "boolean"
+                  },
+                  "interior": {
+                    "type": "string",
+                    "enum": ["gallery", "slatted", "timber", "birch"]
+                  },
+                  "floor": {
+                    "type": "string",
+                    "enum": ["rubber", "oak", "stone", "concrete"]
+                  },
+                  "mirror": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["finish", "accent", "interior", "floor", "mirror"],
+                "additionalProperties": false
+              },
+              "arrangementRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "catalogVersion",
+              "product",
+              "structure",
+              "appearance",
+              "arrangementRef"
+            ],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "lookRef": {
+                "type": "string",
+                "enum": [
+                  "courtyard-day-draft@1",
+                  "courtyard-night-draft@1",
+                  "campus-day-draft@1",
+                  "campus-night-draft@1",
+                  "desert-day-draft@1",
+                  "desert-night-draft@1",
+                  "studio-day-draft@1",
+                  "studio-night-draft@1"
+                ]
+              },
+              "doorPose": {
+                "type": "string",
+                "enum": ["closed", "open"]
+              },
+              "cameraRef": {
+                "type": "string",
+                "enum": [
+                  "front-left-draft@1",
+                  "front-draft@1",
+                  "left-draft@1",
+                  "rear-left-draft@1",
+                  "entry-draft@1"
+                ]
+              },
+              "aspect": {
+                "type": "string",
+                "enum": ["wide", "tall"]
+              }
+            },
+            "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+            "additionalProperties": false
+          },
+          "outputProfile": {
+            "type": "string",
+            "const": "web-hero"
+          }
+        },
+        "required": ["config", "presentation", "outputProfile"],
+        "additionalProperties": false
+      },
+      "intent": {
+        "type": "string",
+        "const": "render-missing"
+      },
+      "idempotencyKey": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "required": ["contractVersion", "design", "intent", "idempotencyKey"],
+    "additionalProperties": false
+  },
+  "retryJobRequestSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "intent": {
+        "type": "string",
+        "const": "retry-failed-missing"
+      },
+      "idempotencyKey": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "required": ["contractVersion", "intent", "idempotencyKey"],
+    "additionalProperties": false
+  },
+  "lookupResponseSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "fury.render-library@1"
+          },
+          "status": {
+            "type": "string",
+            "const": "ok"
+          },
+          "identity": {
+            "type": "object",
+            "properties": {
+              "setKey": {
+                "type": "string",
+                "pattern": "^set_[a-f0-9]{64}$"
+              },
+              "recipeRelease": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "const": "fury-native-five@1"
+                  },
+                  "geometry": {
+                    "type": "string",
+                    "const": "fury-fixed-arrangement-geometry@1"
+                  },
+                  "materials": {
+                    "type": "string",
+                    "const": "fury-native-materials@1"
+                  },
+                  "cameras": {
+                    "type": "string",
+                    "const": "fury-native-five-cameras@1"
+                  },
+                  "renderer": {
+                    "type": "string",
+                    "const": "blender-4.5.0-cycles-optix-l40s@1"
+                  },
+                  "studio": {
+                    "type": "string",
+                    "const": "fury-corrected-cyclorama-raycast@1"
+                  },
+                  "environments": {
+                    "type": "string",
+                    "const": "fury-selected-landscape-day-night@1"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "const": "webp-q95-1920x1200-1200x1500@1"
+                  }
+                },
+                "required": [
+                  "id",
+                  "geometry",
+                  "materials",
+                  "cameras",
+                  "renderer",
+                  "studio",
+                  "environments",
+                  "encoding"
+                ],
+                "additionalProperties": false
+              },
+              "imageKeys": {
+                "type": "object",
+                "properties": {
+                  "front-left-draft@1": {
+                    "type": "string",
+                    "pattern": "^img_[a-f0-9]{64}$"
+                  },
+                  "front-draft@1": {
+                    "type": "string",
+                    "pattern": "^img_[a-f0-9]{64}$"
+                  },
+                  "left-draft@1": {
+                    "type": "string",
+                    "pattern": "^img_[a-f0-9]{64}$"
+                  },
+                  "rear-left-draft@1": {
+                    "type": "string",
+                    "pattern": "^img_[a-f0-9]{64}$"
+                  },
+                  "entry-draft@1": {
+                    "type": "string",
+                    "pattern": "^img_[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "front-left-draft@1",
+                  "front-draft@1",
+                  "left-draft@1",
+                  "rear-left-draft@1",
+                  "entry-draft@1"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["setKey", "recipeRelease", "imageKeys"],
+            "additionalProperties": false
+          },
+          "coverage": {
+            "type": "string",
+            "enum": ["missing", "partial", "complete"]
+          },
+          "views": {
+            "minItems": 5,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "cameraRef": {
+                      "type": "string",
+                      "enum": [
+                        "front-left-draft@1",
+                        "front-draft@1",
+                        "left-draft@1",
+                        "rear-left-draft@1",
+                        "entry-draft@1"
+                      ]
+                    },
+                    "imageKey": {
+                      "type": "string",
+                      "pattern": "^img_[a-f0-9]{64}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "missing"
+                    }
+                  },
+                  "required": ["cameraRef", "imageKey", "status"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "cameraRef": {
+                      "type": "string",
+                      "enum": [
+                        "front-left-draft@1",
+                        "front-draft@1",
+                        "left-draft@1",
+                        "rear-left-draft@1",
+                        "entry-draft@1"
+                      ]
+                    },
+                    "imageKey": {
+                      "type": "string",
+                      "pattern": "^img_[a-f0-9]{64}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "pending"
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": ["queued", "preparing", "rendering", "saving", "verifying"]
+                    }
+                  },
+                  "required": ["cameraRef", "imageKey", "status", "stage"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "cameraRef": {
+                      "type": "string",
+                      "enum": [
+                        "front-left-draft@1",
+                        "front-draft@1",
+                        "left-draft@1",
+                        "rear-left-draft@1",
+                        "entry-draft@1"
+                      ]
+                    },
+                    "imageKey": {
+                      "type": "string",
+                      "pattern": "^img_[a-f0-9]{64}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "ready"
+                    },
+                    "image": {
+                      "type": "object",
+                      "properties": {
+                        "contractVersion": {
+                          "type": "string",
+                          "const": "fury.render-library@1"
+                        },
+                        "setKey": {
+                          "type": "string",
+                          "pattern": "^set_[a-f0-9]{64}$"
+                        },
+                        "imageKey": {
+                          "type": "string",
+                          "pattern": "^img_[a-f0-9]{64}$"
+                        },
+                        "design": {
+                          "type": "object",
+                          "properties": {
+                            "config": {
+                              "type": "object",
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "number",
+                                  "const": 4
+                                },
+                                "catalogVersion": {
+                                  "type": "string",
+                                  "const": "fury-design-draft-1"
+                                },
+                                "product": {
+                                  "type": "object",
+                                  "properties": {
+                                    "family": {
+                                      "type": "string",
+                                      "enum": ["studio", "container"]
+                                    },
+                                    "lengthFt": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "const": 20
+                                        },
+                                        {
+                                          "type": "number",
+                                          "const": 40
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": ["family", "lengthFt"],
+                                  "additionalProperties": false
+                                },
+                                "structure": {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "studio"
+                                        },
+                                        "layout": {
+                                          "type": "string",
+                                          "const": "single"
+                                        },
+                                        "door": {
+                                          "type": "string",
+                                          "enum": ["hinged", "sliding"]
+                                        },
+                                        "addons": {
+                                          "maxItems": 5,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                                          }
+                                        },
+                                        "railing": {
+                                          "type": "string",
+                                          "enum": ["glass", "cable"]
+                                        }
+                                      },
+                                      "required": ["kind", "layout", "door", "addons", "railing"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "container"
+                                        },
+                                        "opening": {
+                                          "type": "string",
+                                          "enum": ["roll-up", "center", "partial", "full"]
+                                        },
+                                        "infill": {
+                                          "type": "string",
+                                          "enum": ["none", "glass-overhead", "awning"]
+                                        },
+                                        "integratedFinish": {
+                                          "type": "boolean"
+                                        },
+                                        "addons": {
+                                          "maxItems": 5,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                                          }
+                                        },
+                                        "railing": {
+                                          "type": "string",
+                                          "enum": ["glass", "cable"]
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "opening",
+                                        "infill",
+                                        "integratedFinish",
+                                        "addons",
+                                        "railing"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                },
+                                "appearance": {
+                                  "type": "object",
+                                  "properties": {
+                                    "finish": {
+                                      "type": "string",
+                                      "enum": [
+                                        "obsidian",
+                                        "graphite",
+                                        "espresso",
+                                        "bronze",
+                                        "olive",
+                                        "cloud",
+                                        "chalk"
+                                      ]
+                                    },
+                                    "accent": {
+                                      "type": "boolean"
+                                    },
+                                    "interior": {
+                                      "type": "string",
+                                      "enum": ["gallery", "slatted", "timber", "birch"]
+                                    },
+                                    "floor": {
+                                      "type": "string",
+                                      "enum": ["rubber", "oak", "stone", "concrete"]
+                                    },
+                                    "mirror": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": ["finish", "accent", "interior", "floor", "mirror"],
+                                  "additionalProperties": false
+                                },
+                                "arrangementRef": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
+                                }
+                              },
+                              "required": [
+                                "schemaVersion",
+                                "catalogVersion",
+                                "product",
+                                "structure",
+                                "appearance",
+                                "arrangementRef"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "presentation": {
+                              "type": "object",
+                              "properties": {
+                                "lookRef": {
+                                  "type": "string",
+                                  "enum": [
+                                    "courtyard-day-draft@1",
+                                    "courtyard-night-draft@1",
+                                    "campus-day-draft@1",
+                                    "campus-night-draft@1",
+                                    "desert-day-draft@1",
+                                    "desert-night-draft@1",
+                                    "studio-day-draft@1",
+                                    "studio-night-draft@1"
+                                  ]
+                                },
+                                "doorPose": {
+                                  "type": "string",
+                                  "enum": ["closed", "open"]
+                                },
+                                "cameraRef": {
+                                  "type": "string",
+                                  "enum": [
+                                    "front-left-draft@1",
+                                    "front-draft@1",
+                                    "left-draft@1",
+                                    "rear-left-draft@1",
+                                    "entry-draft@1"
+                                  ]
+                                },
+                                "aspect": {
+                                  "type": "string",
+                                  "enum": ["wide", "tall"]
+                                }
+                              },
+                              "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+                              "additionalProperties": false
+                            },
+                            "outputProfile": {
+                              "type": "string",
+                              "const": "web-hero"
+                            }
+                          },
+                          "required": ["config", "presentation", "outputProfile"],
+                          "additionalProperties": false
+                        },
+                        "recipeRelease": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "const": "fury-native-five@1"
+                            },
+                            "geometry": {
+                              "type": "string",
+                              "const": "fury-fixed-arrangement-geometry@1"
+                            },
+                            "materials": {
+                              "type": "string",
+                              "const": "fury-native-materials@1"
+                            },
+                            "cameras": {
+                              "type": "string",
+                              "const": "fury-native-five-cameras@1"
+                            },
+                            "renderer": {
+                              "type": "string",
+                              "const": "blender-4.5.0-cycles-optix-l40s@1"
+                            },
+                            "studio": {
+                              "type": "string",
+                              "const": "fury-corrected-cyclorama-raycast@1"
+                            },
+                            "environments": {
+                              "type": "string",
+                              "const": "fury-selected-landscape-day-night@1"
+                            },
+                            "encoding": {
+                              "type": "string",
+                              "const": "webp-q95-1920x1200-1200x1500@1"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "geometry",
+                            "materials",
+                            "cameras",
+                            "renderer",
+                            "studio",
+                            "environments",
+                            "encoding"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "url": {
+                          "type": "string",
+                          "maxLength": 2048
+                        },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8388608
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "mime": {
+                          "type": "string",
+                          "const": "image/webp"
+                        },
+                        "samples": {
+                          "type": "number",
+                          "const": 1024
+                        },
+                        "adaptiveSampling": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "quality": {
+                          "type": "number",
+                          "const": 95
+                        },
+                        "provenance": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "seed-cache"
+                                },
+                                "compatibilityRule": {
+                                  "type": "string",
+                                  "const": "native-library-400-exact@1"
+                                },
+                                "manifestSha256": {
+                                  "type": "string",
+                                  "const": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54"
+                                },
+                                "manifestRevision": {
+                                  "type": "string",
+                                  "const": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b"
+                                },
+                                "entryId": {
+                                  "type": "string",
+                                  "pattern": "^design-\\d{2}-[1-8]$"
+                                },
+                                "requestKey": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                },
+                                "historicalRecipeDigest": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                },
+                                "historicalManifestSha256": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                },
+                                "historicalWorkerSha256": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "compatibilityRule",
+                                "manifestSha256",
+                                "manifestRevision",
+                                "entryId",
+                                "requestKey",
+                                "historicalRecipeDigest",
+                                "historicalManifestSha256",
+                                "historicalWorkerSha256"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "native-worker"
+                                },
+                                "jobId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "attemptId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "workerBuildSha256": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                },
+                                "recipeBundleSha256": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                },
+                                "receiptSha256": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "jobId",
+                                "attemptId",
+                                "workerBuildSha256",
+                                "recipeBundleSha256",
+                                "receiptSha256"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "productionAllowed": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "visuallyQualified": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "strictReference": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "engineeringApproved": {
+                          "type": "boolean",
+                          "const": false
+                        }
+                      },
+                      "required": [
+                        "contractVersion",
+                        "setKey",
+                        "imageKey",
+                        "design",
+                        "recipeRelease",
+                        "url",
+                        "sha256",
+                        "bytes",
+                        "width",
+                        "height",
+                        "mime",
+                        "samples",
+                        "adaptiveSampling",
+                        "quality",
+                        "provenance",
+                        "productionAllowed",
+                        "visuallyQualified",
+                        "strictReference",
+                        "engineeringApproved"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["cameraRef", "imageKey", "status", "image"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "cameraRef": {
+                      "type": "string",
+                      "enum": [
+                        "front-left-draft@1",
+                        "front-draft@1",
+                        "left-draft@1",
+                        "rear-left-draft@1",
+                        "entry-draft@1"
+                      ]
+                    },
+                    "imageKey": {
+                      "type": "string",
+                      "pattern": "^img_[a-f0-9]{64}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid-request",
+                            "lookup-unavailable",
+                            "rendering-disabled",
+                            "budget-unavailable",
+                            "budget-exhausted",
+                            "rate-limited",
+                            "capacity-full",
+                            "origin-denied",
+                            "csrf-invalid",
+                            "unsupported-scene",
+                            "job-not-found",
+                            "idempotency-conflict",
+                            "unsafe-retry",
+                            "provider-unavailable",
+                            "dispatch-uncertain",
+                            "worker-failed",
+                            "verification-failed"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 240
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["code", "message", "retryable"],
+                      "additionalProperties": false
+                    },
+                    "retrySafe": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["cameraRef", "imageKey", "status", "error", "retrySafe"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "job": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "stage": {
+                    "type": "string",
+                    "enum": [
+                      "queued",
+                      "preparing",
+                      "rendering",
+                      "saving",
+                      "verifying",
+                      "complete",
+                      "failed",
+                      "blocked",
+                      "dispatch-uncertain"
+                    ]
+                  },
+                  "completedImages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "totalImages": {
+                    "type": "number",
+                    "const": 5
+                  },
+                  "currentCamera": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "front-left-draft@1",
+                          "front-draft@1",
+                          "left-draft@1",
+                          "rear-left-draft@1",
+                          "entry-draft@1"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "retrySafe": {
+                    "type": "boolean"
+                  },
+                  "error": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "invalid-request",
+                              "lookup-unavailable",
+                              "rendering-disabled",
+                              "budget-unavailable",
+                              "budget-exhausted",
+                              "rate-limited",
+                              "capacity-full",
+                              "origin-denied",
+                              "csrf-invalid",
+                              "unsupported-scene",
+                              "job-not-found",
+                              "idempotency-conflict",
+                              "unsafe-retry",
+                              "provider-unavailable",
+                              "dispatch-uncertain",
+                              "worker-failed",
+                              "verification-failed"
+                            ]
+                          },
+                          "message": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 240
+                          },
+                          "retryable": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["code", "message", "retryable"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "stage",
+                  "completedImages",
+                  "totalImages",
+                  "currentCamera",
+                  "retrySafe",
+                  "error",
+                  "updatedAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rendering": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "enabled"
+                  }
+                },
+                "required": ["status"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unavailable"
+                  },
+                  "reason": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "invalid-request",
+                          "lookup-unavailable",
+                          "rendering-disabled",
+                          "budget-unavailable",
+                          "budget-exhausted",
+                          "rate-limited",
+                          "capacity-full",
+                          "origin-denied",
+                          "csrf-invalid",
+                          "unsupported-scene",
+                          "job-not-found",
+                          "idempotency-conflict",
+                          "unsafe-retry",
+                          "provider-unavailable",
+                          "dispatch-uncertain",
+                          "worker-failed",
+                          "verification-failed"
+                        ]
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 240
+                      },
+                      "retryable": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["code", "message", "retryable"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["status", "reason"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "status",
+          "identity",
+          "coverage",
+          "views",
+          "job",
+          "rendering"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "fury.render-library@1"
+          },
+          "status": {
+            "type": "string",
+            "const": "error"
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid-request",
+                  "lookup-unavailable",
+                  "rendering-disabled",
+                  "budget-unavailable",
+                  "budget-exhausted",
+                  "rate-limited",
+                  "capacity-full",
+                  "origin-denied",
+                  "csrf-invalid",
+                  "unsupported-scene",
+                  "job-not-found",
+                  "idempotency-conflict",
+                  "unsafe-retry",
+                  "provider-unavailable",
+                  "dispatch-uncertain",
+                  "worker-failed",
+                  "verification-failed"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": ["code", "message", "retryable"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["contractVersion", "status", "error"],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "imageDescriptorSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "setKey": {
+        "type": "string",
+        "pattern": "^set_[a-f0-9]{64}$"
+      },
+      "imageKey": {
+        "type": "string",
+        "pattern": "^img_[a-f0-9]{64}$"
+      },
+      "design": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "type": "number",
+                "const": 4
+              },
+              "catalogVersion": {
+                "type": "string",
+                "const": "fury-design-draft-1"
+              },
+              "product": {
+                "type": "object",
+                "properties": {
+                  "family": {
+                    "type": "string",
+                    "enum": ["studio", "container"]
+                  },
+                  "lengthFt": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 20
+                      },
+                      {
+                        "type": "number",
+                        "const": 40
+                      }
+                    ]
+                  }
+                },
+                "required": ["family", "lengthFt"],
+                "additionalProperties": false
+              },
+              "structure": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "studio"
+                      },
+                      "layout": {
+                        "type": "string",
+                        "const": "single"
+                      },
+                      "door": {
+                        "type": "string",
+                        "enum": ["hinged", "sliding"]
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": ["kind", "layout", "door", "addons", "railing"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "container"
+                      },
+                      "opening": {
+                        "type": "string",
+                        "enum": ["roll-up", "center", "partial", "full"]
+                      },
+                      "infill": {
+                        "type": "string",
+                        "enum": ["none", "glass-overhead", "awning"]
+                      },
+                      "integratedFinish": {
+                        "type": "boolean"
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "opening",
+                      "infill",
+                      "integratedFinish",
+                      "addons",
+                      "railing"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "appearance": {
+                "type": "object",
+                "properties": {
+                  "finish": {
+                    "type": "string",
+                    "enum": [
+                      "obsidian",
+                      "graphite",
+                      "espresso",
+                      "bronze",
+                      "olive",
+                      "cloud",
+                      "chalk"
+                    ]
+                  },
+                  "accent": {
+                    "type": "boolean"
+                  },
+                  "interior": {
+                    "type": "string",
+                    "enum": ["gallery", "slatted", "timber", "birch"]
+                  },
+                  "floor": {
+                    "type": "string",
+                    "enum": ["rubber", "oak", "stone", "concrete"]
+                  },
+                  "mirror": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["finish", "accent", "interior", "floor", "mirror"],
+                "additionalProperties": false
+              },
+              "arrangementRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "catalogVersion",
+              "product",
+              "structure",
+              "appearance",
+              "arrangementRef"
+            ],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "lookRef": {
+                "type": "string",
+                "enum": [
+                  "courtyard-day-draft@1",
+                  "courtyard-night-draft@1",
+                  "campus-day-draft@1",
+                  "campus-night-draft@1",
+                  "desert-day-draft@1",
+                  "desert-night-draft@1",
+                  "studio-day-draft@1",
+                  "studio-night-draft@1"
+                ]
+              },
+              "doorPose": {
+                "type": "string",
+                "enum": ["closed", "open"]
+              },
+              "cameraRef": {
+                "type": "string",
+                "enum": [
+                  "front-left-draft@1",
+                  "front-draft@1",
+                  "left-draft@1",
+                  "rear-left-draft@1",
+                  "entry-draft@1"
+                ]
+              },
+              "aspect": {
+                "type": "string",
+                "enum": ["wide", "tall"]
+              }
+            },
+            "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+            "additionalProperties": false
+          },
+          "outputProfile": {
+            "type": "string",
+            "const": "web-hero"
+          }
+        },
+        "required": ["config", "presentation", "outputProfile"],
+        "additionalProperties": false
+      },
+      "recipeRelease": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "const": "fury-native-five@1"
+          },
+          "geometry": {
+            "type": "string",
+            "const": "fury-fixed-arrangement-geometry@1"
+          },
+          "materials": {
+            "type": "string",
+            "const": "fury-native-materials@1"
+          },
+          "cameras": {
+            "type": "string",
+            "const": "fury-native-five-cameras@1"
+          },
+          "renderer": {
+            "type": "string",
+            "const": "blender-4.5.0-cycles-optix-l40s@1"
+          },
+          "studio": {
+            "type": "string",
+            "const": "fury-corrected-cyclorama-raycast@1"
+          },
+          "environments": {
+            "type": "string",
+            "const": "fury-selected-landscape-day-night@1"
+          },
+          "encoding": {
+            "type": "string",
+            "const": "webp-q95-1920x1200-1200x1500@1"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "materials",
+          "cameras",
+          "renderer",
+          "studio",
+          "environments",
+          "encoding"
+        ],
+        "additionalProperties": false
+      },
+      "url": {
+        "type": "string",
+        "maxLength": 2048
+      },
+      "sha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8388608
+      },
+      "width": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "height": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "mime": {
+        "type": "string",
+        "const": "image/webp"
+      },
+      "samples": {
+        "type": "number",
+        "const": 1024
+      },
+      "adaptiveSampling": {
+        "type": "boolean",
+        "const": false
+      },
+      "quality": {
+        "type": "number",
+        "const": 95
+      },
+      "provenance": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "seed-cache"
+              },
+              "compatibilityRule": {
+                "type": "string",
+                "const": "native-library-400-exact@1"
+              },
+              "manifestSha256": {
+                "type": "string",
+                "const": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54"
+              },
+              "manifestRevision": {
+                "type": "string",
+                "const": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b"
+              },
+              "entryId": {
+                "type": "string",
+                "pattern": "^design-\\d{2}-[1-8]$"
+              },
+              "requestKey": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "historicalRecipeDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "historicalManifestSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "historicalWorkerSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "kind",
+              "compatibilityRule",
+              "manifestSha256",
+              "manifestRevision",
+              "entryId",
+              "requestKey",
+              "historicalRecipeDigest",
+              "historicalManifestSha256",
+              "historicalWorkerSha256"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "native-worker"
+              },
+              "jobId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "attemptId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "workerBuildSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "recipeBundleSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "receiptSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "kind",
+              "jobId",
+              "attemptId",
+              "workerBuildSha256",
+              "recipeBundleSha256",
+              "receiptSha256"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "productionAllowed": {
+        "type": "boolean",
+        "const": false
+      },
+      "visuallyQualified": {
+        "type": "boolean",
+        "const": false
+      },
+      "strictReference": {
+        "type": "boolean",
+        "const": false
+      },
+      "engineeringApproved": {
+        "type": "boolean",
+        "const": false
+      }
+    },
+    "required": [
+      "contractVersion",
+      "setKey",
+      "imageKey",
+      "design",
+      "recipeRelease",
+      "url",
+      "sha256",
+      "bytes",
+      "width",
+      "height",
+      "mime",
+      "samples",
+      "adaptiveSampling",
+      "quality",
+      "provenance",
+      "productionAllowed",
+      "visuallyQualified",
+      "strictReference",
+      "engineeringApproved"
+    ],
+    "additionalProperties": false
+  },
+  "sessionResponseSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "csrfToken": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 256
+      },
+      "expiresAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      }
+    },
+    "required": ["contractVersion", "csrfToken", "expiresAt"],
+    "additionalProperties": false
+  },
+  "dispatchEnvelopeSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "dispatchId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "required": ["contractVersion", "jobId", "dispatchId"],
+    "additionalProperties": false
+  },
+  "dispatchResultSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "accepted"
+          },
+          "providerCallId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["status", "providerCallId"],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "definitely-not-submitted"
+          },
+          "reason": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid-request",
+                  "lookup-unavailable",
+                  "rendering-disabled",
+                  "budget-unavailable",
+                  "budget-exhausted",
+                  "rate-limited",
+                  "capacity-full",
+                  "origin-denied",
+                  "csrf-invalid",
+                  "unsupported-scene",
+                  "job-not-found",
+                  "idempotency-conflict",
+                  "unsafe-retry",
+                  "provider-unavailable",
+                  "dispatch-uncertain",
+                  "worker-failed",
+                  "verification-failed"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": ["code", "message", "retryable"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["status", "reason"],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "uncertain"
+          },
+          "reason": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid-request",
+                  "lookup-unavailable",
+                  "rendering-disabled",
+                  "budget-unavailable",
+                  "budget-exhausted",
+                  "rate-limited",
+                  "capacity-full",
+                  "origin-denied",
+                  "csrf-invalid",
+                  "unsupported-scene",
+                  "job-not-found",
+                  "idempotency-conflict",
+                  "unsafe-retry",
+                  "provider-unavailable",
+                  "dispatch-uncertain",
+                  "worker-failed",
+                  "verification-failed"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": ["code", "message", "retryable"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["status", "reason"],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "claimRequestSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "dispatchId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "workerBuildSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "required": ["contractVersion", "jobId", "dispatchId", "workerBuildSha256"],
+    "additionalProperties": false
+  },
+  "claimResponseSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "claim": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "contractVersion": {
+                "type": "string",
+                "const": "fury.render-library@1"
+              },
+              "jobId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "dispatchId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "attemptId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "fence": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "design": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": "object",
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "number",
+                        "const": 4
+                      },
+                      "catalogVersion": {
+                        "type": "string",
+                        "const": "fury-design-draft-1"
+                      },
+                      "product": {
+                        "type": "object",
+                        "properties": {
+                          "family": {
+                            "type": "string",
+                            "enum": ["studio", "container"]
+                          },
+                          "lengthFt": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "const": 20
+                              },
+                              {
+                                "type": "number",
+                                "const": 40
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["family", "lengthFt"],
+                        "additionalProperties": false
+                      },
+                      "structure": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "studio"
+                              },
+                              "layout": {
+                                "type": "string",
+                                "const": "single"
+                              },
+                              "door": {
+                                "type": "string",
+                                "enum": ["hinged", "sliding"]
+                              },
+                              "addons": {
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                                }
+                              },
+                              "railing": {
+                                "type": "string",
+                                "enum": ["glass", "cable"]
+                              }
+                            },
+                            "required": ["kind", "layout", "door", "addons", "railing"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "container"
+                              },
+                              "opening": {
+                                "type": "string",
+                                "enum": ["roll-up", "center", "partial", "full"]
+                              },
+                              "infill": {
+                                "type": "string",
+                                "enum": ["none", "glass-overhead", "awning"]
+                              },
+                              "integratedFinish": {
+                                "type": "boolean"
+                              },
+                              "addons": {
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                                }
+                              },
+                              "railing": {
+                                "type": "string",
+                                "enum": ["glass", "cable"]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "opening",
+                              "infill",
+                              "integratedFinish",
+                              "addons",
+                              "railing"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "appearance": {
+                        "type": "object",
+                        "properties": {
+                          "finish": {
+                            "type": "string",
+                            "enum": [
+                              "obsidian",
+                              "graphite",
+                              "espresso",
+                              "bronze",
+                              "olive",
+                              "cloud",
+                              "chalk"
+                            ]
+                          },
+                          "accent": {
+                            "type": "boolean"
+                          },
+                          "interior": {
+                            "type": "string",
+                            "enum": ["gallery", "slatted", "timber", "birch"]
+                          },
+                          "floor": {
+                            "type": "string",
+                            "enum": ["rubber", "oak", "stone", "concrete"]
+                          },
+                          "mirror": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["finish", "accent", "interior", "floor", "mirror"],
+                        "additionalProperties": false
+                      },
+                      "arrangementRef": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      }
+                    },
+                    "required": [
+                      "schemaVersion",
+                      "catalogVersion",
+                      "product",
+                      "structure",
+                      "appearance",
+                      "arrangementRef"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "presentation": {
+                    "type": "object",
+                    "properties": {
+                      "lookRef": {
+                        "type": "string",
+                        "enum": [
+                          "courtyard-day-draft@1",
+                          "courtyard-night-draft@1",
+                          "campus-day-draft@1",
+                          "campus-night-draft@1",
+                          "desert-day-draft@1",
+                          "desert-night-draft@1",
+                          "studio-day-draft@1",
+                          "studio-night-draft@1"
+                        ]
+                      },
+                      "doorPose": {
+                        "type": "string",
+                        "enum": ["closed", "open"]
+                      },
+                      "cameraRef": {
+                        "type": "string",
+                        "enum": [
+                          "front-left-draft@1",
+                          "front-draft@1",
+                          "left-draft@1",
+                          "rear-left-draft@1",
+                          "entry-draft@1"
+                        ]
+                      },
+                      "aspect": {
+                        "type": "string",
+                        "enum": ["wide", "tall"]
+                      }
+                    },
+                    "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+                    "additionalProperties": false
+                  },
+                  "outputProfile": {
+                    "type": "string",
+                    "const": "web-hero"
+                  }
+                },
+                "required": ["config", "presentation", "outputProfile"],
+                "additionalProperties": false
+              },
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "setKey": {
+                    "type": "string",
+                    "pattern": "^set_[a-f0-9]{64}$"
+                  },
+                  "recipeRelease": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "const": "fury-native-five@1"
+                      },
+                      "geometry": {
+                        "type": "string",
+                        "const": "fury-fixed-arrangement-geometry@1"
+                      },
+                      "materials": {
+                        "type": "string",
+                        "const": "fury-native-materials@1"
+                      },
+                      "cameras": {
+                        "type": "string",
+                        "const": "fury-native-five-cameras@1"
+                      },
+                      "renderer": {
+                        "type": "string",
+                        "const": "blender-4.5.0-cycles-optix-l40s@1"
+                      },
+                      "studio": {
+                        "type": "string",
+                        "const": "fury-corrected-cyclorama-raycast@1"
+                      },
+                      "environments": {
+                        "type": "string",
+                        "const": "fury-selected-landscape-day-night@1"
+                      },
+                      "encoding": {
+                        "type": "string",
+                        "const": "webp-q95-1920x1200-1200x1500@1"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "geometry",
+                      "materials",
+                      "cameras",
+                      "renderer",
+                      "studio",
+                      "environments",
+                      "encoding"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "imageKeys": {
+                    "type": "object",
+                    "properties": {
+                      "front-left-draft@1": {
+                        "type": "string",
+                        "pattern": "^img_[a-f0-9]{64}$"
+                      },
+                      "front-draft@1": {
+                        "type": "string",
+                        "pattern": "^img_[a-f0-9]{64}$"
+                      },
+                      "left-draft@1": {
+                        "type": "string",
+                        "pattern": "^img_[a-f0-9]{64}$"
+                      },
+                      "rear-left-draft@1": {
+                        "type": "string",
+                        "pattern": "^img_[a-f0-9]{64}$"
+                      },
+                      "entry-draft@1": {
+                        "type": "string",
+                        "pattern": "^img_[a-f0-9]{64}$"
+                      }
+                    },
+                    "required": [
+                      "front-left-draft@1",
+                      "front-draft@1",
+                      "left-draft@1",
+                      "rear-left-draft@1",
+                      "entry-draft@1"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["setKey", "recipeRelease", "imageKeys"],
+                "additionalProperties": false
+              },
+              "workerBuildSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "recipeBundleSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "views": {
+                "minItems": 1,
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "cameraRef": {
+                      "type": "string",
+                      "enum": [
+                        "front-left-draft@1",
+                        "front-draft@1",
+                        "left-draft@1",
+                        "rear-left-draft@1",
+                        "entry-draft@1"
+                      ]
+                    },
+                    "imageKey": {
+                      "type": "string",
+                      "pattern": "^img_[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": ["cameraRef", "imageKey"],
+                  "additionalProperties": false
+                }
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "imagesPerJob": {
+                    "type": "number",
+                    "const": 5
+                  },
+                  "startupSeconds": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 180
+                  },
+                  "preparationSeconds": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 120
+                  },
+                  "imageSeconds": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 300
+                  },
+                  "jobSeconds": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2100
+                  },
+                  "maxContainers": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2
+                  },
+                  "concurrencyPerContainer": {
+                    "type": "number",
+                    "const": 1
+                  },
+                  "maxActiveJobsPerSession": {
+                    "type": "number",
+                    "const": 1
+                  },
+                  "maxCreatesPerSessionPerHour": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 3
+                  },
+                  "minContainers": {
+                    "type": "number",
+                    "const": 0
+                  },
+                  "providerRetries": {
+                    "type": "number",
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "imagesPerJob",
+                  "startupSeconds",
+                  "preparationSeconds",
+                  "imageSeconds",
+                  "jobSeconds",
+                  "maxContainers",
+                  "concurrencyPerContainer",
+                  "maxActiveJobsPerSession",
+                  "maxCreatesPerSessionPerHour",
+                  "minContainers",
+                  "providerRetries"
+                ],
+                "additionalProperties": false
+              },
+              "deadlineAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            },
+            "required": [
+              "contractVersion",
+              "jobId",
+              "dispatchId",
+              "attemptId",
+              "fence",
+              "design",
+              "identity",
+              "workerBuildSha256",
+              "recipeBundleSha256",
+              "views",
+              "limits",
+              "deadlineAt"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": ["claim"],
+    "additionalProperties": false
+  },
+  "workerClaimSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "dispatchId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "attemptId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "fence": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "design": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "type": "number",
+                "const": 4
+              },
+              "catalogVersion": {
+                "type": "string",
+                "const": "fury-design-draft-1"
+              },
+              "product": {
+                "type": "object",
+                "properties": {
+                  "family": {
+                    "type": "string",
+                    "enum": ["studio", "container"]
+                  },
+                  "lengthFt": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 20
+                      },
+                      {
+                        "type": "number",
+                        "const": 40
+                      }
+                    ]
+                  }
+                },
+                "required": ["family", "lengthFt"],
+                "additionalProperties": false
+              },
+              "structure": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "studio"
+                      },
+                      "layout": {
+                        "type": "string",
+                        "const": "single"
+                      },
+                      "door": {
+                        "type": "string",
+                        "enum": ["hinged", "sliding"]
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": ["kind", "layout", "door", "addons", "railing"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "container"
+                      },
+                      "opening": {
+                        "type": "string",
+                        "enum": ["roll-up", "center", "partial", "full"]
+                      },
+                      "infill": {
+                        "type": "string",
+                        "enum": ["none", "glass-overhead", "awning"]
+                      },
+                      "integratedFinish": {
+                        "type": "boolean"
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "opening",
+                      "infill",
+                      "integratedFinish",
+                      "addons",
+                      "railing"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "appearance": {
+                "type": "object",
+                "properties": {
+                  "finish": {
+                    "type": "string",
+                    "enum": [
+                      "obsidian",
+                      "graphite",
+                      "espresso",
+                      "bronze",
+                      "olive",
+                      "cloud",
+                      "chalk"
+                    ]
+                  },
+                  "accent": {
+                    "type": "boolean"
+                  },
+                  "interior": {
+                    "type": "string",
+                    "enum": ["gallery", "slatted", "timber", "birch"]
+                  },
+                  "floor": {
+                    "type": "string",
+                    "enum": ["rubber", "oak", "stone", "concrete"]
+                  },
+                  "mirror": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["finish", "accent", "interior", "floor", "mirror"],
+                "additionalProperties": false
+              },
+              "arrangementRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "catalogVersion",
+              "product",
+              "structure",
+              "appearance",
+              "arrangementRef"
+            ],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "lookRef": {
+                "type": "string",
+                "enum": [
+                  "courtyard-day-draft@1",
+                  "courtyard-night-draft@1",
+                  "campus-day-draft@1",
+                  "campus-night-draft@1",
+                  "desert-day-draft@1",
+                  "desert-night-draft@1",
+                  "studio-day-draft@1",
+                  "studio-night-draft@1"
+                ]
+              },
+              "doorPose": {
+                "type": "string",
+                "enum": ["closed", "open"]
+              },
+              "cameraRef": {
+                "type": "string",
+                "enum": [
+                  "front-left-draft@1",
+                  "front-draft@1",
+                  "left-draft@1",
+                  "rear-left-draft@1",
+                  "entry-draft@1"
+                ]
+              },
+              "aspect": {
+                "type": "string",
+                "enum": ["wide", "tall"]
+              }
+            },
+            "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+            "additionalProperties": false
+          },
+          "outputProfile": {
+            "type": "string",
+            "const": "web-hero"
+          }
+        },
+        "required": ["config", "presentation", "outputProfile"],
+        "additionalProperties": false
+      },
+      "identity": {
+        "type": "object",
+        "properties": {
+          "setKey": {
+            "type": "string",
+            "pattern": "^set_[a-f0-9]{64}$"
+          },
+          "recipeRelease": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "const": "fury-native-five@1"
+              },
+              "geometry": {
+                "type": "string",
+                "const": "fury-fixed-arrangement-geometry@1"
+              },
+              "materials": {
+                "type": "string",
+                "const": "fury-native-materials@1"
+              },
+              "cameras": {
+                "type": "string",
+                "const": "fury-native-five-cameras@1"
+              },
+              "renderer": {
+                "type": "string",
+                "const": "blender-4.5.0-cycles-optix-l40s@1"
+              },
+              "studio": {
+                "type": "string",
+                "const": "fury-corrected-cyclorama-raycast@1"
+              },
+              "environments": {
+                "type": "string",
+                "const": "fury-selected-landscape-day-night@1"
+              },
+              "encoding": {
+                "type": "string",
+                "const": "webp-q95-1920x1200-1200x1500@1"
+              }
+            },
+            "required": [
+              "id",
+              "geometry",
+              "materials",
+              "cameras",
+              "renderer",
+              "studio",
+              "environments",
+              "encoding"
+            ],
+            "additionalProperties": false
+          },
+          "imageKeys": {
+            "type": "object",
+            "properties": {
+              "front-left-draft@1": {
+                "type": "string",
+                "pattern": "^img_[a-f0-9]{64}$"
+              },
+              "front-draft@1": {
+                "type": "string",
+                "pattern": "^img_[a-f0-9]{64}$"
+              },
+              "left-draft@1": {
+                "type": "string",
+                "pattern": "^img_[a-f0-9]{64}$"
+              },
+              "rear-left-draft@1": {
+                "type": "string",
+                "pattern": "^img_[a-f0-9]{64}$"
+              },
+              "entry-draft@1": {
+                "type": "string",
+                "pattern": "^img_[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "front-left-draft@1",
+              "front-draft@1",
+              "left-draft@1",
+              "rear-left-draft@1",
+              "entry-draft@1"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["setKey", "recipeRelease", "imageKeys"],
+        "additionalProperties": false
+      },
+      "workerBuildSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "recipeBundleSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "views": {
+        "minItems": 1,
+        "maxItems": 5,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "cameraRef": {
+              "type": "string",
+              "enum": [
+                "front-left-draft@1",
+                "front-draft@1",
+                "left-draft@1",
+                "rear-left-draft@1",
+                "entry-draft@1"
+              ]
+            },
+            "imageKey": {
+              "type": "string",
+              "pattern": "^img_[a-f0-9]{64}$"
+            }
+          },
+          "required": ["cameraRef", "imageKey"],
+          "additionalProperties": false
+        }
+      },
+      "limits": {
+        "type": "object",
+        "properties": {
+          "imagesPerJob": {
+            "type": "number",
+            "const": 5
+          },
+          "startupSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 180
+          },
+          "preparationSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 120
+          },
+          "imageSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 300
+          },
+          "jobSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2100
+          },
+          "maxContainers": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2
+          },
+          "concurrencyPerContainer": {
+            "type": "number",
+            "const": 1
+          },
+          "maxActiveJobsPerSession": {
+            "type": "number",
+            "const": 1
+          },
+          "maxCreatesPerSessionPerHour": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 3
+          },
+          "minContainers": {
+            "type": "number",
+            "const": 0
+          },
+          "providerRetries": {
+            "type": "number",
+            "const": 0
+          }
+        },
+        "required": [
+          "imagesPerJob",
+          "startupSeconds",
+          "preparationSeconds",
+          "imageSeconds",
+          "jobSeconds",
+          "maxContainers",
+          "concurrencyPerContainer",
+          "maxActiveJobsPerSession",
+          "maxCreatesPerSessionPerHour",
+          "minContainers",
+          "providerRetries"
+        ],
+        "additionalProperties": false
+      },
+      "deadlineAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      }
+    },
+    "required": [
+      "contractVersion",
+      "jobId",
+      "dispatchId",
+      "attemptId",
+      "fence",
+      "design",
+      "identity",
+      "workerBuildSha256",
+      "recipeBundleSha256",
+      "views",
+      "limits",
+      "deadlineAt"
+    ],
+    "additionalProperties": false
+  },
+  "workerEventSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "fury.render-library@1"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "fence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "eventId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sequence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "const": "progress"
+          },
+          "cameraRef": {
+            "type": "string",
+            "enum": [
+              "front-left-draft@1",
+              "front-draft@1",
+              "left-draft@1",
+              "rear-left-draft@1",
+              "entry-draft@1"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "enum": ["preparing", "rendering", "saving", "verifying"]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "jobId",
+          "attemptId",
+          "fence",
+          "eventId",
+          "sequence",
+          "kind",
+          "cameraRef",
+          "stage"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "fury.render-library@1"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "fence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "eventId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sequence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "const": "artifact"
+          },
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "contractVersion": {
+                "type": "string",
+                "const": "fury.render-library@1"
+              },
+              "jobId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "attemptId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "imageKey": {
+                "type": "string",
+                "pattern": "^img_[a-f0-9]{64}$"
+              },
+              "design": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": "object",
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "number",
+                        "const": 4
+                      },
+                      "catalogVersion": {
+                        "type": "string",
+                        "const": "fury-design-draft-1"
+                      },
+                      "product": {
+                        "type": "object",
+                        "properties": {
+                          "family": {
+                            "type": "string",
+                            "enum": ["studio", "container"]
+                          },
+                          "lengthFt": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "const": 20
+                              },
+                              {
+                                "type": "number",
+                                "const": 40
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["family", "lengthFt"],
+                        "additionalProperties": false
+                      },
+                      "structure": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "studio"
+                              },
+                              "layout": {
+                                "type": "string",
+                                "const": "single"
+                              },
+                              "door": {
+                                "type": "string",
+                                "enum": ["hinged", "sliding"]
+                              },
+                              "addons": {
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                                }
+                              },
+                              "railing": {
+                                "type": "string",
+                                "enum": ["glass", "cable"]
+                              }
+                            },
+                            "required": ["kind", "layout", "door", "addons", "railing"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "container"
+                              },
+                              "opening": {
+                                "type": "string",
+                                "enum": ["roll-up", "center", "partial", "full"]
+                              },
+                              "infill": {
+                                "type": "string",
+                                "enum": ["none", "glass-overhead", "awning"]
+                              },
+                              "integratedFinish": {
+                                "type": "boolean"
+                              },
+                              "addons": {
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                                }
+                              },
+                              "railing": {
+                                "type": "string",
+                                "enum": ["glass", "cable"]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "opening",
+                              "infill",
+                              "integratedFinish",
+                              "addons",
+                              "railing"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "appearance": {
+                        "type": "object",
+                        "properties": {
+                          "finish": {
+                            "type": "string",
+                            "enum": [
+                              "obsidian",
+                              "graphite",
+                              "espresso",
+                              "bronze",
+                              "olive",
+                              "cloud",
+                              "chalk"
+                            ]
+                          },
+                          "accent": {
+                            "type": "boolean"
+                          },
+                          "interior": {
+                            "type": "string",
+                            "enum": ["gallery", "slatted", "timber", "birch"]
+                          },
+                          "floor": {
+                            "type": "string",
+                            "enum": ["rubber", "oak", "stone", "concrete"]
+                          },
+                          "mirror": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["finish", "accent", "interior", "floor", "mirror"],
+                        "additionalProperties": false
+                      },
+                      "arrangementRef": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      }
+                    },
+                    "required": [
+                      "schemaVersion",
+                      "catalogVersion",
+                      "product",
+                      "structure",
+                      "appearance",
+                      "arrangementRef"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "presentation": {
+                    "type": "object",
+                    "properties": {
+                      "lookRef": {
+                        "type": "string",
+                        "enum": [
+                          "courtyard-day-draft@1",
+                          "courtyard-night-draft@1",
+                          "campus-day-draft@1",
+                          "campus-night-draft@1",
+                          "desert-day-draft@1",
+                          "desert-night-draft@1",
+                          "studio-day-draft@1",
+                          "studio-night-draft@1"
+                        ]
+                      },
+                      "doorPose": {
+                        "type": "string",
+                        "enum": ["closed", "open"]
+                      },
+                      "cameraRef": {
+                        "type": "string",
+                        "enum": [
+                          "front-left-draft@1",
+                          "front-draft@1",
+                          "left-draft@1",
+                          "rear-left-draft@1",
+                          "entry-draft@1"
+                        ]
+                      },
+                      "aspect": {
+                        "type": "string",
+                        "enum": ["wide", "tall"]
+                      }
+                    },
+                    "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+                    "additionalProperties": false
+                  },
+                  "outputProfile": {
+                    "type": "string",
+                    "const": "web-hero"
+                  }
+                },
+                "required": ["config", "presentation", "outputProfile"],
+                "additionalProperties": false
+              },
+              "recipeRelease": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "const": "fury-native-five@1"
+                  },
+                  "geometry": {
+                    "type": "string",
+                    "const": "fury-fixed-arrangement-geometry@1"
+                  },
+                  "materials": {
+                    "type": "string",
+                    "const": "fury-native-materials@1"
+                  },
+                  "cameras": {
+                    "type": "string",
+                    "const": "fury-native-five-cameras@1"
+                  },
+                  "renderer": {
+                    "type": "string",
+                    "const": "blender-4.5.0-cycles-optix-l40s@1"
+                  },
+                  "studio": {
+                    "type": "string",
+                    "const": "fury-corrected-cyclorama-raycast@1"
+                  },
+                  "environments": {
+                    "type": "string",
+                    "const": "fury-selected-landscape-day-night@1"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "const": "webp-q95-1920x1200-1200x1500@1"
+                  }
+                },
+                "required": [
+                  "id",
+                  "geometry",
+                  "materials",
+                  "cameras",
+                  "renderer",
+                  "studio",
+                  "environments",
+                  "encoding"
+                ],
+                "additionalProperties": false
+              },
+              "workerBuildSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "recipeBundleSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "sceneManifestSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "cameraBindingSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8388608
+              },
+              "width": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "height": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "mime": {
+                "type": "string",
+                "const": "image/webp"
+              },
+              "samples": {
+                "type": "number",
+                "const": 1024
+              },
+              "completedSamples": {
+                "type": "number",
+                "const": 1024
+              },
+              "adaptiveSampling": {
+                "type": "boolean",
+                "const": false
+              },
+              "quality": {
+                "type": "number",
+                "const": 95
+              },
+              "device": {
+                "type": "string",
+                "const": "NVIDIA L40S"
+              },
+              "engine": {
+                "type": "string",
+                "const": "CYCLES"
+              },
+              "backend": {
+                "type": "string",
+                "const": "OPTIX"
+              },
+              "blenderVersion": {
+                "type": "string",
+                "const": "4.5.0"
+              },
+              "renderSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 300
+              },
+              "cpuFallback": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "contractVersion",
+              "jobId",
+              "attemptId",
+              "imageKey",
+              "design",
+              "recipeRelease",
+              "workerBuildSha256",
+              "recipeBundleSha256",
+              "sceneManifestSha256",
+              "cameraBindingSha256",
+              "sha256",
+              "bytes",
+              "width",
+              "height",
+              "mime",
+              "samples",
+              "completedSamples",
+              "adaptiveSampling",
+              "quality",
+              "device",
+              "engine",
+              "backend",
+              "blenderVersion",
+              "renderSeconds",
+              "cpuFallback"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "contractVersion",
+          "jobId",
+          "attemptId",
+          "fence",
+          "eventId",
+          "sequence",
+          "kind",
+          "receipt"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "fury.render-library@1"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "fence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "eventId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sequence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "const": "terminal"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["complete", "failed"]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "invalid-request",
+                      "lookup-unavailable",
+                      "rendering-disabled",
+                      "budget-unavailable",
+                      "budget-exhausted",
+                      "rate-limited",
+                      "capacity-full",
+                      "origin-denied",
+                      "csrf-invalid",
+                      "unsupported-scene",
+                      "job-not-found",
+                      "idempotency-conflict",
+                      "unsafe-retry",
+                      "provider-unavailable",
+                      "dispatch-uncertain",
+                      "worker-failed",
+                      "verification-failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["code", "message", "retryable"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "jobId",
+          "attemptId",
+          "fence",
+          "eventId",
+          "sequence",
+          "kind",
+          "outcome",
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "artifactReceiptSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "attemptId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "imageKey": {
+        "type": "string",
+        "pattern": "^img_[a-f0-9]{64}$"
+      },
+      "design": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "type": "number",
+                "const": 4
+              },
+              "catalogVersion": {
+                "type": "string",
+                "const": "fury-design-draft-1"
+              },
+              "product": {
+                "type": "object",
+                "properties": {
+                  "family": {
+                    "type": "string",
+                    "enum": ["studio", "container"]
+                  },
+                  "lengthFt": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 20
+                      },
+                      {
+                        "type": "number",
+                        "const": 40
+                      }
+                    ]
+                  }
+                },
+                "required": ["family", "lengthFt"],
+                "additionalProperties": false
+              },
+              "structure": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "studio"
+                      },
+                      "layout": {
+                        "type": "string",
+                        "const": "single"
+                      },
+                      "door": {
+                        "type": "string",
+                        "enum": ["hinged", "sliding"]
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": ["kind", "layout", "door", "addons", "railing"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "container"
+                      },
+                      "opening": {
+                        "type": "string",
+                        "enum": ["roll-up", "center", "partial", "full"]
+                      },
+                      "infill": {
+                        "type": "string",
+                        "enum": ["none", "glass-overhead", "awning"]
+                      },
+                      "integratedFinish": {
+                        "type": "boolean"
+                      },
+                      "addons": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                        }
+                      },
+                      "railing": {
+                        "type": "string",
+                        "enum": ["glass", "cable"]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "opening",
+                      "infill",
+                      "integratedFinish",
+                      "addons",
+                      "railing"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "appearance": {
+                "type": "object",
+                "properties": {
+                  "finish": {
+                    "type": "string",
+                    "enum": [
+                      "obsidian",
+                      "graphite",
+                      "espresso",
+                      "bronze",
+                      "olive",
+                      "cloud",
+                      "chalk"
+                    ]
+                  },
+                  "accent": {
+                    "type": "boolean"
+                  },
+                  "interior": {
+                    "type": "string",
+                    "enum": ["gallery", "slatted", "timber", "birch"]
+                  },
+                  "floor": {
+                    "type": "string",
+                    "enum": ["rubber", "oak", "stone", "concrete"]
+                  },
+                  "mirror": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["finish", "accent", "interior", "floor", "mirror"],
+                "additionalProperties": false
+              },
+              "arrangementRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "catalogVersion",
+              "product",
+              "structure",
+              "appearance",
+              "arrangementRef"
+            ],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "lookRef": {
+                "type": "string",
+                "enum": [
+                  "courtyard-day-draft@1",
+                  "courtyard-night-draft@1",
+                  "campus-day-draft@1",
+                  "campus-night-draft@1",
+                  "desert-day-draft@1",
+                  "desert-night-draft@1",
+                  "studio-day-draft@1",
+                  "studio-night-draft@1"
+                ]
+              },
+              "doorPose": {
+                "type": "string",
+                "enum": ["closed", "open"]
+              },
+              "cameraRef": {
+                "type": "string",
+                "enum": [
+                  "front-left-draft@1",
+                  "front-draft@1",
+                  "left-draft@1",
+                  "rear-left-draft@1",
+                  "entry-draft@1"
+                ]
+              },
+              "aspect": {
+                "type": "string",
+                "enum": ["wide", "tall"]
+              }
+            },
+            "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+            "additionalProperties": false
+          },
+          "outputProfile": {
+            "type": "string",
+            "const": "web-hero"
+          }
+        },
+        "required": ["config", "presentation", "outputProfile"],
+        "additionalProperties": false
+      },
+      "recipeRelease": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "const": "fury-native-five@1"
+          },
+          "geometry": {
+            "type": "string",
+            "const": "fury-fixed-arrangement-geometry@1"
+          },
+          "materials": {
+            "type": "string",
+            "const": "fury-native-materials@1"
+          },
+          "cameras": {
+            "type": "string",
+            "const": "fury-native-five-cameras@1"
+          },
+          "renderer": {
+            "type": "string",
+            "const": "blender-4.5.0-cycles-optix-l40s@1"
+          },
+          "studio": {
+            "type": "string",
+            "const": "fury-corrected-cyclorama-raycast@1"
+          },
+          "environments": {
+            "type": "string",
+            "const": "fury-selected-landscape-day-night@1"
+          },
+          "encoding": {
+            "type": "string",
+            "const": "webp-q95-1920x1200-1200x1500@1"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "materials",
+          "cameras",
+          "renderer",
+          "studio",
+          "environments",
+          "encoding"
+        ],
+        "additionalProperties": false
+      },
+      "workerBuildSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "recipeBundleSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "sceneManifestSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "cameraBindingSha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "sha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8388608
+      },
+      "width": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "height": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "mime": {
+        "type": "string",
+        "const": "image/webp"
+      },
+      "samples": {
+        "type": "number",
+        "const": 1024
+      },
+      "completedSamples": {
+        "type": "number",
+        "const": 1024
+      },
+      "adaptiveSampling": {
+        "type": "boolean",
+        "const": false
+      },
+      "quality": {
+        "type": "number",
+        "const": 95
+      },
+      "device": {
+        "type": "string",
+        "const": "NVIDIA L40S"
+      },
+      "engine": {
+        "type": "string",
+        "const": "CYCLES"
+      },
+      "backend": {
+        "type": "string",
+        "const": "OPTIX"
+      },
+      "blenderVersion": {
+        "type": "string",
+        "const": "4.5.0"
+      },
+      "renderSeconds": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 300
+      },
+      "cpuFallback": {
+        "type": "boolean",
+        "const": false
+      }
+    },
+    "required": [
+      "contractVersion",
+      "jobId",
+      "attemptId",
+      "imageKey",
+      "design",
+      "recipeRelease",
+      "workerBuildSha256",
+      "recipeBundleSha256",
+      "sceneManifestSha256",
+      "cameraBindingSha256",
+      "sha256",
+      "bytes",
+      "width",
+      "height",
+      "mime",
+      "samples",
+      "completedSamples",
+      "adaptiveSampling",
+      "quality",
+      "device",
+      "engine",
+      "backend",
+      "blenderVersion",
+      "renderSeconds",
+      "cpuFallback"
+    ],
+    "additionalProperties": false
+  },
+  "artifactEventSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "fury.render-library@1"
+      },
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "attemptId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "fence": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "eventId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "sequence": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "kind": {
+        "type": "string",
+        "const": "artifact"
+      },
+      "receipt": {
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "fury.render-library@1"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "imageKey": {
+            "type": "string",
+            "pattern": "^img_[a-f0-9]{64}$"
+          },
+          "design": {
+            "type": "object",
+            "properties": {
+              "config": {
+                "type": "object",
+                "properties": {
+                  "schemaVersion": {
+                    "type": "number",
+                    "const": 4
+                  },
+                  "catalogVersion": {
+                    "type": "string",
+                    "const": "fury-design-draft-1"
+                  },
+                  "product": {
+                    "type": "object",
+                    "properties": {
+                      "family": {
+                        "type": "string",
+                        "enum": ["studio", "container"]
+                      },
+                      "lengthFt": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "const": 20
+                          },
+                          {
+                            "type": "number",
+                            "const": 40
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["family", "lengthFt"],
+                    "additionalProperties": false
+                  },
+                  "structure": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "studio"
+                          },
+                          "layout": {
+                            "type": "string",
+                            "const": "single"
+                          },
+                          "door": {
+                            "type": "string",
+                            "enum": ["hinged", "sliding"]
+                          },
+                          "addons": {
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                            }
+                          },
+                          "railing": {
+                            "type": "string",
+                            "enum": ["glass", "cable"]
+                          }
+                        },
+                        "required": ["kind", "layout", "door", "addons", "railing"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "container"
+                          },
+                          "opening": {
+                            "type": "string",
+                            "enum": ["roll-up", "center", "partial", "full"]
+                          },
+                          "infill": {
+                            "type": "string",
+                            "enum": ["none", "glass-overhead", "awning"]
+                          },
+                          "integratedFinish": {
+                            "type": "boolean"
+                          },
+                          "addons": {
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": ["deck", "gazebo", "roof", "stairs", "canopy"]
+                            }
+                          },
+                          "railing": {
+                            "type": "string",
+                            "enum": ["glass", "cable"]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "opening",
+                          "infill",
+                          "integratedFinish",
+                          "addons",
+                          "railing"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "appearance": {
+                    "type": "object",
+                    "properties": {
+                      "finish": {
+                        "type": "string",
+                        "enum": [
+                          "obsidian",
+                          "graphite",
+                          "espresso",
+                          "bronze",
+                          "olive",
+                          "cloud",
+                          "chalk"
+                        ]
+                      },
+                      "accent": {
+                        "type": "boolean"
+                      },
+                      "interior": {
+                        "type": "string",
+                        "enum": ["gallery", "slatted", "timber", "birch"]
+                      },
+                      "floor": {
+                        "type": "string",
+                        "enum": ["rubber", "oak", "stone", "concrete"]
+                      },
+                      "mirror": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["finish", "accent", "interior", "floor", "mirror"],
+                    "additionalProperties": false
+                  },
+                  "arrangementRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "schemaVersion",
+                  "catalogVersion",
+                  "product",
+                  "structure",
+                  "appearance",
+                  "arrangementRef"
+                ],
+                "additionalProperties": false
+              },
+              "presentation": {
+                "type": "object",
+                "properties": {
+                  "lookRef": {
+                    "type": "string",
+                    "enum": [
+                      "courtyard-day-draft@1",
+                      "courtyard-night-draft@1",
+                      "campus-day-draft@1",
+                      "campus-night-draft@1",
+                      "desert-day-draft@1",
+                      "desert-night-draft@1",
+                      "studio-day-draft@1",
+                      "studio-night-draft@1"
+                    ]
+                  },
+                  "doorPose": {
+                    "type": "string",
+                    "enum": ["closed", "open"]
+                  },
+                  "cameraRef": {
+                    "type": "string",
+                    "enum": [
+                      "front-left-draft@1",
+                      "front-draft@1",
+                      "left-draft@1",
+                      "rear-left-draft@1",
+                      "entry-draft@1"
+                    ]
+                  },
+                  "aspect": {
+                    "type": "string",
+                    "enum": ["wide", "tall"]
+                  }
+                },
+                "required": ["lookRef", "doorPose", "cameraRef", "aspect"],
+                "additionalProperties": false
+              },
+              "outputProfile": {
+                "type": "string",
+                "const": "web-hero"
+              }
+            },
+            "required": ["config", "presentation", "outputProfile"],
+            "additionalProperties": false
+          },
+          "recipeRelease": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "const": "fury-native-five@1"
+              },
+              "geometry": {
+                "type": "string",
+                "const": "fury-fixed-arrangement-geometry@1"
+              },
+              "materials": {
+                "type": "string",
+                "const": "fury-native-materials@1"
+              },
+              "cameras": {
+                "type": "string",
+                "const": "fury-native-five-cameras@1"
+              },
+              "renderer": {
+                "type": "string",
+                "const": "blender-4.5.0-cycles-optix-l40s@1"
+              },
+              "studio": {
+                "type": "string",
+                "const": "fury-corrected-cyclorama-raycast@1"
+              },
+              "environments": {
+                "type": "string",
+                "const": "fury-selected-landscape-day-night@1"
+              },
+              "encoding": {
+                "type": "string",
+                "const": "webp-q95-1920x1200-1200x1500@1"
+              }
+            },
+            "required": [
+              "id",
+              "geometry",
+              "materials",
+              "cameras",
+              "renderer",
+              "studio",
+              "environments",
+              "encoding"
+            ],
+            "additionalProperties": false
+          },
+          "workerBuildSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "recipeBundleSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sceneManifestSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "cameraBindingSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8388608
+          },
+          "width": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "height": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "mime": {
+            "type": "string",
+            "const": "image/webp"
+          },
+          "samples": {
+            "type": "number",
+            "const": 1024
+          },
+          "completedSamples": {
+            "type": "number",
+            "const": 1024
+          },
+          "adaptiveSampling": {
+            "type": "boolean",
+            "const": false
+          },
+          "quality": {
+            "type": "number",
+            "const": 95
+          },
+          "device": {
+            "type": "string",
+            "const": "NVIDIA L40S"
+          },
+          "engine": {
+            "type": "string",
+            "const": "CYCLES"
+          },
+          "backend": {
+            "type": "string",
+            "const": "OPTIX"
+          },
+          "blenderVersion": {
+            "type": "string",
+            "const": "4.5.0"
+          },
+          "renderSeconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 300
+          },
+          "cpuFallback": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "contractVersion",
+          "jobId",
+          "attemptId",
+          "imageKey",
+          "design",
+          "recipeRelease",
+          "workerBuildSha256",
+          "recipeBundleSha256",
+          "sceneManifestSha256",
+          "cameraBindingSha256",
+          "sha256",
+          "bytes",
+          "width",
+          "height",
+          "mime",
+          "samples",
+          "completedSamples",
+          "adaptiveSampling",
+          "quality",
+          "device",
+          "engine",
+          "backend",
+          "blenderVersion",
+          "renderSeconds",
+          "cpuFallback"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "contractVersion",
+      "jobId",
+      "attemptId",
+      "fence",
+      "eventId",
+      "sequence",
+      "kind",
+      "receipt"
+    ],
+    "additionalProperties": false
+  },
+  "eventResponseSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": ["accepted"],
+    "additionalProperties": false
+  },
+  "uploadTicketSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "bucket": {
+        "type": "string",
+        "const": "render-library-staging"
+      },
+      "objectKey": {
+        "type": "string",
+        "pattern": "^[a-f0-9-]{36}\\/[a-f0-9-]{36}\\/img_[a-f0-9]{64}\\/[a-f0-9]{64}\\.webp$"
+      },
+      "uploadUrl": {
+        "type": "string",
+        "maxLength": 4096,
+        "format": "uri"
+      },
+      "expiresAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      },
+      "maxBytes": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 8388608
+      },
+      "overwrite": {
+        "type": "boolean",
+        "const": false
+      }
+    },
+    "required": ["bucket", "objectKey", "uploadUrl", "expiresAt", "maxBytes", "overwrite"],
+    "additionalProperties": false
+  }
+}

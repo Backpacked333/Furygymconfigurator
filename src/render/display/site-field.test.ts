@@ -25,7 +25,7 @@ class InertWorker extends EventTarget {
     this.dispatchEvent(new MessageEvent('message', { data: { id, field } }))
   }
 }
-const design = projectDesignToConfig(defaultDesign())
+const design = { ...projectDesignToConfig(defaultDesign()), environment: 'residences' as const }
 function field(): SiteLightField {
   return {
     origin: [0, 0, 0],

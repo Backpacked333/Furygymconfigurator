@@ -512,7 +512,7 @@ describe('shared Fury ConfigPanel presentation and its two adapters', () => {
     click('Night')
     expect(onAction).toHaveBeenLastCalledWith({
       type: 'update-presentation',
-      patch: { lookRef: 'courtyard-night-draft@1' },
+      patch: { lookRef: 'studio-night-draft@1' },
     })
     click('Portrait')
     expect(onAction).toHaveBeenLastCalledWith({

@@ -10,6 +10,7 @@ Open **`/?experience=library`** to use the image-first configurator with real, e
 
 - **Rendered builds** opens the visual catalog, filtered by collection and size. Choosing a build loads its complete configuration as one undoable change.
 - The library contains **50 configurations / 400 images**: seven Studio Day cameras and one Studio Night front-three-quarter view for each build. The checked-in manifest is the source of truth for completed coverage.
+- The [render-library integration contract](docs/render-library-contract.md) defines the upcoming five-view customer set, Studio Day new-design default, exact cache identity and private durable worker protocol. Contracts/fixtures are implemented; the new service, worker and customer job UX are **not enabled**. Historical image and receipt bytes remain unchanged.
 - Both Studio and Container families include 20 ft and 40 ft sizes, all seven finishes, and selected floor/interior combinations. Equipment arrangements are fixed.
 - Changing a control updates the design immediately. The client only displays an image when the entire canonical design matches, then verifies its SHA-256, decoded dimensions and format boundary. It never substitutes a finish-only or previous-design image.
 - Images are 1920×1200 WebP, encoded at quality 95 from 1,024-sample native GPU renders. Small gallery/camera thumbnails are separately derived. Hashed assets receive immutable CDN caching; the manifest revalidates. The client retains at most eight decoded-image URLs.

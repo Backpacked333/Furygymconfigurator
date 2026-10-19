@@ -1,0 +1,1982 @@
+{
+  "contractVersion": "fury.render-library@1",
+  "canonicalization": "UTF-8 JSON; recursive lexicographic object-key sort; arrays retain order; separators comma/colon; no whitespace; finite numbers only. Parse via parseDesign/serializeDesign first.",
+  "design": {
+    "config": {
+      "schemaVersion": 4,
+      "catalogVersion": "fury-design-draft-1",
+      "product": {
+        "family": "studio",
+        "lengthFt": 20
+      },
+      "structure": {
+        "kind": "studio",
+        "layout": "single",
+        "door": "hinged",
+        "addons": [],
+        "railing": "glass"
+      },
+      "appearance": {
+        "finish": "obsidian",
+        "accent": false,
+        "interior": "gallery",
+        "floor": "rubber",
+        "mirror": false
+      },
+      "arrangementRef": "studio-20-review@1"
+    },
+    "presentation": {
+      "lookRef": "studio-day-draft@1",
+      "doorPose": "closed",
+      "cameraRef": "front-left-draft@1",
+      "aspect": "wide"
+    },
+    "outputProfile": "web-hero"
+  },
+  "identity": {
+    "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+    "recipeRelease": {
+      "id": "fury-native-five@1",
+      "geometry": "fury-fixed-arrangement-geometry@1",
+      "materials": "fury-native-materials@1",
+      "cameras": "fury-native-five-cameras@1",
+      "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+      "studio": "fury-corrected-cyclorama-raycast@1",
+      "environments": "fury-selected-landscape-day-night@1",
+      "encoding": "webp-q95-1920x1200-1200x1500@1"
+    },
+    "imageKeys": {
+      "front-left-draft@1": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
+      "front-draft@1": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
+      "left-draft@1": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
+      "rear-left-draft@1": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
+      "entry-draft@1": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93"
+    }
+  },
+  "canonicalSet": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"set\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@1\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@1\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
+  "canonicalImage": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"cameraRef\":\"front-left-draft@1\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"image\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@1\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@1\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
+  "lookup": {
+    "contractVersion": "fury.render-library@1",
+    "design": {
+      "config": {
+        "schemaVersion": 4,
+        "catalogVersion": "fury-design-draft-1",
+        "product": {
+          "family": "studio",
+          "lengthFt": 20
+        },
+        "structure": {
+          "kind": "studio",
+          "layout": "single",
+          "door": "hinged",
+          "addons": [],
+          "railing": "glass"
+        },
+        "appearance": {
+          "finish": "obsidian",
+          "accent": false,
+          "interior": "gallery",
+          "floor": "rubber",
+          "mirror": false
+        },
+        "arrangementRef": "studio-20-review@1"
+      },
+      "presentation": {
+        "lookRef": "studio-day-draft@1",
+        "doorPose": "closed",
+        "cameraRef": "front-left-draft@1",
+        "aspect": "wide"
+      },
+      "outputProfile": "web-hero"
+    }
+  },
+  "create": {
+    "contractVersion": "fury.render-library@1",
+    "design": {
+      "config": {
+        "schemaVersion": 4,
+        "catalogVersion": "fury-design-draft-1",
+        "product": {
+          "family": "studio",
+          "lengthFt": 20
+        },
+        "structure": {
+          "kind": "studio",
+          "layout": "single",
+          "door": "hinged",
+          "addons": [],
+          "railing": "glass"
+        },
+        "appearance": {
+          "finish": "obsidian",
+          "accent": false,
+          "interior": "gallery",
+          "floor": "rubber",
+          "mirror": false
+        },
+        "arrangementRef": "studio-20-review@1"
+      },
+      "presentation": {
+        "lookRef": "studio-day-draft@1",
+        "doorPose": "closed",
+        "cameraRef": "front-left-draft@1",
+        "aspect": "wide"
+      },
+      "outputProfile": "web-hero"
+    },
+    "intent": "render-missing",
+    "idempotencyKey": "00000000-0000-4000-8000-000000000001"
+  },
+  "complete": {
+    "contractVersion": "fury.render-library@1",
+    "status": "ok",
+    "identity": {
+      "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+      "recipeRelease": {
+        "id": "fury-native-five@1",
+        "geometry": "fury-fixed-arrangement-geometry@1",
+        "materials": "fury-native-materials@1",
+        "cameras": "fury-native-five-cameras@1",
+        "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+        "studio": "fury-corrected-cyclorama-raycast@1",
+        "environments": "fury-selected-landscape-day-night@1",
+        "encoding": "webp-q95-1920x1200-1200x1500@1"
+      },
+      "imageKeys": {
+        "front-left-draft@1": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
+        "front-draft@1": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
+        "left-draft@1": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
+        "rear-left-draft@1": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
+        "entry-draft@1": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93"
+      }
+    },
+    "coverage": "complete",
+    "views": [
+      {
+        "cameraRef": "front-left-draft@1",
+        "imageKey": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
+        "status": "ready",
+        "image": {
+          "contractVersion": "fury.render-library@1",
+          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+          "imageKey": "img_d4806d8b8aa1128d10085818bc774714829d1548ea67b86a61fca1594f6b77bf",
+          "design": {
+            "config": {
+              "schemaVersion": 4,
+              "catalogVersion": "fury-design-draft-1",
+              "product": {
+                "family": "studio",
+                "lengthFt": 20
+              },
+              "structure": {
+                "kind": "studio",
+                "layout": "single",
+                "door": "hinged",
+                "addons": [],
+                "railing": "glass"
+              },
+              "appearance": {
+                "finish": "obsidian",
+                "accent": false,
+                "interior": "gallery",
+                "floor": "rubber",
+                "mirror": false
+              },
+              "arrangementRef": "studio-20-review@1"
+            },
+            "presentation": {
+              "lookRef": "studio-day-draft@1",
+              "doorPose": "closed",
+              "cameraRef": "front-left-draft@1",
+              "aspect": "wide"
+            },
+            "outputProfile": "web-hero"
+          },
+          "recipeRelease": {
+            "id": "fury-native-five@1",
+            "geometry": "fury-fixed-arrangement-geometry@1",
+            "materials": "fury-native-materials@1",
+            "cameras": "fury-native-five-cameras@1",
+            "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+            "studio": "fury-corrected-cyclorama-raycast@1",
+            "environments": "fury-selected-landscape-day-night@1",
+            "encoding": "webp-q95-1920x1200-1200x1500@1"
+          },
+          "url": "/native-library/0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245.webp",
+          "sha256": "0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245",
+          "bytes": 60776,
+          "width": 1920,
+          "height": 1200,
+          "mime": "image/webp",
+          "samples": 1024,
+          "adaptiveSampling": false,
+          "quality": 95,
+          "provenance": {
+            "kind": "seed-cache",
+            "compatibilityRule": "native-library-400-exact@1",
+            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+            "entryId": "design-01-1",
+            "requestKey": "1a134197eb32dbeabed8ef99460fe65233fb121677c12bf24ece2f9f3d7e0b3a",
+            "historicalRecipeDigest": "837d6e2d098571b69d315cb72442401c19f337d25d737fd3543cddd0bcf307b2",
+            "historicalManifestSha256": "31df64db78d5e2a3f0d63d18efabbc24c443878f932a3284b4a253593bfdfe95",
+            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+          },
+          "productionAllowed": false,
+          "visuallyQualified": false,
+          "strictReference": false,
+          "engineeringApproved": false
+        }
+      },
+      {
+        "cameraRef": "front-draft@1",
+        "imageKey": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
+        "status": "ready",
+        "image": {
+          "contractVersion": "fury.render-library@1",
+          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+          "imageKey": "img_e82bad7e15a1584a484eb8f1cb979e41c0ee283c962254e9c2c52c207a6e7a86",
+          "design": {
+            "config": {
+              "schemaVersion": 4,
+              "catalogVersion": "fury-design-draft-1",
+              "product": {
+                "family": "studio",
+                "lengthFt": 20
+              },
+              "structure": {
+                "kind": "studio",
+                "layout": "single",
+                "door": "hinged",
+                "addons": [],
+                "railing": "glass"
+              },
+              "appearance": {
+                "finish": "obsidian",
+                "accent": false,
+                "interior": "gallery",
+                "floor": "rubber",
+                "mirror": false
+              },
+              "arrangementRef": "studio-20-review@1"
+            },
+            "presentation": {
+              "lookRef": "studio-day-draft@1",
+              "doorPose": "closed",
+              "cameraRef": "front-draft@1",
+              "aspect": "wide"
+            },
+            "outputProfile": "web-hero"
+          },
+          "recipeRelease": {
+            "id": "fury-native-five@1",
+            "geometry": "fury-fixed-arrangement-geometry@1",
+            "materials": "fury-native-materials@1",
+            "cameras": "fury-native-five-cameras@1",
+            "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+            "studio": "fury-corrected-cyclorama-raycast@1",
+            "environments": "fury-selected-landscape-day-night@1",
+            "encoding": "webp-q95-1920x1200-1200x1500@1"
+          },
+          "url": "/native-library/68a57b2280206fbbf3c5a705a5b510d693f673f6a1b508bf432b15eddf11dc00.webp",
+          "sha256": "68a57b2280206fbbf3c5a705a5b510d693f673f6a1b508bf432b15eddf11dc00",
+          "bytes": 53972,
+          "width": 1920,
+          "height": 1200,
+          "mime": "image/webp",
+          "samples": 1024,
+          "adaptiveSampling": false,
+          "quality": 95,
+          "provenance": {
+            "kind": "seed-cache",
+            "compatibilityRule": "native-library-400-exact@1",
+            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+            "entryId": "design-01-2",
+            "requestKey": "78b15165e495831a99df9129b500b15a8b1122aee59014eca8a3853a1eff17ca",
+            "historicalRecipeDigest": "f6fc2b840e499fd81da869ca6d0d5ac79622272d38f903f8723f822f49cc3aae",
+            "historicalManifestSha256": "be5a6d5a0fa256886582ceb507445f9ab863f75c03f5b6f98fcb84f13e81d6e7",
+            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+          },
+          "productionAllowed": false,
+          "visuallyQualified": false,
+          "strictReference": false,
+          "engineeringApproved": false
+        }
+      },
+      {
+        "cameraRef": "left-draft@1",
+        "imageKey": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
+        "status": "ready",
+        "image": {
+          "contractVersion": "fury.render-library@1",
+          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+          "imageKey": "img_bee6444bfdb519514e8a8d35dfcc4e26421f4b67d7174736b3b8bd37382a1cba",
+          "design": {
+            "config": {
+              "schemaVersion": 4,
+              "catalogVersion": "fury-design-draft-1",
+              "product": {
+                "family": "studio",
+                "lengthFt": 20
+              },
+              "structure": {
+                "kind": "studio",
+                "layout": "single",
+                "door": "hinged",
+                "addons": [],
+                "railing": "glass"
+              },
+              "appearance": {
+                "finish": "obsidian",
+                "accent": false,
+                "interior": "gallery",
+                "floor": "rubber",
+                "mirror": false
+              },
+              "arrangementRef": "studio-20-review@1"
+            },
+            "presentation": {
+              "lookRef": "studio-day-draft@1",
+              "doorPose": "closed",
+              "cameraRef": "left-draft@1",
+              "aspect": "wide"
+            },
+            "outputProfile": "web-hero"
+          },
+          "recipeRelease": {
+            "id": "fury-native-five@1",
+            "geometry": "fury-fixed-arrangement-geometry@1",
+            "materials": "fury-native-materials@1",
+            "cameras": "fury-native-five-cameras@1",
+            "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+            "studio": "fury-corrected-cyclorama-raycast@1",
+            "environments": "fury-selected-landscape-day-night@1",
+            "encoding": "webp-q95-1920x1200-1200x1500@1"
+          },
+          "url": "/native-library/9f7bb919a52055d30aa681e751c533f120212b11393c29183dc1914aa622aa2d.webp",
+          "sha256": "9f7bb919a52055d30aa681e751c533f120212b11393c29183dc1914aa622aa2d",
+          "bytes": 31306,
+          "width": 1920,
+          "height": 1200,
+          "mime": "image/webp",
+          "samples": 1024,
+          "adaptiveSampling": false,
+          "quality": 95,
+          "provenance": {
+            "kind": "seed-cache",
+            "compatibilityRule": "native-library-400-exact@1",
+            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+            "entryId": "design-01-3",
+            "requestKey": "cf75dba55fff89d6455391d6923dac2641181ab63d0250e556dd91dd85a8b61a",
+            "historicalRecipeDigest": "188a442f8b99e84fba830608db5bb38fdf375590ba3578bd1faf411c21b016bb",
+            "historicalManifestSha256": "a290852b45fea4af756f363e69db7d9a8a6bef6c22b0ee19194e9113a5047fb0",
+            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+          },
+          "productionAllowed": false,
+          "visuallyQualified": false,
+          "strictReference": false,
+          "engineeringApproved": false
+        }
+      },
+      {
+        "cameraRef": "rear-left-draft@1",
+        "imageKey": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
+        "status": "ready",
+        "image": {
+          "contractVersion": "fury.render-library@1",
+          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+          "imageKey": "img_a8556a5088fc8a6f67d2d083bbf77ed8fe4e4f94c166f716e2bbdb36dde7cdcf",
+          "design": {
+            "config": {
+              "schemaVersion": 4,
+              "catalogVersion": "fury-design-draft-1",
+              "product": {
+                "family": "studio",
+                "lengthFt": 20
+              },
+              "structure": {
+                "kind": "studio",
+                "layout": "single",
+                "door": "hinged",
+                "addons": [],
+                "railing": "glass"
+              },
+              "appearance": {
+                "finish": "obsidian",
+                "accent": false,
+                "interior": "gallery",
+                "floor": "rubber",
+                "mirror": false
+              },
+              "arrangementRef": "studio-20-review@1"
+            },
+            "presentation": {
+              "lookRef": "studio-day-draft@1",
+              "doorPose": "closed",
+              "cameraRef": "rear-left-draft@1",
+              "aspect": "wide"
+            },
+            "outputProfile": "web-hero"
+          },
+          "recipeRelease": {
+            "id": "fury-native-five@1",
+            "geometry": "fury-fixed-arrangement-geometry@1",
+            "materials": "fury-native-materials@1",
+            "cameras": "fury-native-five-cameras@1",
+            "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+            "studio": "fury-corrected-cyclorama-raycast@1",
+            "environments": "fury-selected-landscape-day-night@1",
+            "encoding": "webp-q95-1920x1200-1200x1500@1"
+          },
+          "url": "/native-library/f8942dc3897ba80304d8627130e0eba3a768a18e55ceb84dece2c4f776e73295.webp",
+          "sha256": "f8942dc3897ba80304d8627130e0eba3a768a18e55ceb84dece2c4f776e73295",
+          "bytes": 51584,
+          "width": 1920,
+          "height": 1200,
+          "mime": "image/webp",
+          "samples": 1024,
+          "adaptiveSampling": false,
+          "quality": 95,
+          "provenance": {
+            "kind": "seed-cache",
+            "compatibilityRule": "native-library-400-exact@1",
+            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+            "entryId": "design-01-4",
+            "requestKey": "4a50129ffe7c600acd74bc65c9e344f8d397b252c13b0b9babe4f65b917e3513",
+            "historicalRecipeDigest": "decfedef3dc53919492c2ef78ff0100c7fad6ec5a31d087a1618112388749ad1",
+            "historicalManifestSha256": "680f5999da7921fcb08bd84e17346cf53697c1cd086f524bbdbf7ae36de5114e",
+            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+          },
+          "productionAllowed": false,
+          "visuallyQualified": false,
+          "strictReference": false,
+          "engineeringApproved": false
+        }
+      },
+      {
+        "cameraRef": "entry-draft@1",
+        "imageKey": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93",
+        "status": "ready",
+        "image": {
+          "contractVersion": "fury.render-library@1",
+          "setKey": "set_4068d92d4e75e21eb33d72a06e4d928f3dcb15c33dfef31e2b2a177ced566bcd",
+          "imageKey": "img_7aa0e24eedae4e793ca2467c0165e51ddd3fce99a859db7837cc91d3b03fea93",
+          "design": {
+            "config": {
+              "schemaVersion": 4,
+              "catalogVersion": "fury-design-draft-1",
+              "product": {
+                "family": "studio",
+                "lengthFt": 20
+              },
+              "structure": {
+                "kind": "studio",
+                "layout": "single",
+                "door": "hinged",
+                "addons": [],
+                "railing": "glass"
+              },
+              "appearance": {
+                "finish": "obsidian",
+                "accent": false,
+                "interior": "gallery",
+                "floor": "rubber",
+                "mirror": false
+              },
+              "arrangementRef": "studio-20-review@1"
+            },
+            "presentation": {
+              "lookRef": "studio-day-draft@1",
+              "doorPose": "closed",
+              "cameraRef": "entry-draft@1",
+              "aspect": "wide"
+            },
+            "outputProfile": "web-hero"
+          },
+          "recipeRelease": {
+            "id": "fury-native-five@1",
+            "geometry": "fury-fixed-arrangement-geometry@1",
+            "materials": "fury-native-materials@1",
+            "cameras": "fury-native-five-cameras@1",
+            "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+            "studio": "fury-corrected-cyclorama-raycast@1",
+            "environments": "fury-selected-landscape-day-night@1",
+            "encoding": "webp-q95-1920x1200-1200x1500@1"
+          },
+          "url": "/native-library/21cdb18d327aac283179ab6d46c490bad46f6fb0f9d4db1873b3bdadbae0b9ea.webp",
+          "sha256": "21cdb18d327aac283179ab6d46c490bad46f6fb0f9d4db1873b3bdadbae0b9ea",
+          "bytes": 118112,
+          "width": 1920,
+          "height": 1200,
+          "mime": "image/webp",
+          "samples": 1024,
+          "adaptiveSampling": false,
+          "quality": 95,
+          "provenance": {
+            "kind": "seed-cache",
+            "compatibilityRule": "native-library-400-exact@1",
+            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+            "entryId": "design-01-6",
+            "requestKey": "39e694c8f81d2022bdcdc67f9859b921ffe5526fcb4dd5331b40469e2084f92f",
+            "historicalRecipeDigest": "e2efb4b3ac228cb701b6e4ce22ba4188d65409cc3abf43da78e44ad111f95883",
+            "historicalManifestSha256": "df5ed7a21528100c17dc5b0845f4cb8bf963bdca78ed970029c352ea029f7f9e",
+            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+          },
+          "productionAllowed": false,
+          "visuallyQualified": false,
+          "strictReference": false,
+          "engineeringApproved": false
+        }
+      }
+    ],
+    "job": null,
+    "rendering": {
+      "status": "unavailable",
+      "reason": {
+        "code": "rendering-disabled",
+        "message": "Rendering is not enabled. Existing images remain available.",
+        "retryable": false
+      }
+    }
+  },
+  "partial": {
+    "contractVersion": "fury.render-library@1",
+    "status": "ok",
+    "identity": {
+      "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+      "recipeRelease": {
+        "id": "fury-native-five@1",
+        "geometry": "fury-fixed-arrangement-geometry@1",
+        "materials": "fury-native-materials@1",
+        "cameras": "fury-native-five-cameras@1",
+        "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+        "studio": "fury-corrected-cyclorama-raycast@1",
+        "environments": "fury-selected-landscape-day-night@1",
+        "encoding": "webp-q95-1920x1200-1200x1500@1"
+      },
+      "imageKeys": {
+        "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+        "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+        "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+        "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+        "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+      }
+    },
+    "coverage": "partial",
+    "views": [
+      {
+        "cameraRef": "front-left-draft@1",
+        "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+        "status": "ready",
+        "image": {
+          "contractVersion": "fury.render-library@1",
+          "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "design": {
+            "config": {
+              "schemaVersion": 4,
+              "catalogVersion": "fury-design-draft-1",
+              "product": {
+                "family": "studio",
+                "lengthFt": 20
+              },
+              "structure": {
+                "kind": "studio",
+                "layout": "single",
+                "door": "hinged",
+                "addons": [],
+                "railing": "glass"
+              },
+              "appearance": {
+                "finish": "obsidian",
+                "accent": false,
+                "interior": "gallery",
+                "floor": "rubber",
+                "mirror": false
+              },
+              "arrangementRef": "studio-20-review@1"
+            },
+            "presentation": {
+              "lookRef": "studio-night-draft@1",
+              "doorPose": "closed",
+              "cameraRef": "front-left-draft@1",
+              "aspect": "wide"
+            },
+            "outputProfile": "web-hero"
+          },
+          "recipeRelease": {
+            "id": "fury-native-five@1",
+            "geometry": "fury-fixed-arrangement-geometry@1",
+            "materials": "fury-native-materials@1",
+            "cameras": "fury-native-five-cameras@1",
+            "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+            "studio": "fury-corrected-cyclorama-raycast@1",
+            "environments": "fury-selected-landscape-day-night@1",
+            "encoding": "webp-q95-1920x1200-1200x1500@1"
+          },
+          "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+          "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+          "bytes": 51244,
+          "width": 1920,
+          "height": 1200,
+          "mime": "image/webp",
+          "samples": 1024,
+          "adaptiveSampling": false,
+          "quality": 95,
+          "provenance": {
+            "kind": "seed-cache",
+            "compatibilityRule": "native-library-400-exact@1",
+            "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+            "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+            "entryId": "design-01-8",
+            "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+            "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+            "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+            "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+          },
+          "productionAllowed": false,
+          "visuallyQualified": false,
+          "strictReference": false,
+          "engineeringApproved": false
+        }
+      },
+      {
+        "cameraRef": "front-draft@1",
+        "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "left-draft@1",
+        "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "rear-left-draft@1",
+        "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "entry-draft@1",
+        "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+        "status": "missing"
+      }
+    ],
+    "job": null,
+    "rendering": {
+      "status": "unavailable",
+      "reason": {
+        "code": "rendering-disabled",
+        "message": "Rendering is not enabled. Existing images remain available.",
+        "retryable": false
+      }
+    }
+  },
+  "missing": {
+    "contractVersion": "fury.render-library@1",
+    "status": "ok",
+    "identity": {
+      "setKey": "set_543de9078721268e96d4dd1e88c7f7f6343b523a035e7617b69b0520f0974f9d",
+      "recipeRelease": {
+        "id": "fury-native-five@1",
+        "geometry": "fury-fixed-arrangement-geometry@1",
+        "materials": "fury-native-materials@1",
+        "cameras": "fury-native-five-cameras@1",
+        "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+        "studio": "fury-corrected-cyclorama-raycast@1",
+        "environments": "fury-selected-landscape-day-night@1",
+        "encoding": "webp-q95-1920x1200-1200x1500@1"
+      },
+      "imageKeys": {
+        "front-left-draft@1": "img_17b6ff07c84a5098ae78c7dfff587b8c64c418d2c9a72564e3f284b0ffc477f3",
+        "front-draft@1": "img_1b9636a1d3eb92fac44131862c7ef0ca102681bffca53cd81142a48c1eaac26b",
+        "left-draft@1": "img_1eec0eb118416457bb9ce4cd665d168e29a7b299f64e2a84013b6a107d2315ed",
+        "rear-left-draft@1": "img_96df8c9221c0e8e90ec6992c4d1bf3151f967bdc63a526ace9545c67981d7e3f",
+        "entry-draft@1": "img_f93cc7b227873683aeb8db2e07104b5956eb6bf250f42401b1b7edac7f0b369f"
+      }
+    },
+    "coverage": "missing",
+    "views": [
+      {
+        "cameraRef": "front-left-draft@1",
+        "imageKey": "img_17b6ff07c84a5098ae78c7dfff587b8c64c418d2c9a72564e3f284b0ffc477f3",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "front-draft@1",
+        "imageKey": "img_1b9636a1d3eb92fac44131862c7ef0ca102681bffca53cd81142a48c1eaac26b",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "left-draft@1",
+        "imageKey": "img_1eec0eb118416457bb9ce4cd665d168e29a7b299f64e2a84013b6a107d2315ed",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "rear-left-draft@1",
+        "imageKey": "img_96df8c9221c0e8e90ec6992c4d1bf3151f967bdc63a526ace9545c67981d7e3f",
+        "status": "missing"
+      },
+      {
+        "cameraRef": "entry-draft@1",
+        "imageKey": "img_f93cc7b227873683aeb8db2e07104b5956eb6bf250f42401b1b7edac7f0b369f",
+        "status": "missing"
+      }
+    ],
+    "job": null,
+    "rendering": {
+      "status": "unavailable",
+      "reason": {
+        "code": "rendering-disabled",
+        "message": "Rendering is not enabled. Existing images remain available.",
+        "retryable": false
+      }
+    }
+  },
+  "jobStates": {
+    "queued": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "pending",
+          "stage": "queued"
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "pending",
+          "stage": "queued"
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "pending",
+          "stage": "queued"
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "pending",
+          "stage": "queued"
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "queued",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": "front-draft@1",
+        "retrySafe": false,
+        "error": null,
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "preparing": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "pending",
+          "stage": "preparing"
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "pending",
+          "stage": "preparing"
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "pending",
+          "stage": "preparing"
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "pending",
+          "stage": "preparing"
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "preparing",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": "front-draft@1",
+        "retrySafe": false,
+        "error": null,
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "rendering": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "pending",
+          "stage": "rendering"
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "pending",
+          "stage": "rendering"
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "pending",
+          "stage": "rendering"
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "pending",
+          "stage": "rendering"
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "rendering",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": "front-draft@1",
+        "retrySafe": false,
+        "error": null,
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "saving": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "pending",
+          "stage": "saving"
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "pending",
+          "stage": "saving"
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "pending",
+          "stage": "saving"
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "pending",
+          "stage": "saving"
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "saving",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": "front-draft@1",
+        "retrySafe": false,
+        "error": null,
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "verifying": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "pending",
+          "stage": "verifying"
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "pending",
+          "stage": "verifying"
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "pending",
+          "stage": "verifying"
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "pending",
+          "stage": "verifying"
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "verifying",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": "front-draft@1",
+        "retrySafe": false,
+        "error": null,
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "failed": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "failed",
+          "error": {
+            "code": "worker-failed",
+            "message": "Rendering stopped. Completed images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "failed",
+          "error": {
+            "code": "worker-failed",
+            "message": "Rendering stopped. Completed images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "failed",
+          "error": {
+            "code": "worker-failed",
+            "message": "Rendering stopped. Completed images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "failed",
+          "error": {
+            "code": "worker-failed",
+            "message": "Rendering stopped. Completed images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "failed",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": null,
+        "retrySafe": false,
+        "error": {
+          "code": "worker-failed",
+          "message": "Rendering stopped. Completed images remain available.",
+          "retryable": false
+        },
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "blocked": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "failed",
+          "error": {
+            "code": "rendering-disabled",
+            "message": "Rendering is not enabled. Existing images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "failed",
+          "error": {
+            "code": "rendering-disabled",
+            "message": "Rendering is not enabled. Existing images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "failed",
+          "error": {
+            "code": "rendering-disabled",
+            "message": "Rendering is not enabled. Existing images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "failed",
+          "error": {
+            "code": "rendering-disabled",
+            "message": "Rendering is not enabled. Existing images remain available.",
+            "retryable": false
+          },
+          "retrySafe": false
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "blocked",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": null,
+        "retrySafe": false,
+        "error": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        },
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    },
+    "dispatch-uncertain": {
+      "contractVersion": "fury.render-library@1",
+      "status": "ok",
+      "identity": {
+        "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+        "recipeRelease": {
+          "id": "fury-native-five@1",
+          "geometry": "fury-fixed-arrangement-geometry@1",
+          "materials": "fury-native-materials@1",
+          "cameras": "fury-native-five-cameras@1",
+          "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+          "studio": "fury-corrected-cyclorama-raycast@1",
+          "environments": "fury-selected-landscape-day-night@1",
+          "encoding": "webp-q95-1920x1200-1200x1500@1"
+        },
+        "imageKeys": {
+          "front-left-draft@1": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "front-draft@1": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "left-draft@1": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "rear-left-draft@1": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "entry-draft@1": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9"
+        }
+      },
+      "coverage": "partial",
+      "views": [
+        {
+          "cameraRef": "front-left-draft@1",
+          "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+          "status": "ready",
+          "image": {
+            "contractVersion": "fury.render-library@1",
+            "setKey": "set_004e9d3e9524e5b1397b25e44e33a1d82cb0c44676de167ab8971b07b9643de6",
+            "imageKey": "img_800123212853b3349ae3f6ea2bb34ca24ff11dbef245db697bf1c780a6cf1293",
+            "design": {
+              "config": {
+                "schemaVersion": 4,
+                "catalogVersion": "fury-design-draft-1",
+                "product": {
+                  "family": "studio",
+                  "lengthFt": 20
+                },
+                "structure": {
+                  "kind": "studio",
+                  "layout": "single",
+                  "door": "hinged",
+                  "addons": [],
+                  "railing": "glass"
+                },
+                "appearance": {
+                  "finish": "obsidian",
+                  "accent": false,
+                  "interior": "gallery",
+                  "floor": "rubber",
+                  "mirror": false
+                },
+                "arrangementRef": "studio-20-review@1"
+              },
+              "presentation": {
+                "lookRef": "studio-night-draft@1",
+                "doorPose": "closed",
+                "cameraRef": "front-left-draft@1",
+                "aspect": "wide"
+              },
+              "outputProfile": "web-hero"
+            },
+            "recipeRelease": {
+              "id": "fury-native-five@1",
+              "geometry": "fury-fixed-arrangement-geometry@1",
+              "materials": "fury-native-materials@1",
+              "cameras": "fury-native-five-cameras@1",
+              "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+              "studio": "fury-corrected-cyclorama-raycast@1",
+              "environments": "fury-selected-landscape-day-night@1",
+              "encoding": "webp-q95-1920x1200-1200x1500@1"
+            },
+            "url": "/native-library/b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20.webp",
+            "sha256": "b75e52c507faaaf584fb6a67a112a58e451b1c250e5a61cbbfd07dc0cb003f20",
+            "bytes": 51244,
+            "width": 1920,
+            "height": 1200,
+            "mime": "image/webp",
+            "samples": 1024,
+            "adaptiveSampling": false,
+            "quality": 95,
+            "provenance": {
+              "kind": "seed-cache",
+              "compatibilityRule": "native-library-400-exact@1",
+              "manifestSha256": "f56574f571761b2ed3357e369d784c37318c900f0e2dc0a973a3d7a3c0a83e54",
+              "manifestRevision": "539b3c8b7cf3447cc331bcce0e2ae457d65237d1e04ce567c344941cdb15160b",
+              "entryId": "design-01-8",
+              "requestKey": "37c342e96011feed27018f06873080e25a173ebe4a6f8a69b01f577ab83dd5d8",
+              "historicalRecipeDigest": "d8c9dc9f7535b8e8f1e93b5da58610dbe3277ce14a7e1b2ab5cf3a2d30015b9e",
+              "historicalManifestSha256": "bcdd1a34b47a14ea6bb931c0fe747fcd5b6999a97ed9baa1f80ee0b31f9102e8",
+              "historicalWorkerSha256": "4ed9296b59e18b9256d0c627336d3f753bd00b42b3a184fe0558dcf2d1498c81"
+            },
+            "productionAllowed": false,
+            "visuallyQualified": false,
+            "strictReference": false,
+            "engineeringApproved": false
+          }
+        },
+        {
+          "cameraRef": "front-draft@1",
+          "imageKey": "img_30112e41744e0e450d353f17832ee1be1181a5a4eda474c135265787c83d9884",
+          "status": "failed",
+          "error": {
+            "code": "dispatch-uncertain",
+            "message": "We are checking whether rendering started. Please do not submit again.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "left-draft@1",
+          "imageKey": "img_66cfc2122a65158a03276ac5c9e0b9a237c5959bb237fa20f92fd143037d1fb3",
+          "status": "failed",
+          "error": {
+            "code": "dispatch-uncertain",
+            "message": "We are checking whether rendering started. Please do not submit again.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "rear-left-draft@1",
+          "imageKey": "img_ad421be31a5012d0ae9a078642c56774fcec6bdfed6a9be0b4df6b8fd62ed6fc",
+          "status": "failed",
+          "error": {
+            "code": "dispatch-uncertain",
+            "message": "We are checking whether rendering started. Please do not submit again.",
+            "retryable": false
+          },
+          "retrySafe": false
+        },
+        {
+          "cameraRef": "entry-draft@1",
+          "imageKey": "img_71fe402b82637070098a8d2f3aa6e7b94c772bc60e9fb0ef8a9a5ead377da6e9",
+          "status": "failed",
+          "error": {
+            "code": "dispatch-uncertain",
+            "message": "We are checking whether rendering started. Please do not submit again.",
+            "retryable": false
+          },
+          "retrySafe": false
+        }
+      ],
+      "job": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "stage": "dispatch-uncertain",
+        "completedImages": 1,
+        "totalImages": 5,
+        "currentCamera": null,
+        "retrySafe": false,
+        "error": {
+          "code": "dispatch-uncertain",
+          "message": "We are checking whether rendering started. Please do not submit again.",
+          "retryable": false
+        },
+        "updatedAt": "2030-01-01T00:00:00.000Z"
+      },
+      "rendering": {
+        "status": "unavailable",
+        "reason": {
+          "code": "rendering-disabled",
+          "message": "Rendering is not enabled. Existing images remain available.",
+          "retryable": false
+        }
+      }
+    }
+  },
+  "lookupFailure": {
+    "contractVersion": "fury.render-library@1",
+    "status": "error",
+    "error": {
+      "code": "lookup-unavailable",
+      "message": "Could not check the image library.",
+      "retryable": true
+    }
+  }
+}

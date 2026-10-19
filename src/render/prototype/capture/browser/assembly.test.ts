@@ -32,8 +32,14 @@ describe('trusted fixed browser assembly', () => {
       })
       expect(config.doorsOpen).toBe(sample.request.design.presentation.doorPose === 'open')
       expect(config.items.length).toBeGreaterThan(0)
-      // Frozen six compositions are outdoor looks; their settle gate requires two site-environment captures.
-      expect(config.environment).not.toBe('studio')
+      // New baseline designs use Studio Day; explicit historical outdoor looks remain outdoor.
+      expect(config.environment).toBe(
+        sample.request.design.presentation.lookRef.startsWith('studio-')
+          ? 'studio'
+          : sample.request.design.presentation.lookRef.startsWith('campus-')
+            ? 'campus'
+            : 'residences',
+      )
       const camera = resolveCaptureCamera(sample.request.design)
       expect(camera).toMatchObject({ up: [0, 1, 0], near: 0.1, far: 2000, units: 'feet' })
     },

@@ -116,6 +116,19 @@ export const DRAFT_CAMERAS = Object.freeze([
   camera(CAMERA_REFS[6], 'Interior centre', 'centre', 'interior'),
 ])
 
+/** Customer gallery only. Keep the full catalog above for historical designs and diagnostics. */
+export const CUSTOMER_CAMERA_REFS = [
+  'front-left-draft@1',
+  'front-draft@1',
+  'left-draft@1',
+  'rear-left-draft@1',
+  'entry-draft@1',
+] as const
+export type CustomerCameraRef = (typeof CUSTOMER_CAMERA_REFS)[number]
+export const CUSTOMER_CAMERAS = Object.freeze(
+  CUSTOMER_CAMERA_REFS.map((ref) => DRAFT_CAMERAS.find((entry) => entry.ref === ref)!),
+)
+
 export const presentationSchema = z
   .object({
     lookRef: z.enum(LOOK_REFS),
@@ -137,7 +150,7 @@ export function parsePresentation(input: unknown): Presentation {
 }
 export function defaultPresentation(): Presentation {
   return parsePresentation({
-    lookRef: LOOK_REFS[0],
+    lookRef: 'studio-day-draft@1',
     doorPose: 'closed',
     cameraRef: CAMERA_REFS[0],
     aspect: 'wide',
