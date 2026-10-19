@@ -33,6 +33,7 @@ import { SceneLoadBoundary } from './components/SceneLoadBoundary'
 import { SceneLoading } from './components/SceneLoading'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
 import { PILL_DELAY_MS, RenderStatus } from './components/RenderStatus'
+import { BuildAnimation, WorkProgress, LoadingExperience } from './components/LoadingExperience'
 import { StageToolbar } from './components/StageToolbar'
 import { Filmstrip, StillLayers } from './components/StillStage'
 import { pngOf } from './lib/image'
@@ -74,7 +75,7 @@ import {
   type AspectClass,
 } from './render/gallery'
 import { freezeLiveView, settledRuns, useSettledRuns } from './render/liveView'
-import { setPendingChoice, useStills } from './render/stillStatus'
+import { retryStill, setPendingChoice, useStills } from './render/stillStatus'
 import { warmCloud } from './render/renderSession'
 import { sceneProgress, textureProgress } from './render/progress'
 import { benchEnabled, useBench } from './render/bench'
@@ -134,6 +135,8 @@ export default function App() {
   const change = useChange(config)
   const stills = useStills()
   const scenePhase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
+  const sceneReady = scenePhase === 'ready'
+  const [retryCount, setRetryCount] = useState(0)
   // Under a held frame of the 360° view the still swaps in at once: the frame's fade is the one.
   const stage = useStillStage({
     design,
@@ -149,7 +152,12 @@ export default function App() {
   const [sceneStarted, setSceneStarted] = useState(needsScene)
   if (needsScene && !sceneStarted) setSceneStarted(true)
   // The stage waits for a still of the visitor's design at their angle, which something renders.
-  const stagePending = gallery && stills.source !== null && !stage.current
+  const renderUnavailable =
+    stills.design === design &&
+    stills.progress?.kind === 'stage' &&
+    stills.progress.stage === 'unavailable'
+  const stagePending =
+    gallery && !stage.current && (stills.source !== null || stills.progress !== null)
   // The swatch's ring and the filmstrip's shimmer show with the pill, once the wait has lasted:
   // a still that swaps in sooner (a prefetched option, a cached design) shows no status at all.
   const statusShown = useHeldFor(stagePending, PILL_DELAY_MS)
@@ -503,6 +511,7 @@ export default function App() {
                 </div>
                 {(gallery || curtain) && (
                   <StillLayers
+                    config={config}
                     stage={stage}
                     label={stillLabel(angle)}
                     lifting={curtain === 'lifting'}
@@ -514,12 +523,26 @@ export default function App() {
                   className={`live-freeze${freeze ? ` is-${freeze}` : ''}`}
                   aria-hidden="true"
                 />
-                {gallery && view !== 'plan' && (
+                {gallery && view !== 'plan' && !stillLoading && (!livePreview || sceneReady) && (
                   <RenderStatus
                     pending={stagePending}
                     swaps={stage.state.swaps}
                     what={what}
                     progress={progress}
+                    config={config}
+                    requestKey={`${design}:${angle}:${aspect}:${retryCount}`}
+                    newCombination={
+                      stage.state.shown?.design !== `${design}|${aspect}` &&
+                      !stage.state.pending &&
+                      !(progress?.kind === 'stage' && progress.stage === 'receiving')
+                    }
+                    decoding={stage.state.pending !== null}
+                    unavailable={renderUnavailable}
+                    onRetry={() => {
+                      retryStill()
+                      setRetryCount((count) => count + 1)
+                    }}
+                    onPlan={openPlan}
                   />
                 )}
                 {livePreview && scenePhase === 'ready' && !freeze && view !== 'plan' && (
@@ -530,8 +553,21 @@ export default function App() {
                     Preparing the 360° view. Your finished image stays visible.
                   </div>
                 )}
-                {view !== 'plan' && (mode === 'live' || (livePreview && !stagePending)) && (
-                  <SceneActivity updating={staged.updating} />
+                {view !== 'plan' &&
+                  !downloading &&
+                  (mode === 'live' || (livePreview && !stagePending)) && (
+                    <SceneActivity updating={staged.updating} config={config} />
+                  )}
+                {downloading && !stagePending && (
+                  <div className="render-wait">
+                    <LoadingExperience
+                      config={config}
+                      compact
+                      title="Made to keep."
+                      description="We’re preparing your image for download."
+                      label="Preparing your download"
+                    />
+                  </div>
                 )}
                 <div className="sr-only" role="status" aria-live="polite">
                   {mode === 'live'
@@ -828,32 +864,22 @@ function BenchPanel() {
  * What the 3D view is busy with once it has a picture: applying a change that rebuilds the scene,
  * or streaming the photo-scanned materials. Hidden while the start-up screen is showing.
  */
-function SceneActivity({ updating }: { updating: boolean }) {
+function SceneActivity({ updating, config }: { updating: boolean; config: Config }) {
   const phase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
   const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
   if (phase !== 'ready') return null
   if (updating)
     return (
       <div className="scene-activity is-updating" role="status">
-        <i className="activity-spinner" aria-hidden="true" />
+        <BuildAnimation config={config} />
         Updating the 3D view…
       </div>
     )
   if (!requested || loaded >= requested) return null
-  const percent = Math.round((loaded / requested) * 100)
   return (
     <div className="scene-activity" role="status">
-      <i className="activity-spinner" aria-hidden="true" />
-      Loading photo-scanned materials · {percent}%
-      <span
-        className="activity-bar"
-        role="progressbar"
-        aria-label="Materials loaded"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        style={{ transform: `scaleX(${loaded / requested})` }}
-      />
+      <BuildAnimation config={config} />
+      <WorkProgress label="Loading photo-scanned materials" fraction={loaded / requested} />
     </div>
   )
 }

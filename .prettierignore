@@ -8,3 +8,5 @@ src/stills.manifest.json
 src/render/prototype/.local-*/
 # Generated native-library metadata; preserve its published bytes.
 public/native-library/manifest.json
+# User-supplied, self-contained animation exports; preserve byte-for-byte.
+public/builds

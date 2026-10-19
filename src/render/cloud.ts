@@ -22,6 +22,7 @@ import { fingerprint } from './hash'
 import { stillInstances } from './instances'
 import { RENDER_SESSION, renderSession, warmCloud, warmth } from './renderSession'
 import { cloudUrl, legacyDiagnosticUrl } from './traceStatus'
+import type { CloudWork } from './workProgress'
 
 export { cloudUrl, renderSession, warmCloud, warmth }
 export { fingerprint }
@@ -744,14 +745,24 @@ export class CloudClient {
     if (!response.ok) throw new Error(`upload failed (${response.status})`)
   }
 
-  private async upload(keys: string[], blobs: Map<string, BlobSource>, signal: AbortSignal) {
+  private async upload(
+    keys: string[],
+    blobs: Map<string, BlobSource>,
+    signal: AbortSignal,
+    onProgress?: (work: CloudWork) => void,
+  ) {
     const queue = [...keys]
+    let completed = 0
+    const report = () => onProgress?.({ stage: 'uploading', completed, total: keys.length })
+    report()
     const worker = async () => {
       for (let key = queue.shift(); key; key = queue.shift()) {
         const shared = this.uploading.get(key)
         if (shared) {
           try {
             await shared
+            completed++
+            report()
             continue
           } catch {
             // The other render gave up on it; upload it for this one.
@@ -763,6 +774,8 @@ export class CloudClient {
         })
         this.uploading.set(key, upload)
         await upload
+        completed++
+        report()
       }
     }
     await Promise.all(Array.from({ length: Math.min(UPLOADS, keys.length) }, worker))
@@ -788,6 +801,7 @@ export class CloudClient {
       channel?: string
     },
     signal: AbortSignal,
+    onProgress?: (work: CloudWork) => void,
   ): Promise<StillFrame> {
     const start = performance.now()
     const opened = { timeLimit: request.quality.timeLimit }
@@ -825,12 +839,14 @@ export class CloudClient {
         },
         captured,
         either.signal,
+        onProgress,
       )
       // An older server ignores the frame fields and renders a view: a half-float image, not WebP.
       if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
         throw new Outdated('the render server does not finish frames; redeploy it')
       const header = (name: string) => Number(response.headers.get(name) ?? 0)
       const renderer = response.headers.get('x-fury-renderer')
+      onProgress?.({ stage: 'receiving' })
       const frame: StillFrame = {
         image: await response.blob(),
         cached: response.headers.get('x-cache') === 'hit',
@@ -855,12 +871,18 @@ export class CloudClient {
   }
 
   /** Posts a render request, uploading whatever blobs the server asks for. */
-  private async post(fields: object, captured: CapturedScene, signal: AbortSignal) {
+  private async post(
+    fields: object,
+    captured: CapturedScene,
+    signal: AbortSignal,
+    onProgress?: (work: CloudWork) => void,
+  ) {
     const encoded = new TextEncoder().encode(JSON.stringify({ ...fields, scene: captured.scene }))
     const payload = encoded.byteLength > 32 * 1024 ? await gzip(encoded) : encoded
     for (let attempt = 0; attempt < 3; attempt++) {
       // Timed from this attempt alone: the page's first request also uploads every blob first.
       const started = performance.now()
+      onProgress?.({ stage: 'requesting' })
       const response = await fetch(`${this.url}/render?session=${RENDER_SESSION}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -871,7 +893,7 @@ export class CloudClient {
         const answer = (await response.json()) as { missing?: string[]; superseded?: boolean }
         if (answer.superseded) throw new Superseded()
         if (answer.missing?.length) {
-          await this.upload(answer.missing, captured.blobs, signal)
+          await this.upload(answer.missing, captured.blobs, signal, onProgress)
           continue
         }
       }

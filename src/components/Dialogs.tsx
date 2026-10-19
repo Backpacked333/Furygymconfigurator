@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ArrowDownToLine, ArrowRight, FileText, Info, Plus } from 'lucide-react'
+import { LoadingExperience } from './LoadingExperience'
 import {
   ADDONS,
   FINISHES,
@@ -225,6 +226,14 @@ export function BriefDialog({
         <ArrowDownToLine size={17} />
         {busy ? 'Preparing your brief…' : 'Download build brief'}
       </button>
+      {busy && (
+        <LoadingExperience
+          config={config}
+          compact
+          title="Your vision, ready to share."
+          label="Preparing your build brief"
+        />
+      )}
     </Modal>
   )
 }

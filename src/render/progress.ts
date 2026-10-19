@@ -55,11 +55,8 @@ export const sceneProgress = {
 }
 
 /**
- * How long a still has left, for the status line (RenderStatus.tsx). A still traced on this
- * device reports its samples, so its progress is measured; one rendered in the cloud is estimated
- * from what this page's earlier frames cost per pixel and sample (the server's X-Render-Ms), plus
- * the frames queued ahead of it on the visitor's GPU. An estimate never claims to be done: it
- * eases toward PROGRESS_CAP and completes when the still arrives.
+ * Render-cost estimates for scheduling. The visible status uses observed request stages and
+ * measured local samples instead: elapsed time is not evidence of cloud render completion.
  */
 
 /** Seed for the cloud's cost before any frame has come back: 1.5 s for 64 samples at 1200x827. */

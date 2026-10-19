@@ -31,7 +31,7 @@ const snapshot = (design: string, url?: string): StillsSnapshot => ({
   aspect: 'wide',
   images: url ? { 'front-left': { still: { tier: 'still', url } } } : {},
   pending: { 'front-left': !url },
-  progress: url ? null : { kind: 'estimate', startedAt: performance.now(), expectedMs: 6000 },
+  progress: url ? null : { kind: 'stage', stage: 'requesting' },
 })
 
 describe('an option clicked on the stage', () => {
@@ -181,7 +181,11 @@ describe('the stage’s images', () => {
     expect(container.querySelector('.still-layer')!.className).toContain('is-loading')
     expect(loadingLine()).toBeNull()
     await act(async () => vi.advanceTimersByTime(LOADING_SHOWN_MS))
-    expect(loadingLine()?.textContent).toBe('Loading the picture')
+    expect(loadingLine()?.textContent).toContain('Your view is on its way.')
+    expect(loadingLine()?.querySelector('iframe')?.src).toContain('no-excuses.html')
+    expect(loadingLine()?.querySelector('[role=progressbar]')?.hasAttribute('aria-valuenow')).toBe(
+      false,
+    )
     await act(async () => decoded())
     expect(container.querySelector('.still-layer')!.className).not.toContain('is-loading')
     expect(loadingLine()).toBeNull()

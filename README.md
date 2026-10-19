@@ -320,11 +320,25 @@ Smoothness and reliability:
 
 - **Nothing runs at rest.** three's own animation loop is stopped; frames are drawn only on demand: for the settle window, and while a resting view is being path traced or a cloud frame fades in (see [Path-traced stills](#path-traced-stills)), then not at all. Sun shadows re-render only when something changes, not on every settle frame. Sub-pixel camera damping no longer extends the settle window.
 - **No shader compiles on common toggles.** Lights that come and go (moonlight, interior luminaires, sauna heaters) stay mounted at zero intensity, and foliage, grass, ground, and studio floor materials are kept for the session, so switching lights, time of day, packages, or surroundings reuses compiled shaders instead of stalling. On WebGPU, instanced trees, hedges, and grass read their placements from vertex attributes, so every copy shares its material's shader rather than compiling one per mesh. (A 20↔40 ft change still recompiles lit materials once, because the larger unit has more downlights.)
-- **Loading is always visible.** A first visit shows staged progress (downloading the 3D engine, starting the renderer, preparing materials and lighting) until the scene has drawn its first frame, while the configuration panel already works. Changes that rebuild much of the scene (size, product, surroundings, quality) show "Updating the 3D view" a frame before the work starts, and materials streaming in show a progress bar. Their motion is transform-only, so it keeps animating while the browser compiles shaders.
+- **Loading is always visible.** A first visit shows a Fury assembly animation and observed startup phases (downloading the 3D engine, starting the renderer, preparing materials and lighting) until the scene has drawn its first frame, while the configuration panel already works. Changes that rebuild much of the scene (size, product, surroundings, quality) show "Updating the 3D view" a frame before the work starts, and materials streaming in show a progress bar. Progress-bar motion is transform-only; the assembly animation is decorative and independent of progress.
 - **Textures decode off the main thread** where the browser supports it, retry on network errors (a whole set that fails tries again after growing pauses, then textures every surface that was waiting), and show neutral stand-ins until they arrive; a failed texture never leaves the progress indicator stuck.
 - **Recovery.** If the GPU device or WebGL context is lost, the scene rebuilds its renderer and textures (up to three times) instead of freezing. If the 3D code fails to download, configuration, pricing, and the floor plan keep working with a message in place of the scene; any other unexpected error shows a reload screen instead of a blank page, and the design survives the reload in the page's link.
 
 No 60 fps or low-end mobile performance claim has been validated on physical hardware; the automatic step-down is a safeguard, not a benchmark.
+
+### Loading and render progress
+
+Loading surfaces use the supplied, self-contained Fury assembly animations in `public/builds/`. `buildAnimation.ts` chooses the closest Studio/Container model; startup uses `no-excuses`. Only the currently needed animation is mounted, in a decorative, non-interactive sandboxed iframe. The exports retain their built-in reduced-motion and off-screen behavior; the wrapper also unmounts them while the tab is hidden. Keep these files byte-for-byte when replacing them; they are excluded from formatting.
+
+The assembly is illustrative, **not a visualization of render completion**. The gallery keeps the previous image while preparing the new one and skips the waiting card for swaps faster than 350 ms. A configuration wait says “You’ve got taste,” but does not claim that no other visitor has ever chosen that design: the client cannot know the cloud cache's history.
+
+- Local render progress measures completed samples. At the target it changes to “Finishing,” not a premature success.
+- Cloud upload progress counts successfully sent scene assets, not bytes or overall completion. While the render request is outstanding, the bar is indeterminate: the cloud API does not publish live GPU samples or queue position.
+- Receipt and image decoding are separate waiting states. Only a decoded image swap announces that the view is ready.
+- After 30 seconds, a render wait offers retry and floor-plan controls; a terminal render failure offers them immediately after the status delay. Retrying preserves the design and other cached views, and respects the renderer's busy/full backoff.
+- Startup, cached-image loading, material streaming, image downloads, and build-brief preparation reuse the same visual language. Startup phases have no made-up percentages. Material/file percentages describe their own phase only.
+
+`RenderStatus`, `LoadingExperience`, `cloud`, and `stills` tests cover fast swaps, real versus indeterminate progress, late callbacks, retries, tab visibility, and decode-gated completion. Real cloud-GPU progress would require a server telemetry protocol; the UI deliberately does not manufacture it from elapsed time.
 
 ## Verification
 

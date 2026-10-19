@@ -65,7 +65,7 @@ import type { Quality } from '../render/quality'
 import { FRAME_BEGIN, backendOf, beginFrame } from '../render/renderer'
 import { invalidateShadows, refreshShadows } from '../render/shadows'
 import { measuredProgress, sceneProgress, textureProgress } from '../render/progress'
-import { setStills } from '../render/stillStatus'
+import { setStills, setStillRetry } from '../render/stillStatus'
 import { MotionShutter } from '../render/motionBlur'
 import { liveSettled, setFreezer, type LivePose } from '../render/liveView'
 
@@ -397,9 +397,14 @@ export function RenderEffects({
       ),
     }
     stills.current = created
+    setStillRetry(() => {
+      local.current = null
+      created.session.retry()
+    })
     invalidate()
     return () => {
       stills.current = null
+      setStillRetry(null)
       created.session.dispose()
       setStills(null)
       changed.current = true

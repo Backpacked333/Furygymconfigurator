@@ -69,7 +69,7 @@ export function StageImageLayers({
       )}
       {loading && (
         <div className="still-loading" role="status">
-          <span>{loading}</span>
+          {loading}
         </div>
       )}
       {layers.map((layer) => (
