@@ -13,7 +13,11 @@
     "esModuleInterop": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "@fury/viewer360": ["./src/viewer/index.ts"],
+      "@fury/viewer360/3d": ["./src/viewer/3d.ts"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

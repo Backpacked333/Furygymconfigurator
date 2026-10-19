@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, SRGBColorSpace } from 'three'
-import type { Config } from '../lib/config'
+import { configItems, type Config } from '../lib/config'
 import {
   containerInterior,
   containerShell,
@@ -13,8 +13,8 @@ import { deck, pergola, roofDeck, stairs, timberAccent } from '../render/addons'
 import { box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
-import type { Quality } from '../render/quality'
-import { Equipment } from './Equipment'
+import type { Quality } from '@fury/viewer360'
+import { Equipment, SaunaLights } from './Equipment'
 import { InteriorLights } from './InteriorLights'
 import { Mirror } from './Mirror'
 import { Parts } from './Parts'
@@ -82,13 +82,19 @@ function MirrorWall({ config: c, quality }: { config: Config; quality: Quality }
 export function StudioModel({
   config: c,
   quality = 'high',
+  glazing: showGlazing = true,
 }: {
   config: Config
   quality?: Quality
+  /** Off for still layers that show the room through the glazing; the shell layer keeps it. */
+  glazing?: boolean
 }) {
   const studio = c.family === 'studio'
-  const shellKey = `${c.family}|${c.length}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
-  const interiorKey = `${shellKey}|${c.flooring}`
+  // Each key names exactly the inputs its builder reads, so a finish change does not rebuild and
+  // re-merge parts that only depend on size (the interior reads the finish only for chalk paint).
+  const size = `${c.family}|${c.length}`
+  const shellKey = `${size}|${c.finish}|${c.containerOpening}|${c.integratedFinish}`
+  const interiorKey = `${size}|${c.finish === 'chalk'}|${c.containerOpening}|${c.flooring}`
   const shell = useParts(
     (x) => (x.family === 'studio' ? studioShell(x) : containerShell(x)),
     c,
@@ -99,18 +105,19 @@ export function StudioModel({
     c,
     interiorKey,
   )
-  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, shellKey)
+  const glazing = useParts((x) => (x.family === 'studio' ? studioGlazing(x) : []), c, size)
   const a = c.addons
   const deckParts = useParts(deck, c, `${shellKey}|${c.lights}`)
   const pergolaParts = useParts(pergola, c, shellKey)
-  const roofParts = useParts(roofDeck, c, `${shellKey}|${a.stairs}`)
+  const roofParts = useParts(roofDeck, c, `${size}|${a.stairs}`)
   const stairParts = useParts(stairs, c, shellKey)
-  const accentParts = useParts(timberAccent, c, shellKey)
+  const accentParts = useParts(timberAccent, c, size)
+  const items = configItems(c)
   return (
     <group>
       <Parts parts={shell} />
       <Parts parts={interior} />
-      {glazing.length > 0 && <Parts parts={glazing} />}
+      {showGlazing && glazing.length > 0 && <Parts parts={glazing} />}
       <InteriorLights config={c} quality={quality} />
       {c.mirror && <MirrorWall config={c} quality={quality} />}
       {studio && <Signature length={c.length} />}
@@ -119,9 +126,10 @@ export function StudioModel({
       {studio && a.gazebo && <Parts parts={pergolaParts} />}
       {studio && a.roof && <Parts parts={roofParts} />}
       {studio && a.stairs && <Parts parts={stairParts} />}
-      {c.items.map((item) => (
+      {items.map((item) => (
         <Equipment key={item.id} item={item} />
       ))}
+      <SaunaLights items={items} />
     </group>
   )
 }

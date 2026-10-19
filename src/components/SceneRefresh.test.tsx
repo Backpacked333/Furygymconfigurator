@@ -5,10 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG, setFamily } from '../lib/config'
 import { SceneRefresh } from './SceneRefresh'
 
-const { invalidate } = vi.hoisted(() => ({ invalidate: vi.fn() }))
+const { invalidate, scene } = vi.hoisted(() => ({ invalidate: vi.fn(), scene: {} }))
 vi.mock('@react-three/fiber', () => ({
-  useThree: (selector: (state: { invalidate: () => void }) => unknown) => selector({ invalidate }),
+  useThree: (selector: (state: { invalidate: () => void; scene: object }) => unknown) =>
+    selector({ invalidate, scene }),
 }))
+const { invalidateShadows } = vi.hoisted(() => ({ invalidateShadows: vi.fn() }))
+vi.mock('@fury/viewer360/3d', () => ({ invalidateShadows }))
 
 describe('on-demand scene redraw', () => {
   let container: HTMLDivElement
@@ -18,9 +21,11 @@ describe('on-demand scene redraw', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
     invalidate.mockClear()
+    invalidateShadows.mockClear()
     container = document.createElement('div')
     root = createRoot(container)
     props = {
+      active: true,
       config: structuredClone(DEFAULT_CONFIG),
       view: 'exterior',
       dimensions: true,
@@ -30,7 +35,9 @@ describe('on-demand scene redraw', () => {
     }
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).toHaveBeenCalledTimes(1)
+    expect(invalidateShadows).toHaveBeenCalledTimes(1)
     invalidate.mockClear()
+    invalidateShadows.mockClear()
   })
 
   afterEach(() => {
@@ -44,8 +51,8 @@ describe('on-demand scene redraw', () => {
     expect(invalidate).toHaveBeenCalledTimes(1)
   })
 
-  it('redraws after all equipment is removed', () => {
-    props.config = { ...props.config, items: [] }
+  it('redraws after the equipment package changes', () => {
+    props.config = { ...props.config, package: 'empty' }
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).toHaveBeenCalledTimes(1)
   })
@@ -71,6 +78,7 @@ describe('on-demand scene redraw', () => {
     { view: 'interior' },
     { quality: 'lite' },
     { autoRotate: true },
+    { active: false },
   ] as const)('redraws after display options change: %o', (change) => {
     act(() => root.render(<SceneRefresh {...props} {...change} />))
     expect(invalidate).toHaveBeenCalledTimes(1)
@@ -79,5 +87,20 @@ describe('on-demand scene redraw', () => {
   it('does not continuously redraw unchanged configurations', () => {
     act(() => root.render(<SceneRefresh {...props} />))
     expect(invalidate).not.toHaveBeenCalled()
+    expect(invalidateShadows).not.toHaveBeenCalled()
+  })
+
+  it('redraws when the scene shows again after the floor plan', () => {
+    act(() => root.render(<SceneRefresh {...props} active={false} />))
+    invalidate.mockClear()
+    act(() => root.render(<SceneRefresh {...props} active />))
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('redraws shadow maps whenever the scene changes', () => {
+    props.config = { ...props.config, lighting: 'night' }
+    act(() => root.render(<SceneRefresh {...props} />))
+    expect(invalidateShadows).toHaveBeenCalledTimes(1)
+    expect(invalidateShadows).toHaveBeenCalledWith(scene)
   })
 })

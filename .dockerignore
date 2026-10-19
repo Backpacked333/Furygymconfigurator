@@ -1,0 +1,5 @@
+node_modules
+dist
+render/node_modules
+render/out
+.git

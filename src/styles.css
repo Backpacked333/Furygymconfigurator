@@ -261,6 +261,10 @@ h3 {
 .stage > div:first-child:not(.floor-plan):not(.graphics-fallback) {
   height: 100%;
 }
+/* Under the floor plan the paused scene keeps its size (no resize work) but leaves the tab order. */
+.scene-layer.is-hidden {
+  visibility: hidden;
+}
 .stage canvas {
   touch-action: none;
   cursor: grab;
@@ -1179,10 +1183,15 @@ h3 {
   background: #3d4d31;
   color: #d9e6c7;
 }
-.environment-card.desert {
-  background: #534b36;
-  color: #e1d5b8;
-  border-color: #706548;
+.environment-card.backyard {
+  background: #344a2c;
+  color: #d4e4c4;
+  border-color: #5c7449;
+}
+.environment-card.rooftop {
+  background: #3e4247;
+  color: #d6dae0;
+  border-color: #646b74;
 }
 .environment-card.studio {
   background: #3a4037;
@@ -1311,8 +1320,9 @@ h3 {
   padding: 40px;
   color: #4c5e3d;
 }
-.scene-loading > p {
-  font-size: 12px;
+.scene-loading {
+  z-index: 2;
+  background: #c7ccc2;
 }
 .loading-mark {
   font-family: var(--display);
@@ -2783,29 +2793,146 @@ h3 {
   font-weight: 600;
   color: #4d5a43;
 }
-.material-progress {
+.scene-activity {
   position: absolute;
   left: 50%;
   top: 22px;
   transform: translateX(-50%);
   overflow: hidden;
-  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 9px;
   border-radius: 999px;
-  background: rgb(240 238 229 / 0.86);
+  background: rgb(240 238 229 / 0.92);
   border: 1px solid #c9cdbd;
-  color: #4a5541;
-  font-size: 8px;
-  letter-spacing: 0.06em;
-  backdrop-filter: blur(8px);
+  color: #3f4a37;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgb(40 48 34 / 0.12);
   pointer-events: none;
   z-index: 3;
 }
-.material-progress > span {
+/* Quick changes finish before this fades in, so it never flashes. */
+.scene-activity.is-updating {
+  animation: activity-in 0.2s ease 0.25s both;
+}
+.activity-bar {
   position: absolute;
   inset: auto 0 0 0;
-  height: 2px;
+  height: 3px;
   background: #627a4c;
-  transition: width 0.3s ease;
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+/* Transform-only motion keeps animating on the compositor while the main thread is busy. */
+.activity-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid #c3cbb5;
+  border-top-color: #4f6a3a;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes activity-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.scene-loading-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  color: #323c2c;
+}
+.loading-bar {
+  position: relative;
+  width: min(320px, 80%);
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgb(98 122 76 / 0.18);
+}
+.loading-bar > span {
+  position: absolute;
+  inset: 0;
+  background: #627a4c;
+  transform-origin: left;
+  transition: transform 0.6s ease;
+}
+.loading-bar > i {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.loading-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  font-size: 12px;
+  color: #8a9480;
+}
+.loading-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.loading-steps li::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+.loading-steps li.is-done {
+  color: #4c5e3d;
+}
+.loading-steps li.is-done::before {
+  background: #627a4c;
+  border-color: #627a4c;
+}
+.loading-steps li.is-active {
+  color: #323c2c;
+  font-weight: 600;
+}
+.loading-steps li.is-active::before {
+  border-color: #c3cbb5;
+  border-top-color: #4f6a3a;
+  animation: spin 0.8s linear infinite;
+}
+.scene-loading-note {
+  font-size: 11px;
+  color: #7a846f;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar > i,
+  .activity-spinner,
+  .loading-steps li.is-active::before {
+    animation-duration: 2.4s;
+  }
 }
 .quality-detail {
   margin-top: 6px;
@@ -2849,4 +2976,252 @@ h3 {
 }
 .photo-mode .stage::after {
   display: none;
+}
+
+/* --- Pre-rendered stills ------------------------------------------------------------------- */
+.scene-layer,
+.still-layer {
+  position: absolute;
+  inset: 0;
+}
+.still-layer {
+  z-index: 1;
+  background: #c7ccc2;
+}
+.still-layer.is-hidden {
+  visibility: hidden;
+}
+.still-stage,
+.still,
+.still img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.still img {
+  object-fit: cover;
+  user-select: none;
+}
+.still.is-entering {
+  animation: still-in 200ms ease-out both;
+}
+@keyframes still-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Shown only when a still takes longer than 150 ms: a hairline, never a blank stage. */
+.still-loading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  z-index: 3;
+  background: linear-gradient(90deg, transparent, #536b40, transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: still-loading 0.9s linear infinite;
+}
+@keyframes still-loading {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+.stage-bottom {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.stage-dock {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 14px;
+}
+.angle-strip {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 8px;
+  background: #ecf0e2cc;
+  border: 1px solid #a5b09970;
+  backdrop-filter: blur(10px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.angle-strip button {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 5px;
+  color: #58664c;
+  font-size: 9px;
+  border: 1px solid transparent;
+}
+.angle-strip button.first-interior {
+  margin-left: 8px;
+  position: relative;
+}
+.angle-strip button.first-interior::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: #b4bea5;
+}
+.angle-strip button:hover {
+  background: #dfe5d2;
+}
+.angle-strip button.selected {
+  border-color: #33402c;
+  color: #22301b;
+  background: #fafbf4;
+}
+.angle-thumb {
+  position: relative;
+  display: block;
+  width: 84px;
+  height: 47px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #d5dacb;
+}
+.angle-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.angle-strip:not(.with-thumbnails) button {
+  padding: 7px 10px;
+}
+.mood-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.mood-controls .segmented {
+  background: #ecf0e2d9;
+  border-color: #a5b09980;
+  backdrop-filter: blur(10px);
+}
+.mood-controls .segmented button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  padding: 7px 10px;
+  color: #58664c;
+}
+.mood-controls .segmented .active {
+  background: #33402c;
+  color: #edf3dd;
+}
+.mood-controls .segmented button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.lighting-control button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.enter-360 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+.stage-bottom .scene-status .scene-hint {
+  border-left: 1px solid #a6b095;
+  padding-left: 8px;
+}
+@media (max-width: 1150px) {
+  .angle-thumb {
+    width: 64px;
+    height: 36px;
+  }
+}
+@media (max-width: 820px) {
+  .stage-bottom {
+    display: flex;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+  .stage-dock {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mood-controls {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .environment-chips,
+  .stage-bottom .scene-status {
+    display: none;
+  }
+  .angle-thumb {
+    width: 52px;
+    height: 29px;
+  }
+  .enter-360 {
+    padding: 8px 12px;
+    font-size: 10px;
+  }
+}
+/* Undo and redo sit under the scene tools, clear of the angle strip. */
+.history-controls {
+  left: auto;
+  right: 25px;
+  bottom: auto;
+  top: 268px;
+  flex-direction: column;
+}
+@media (max-width: 820px) {
+  .history-controls {
+    top: 12px;
+    right: 64px;
+    flex-direction: row;
+  }
+}
+@media (max-width: 820px) {
+  /* A compact dock: angle names in one scrolling row, then lighting and 360 beside the panel toggle. */
+  .angle-thumb {
+    display: none;
+  }
+  .angle-strip {
+    padding: 3px;
+  }
+  .angle-strip:not(.with-thumbnails) button,
+  .angle-strip button {
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+  .mood-controls {
+    justify-content: flex-start;
+    margin-right: 120px;
+    gap: 6px;
+  }
+  .mood-controls .segmented button {
+    padding: 6px 8px;
+  }
+  .stage-bottom .stage-dock {
+    gap: 6px;
+  }
 }

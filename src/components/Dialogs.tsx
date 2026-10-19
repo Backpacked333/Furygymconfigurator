@@ -15,6 +15,7 @@ import {
   FINISHES,
   FLOORS,
   area,
+  configItems,
   distance,
   estimate,
   money,
@@ -34,7 +35,7 @@ import {
   PRODUCT_SOURCE_DATE,
   productFamily,
 } from '../lib/products'
-import { downloadFile, exportBrief } from '../lib/export'
+import { PdfToolUnavailable, downloadFile, exportBrief } from '../lib/export'
 import Modal from './Modal'
 import { MiniStudio } from './ConfigPanel'
 
@@ -116,7 +117,7 @@ export function ShareDialog({
         <span>
           {productName(config)}
           <small>
-            {config.items.length} interior items ·{' '}
+            {configItems(config).length} interior items ·{' '}
             {FINISHES.find((f) => f.id === config.finish)!.name}
           </small>
         </span>
@@ -180,7 +181,7 @@ export function BriefDialog({
   notify,
 }: {
   config: Config
-  capture: () => string | null
+  capture: () => Promise<string | null> | string | null
   onClose: () => void
   notify: (s: string) => void
 }) {
@@ -236,10 +237,14 @@ export function BriefDialog({
         onClick={async () => {
           setBusy(true)
           try {
-            await exportBrief(config, capture(), { name, notes })
+            await exportBrief(config, await capture(), { name, notes })
             notify('Build brief downloaded. Your next step: share it with your project team.')
-          } catch {
-            notify('Could not create the PDF. Try again, or download the configuration from Share.')
+          } catch (error) {
+            notify(
+              error instanceof PdfToolUnavailable
+                ? 'The PDF tool didn’t load. Check your connection, or reload the page (your design is kept) and try again.'
+                : 'Could not create the PDF. Try again, or download the configuration from Share.',
+            )
           } finally {
             setBusy(false)
           }
@@ -269,8 +274,10 @@ export function LibraryDialog({
       `${productName(config)} / ${FINISHES.find((f) => f.id === config.finish)!.name}`,
     ),
     [compare, setCompare] = useState<string[]>([])
-  const persist = (next: SavedBuild[]) => {
+  // Changes apply to what is stored now, so a build saved from another tab is not overwritten.
+  const persist = (change: (stored: SavedBuild[]) => SavedBuild[]) => {
     try {
+      const next = change(readSaved())
       writeSaved(next)
       setSaved(next)
       return true
@@ -298,16 +305,13 @@ export function LibraryDialog({
           className="primary"
           disabled={!name.trim() || saved.length >= 12}
           onClick={() => {
-            const next = [
-              {
-                id: crypto.randomUUID(),
-                name: name.trim(),
-                date: new Date().toISOString(),
-                config: structuredClone(config),
-              },
-              ...saved,
-            ]
-            if (persist(next)) notify('Build saved on this browser.')
+            const build = {
+              id: crypto.randomUUID(),
+              name: name.trim(),
+              date: new Date().toISOString(),
+              config: structuredClone(config),
+            }
+            if (persist((stored) => [build, ...stored])) notify('Build saved on this browser.')
           }}
         >
           <Plus size={16} /> Save current
@@ -339,7 +343,7 @@ export function LibraryDialog({
                   aria-label={`Delete ${build.name}`}
                   onClick={() => {
                     if (window.confirm(`Delete “${build.name}” from this browser?`)) {
-                      if (persist(saved.filter((s) => s.id !== build.id)))
+                      if (persist((stored) => stored.filter((s) => s.id !== build.id)))
                         setCompare(compare.filter((id) => id !== build.id))
                     }
                   }}
@@ -416,7 +420,7 @@ export function LibraryDialog({
                         .join(', ') || 'None',
                   ],
                   ['Floor', (c: Config) => FLOORS.find((f) => f.id === c.flooring)!.name],
-                  ['Equipment', (c: Config) => `${c.items.length} pieces / ${c.package}`],
+                  ['Equipment', (c: Config) => `${configItems(c).length} pieces / ${c.package}`],
                   [
                     'Opening',
                     (c: Config) =>

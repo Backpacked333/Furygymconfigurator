@@ -5,6 +5,8 @@ import {
   ChevronDown,
   Dumbbell,
   Flame,
+  Building2,
+  Fence,
   Footprints,
   Heart,
   Layers3,
@@ -19,16 +21,15 @@ import {
 } from 'lucide-react'
 import {
   ADDONS,
-  CATALOG,
+  ENVIRONMENTS,
   FINISHES,
   FLOORS,
   PACKAGES,
-  addEquipment,
   area,
   distance,
   layoutIssues,
   money,
-  packageItems,
+  configItems,
   setAddon,
   setFamily,
   productHeight,
@@ -36,7 +37,7 @@ import {
   type PackageId,
   type Unit,
 } from '../lib/config'
-import { QUALITY_DETAILS, type Quality } from '../render/quality'
+import { QUALITY_DETAILS, type Quality } from '@fury/viewer360'
 import {
   PRODUCT_FAMILIES,
   CONTAINER_OPENINGS,
@@ -46,6 +47,37 @@ import {
 } from '../lib/products'
 
 const STEPS = ['Space', 'Exterior', 'Interior', 'Setting']
+
+/** Day or blue-hour night. The studio backdrop is always lit like a photo studio. */
+export function LightingControl({
+  config: c,
+  onChange,
+}: {
+  config: Config
+  onChange: (c: Config) => void
+}) {
+  const studio = c.environment === 'studio'
+  return (
+    <div className="segmented lighting-control" role="group" aria-label="Lighting">
+      {(['day', 'night'] as const).map((lighting) => {
+        const Icon = lighting === 'day' ? Sun : Moon
+        const active = studio ? lighting === 'day' : c.lighting === lighting
+        return (
+          <button
+            key={lighting}
+            className={active ? 'active' : ''}
+            aria-pressed={active}
+            disabled={studio}
+            title={studio ? 'The studio backdrop is always lit like a photo studio.' : undefined}
+            onClick={() => onChange({ ...c, lighting })}
+          >
+            <Icon size={14} /> {lighting === 'day' ? 'Day' : 'Night'}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 export function MiniStudio({
   finish = '#353c33',
   long = false,
@@ -131,6 +163,7 @@ export default function ConfigPanel({
   notify,
   onPlan,
   onTemplate,
+  onPreview,
 }: {
   config: Config
   onChange: (c: Config) => void
@@ -143,27 +176,21 @@ export default function ConfigPanel({
   notify: (message: string) => void
   onPlan: () => void
   onTemplate: (id: 'athlete' | 'retreat' | 'flow') => void
+  /** Hovering or focusing a choice: what it would show can be fetched ahead of the click. */
+  onPreview?: (next: Config) => void
 }) {
+  const preview = (next: Config) => ({
+    onPointerEnter: () => onPreview?.(next),
+    onFocus: () => onPreview?.(next),
+  })
   const product = productFamily(c.family)
   const applyPackage = (id: PackageId) => {
-    const next = { ...c, package: id, items: packageItems(id, c.length) }
+    const next = { ...c, package: id }
     if (layoutIssues(next).length) {
-      notify(
-        'This concept layout does not keep the selected entry clear. Choose another layout or arrange equipment individually.',
-      )
+      notify('This planning layout does not keep the selected entry clear.')
       return
     }
-    if (
-      c.items.length > 0 &&
-      !window.confirm(
-        'Replace the current equipment layout with this package? Your previous layout will remain available through Undo.',
-      )
-    )
-      return
     onChange(next)
-    notify(
-      `${PACKAGES.find((p) => p.id === id)!.name} layout applied. You can customize every item.`,
-    )
   }
   return (
     <aside className="config-panel" aria-label="Gym configuration">
@@ -390,6 +417,7 @@ export default function ConfigPanel({
                       key={opening.id}
                       aria-pressed={c.containerOpening === opening.id}
                       className={`opening-card ${c.containerOpening === opening.id ? 'selected' : ''}`}
+                      {...preview({ ...c, containerOpening: opening.id })}
                       onClick={() => {
                         const next = { ...c, containerOpening: opening.id }
                         if (layoutIssues(next).length) {
@@ -429,6 +457,7 @@ export default function ConfigPanel({
                   key={f.id}
                   className={c.finish === f.id ? 'selected' : ''}
                   aria-pressed={c.finish === f.id}
+                  {...preview({ ...c, finish: f.id })}
                   onClick={() => onChange({ ...c, finish: f.id })}
                 >
                   <span className="finish-swatch" style={{ background: f.color }}>
@@ -461,6 +490,7 @@ export default function ConfigPanel({
                         key={addon.id}
                         className={`addon ${c.addons[addon.id] ? 'selected' : ''}`}
                         aria-pressed={c.addons[addon.id]}
+                        {...preview(setAddon(c, addon.id).config)}
                         onClick={() => {
                           const result = setAddon(c, addon.id)
                           onChange(result.config)
@@ -515,6 +545,7 @@ export default function ConfigPanel({
                     key={p.id}
                     className={c.package === p.id ? 'selected' : ''}
                     aria-pressed={c.package === p.id}
+                    {...preview({ ...c, package: p.id })}
                     onClick={() => applyPackage(p.id)}
                   >
                     <Icon size={21} strokeWidth={1.4} />
@@ -528,8 +559,8 @@ export default function ConfigPanel({
             <button className="plan-button" onClick={onPlan}>
               <ScanLine size={19} />
               <span>
-                <strong>Make it fit your life</strong>
-                <small>Edit your floor plan · {c.items.length} items</small>
+                <strong>See how it fits</strong>
+                <small>Floor plan · {configItems(c).length} items</small>
               </span>
               <ArrowRight size={17} />
             </button>
@@ -544,6 +575,7 @@ export default function ConfigPanel({
                   key={f.id}
                   aria-pressed={c.flooring === f.id}
                   className={c.flooring === f.id ? 'selected' : ''}
+                  {...preview({ ...c, flooring: f.id })}
                   onClick={() => onChange({ ...c, flooring: f.id })}
                 >
                   <span style={{ background: f.color }} />
@@ -558,40 +590,6 @@ export default function ConfigPanel({
               checked={c.mirror}
               onChange={() => onChange({ ...c, mirror: !c.mirror })}
             />
-            <details className="catalog-details">
-              <summary>
-                Add individual equipment <ChevronDown size={16} />
-              </summary>
-              <p className="muted small">
-                Generic planning models, not endorsed partner products. Dimensions and working
-                clearances are illustrative. Equipment pricing requires a quote.
-              </p>
-              <div className="catalog">
-                {CATALOG.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      const next = addEquipment(c, p.id)
-                      if (next) {
-                        onChange(next)
-                        notify(`${p.name} added. Drag it into place in the floor plan.`)
-                      } else
-                        notify(
-                          'No collision-free position is available. Remove or rearrange equipment, or choose a larger footprint.',
-                        )
-                    }}
-                  >
-                    <span>
-                      <strong>{p.name}</strong>
-                      <small>
-                        {distance(p.w, unit)} × {distance(p.d, unit)} · Quote required
-                      </small>
-                    </span>
-                    <Plus size={16} />
-                  </button>
-                ))}
-              </div>
-            </details>
           </>
         )}
         {step === 3 && (
@@ -609,59 +607,36 @@ export default function ConfigPanel({
               Surroundings <span>Concept settings</span>
             </div>
             <div className="environment-options">
-              {(['courtyard', 'desert', 'studio'] as const).map((env, i) => {
-                const icons = [TreePine, Sun, Layers3],
+              {ENVIRONMENTS.map((env, i) => {
+                const icons = [TreePine, Fence, Building2, Layers3],
                   Icon = icons[i]
                 return (
                   <button
-                    key={env}
-                    className={`environment-card ${env} ${c.environment === env ? 'selected' : ''}`}
-                    aria-pressed={c.environment === env}
-                    onClick={() => onChange({ ...c, environment: env })}
+                    key={env.id}
+                    className={`environment-card ${env.id} ${c.environment === env.id ? 'selected' : ''}`}
+                    aria-pressed={c.environment === env.id}
+                    {...preview({ ...c, environment: env.id })}
+                    onClick={() => onChange({ ...c, environment: env.id })}
                   >
                     <Icon size={24} strokeWidth={1} />
-                    <span>
-                      {env === 'courtyard'
-                        ? 'The courtyard'
-                        : env === 'desert'
-                          ? 'Desert retreat'
-                          : 'Studio backdrop'}
-                    </span>
-                    {c.environment === env && <Check size={14} />}
+                    <span>{env.name}</span>
+                    {c.environment === env.id && <Check size={14} />}
                   </button>
                 )
               })}
             </div>
             <div className="section-label separated">
-              Chase the light{' '}
-              <span>
-                {Math.floor(c.time)}:{c.time % 1 ? '30' : '00'}
-              </span>
+              Find your light <span>{c.environment === 'studio' ? 'Studio lighting' : null}</span>
             </div>
-            <input
-              className="time-slider"
-              type="range"
-              min="6"
-              max="21"
-              step="0.5"
-              value={c.time}
-              aria-label="Time of day"
-              onChange={(e) => onChange({ ...c, time: Number(e.target.value) })}
-            />
-            <div className="time-labels">
-              <span>
-                <Sun size={13} /> Morning
-              </span>
-              <span>
-                <Moon size={13} /> After dark
-              </span>
-            </div>
-            <Toggle
-              label="Architectural lighting"
-              detail="A warm welcome, any time of day."
-              checked={c.lights}
-              onChange={() => onChange({ ...c, lights: !c.lights })}
-            />
+            <LightingControl config={c} onChange={onChange} />
+            {c.environment !== 'studio' && c.lighting === 'night' && (
+              <Toggle
+                label="Architectural lighting"
+                detail="A warm welcome after dark."
+                checked={c.lights}
+                onChange={() => onChange({ ...c, lights: !c.lights })}
+              />
+            )}
             <p className="muted small">
               Lighting is artistic, not a location-based sun or shadow study.
             </p>

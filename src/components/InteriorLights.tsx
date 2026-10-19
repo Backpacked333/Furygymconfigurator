@@ -5,7 +5,7 @@ import { FLOOR_Y, interiorBounds } from '../render/architecture'
 import { cylinder, lathe, box } from '../render/geometry'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
-import type { Quality } from '../render/quality'
+import type { Quality } from '@fury/viewer360'
 import { Parts } from './Parts'
 
 /** 2700 K warm-white architectural LEDs. */
@@ -154,34 +154,35 @@ export function InteriorLights({ config: c, quality }: { config: Config; quality
     // Rebuild only when geometry-affecting inputs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L, on, b.ceiling, b.back, c.family])
-  const spotIntensity = 46
+  // Switched-off lights stay mounted at zero intensity: adding or removing lights changes every
+  // lit material's shader, so the switch would otherwise recompile the whole scene.
+  const level = on ? 1 : 0
   return (
     <>
       <Parts parts={fixtures} />
-      {on &&
-        columns.map((x, i) => (
-          <Downlight
-            key={x}
-            position={[x + 0.12, b.ceiling - 0.08, 0.1]}
-            intensity={spotIntensity}
-            shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
-          />
-        ))}
-      {on && quality !== 'lite' && (
+      {columns.map((x, i) => (
+        <Downlight
+          key={x}
+          position={[x + 0.12, b.ceiling - 0.08, 0.1]}
+          intensity={46 * level}
+          shadow={quality === 'ultra' && (i === 1 || i === columns.length - 2)}
+        />
+      ))}
+      {quality !== 'lite' && (
         <>
           <Wash
             position={[0, b.ceiling - 0.1, b.back + 0.12]}
             target={[0, FLOOR_Y + 3, b.back - 0.6]}
             width={L - 2.6}
             height={0.12}
-            intensity={26}
+            intensity={26 * level}
           />
           <Wash
             position={[0, FLOOR_Y + 0.24, b.back + 0.1]}
             target={[0, b.ceiling, b.back - 0.4]}
             width={L - 1.6}
             height={0.06}
-            intensity={16}
+            intensity={16 * level}
           />
         </>
       )}

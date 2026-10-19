@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { useThree } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import {
   BackSide,
   Color,
@@ -27,7 +27,11 @@ import {
 } from 'three/tsl'
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js'
 import type { Config, View } from '../lib/config'
+import { sceneTime } from '../lib/lighting'
 import {
+  CLOUDS,
+  GROUND_ALBEDO,
+  NIGHT_SKY,
   SKY_PRESETS,
   horizonRadiance,
   nightAt,
@@ -35,7 +39,8 @@ import {
   sunlightAt,
   type Vec3,
 } from '../lib/visuals'
-import type { Quality } from '../render/quality'
+import type { Quality } from '@fury/viewer360'
+import { FRAME_ENVIRONMENT, reusable, useTier } from '@fury/viewer360/3d'
 import { useResource } from '../render/useResource'
 import { foliageDaylight } from '../render/vegetation'
 
@@ -51,20 +56,18 @@ const SKY_SCALE = 0.13
  */
 const SKY_FILL = 0.12
 const SUN_INTENSITY = 4.2
-const CLOUDS = { courtyard: 0.32, desert: 0.12, studio: 0 }
 /** A camera inside meters the dimmer room: roughly +2/3 stop, like a photographer would. */
 const INTERIOR_EXPOSURE = 1.6
 
 type Environment = Config['environment']
 
-/** Airglow and scattered starlight keep a moonless sky deep blue rather than black. */
-const NIGHT_SKY: Vec3 = [0.0022, 0.0034, 0.0078]
-
 function configureSky(sky: Sky, environment: Environment, sun: Vec3, night: number) {
   const preset = SKY_PRESETS[environment]
   const horizon = horizonRadiance(sun, preset)
   sky.fill.value.setRGB(
-    ...(horizon.map((v, i) => v * SKY_SCALE * SKY_FILL + NIGHT_SKY[i] * night) as Vec3),
+    ...(horizon.map(
+      (v, i) => v * SKY_SCALE * SKY_FILL + NIGHT_SKY[environment][i] * night,
+    ) as Vec3),
   )
   sky.turbidity.value = preset.turbidity
   sky.rayleigh.value = preset.rayleigh
@@ -130,8 +133,10 @@ export function Atmosphere({
   view: View
 }) {
   const { gl, scene, invalidate } = useThree()
+  const { spec } = useTier()
   const renderer = gl as unknown as WebGPURenderer
-  const { environment, time } = config
+  const { environment } = config
+  const time = sceneTime(config)
   const studio = environment === 'studio'
 
   const background = useMemo(() => createSky(true), [])
@@ -147,6 +152,14 @@ export function Atmosphere({
   }, [])
   const generator = useResource(() => new PMREMGenerator(renderer), [renderer])
   const target = useRef<RenderTarget | null>(null)
+  const environmentStale = useRef(true)
+  // One fog object, updated in place: a new one would give every material a new fog node.
+  const fog = useMemo(() => new Fog(new Color(), 70, 520), [])
+  // Built once, so a change in the studio backdrop does not hand the background a new shader.
+  const backdrop = useMemo(
+    () => mix(color('#a9a59c'), color('#e7e3db'), screenUV.y.oneMinus().pow(0.8)),
+    [],
+  )
   // A layout effect, declared before the capture below, so the previous generator's target is
   // released before (never after) the new one is captured.
   useLayoutEffect(
@@ -167,10 +180,10 @@ export function Atmosphere({
     configureSky(background, environment, sun, night)
     configureSky(capture.sky, environment, sun, night)
     foliageDaylight.value = Math.min(1, sunlight.intensity / 0.6)
-    const groundAlbedo = environment === 'desert' ? [0.42, 0.34, 0.25] : [0.2, 0.23, 0.15]
+    const groundAlbedo = GROUND_ALBEDO[environment]
     const horizonFill = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE * SKY_FILL)
     const sky = skyRadiance([0, 1, 0], sun, preset).map(
-      (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[i] * night,
+      (v, i) => v * SKY_SCALE + horizonFill[i] + NIGHT_SKY[environment][i] * night,
     )
     const direct = (SUN_INTENSITY * sunlight.intensity * Math.max(0, sun[1])) / Math.PI
     ;(capture.ground.material as MeshBasicMaterial).color.setRGB(
@@ -178,26 +191,53 @@ export function Atmosphere({
     )
     if (environment === 'studio') {
       scene.background = null
-      scene.backgroundNode = mix(color('#a9a59c'), color('#e7e3db'), screenUV.y.oneMinus().pow(0.8))
-      scene.fog = new Fog(new Color('#d6d2ca'), 90, 420)
+      scene.backgroundNode = backdrop
+      fog.color.set('#d6d2ca')
+      fog.near = 90
+      fog.far = 420
     } else {
       scene.backgroundNode = null
-      const horizon = horizonRadiance(sun, preset).map((v) => v * SKY_SCALE) as Vec3
-      scene.fog = new Fog(new Color(...horizon), 70, 520)
+      fog.color.setRGB(...(horizonRadiance(sun, preset).map((v) => v * SKY_SCALE) as Vec3))
+      fog.near = 70
+      fog.far = 520
     }
-    if (generator) {
-      target.current = generator.fromScene(
-        environment === 'studio' ? capture.studio : capture.envScene,
-        0,
-        0.5,
-        2000,
-        { size: quality === 'lite' ? 128 : 256, renderTarget: target.current ?? undefined },
-      )
-      scene.environment = target.current.texture
-    }
+    scene.fog = fog
     scene.environmentIntensity = environment === 'studio' ? 0.9 : 1
+    environmentStale.current = true
     invalidate()
-  }, [background, capture, environment, time, quality, generator, scene, invalidate])
+  }, [
+    background,
+    capture,
+    environment,
+    time,
+    quality,
+    spec,
+    generator,
+    scene,
+    fog,
+    backdrop,
+    invalidate,
+  ])
+
+  // The image-based lighting is captured at the start of the next frame, for the latest settings,
+  // rather than on every change: a time-of-day drag can commit several changes between frames.
+  useFrame(() => {
+    if (!environmentStale.current || !generator) return
+    environmentStale.current = false
+    // Captured only when lighting or surroundings change, never per frame: High and Ultra can
+    // afford sharp sky reflections in glass and polished metal.
+    const size = spec.environmentSize
+    // A target is reused only at its own cube size, which differs per tier.
+    if (target.current && !reusable(target.current, size)) {
+      target.current.dispose()
+      target.current = null
+    }
+    target.current = generator.fromScene(studio ? capture.studio : capture.envScene, 0, 0.5, 2000, {
+      size,
+      renderTarget: target.current ?? undefined,
+    })
+    scene.environment = target.current.texture
+  }, FRAME_ENVIRONMENT)
 
   // Eyes adapt after dark, and a camera inside meters for the dimmer room.
   useLayoutEffect(() => {
@@ -215,20 +255,27 @@ export function Atmosphere({
 }
 
 function SunLight({ config, quality }: { config: Config; quality: Quality }) {
+  const { spec } = useTier()
+  const shadowSize = spec.shadowMapSize
   const preset = SKY_PRESETS[config.environment]
-  const sunlight = sunlightAt(config.time, preset)
-  const night = nightAt(config.time)
+  const time = sceneTime(config)
+  const sunlight = sunlightAt(time, preset)
+  const night = nightAt(time)
   const extent = config.length / 2 + 14
   const distance = 80
   const [x, y, z] = sunlight.direction
+  const [r, g, b] = sunlight.color
+  // A new Color on every render would read as a changed prop and restart the settle frames even
+  // when nothing visible changed (a panel tab, a toast).
+  const sunColor = useMemo(() => new Color(r, g, b), [r, g, b])
   return (
     <>
       <directionalLight
         position={[x * distance, Math.max(y, 0.02) * distance, z * distance]}
-        color={new Color(...sunlight.color)}
+        color={sunColor}
         intensity={SUN_INTENSITY * sunlight.intensity}
         castShadow
-        shadow-mapSize={quality === 'lite' ? [1024, 1024] : [4096, 4096]}
+        shadow-mapSize={[shadowSize, shadowSize]}
         shadow-camera-left={-extent}
         shadow-camera-right={extent}
         shadow-camera-top={extent}
@@ -239,14 +286,14 @@ function SunLight({ config, quality }: { config: Config; quality: Quality }) {
         shadow-normalBias={0.03}
         shadow-radius={quality === 'lite' ? 2 : 4}
       />
-      {night > 0.01 && (
-        <directionalLight
-          position={[-30, 60, 40]}
-          color="#9db4ff"
-          intensity={0.18 * night}
-          castShadow={false}
-        />
-      )}
+      {/* Moonlight stays mounted (dark by day): adding or removing a light changes every lit
+          material's shader, so crossing dusk on the time slider would recompile the scene. */}
+      <directionalLight
+        position={[-30, 60, 40]}
+        color="#9db4ff"
+        intensity={night > 0.01 ? 0.18 * night : 0}
+        castShadow={false}
+      />
     </>
   )
 }

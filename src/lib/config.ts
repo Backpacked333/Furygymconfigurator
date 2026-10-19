@@ -7,6 +7,7 @@ import {
   productFamily,
   type ProductFamily,
 } from './products'
+import { nightAt } from './visuals'
 
 export const FINISHES = [
   { id: 'obsidian', name: 'Obsidian', color: '#262927' },
@@ -137,16 +138,24 @@ export const PACKAGES = [
   { id: 'empty', name: 'Empty space', subtitle: 'Room for your vision.', icon: 'empty' },
 ] as const
 
-const itemSchema = z.object({
-  id: z.string().min(1).max(64),
-  sku: z.enum(CATALOG.map((x) => x.id)),
-  x: z.number().finite().min(-20).max(20),
-  z: z.number().finite().min(-4).max(4),
-  rotation: z.union([z.literal(0), z.literal(90)]),
-})
+/** A piece of planning equipment placed by a package, in feet from the floor's center. */
+export type PlacedItem = {
+  id: string
+  sku: (typeof CATALOG)[number]['id']
+  x: number
+  z: number
+  rotation: 0 | 90
+}
+export const ENVIRONMENTS = [
+  { id: 'courtyard', name: 'The courtyard', short: 'Courtyard' },
+  { id: 'backyard', name: 'Suburban backyard', short: 'Backyard' },
+  { id: 'rooftop', name: 'Urban rooftop', short: 'Rooftop' },
+  { id: 'studio', name: 'Studio backdrop', short: 'Studio' },
+] as const
+export const LIGHTINGS = ['day', 'night'] as const
 const currentConfigSchema = z
   .object({
-    v: z.literal(2),
+    v: z.literal(3),
     family: z.enum(['studio', 'container']),
     containerOpening: z.enum(CONTAINER_OPENINGS.map((o) => o.id)),
     integratedFinish: z.boolean(),
@@ -162,10 +171,12 @@ const currentConfigSchema = z
     }),
     flooring: z.enum(FLOORS.map((x) => x.id)),
     mirror: z.boolean(),
-    package: z.enum([...PACKAGES.map((x) => x.id), 'custom']),
-    items: z.array(itemSchema).max(16),
-    environment: z.enum(['courtyard', 'desert', 'studio']),
-    time: z.number().finite().min(6).max(21),
+    // Equipment always comes from a planning package: every configuration has a finite set of
+    // stills, and the floor plan only shows the package's layout.
+    package: z.enum(PACKAGES.map((x) => x.id)),
+    environment: z.enum(ENVIRONMENTS.map((x) => x.id)),
+    lighting: z.enum(LIGHTINGS),
+    /** Architectural lighting after dark. By day the lights are always on. */
     lights: z.boolean(),
   })
   .superRefine((c, ctx) => {
@@ -179,25 +190,68 @@ const currentConfigSchema = z
       })
     if (c.family === 'studio' && (c.containerOpening !== 'roll-up' || c.integratedFinish))
       ctx.addIssue({ code: 'custom', message: 'Opening options apply only to Containers.' })
-    if (new Set(c.items.map((i) => i.id)).size !== c.items.length)
-      ctx.addIssue({ code: 'custom', message: 'Duplicate equipment identifiers.' })
   })
-export const configSchema = z.preprocess((input) => {
-  if (input && typeof input === 'object' && 'v' in input && input.v === 1)
-    return {
-      ...input,
-      v: 2,
-      family: 'studio',
-      containerOpening: 'roll-up',
-      integratedFinish: false,
-      studioLayout: 'single',
+type Raw = Record<string, unknown>
+const isRecord = (x: unknown): x is Raw => !!x && typeof x === 'object' && !Array.isArray(x)
+/** Each step upgrades a stored configuration by one schema version. */
+const MIGRATIONS: Record<number, (c: Raw) => Raw> = {
+  1: (c) => ({
+    ...c,
+    v: 2,
+    family: 'studio',
+    containerOpening: 'roll-up',
+    integratedFinish: false,
+    studioLayout: 'single',
+  }),
+  2: ({ items, time, ...c }) => ({
+    ...c,
+    v: 3,
+    package: migratedPackage(c.package, items),
+    environment: c.environment === 'desert' ? 'rooftop' : c.environment,
+    lighting: typeof time === 'number' && nightAt(time) > 0.5 ? 'night' : 'day',
+  }),
+}
+/** The package whose equipment best matches a layout arranged by hand. */
+function migratedPackage(pkg: unknown, items: unknown): unknown {
+  if (pkg !== 'custom') return pkg
+  const skus = Array.isArray(items) ? items.map((i) => (isRecord(i) ? i.sku : null)) : []
+  let best: PackageId = 'strength',
+    score = 0
+  for (const p of PACKAGES) {
+    const preset = packageItems(p.id, 20).map((i) => i.sku as unknown)
+    const shared = preset.filter((sku) => skus.includes(sku)).length
+    if (shared > score) {
+      best = p.id
+      score = shared
     }
-  return input
-}, currentConfigSchema)
+  }
+  return best
+}
+export function migrateConfig(input: unknown): unknown {
+  let c = input
+  while (isRecord(c) && typeof c.v === 'number' && MIGRATIONS[c.v]) c = MIGRATIONS[c.v](c)
+  return c
+}
+/**
+ * True when an older stored configuration had equipment arranged by hand, which is replaced by
+ * the closest planning package on loading.
+ */
+export function hadCustomLayout(input: unknown): boolean {
+  if (!isRecord(input) || typeof input.v !== 'number' || input.v >= 3) return false
+  if (input.package === 'custom') return true
+  if (!Array.isArray(input.items) || typeof input.package !== 'string') return false
+  const preset = PACKAGES.some((p) => p.id === input.package)
+    ? packageItems(input.package as PackageId, input.length === 40 ? 40 : 20)
+    : []
+  const key = (i: unknown) => (isRecord(i) ? `${i.sku}|${i.x}|${i.z}|${i.rotation}` : '')
+  return JSON.stringify(input.items.map(key)) !== JSON.stringify(preset.map(key))
+}
+export const configSchema = z.preprocess(migrateConfig, currentConfigSchema)
 export type Config = z.infer<typeof currentConfigSchema>
-export type PlacedItem = z.infer<typeof itemSchema>
 export type AddonId = (typeof ADDONS)[number]['id']
 export type PackageId = (typeof PACKAGES)[number]['id']
+export type Environment = Config['environment']
+export type Lighting = Config['lighting']
 export type View = 'exterior' | 'interior' | 'plan'
 export type Unit = 'ft' | 'm'
 
@@ -218,8 +272,16 @@ export function packageItems(kind: PackageId, length: 20 | 40): PlacedItem[] {
   }
   return presets[kind].map((i) => ({ ...i, x: i.x + offset }))
 }
+const itemCache = new Map<string, PlacedItem[]>()
+/** The equipment of a configuration: its package's layout, the same array for the same inputs. */
+export function configItems(config: Pick<Config, 'package' | 'length'>): PlacedItem[] {
+  const key = `${config.package}|${config.length}`
+  let items = itemCache.get(key)
+  if (!items) itemCache.set(key, (items = packageItems(config.package, config.length)))
+  return items
+}
 export const DEFAULT_CONFIG: Config = {
-  v: 2,
+  v: 3,
   family: 'studio',
   containerOpening: 'roll-up',
   integratedFinish: false,
@@ -231,9 +293,8 @@ export const DEFAULT_CONFIG: Config = {
   flooring: 'rubber',
   mirror: false,
   package: 'strength',
-  items: packageItems('strength', 20),
   environment: 'courtyard',
-  time: 16.5,
+  lighting: 'day',
   lights: true,
 }
 export const money = (n: number) =>
@@ -284,7 +345,7 @@ export function placementIssue(item: PlacedItem, config: Config): string | null 
     return 'Keep equipment inside the usable floor area.'
   if (Math.abs(item.x - entryCenter(config)) < w / 2 + 1.6 && item.z + d / 2 > 2.3)
     return 'Keep the planned entry clear.'
-  for (const other of config.items) {
+  for (const other of configItems(config)) {
     if (other.id === item.id) continue
     const f = footprint(other)
     if (
@@ -297,21 +358,12 @@ export function placementIssue(item: PlacedItem, config: Config): string | null 
 }
 export function layoutIssues(config: Config) {
   return [
-    ...new Set(config.items.map((i) => placementIssue(i, config)).filter((v): v is string => !!v)),
+    ...new Set(
+      configItems(config)
+        .map((i) => placementIssue(i, config))
+        .filter((v): v is string => !!v),
+    ),
   ]
-}
-export function addEquipment(config: Config, sku: PlacedItem['sku']): Config | null {
-  if (config.items.length >= 16) return null
-  for (const rotation of [0, 90] as const) {
-    for (let z = -2; z <= 2; z += 0.5) {
-      for (let x = -config.length / 2 + 2; x < config.length / 2 - 1; x += 0.5) {
-        const candidate = { id: crypto.randomUUID(), sku, x, z, rotation }
-        if (!placementIssue(candidate, config))
-          return { ...config, package: 'custom', items: [...config.items, candidate] }
-      }
-    }
-  }
-  return null
 }
 export function setAddon(config: Config, id: AddonId): { config: Config; notice?: string } {
   if (config.family !== 'studio')
@@ -335,7 +387,7 @@ export function estimate(config: Config) {
     `Concept floor: ${FLOORS.find((f) => f.id === config.flooring)!.name}`,
     ...(config.accent ? ['Concept timber accent'] : []),
     ...(config.mirror ? ['Concept mirror wall'] : []),
-    ...config.items.map((i) => `Planning item: ${catalogItem(i.sku).name}`),
+    ...configItems(config).map((i) => `Planning item: ${catalogItem(i.sku).name}`),
   ]
   return {
     lines: names.map((name) => ({ name, amount: null })),
@@ -348,17 +400,24 @@ export function estimate(config: Config) {
 export function encodeConfig(config: Config) {
   return LZString.compressToEncodedURIComponent(JSON.stringify(configSchema.parse(config)))
 }
-export function decodeConfig(value: string): Config | null {
+/** A stored configuration, and whether a hand-arranged layout was replaced by a package. */
+export function decodeStored(value: string): { config: Config; layoutReplaced: boolean } | null {
   if (!value || value.length > 12000) return null
   try {
     const decoded = LZString.decompressFromEncodedURIComponent(value)
     if (!decoded || decoded.length > 16000) return null
-    const config = configSchema.parse(JSON.parse(decoded))
-    return layoutIssues(config).length ? null : config
+    const raw: unknown = JSON.parse(decoded)
+    const config = configSchema.parse(raw)
+    return layoutIssues(config).length ? null : { config, layoutReplaced: hadCustomLayout(raw) }
   } catch {
     return null
   }
 }
+export function decodeConfig(value: string): Config | null {
+  return decodeStored(value)?.config ?? null
+}
+export const LAYOUT_REPLACED_NOTICE =
+  'Equipment now comes from planning packages, so your hand-arranged layout was replaced by the closest package.'
 export function shareUrl(config: Config) {
   const url = new URL(window.location.href)
   url.search = ''
@@ -366,43 +425,64 @@ export function shareUrl(config: Config) {
   return url.toString()
 }
 export type SavedBuild = { id: string; name: string; date: string; config: Config }
-const savedSchema = z
-  .array(
-    z.object({
-      id: z.string().max(64),
-      name: z.string().min(1).max(60),
-      date: z.string(),
-      config: configSchema,
-    }),
-  )
-  .max(12)
+const savedBuildSchema = z.object({
+  id: z.string().max(64),
+  name: z.string().min(1).max(60),
+  date: z.string(),
+  config: configSchema,
+})
+const savedSchema = z.array(savedBuildSchema).max(12)
+/**
+ * Stored builds, read one by one: an entry this version cannot use (corrupted, or written by a
+ * newer schema) is set aside instead of hiding every other build.
+ */
+function storedBuilds() {
+  const raw: unknown = JSON.parse(localStorage.getItem('fury-builds-v1') || '[]')
+  const builds: SavedBuild[] = []
+  const unreadable: unknown[] = []
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    const parsed = savedBuildSchema.safeParse(entry)
+    if (parsed.success && !layoutIssues(parsed.data.config).length) builds.push(parsed.data)
+    else unreadable.push(entry)
+  }
+  return { builds: builds.slice(0, 12), unreadable }
+}
 export function readSaved(): SavedBuild[] {
   try {
-    return savedSchema
-      .parse(JSON.parse(localStorage.getItem('fury-builds-v1') || '[]'))
-      .filter((x) => !layoutIssues(x.config).length)
+    return storedBuilds().builds
   } catch {
     return []
   }
 }
 export function writeSaved(builds: SavedBuild[]) {
-  localStorage.setItem('fury-builds-v1', JSON.stringify(savedSchema.parse(builds)))
+  const valid = savedSchema.parse(builds)
+  // Entries set aside on reading are written back as they were, so a save never deletes them.
+  let unreadable: unknown[] = []
+  try {
+    unreadable = storedBuilds().unreadable
+  } catch {
+    /* Storage that is not JSON at all cannot be kept. */
+  }
+  localStorage.setItem('fury-builds-v1', JSON.stringify([...valid, ...unreadable]))
 }
 export function initialConfig(): { config: Config; notice: string } {
   const encoded = new URLSearchParams(window.location.hash.slice(1)).get('c')
   if (encoded) {
-    const config = decodeConfig(encoded)
+    const stored = decodeStored(encoded)
     return {
-      config: config ?? DEFAULT_CONFIG,
-      notice: config
-        ? 'Shared design loaded. Make it your own.'
-        : 'This share link is invalid or unsupported. Your default design is ready.',
+      config: stored?.config ?? DEFAULT_CONFIG,
+      notice: !stored
+        ? 'This share link is invalid or unsupported. Your default design is ready.'
+        : stored.layoutReplaced
+          ? `Shared design loaded. ${LAYOUT_REPLACED_NOTICE}`
+          : 'Shared design loaded. Make it your own.',
     }
   }
   try {
     const draft = localStorage.getItem('fury-draft-v1')
-    const config = draft && decodeConfig(draft)
-    if (config) return { config, notice: '' }
+    const stored = draft ? decodeStored(draft) : null
+    if (stored)
+      return { config: stored.config, notice: stored.layoutReplaced ? LAYOUT_REPLACED_NOTICE : '' }
   } catch {
     /* Storage is optional in private browsing. */
   }

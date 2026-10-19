@@ -18,9 +18,34 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run scene-version
       - run: npm test
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
           name: studio-production-build
           path: dist
+  still-renderer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm ci
+        working-directory: render
+      - run: npm run typecheck
+        working-directory: render
+      - run: npm run count
+        working-directory: render
+      - run: npm run build
+      - run: npx vite build --outDir dist-published
+        env:
+          VITE_STILLS_BASE: http://127.0.0.1:4599
+      - run: npx playwright install --with-deps chromium
+        working-directory: render
+      - run: npm run smoke
+        working-directory: render

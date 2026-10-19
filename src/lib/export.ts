@@ -3,6 +3,7 @@ import {
   FINISHES,
   FLOORS,
   catalogItem,
+  configItems,
   estimate,
   money,
   productName,
@@ -29,12 +30,17 @@ export function downloadFile(name: string, content: string | Blob, type = 'appli
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+/** The PDF library did not download: offline, or this tab predates a release that replaced it. */
+export class PdfToolUnavailable extends Error {}
+
 export async function createBrief(
   config: Config,
   image: string | null,
   project: { name: string; notes: string },
 ) {
-  const { jsPDF } = await import('jspdf')
+  const { jsPDF } = await import('jspdf').catch((cause: unknown) => {
+    throw new PdfToolUnavailable('The PDF library could not be loaded.', { cause })
+  })
   const doc = new jsPDF(),
     estimateData = estimate(config)
   let y = 0
@@ -161,7 +167,7 @@ export async function createBrief(
     1.7 * scale,
     'F',
   )
-  for (const item of config.items) {
+  for (const item of configItems(config)) {
     const p = catalogItem(item.sku),
       w = item.rotation === 0 ? p.w : p.d,
       d = item.rotation === 0 ? p.d : p.w
@@ -177,7 +183,7 @@ export async function createBrief(
     `${config.length} ft x 8 ft external footprint of one unit. Shaded zone: planned entry. Equipment positions:`,
     10,
   )
-  for (const item of config.items)
+  for (const item of configItems(config))
     text(
       `${catalogItem(item.sku).name}: x ${item.x} ft, z ${item.z} ft, rotation ${item.rotation} degrees.`,
       9,
