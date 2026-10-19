@@ -97,7 +97,7 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
                           deployment_token())
         worker = Dispatcher(service, Provider(root, work), journal, policy, root, work)
         worker.verify_source()
-        pending = [row for row in journal.jobs() if row['phase'] != 'settled' or journal.pending(row['dispatch']['dispatchId'])]
+        pending = [row for row in journal.jobs() if row['phase'] != 'settled']
         active = [row for row in pending if row['phase'] != 'uncertain']
         if not active and pending:
             worker.recover(pending[0])
@@ -120,6 +120,10 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
                 time.sleep(2)
             else:
                 outcome = 'recovery-pending'
+        # Best-effort terminal acknowledgements never consume the active-job slot.
+        settled = [row for row in journal.jobs() if row['phase'] == 'settled' and journal.pending(row['dispatch']['dispatchId'])]
+        if settled:
+            worker.recover(settled[uuid.UUID(cycle).int % len(settled)])
         return {'status': outcome, 'cycleId': cycle}
     finally:
         if journal is not None:

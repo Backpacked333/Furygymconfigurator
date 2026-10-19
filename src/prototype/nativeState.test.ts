@@ -76,3 +76,25 @@ it('does not overwrite unsupported shared data when remembering the current sele
   rememberNativeSelection(defaultDesign())
   expect(window.location.hash).toBe('#fury-v4=%broken')
 })
+it('preserves an incoming shared design during edits until it has been imported', () => {
+  const original = defaultDesign()
+  let managedHash = rememberNativeSelection(original)
+  const incoming = defaultDesign({ family: 'container', lengthFt: 40 })
+  const incomingHash = '#fury-v4=' + encodeURIComponent(serializeDesign(incoming))
+  window.location.hash = incomingHash
+  const edited = parseDesign({
+    ...original,
+    presentation: { ...original.presentation, cameraRef: 'entry-draft@1' },
+  })
+  managedHash = rememberNativeSelection(edited, managedHash)
+  expect(window.location.hash).toBe(incomingHash)
+  expect(initialNativeHistory().present).toEqual(incoming)
+  managedHash = rememberNativeSelection(incoming, managedHash)
+  expect(managedHash).toBe(incomingHash)
+  const importedEdit = parseDesign({
+    ...incoming,
+    presentation: { ...incoming.presentation, cameraRef: 'entry-draft@1' },
+  })
+  rememberNativeSelection(importedEdit, managedHash)
+  expect(initialNativeHistory().present).toEqual(importedEdit)
+})
