@@ -633,26 +633,39 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
 
   it('compiles new kernels when an in-place update packs more textures than they index', () => {
     const t = session()
+    const info = t.tracer.textureAtlas.textureInfo
+    // As the tracer's updateMaterials does: the atlas's entries rebuilt for the textures in use.
+    let textures = 3
+    t.tracer.updateMaterials.mockImplementation(() => {
+      info.length = 0
+      for (let i = 0; i < textures; i++) info.push({})
+    })
+    const edit = () => {
+      t.stone.material = new MeshStandardNodeMaterial()
+      t.begin()
+    }
     t.begin()
     expect(t.tracer.setScene).toHaveBeenCalledOnce()
     // A floor swapped in on the meshes it has, while the old floor's scans stay in use elsewhere:
     // the atlas grows past the textureInfo array the kernels were compiled with.
-    t.tracer.updateMaterials.mockImplementation(() => t.tracer.textureAtlas.textureInfo.push({}))
-    t.stone.material = new MeshStandardNodeMaterial()
-    t.begin()
+    textures = 4
+    edit()
     expect(t.tracer.updateMaterials).toHaveBeenCalledOnce()
     expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
-    // As many textures as the new kernels index, or fewer, update in place again.
-    t.tracer.updateMaterials.mockImplementation(() => t.tracer.textureAtlas.textureInfo.pop())
-    t.stone.material = new MeshStandardNodeMaterial()
-    t.begin()
-    expect(t.tracer.updateMaterials).toHaveBeenCalledTimes(2)
+    // Back to fewer: updated in place, and the entries kept at the four the kernels were built
+    // for, so a kernel the tracer rebuilds on its own (a resize) still holds four.
+    textures = 3
+    edit()
     expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
-    t.tracer.updateMaterials.mockImplementation(() => t.tracer.textureAtlas.textureInfo.push({}))
+    expect(info).toHaveLength(4)
+    // So the four come back in place too, and only a fifth needs new kernels.
+    textures = 4
+    edit()
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+    textures = 5
     t.traced.texturesChanged()
     t.begin()
-    // Back to the four the kernels were compiled for: still in place.
-    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(3)
   })
 
   it('still captures the scene again when it changed shape meanwhile', () => {

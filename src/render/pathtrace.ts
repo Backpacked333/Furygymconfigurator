@@ -10,6 +10,7 @@ import {
   StorageTexture,
   Vector2,
   Vector3,
+  Vector4,
   type BufferGeometry,
   type Camera,
   type InstancedMesh,
@@ -581,11 +582,6 @@ export class PathTraceSession {
       clampIndirect?: number
       batchMs?: number
       maxPasses?: number
-      /**
-       * Traced resolution relative to the drawing buffer, until a start names another (`begin`).
-       * Unset, the tracer's own 1: the stills trace at full resolution.
-       */
-      renderScale?: number
       /** Crossfade between successive images, in milliseconds. */
       fadeMs?: number
       /**
@@ -620,7 +616,6 @@ export class PathTraceSession {
     tracer.minSamples = 4
     this.fadeMs = options.fadeMs ?? FADE_MS
     tracer.fadeDuration = this.fadeMs
-    if (options.renderScale) tracer.renderScale = options.renderScale
     tracer.maxSamples = REST_SAMPLES
     // The GGX energy table is a 3D storage texture sampled without mipmaps. Keep three from
     // regenerating mipmaps after each compute write, and fill it once up front so the GPU never
@@ -658,7 +653,8 @@ export class PathTraceSession {
     const last = this.captured
     const stale = this.materialsStale
     const capture = () => {
-      // New or reshaped meshes: build the BVH and kernels again.
+      // New or reshaped meshes, or more textures than the kernels index: build the BVH and
+      // kernels again.
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
         this.tracer.setScene(scene, camera)
@@ -683,6 +679,10 @@ export class PathTraceSession {
           // More textures than the kernels were compiled for (a floor swapped in while the old
           // one's scans stay in use elsewhere, or scans arriving): those need new kernels.
           grown = this.textureCount() > this.textureSlots
+          // Fewer: the tracer rebuilds kernels on its own (a resize grows its pixel queue or pool)
+          // and sizes the array from its length then, so it is kept at the count captured. Padding
+          // is never indexed: materials name only the textures they have.
+          if (!grown) this.padTextures()
         }
         if (sky) this.tracer.updateEnvironment()
         if (sky || moved || last.parts.lights !== parts.lights) this.tracer.updateLights()
@@ -734,10 +734,21 @@ export class PathTraceSession {
     this.timing = { start: performance.now(), first: 0, settled: 0 }
   }
 
+  /** The atlas's per-texture entries, which the kernels' textureInfo array is sized from. */
+  private textureInfo() {
+    const tracer = this.tracer as unknown as { textureAtlas?: { textureInfo?: unknown[] } }
+    return tracer.textureAtlas?.textureInfo
+  }
+
   /** Textures packed into the tracer's atlas, as its kernels index them. */
   private textureCount() {
-    const tracer = this.tracer as unknown as { textureAtlas?: { textureInfo?: unknown[] } }
-    return tracer.textureAtlas?.textureInfo?.length ?? 0
+    return this.textureInfo()?.length ?? 0
+  }
+
+  /** Keeps the atlas's entries at the count the kernels were captured with (see `begin`). */
+  private padTextures() {
+    const info = this.textureInfo()
+    while (info && info.length < this.textureSlots) info.push(new Vector4())
   }
 
   /** The tracer's accumulation targets. */
@@ -973,8 +984,9 @@ export class PathTraceSession {
 
   /**
    * Scans arrived: the next `begin` reads the materials again, keeping the captured meshes and
-   * their BVH unless the scene changed shape meanwhile. Views traced before count as of other
-   * surfaces.
+   * their BVH unless the scene changed shape meanwhile, or the scans outgrow the textures its
+   * kernels were compiled for (then it captures the scene again). Views traced before count as of
+   * other surfaces.
    */
   texturesChanged() {
     this.materialsStale = true
