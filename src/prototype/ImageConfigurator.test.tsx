@@ -473,7 +473,10 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
         railing: 'cable',
       })
       expect(switched.config.appearance).toEqual({ ...original.config.appearance, accent: false })
-      expect(switched.presentation).toEqual(original.presentation)
+      expect(switched.presentation).toEqual({
+        ...original.presentation,
+        doorPose: target === 'studio' ? 'closed' : 'open',
+      })
       expect(switched.outputProfile).toEqual(original.outputProfile)
       act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })))
       expect(host.querySelector('.toast')).toBeNull()

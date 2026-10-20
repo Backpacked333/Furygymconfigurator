@@ -101,6 +101,12 @@ export function transitionDesign(current: unknown, inputAction: unknown) {
           adjustments.push(
             'The Container opening becomes a glazed Studio front with a hinged door.',
           )
+          if (candidate.presentation.doorPose === 'open') {
+            candidate.presentation.doorPose = 'closed'
+            adjustments.push(
+              'Reset the Studio door to closed instead of carrying over the Container door pose.',
+            )
+          }
         }
         candidate.config.structure = structure
         if (action.product.family === 'container' && candidate.config.appearance.accent) {
