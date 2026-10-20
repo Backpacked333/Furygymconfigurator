@@ -66,8 +66,27 @@ sampler may retire settled tiles earlier. Its sample count is not a measure of n
   once per session and never mid-drag. `quality` is never lowered, so the scene still matches the
   gallery's Cycles images; the traced image is unaffected. It is marked `fury:raster-shed` in the
   performance timeline. The budget is a judgment call without device data.
+- Early refinement. A view rests after 80 ms and three raster frames (`REST_MS`, `START_FRAMES`).
+  Its first denoised image comes at 2 samples, then 4 and 8 (`EARLY_MILESTONES`: OIDN's albedo and
+  normal guides keep it clean, if softer). It fades in over 120 ms; later images fade in over 260 ms.
+  `?firstImage=8` restores the old first milestone for comparison. Each view's first image and
+  milestones are marked `fury:trace-first-image` and `fury:trace-milestone-<spp>` in the performance
+  timeline, and listed in the `?traceStats=1` log.
+- The entry's Cycles image seeds the first trace at its pose (`?cyclesSeed=0` turns this off).
+  - The library image the view opens on is read back to scene-linear light. This uses Blender
+    4.5's own AgX "Medium High Contrast" view, inverted: `render/agxInverse.bin`, built by
+    `scripts/agx-inverse.py` from the OpenColorIO config in the `bpy` wheel the render server pins.
+  - It is stored as a traced view at 16 samples per pixel (8 on Lite). Near-white pixels get none.
+  - The first start there seeds from it through the usual reprojection checks, so view-dependent
+    surfaces take none of it.
+  - The start waits up to 800 ms for the image to decode.
+  - Real samples outweigh it within the first milestones. The assumption is that the tracer's
+    light matches Cycles' (same scene code, same bounces and clamps), which is unmeasured here. A
+    mismatch would show as the first images' light shifting as samples arrive.
 - GPU batches adapt toward a 12 ms budget, capped at eight passes; this is a scheduling target,
-  not a guaranteed frame time. Already-submitted GPU work cannot be cancelled. Epoch checks fence
+  not a guaranteed frame time. After a second of undisturbed tracing, High and Ultra take 24 ms
+  batches of up to 16 passes, since the raster draws nothing then. A press waits at most one such
+  batch. Already-submitted GPU work cannot be cancelled. Epoch checks fence
   obsolete measurements; movement, edits, pointer holds, hidden tabs and gallery return stop new tracing.
 - The canvas/session stays mounted while returning to the gallery, but stops drawing. Closing the
   application disposes tracing, presentation and history resources. Re-entry starts at the selected
@@ -87,3 +106,11 @@ prove rendered pixels. Browser acceptance should cover both families, selected i
 cameras, door/add-on addition **and removal**, finishes, lighting, held-pointer dragging, zoom,
 revisiting angles, resize, close/reopen and WebGL fallback at laptop viewports. Hardware convergence
 benchmarks require a real WebGPU device; software WebGL results are not laptop performance evidence.
+
+Two checks run the real kernels on SwiftShader's WebGPU in headless Chromium (slow, CPU-bound):
+
+- `node scripts/seed-check.mjs` checks the Cycles-image seed kernel against the CPU's reading of the
+  same table: light, row order, averaging, and the near-white cutoff.
+- `node scripts/convergence.mjs` traces a small gym-like interior with the real tracer and reports
+  the error against a reference at 2–128 samples, to compare tracer settings at equal samples. It
+  measures convergence per sample, not speed on any device.
