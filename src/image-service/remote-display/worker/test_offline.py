@@ -1,8 +1,6 @@
-"""Provider/process-free tests: parse inspected source as data, never execute supervisor or SDK."""
+"""Provider/process-free tests: parse inspected source as data, never execute the supervisor."""
 import ast
-import hashlib
 from pathlib import Path
-import runpy
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -10,28 +8,6 @@ ROOT = HERE.parents[3]
 
 
 class OfflineWorkerTests(unittest.TestCase):
-    def test_audited_public_sdk_rejects_explicit_vm_selection(self):
-        audit = runpy.run_path(str(HERE / 'sdk_preflight.py'))
-        report = audit['inspect_sdk']()
-        self.assertEqual(report['auditPin'], 'modal==1.1.4')
-        self.assertEqual(report['sandboxSourceDigest'], 'sha256:baa8a10faf6bfe18a7e1710604d5273bc8484e43fce7a1ef88bdd8d7157a07a9')
-        self.assertNotIn('runtime', report['parameters'])
-        self.assertFalse(report['dispatchAllowed'])
-        self.assertFalse(report['explicitRuntimeSupported'])
-        self.assertEqual(report['providerCalls'], 0)
-        self.assertIsNone(report['launchPin'])
-
-    def test_sdk_auditor_imports_only_standard_metadata_ast_tools(self):
-        module = ast.parse((HERE / 'sdk_preflight.py').read_text())
-        imports = []
-        for node in ast.walk(module):
-            if isinstance(node, ast.Import):
-                imports.extend(alias.name for alias in node.names)
-            if isinstance(node, ast.ImportFrom):
-                imports.append(node.module)
-        self.assertEqual(set(imports), {'ast', 'hashlib', 'json', 'pathlib'})
-        self.assertNotIn('function_runtime', (HERE / 'sdk_preflight.py').read_text())
-
     def test_frozen_chrome_flags_byte_equal_except_portable_profile(self):
         local = ast.parse((ROOT / 'src/render/display/supervisor.py').read_text())
         remote = ast.parse((HERE / 'supervisor.py').read_text())
@@ -70,11 +46,6 @@ class OfflineWorkerTests(unittest.TestCase):
         self.assertTrue(close.handlers)
         self.assertEqual(ast.unparse(cleanup[1]), 'signal_descendants(signal.SIGTERM)')
         self.assertIn('signal_descendants(signal.SIGKILL)', body)
-
-    def test_audit_is_pinned_to_actual_source_bytes_not_version_alone(self):
-        audit = runpy.run_path(str(HERE / 'sdk_preflight.py'))
-        source = (audit['SDK'] / 'modal/sandbox.py').read_bytes()
-        self.assertEqual(hashlib.sha256(source).hexdigest(), audit['AUDIT_SOURCE_SHA256'])
 
 
 if __name__ == '__main__':

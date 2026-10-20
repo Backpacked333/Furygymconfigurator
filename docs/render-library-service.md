@@ -98,6 +98,12 @@ Apply migrations in order to a chosen Supabase project only after review:
 - `202610190003_render_library_recovery.sql`: fenced uncertain-to-accepted dispatch
   resolution and service-only reads of the actual per-job reservation. Apply before
   starting the updated dispatcher; do not derive settlement from current policy limits.
+- `202610200006_shared_interior_views.sql`: interior-visible view keying. The `entry-draft@1`
+  image key hashes only interior-visible choices (`viewDesign` drops add-ons, railing, finish
+  and accent), so exterior-only variants share one interior image. Snapshots and readiness
+  look images up by `image_key` across sets; the object stays under the publishing set's
+  path. Pause the render queue and drain in-flight jobs, then apply this migration, deploy the
+  API and register the matching worker build together before resuming.
 - `202610190004_hosted_dispatcher.sql` and `202610190005_dispatcher_headroom.sql`:
   shared CPU/GPU budget accounting and recovery headroom.
 - `202610200001_render_queue_lanes.sql`: durable queue admission, latest-request priority,
@@ -228,6 +234,24 @@ new pending rows and investigate dispatching/uncertain/accepted rows without res
 Deadlines bound worker execution but are not proof that a provider is terminal.
 
 ## Local verification (no remote DB, provider, GPU or browser)
+
+### Preview deployment gate
+
+Vercel builds require `RENDER_LIBRARY_SUPABASE_URL`, `RENDER_LIBRARY_SERVICE_ROLE_KEY`
+and `VITE_RENDER_LIBRARY_STORAGE_ORIGIN`. The two storage origins must match exactly and
+be HTTPS origins without a trailing slash. `npm run build` fails before compilation if
+these are missing or inconsistent; local offline builds remain available.
+
+Preview variables are branch-scoped: merging code does **not** copy configuration.
+Provision the exact target branch and redeploy. Keep the service-role key server-only;
+never use a `VITE_` prefix for credentials or grant all preview branches blanket access.
+A lookup-only preview needs these three variables, not rendering approval/worker credentials.
+Verify a known saved design through `/api/render-library/lookup` and browser descriptor
+verification before sharing the preview. Lookup failure is not evidence of a cache miss.
+
+The API, frontend and database must share the current `interior-visible@1` identity contract.
+Saved descriptors retain their original publishing `setKey`; image identity, recipe, design
+and storage-object binding—not equality with the requested set key—prove reuse is valid.
 
 Install the integrator's locked dependencies, including Sharp. Unit checks:
 

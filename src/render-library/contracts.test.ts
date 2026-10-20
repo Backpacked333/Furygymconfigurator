@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { defaultDesign, parseDesign, serializeDesign } from '../domain/design'
 import { CAMERA_REFS, DRAFT_LOOKS, LOOK_REFS, resolveCamera } from '../domain/presentation'
+import { ADDONS, FINISHES, FLOORS, INTERIORS, RAILINGS } from '../lib/config'
+import { CONTAINER_OPENINGS, STUDIO_DOORS } from '../lib/products'
 import {
   CONTRACT_VERSION,
   MAX_IMAGE_BYTES,
@@ -29,7 +31,9 @@ import {
   CUSTOMER_CAMERA_REFS,
   customerAngle,
   fiveViewDesigns,
+  interiorDesign,
   normalizeCustomerDesign,
+  viewDesign,
 } from './views'
 import {
   artifactReceiptSchema,
@@ -142,10 +146,171 @@ describe('five-view customer loading and canonical identity', () => {
     expect(new Set(Object.values(identities[0].imageKeys)).size).toBe(5)
     for (const view of fiveViewDesigns(design)) {
       const payload = JSON.parse(identityPayload(view, 'image'))
+      const camera = payload.design.presentation.cameraRef
       delete payload.design.presentation.cameraRef
       payload.kind = 'set'
-      expect(canonicalJson(payload)).toBe(http.canonicalSet)
+      payload.viewKeying = 'interior-visible@1'
+      if (camera === 'entry-draft@1') {
+        const interior = JSON.parse(serializeDesign(interiorDesign(design)))
+        delete interior.presentation.cameraRef
+        expect(payload.design).toEqual(interior)
+      } else expect(canonicalJson(payload)).toBe(http.canonicalSet)
     }
+  })
+  describe('shared interior view keys', () => {
+    type DesignConfig = ReturnType<typeof parseDesign>['config']
+    const withConfig = (base: unknown, patch: (config: DesignConfig) => DesignConfig) => {
+      const parsed = parseDesign(base)
+      return normalizeCustomerDesign({ ...parsed, config: patch(structuredClone(parsed.config)) })
+    }
+    const validAddons = (base: unknown) =>
+      ADDONS.map((entry) => entry.id).filter((id) =>
+        (() => {
+          try {
+            withConfig(base, (c) => ({ ...c, structure: { ...c.structure, addons: [id] } }))
+            return true
+          } catch {
+            return false
+          }
+        })(),
+      )
+    const container = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 }))
+    const exteriorOnly = (base: unknown) => {
+      const config = parseDesign(base).config
+      const finish = FINISHES.map((f) => f.id).find((id) => id !== config.appearance.finish)!
+      const railing = RAILINGS.map((r) => r.id).find((id) => id !== config.structure.railing)!
+      return [
+        withConfig(base, (c) => ({ ...c, appearance: { ...c.appearance, finish } })),
+        withConfig(base, (c) => ({ ...c, structure: { ...c.structure, railing } })),
+        withConfig(base, (c) => ({
+          ...c,
+          structure: { ...c.structure, addons: validAddons(base) },
+        })),
+      ]
+    }
+    it.each([
+      ['studio', design],
+      ['container', container],
+    ])('reuses the %s interior when only exterior choices change', async (_family, base) => {
+      const original = await computeSetIdentity(base)
+      const variants = exteriorOnly(base)
+      expect(variants.length).toBe(3)
+      for (const variant of variants) {
+        const next = await computeSetIdentity(variant)
+        expect(next.setKey).not.toBe(original.setKey)
+        expect(next.imageKeys['entry-draft@1']).toBe(original.imageKeys['entry-draft@1'])
+        expect(next.imageKeys['front-left-draft@1']).not.toBe(
+          original.imageKeys['front-left-draft@1'],
+        )
+      }
+    })
+    it('drops the container canopy from the interior key', async () => {
+      expect(validAddons(container)).toContain('canopy')
+      const canopy = withConfig(container, (c) => ({
+        ...c,
+        structure: { ...c.structure, addons: ['canopy'] },
+      }))
+      expect((await computeSetIdentity(canopy)).imageKeys['entry-draft@1']).toBe(
+        (await computeSetIdentity(container)).imageKeys['entry-draft@1'],
+      )
+    })
+    it('keeps the studio timber accent out of the interior key', async () => {
+      const accent = withConfig(design, (c) => ({
+        ...c,
+        appearance: { ...c.appearance, accent: !c.appearance.accent },
+      }))
+      const [a, b] = await Promise.all([computeSetIdentity(design), computeSetIdentity(accent)])
+      expect(b.setKey).not.toBe(a.setKey)
+      expect(b.imageKeys['entry-draft@1']).toBe(a.imageKeys['entry-draft@1'])
+    })
+    it.each([
+      ['studio', design],
+      ['container', container],
+    ])('renders a new %s interior when an interior choice changes', async (_family, base) => {
+      const config = parseDesign(base).config
+      const interior = INTERIORS.map((i) => i.id).find((id) => id !== config.appearance.interior)!
+      const floor = FLOORS.map((f) => f.id).find((id) => id !== config.appearance.floor)!
+      const original = (await computeSetIdentity(base)).imageKeys['entry-draft@1']
+      for (const changed of [
+        withConfig(base, (c) => ({ ...c, appearance: { ...c.appearance, interior } })),
+        withConfig(base, (c) => ({ ...c, appearance: { ...c.appearance, floor } })),
+        withConfig(base, (c) => ({
+          ...c,
+          appearance: { ...c.appearance, mirror: !c.appearance.mirror },
+        })),
+      ])
+        expect((await computeSetIdentity(changed)).imageKeys['entry-draft@1']).not.toBe(original)
+    })
+    it('keys the container interior on its opening and the studio interior on its door', async () => {
+      const openings = CONTAINER_OPENINGS.map((o) => o.id)
+      const keys = new Set<string>()
+      for (const opening of openings)
+        try {
+          const parsed = parseDesign(container)
+          const changed = parseDesign({
+            ...parsed,
+            config: {
+              ...parsed.config,
+              structure: { ...parsed.config.structure, opening, infill: 'none' },
+            },
+            presentation: {
+              ...parsed.presentation,
+              doorPose: opening === 'roll-up' ? 'open' : 'closed',
+            },
+          })
+          keys.add((await computeSetIdentity(changed)).imageKeys['entry-draft@1'])
+        } catch {
+          // Openings invalid for this size are rejected by the design schema.
+        }
+      expect(keys.size).toBeGreaterThan(1)
+      const studio = parseDesign(design).config.structure
+      if (studio.kind !== 'studio') throw new Error('Expected the default studio design.')
+      const door = STUDIO_DOORS.map((d) => d.id).find((id) => id !== studio.door)!
+      const otherDoor = withConfig(design, (c) => ({ ...c, structure: { ...studio, door } }))
+      expect((await computeSetIdentity(otherDoor)).imageKeys['entry-draft@1']).not.toBe(
+        (await computeSetIdentity(design)).imageKeys['entry-draft@1'],
+      )
+    })
+    it('verifies a shared interior descriptor published by another set', async () => {
+      const [image] = await seedImagesForSet(
+        readFileSync(resolve(root, 'public/native-library/manifest.json')),
+        design,
+      )
+      const original = await computeSetIdentity(design)
+      const interior = imageDescriptorSchema.parse({
+        ...image,
+        imageKey: original.imageKeys['entry-draft@1'],
+        design: viewDesign(design, 'entry-draft@1'),
+        provenance: {
+          kind: 'native-worker',
+          jobId: claim.jobId,
+          attemptId: claim.attemptId,
+          workerBuildSha256: claim.workerBuildSha256,
+          recipeBundleSha256: claim.recipeBundleSha256,
+          receiptSha256: 'f'.repeat(64),
+        },
+        url: `https://storage.example/storage/v1/object/public/render-library/${original.setKey}/${original.imageKeys['entry-draft@1']}/${image.sha256}.webp`,
+      })
+      const [other] = exteriorOnly(design)
+      expect(
+        await verifyImageDescriptor(interior, viewDesign(other, 'entry-draft@1'), [
+          'https://storage.example',
+        ]),
+      ).toEqual(interior)
+      await expect(
+        verifyImageDescriptor(
+          {
+            ...interior,
+            design: {
+              ...interior.design,
+              presentation: { ...interior.design.presentation, aspect: 'tall' },
+            },
+          },
+          viewDesign(other, 'entry-draft@1'),
+          ['https://storage.example'],
+        ),
+      ).rejects.toThrow()
+    })
   })
   it.each([
     { doorPose: 'open' },
@@ -435,6 +600,23 @@ describe('private worker binding and cross-language fixtures', () => {
       { design },
     ])
       await expect(verifyArtifactReceipt({ ...worker.receipt, ...patch }, claim)).rejects.toThrow()
+  })
+  it('binds interior receipts to the interior-visible design, never the full exterior design', async () => {
+    const interior = {
+      ...worker.receipt,
+      imageKey: claim.identity.imageKeys['entry-draft@1'],
+      design: viewDesign(claim.design, 'entry-draft@1'),
+    }
+    expect(claim.views.some((view) => view.cameraRef === 'entry-draft@1')).toBe(true)
+    expect(await verifyArtifactReceipt(interior, claim)).toEqual(
+      artifactReceiptSchema.parse(interior),
+    )
+    const full = {
+      ...claim.design,
+      presentation: { ...claim.design.presentation, cameraRef: 'entry-draft@1' },
+    }
+    if (serializeDesign(full) !== serializeDesign(interior.design))
+      await expect(verifyArtifactReceipt({ ...interior, design: full }, claim)).rejects.toThrow()
   })
   it('reproduces all committed contract fixtures without network or provider access', async () => {
     const files = await contractFixtures(root)

@@ -1,8 +1,10 @@
-"""Hosted CPU lifecycle around an unchanged, immutable native-render package."""
+"""Long-running dispatcher on the Vast GPU host around an unchanged, immutable native-render package."""
 
+import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import time
 import urllib.request
 import uuid
@@ -41,34 +43,18 @@ class Database:
         return request_json(self.origin + '/rest/v1/rpc/render_library_' + name, self.headers, values)
 
 
+_token = {'value': None, 'at': 0.0}
+
+
 def deployment_token():
-    # Refresh on every cycle rather than storing an expiring OIDC credential.
+    # Short-lived OIDC credential for the protected preview; refreshed well before expiry.
+    if _token['value'] and time.monotonic() - _token['at'] < 900:
+        return _token['value']
     url = ('https://api.vercel.com/v3/env/pull/' + os.environ['FURY_VERCEL_PROJECT']
            + '/development?teamId=' + os.environ['FURY_VERCEL_TEAM'])
-    return request_json(url, {'Authorization': 'Bearer ' + os.environ['VERCEL_TOKEN']})['env']['VERCEL_OIDC_TOKEN']
-
-
-def durable_journal(path, volume):
-    from on_demand.journal import Journal
-
-    class VolumeJournal(Journal):
-        def commit(self):
-            self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
-            volume.commit()
-
-        def save(self, row):
-            super().save(row)
-            self.commit()
-
-        def queue(self, dispatch, event, artifact=None):
-            super().queue(dispatch, event, artifact)
-            self.commit()
-
-        def delivered(self, event_id):
-            super().delivered(event_id)
-            self.commit()
-
-    return VolumeJournal(path)
+    value = request_json(url, {'Authorization': 'Bearer ' + os.environ['VERCEL_TOKEN']})['env']['VERCEL_OIDC_TOKEN']
+    _token.update(value=value, at=time.monotonic())
+    return value
 
 
 class LaneService:
@@ -98,39 +84,30 @@ def worker_recipe(database, approval):
     return rows[0]['registration']
 
 
-def initialize_volume(journal_volume):
+def initialize_journal(work):
     from on_demand.journal import Journal
-    journal_volume.reload()
-    Journal.initialize(Path('/state/dispatch.sqlite3'))
-    journal_volume.commit()
-    return {'initialized': True}
+    path = Path(work) / 'dispatch.sqlite3'
+    if not path.exists():
+        Path(work).mkdir(mode=0o700, parents=True, exist_ok=True)
+        Journal.initialize(path)
 
 
-def run_dispatch(journal_volume, lane, app_name):
+def run_dispatch(root, work, lane):
     try:
-        result = drain(journal_volume, lane=lane)
-        print(result)
-        if result['status'] == 'budget-exhausted':
-            import modal
-            import subprocess
-            import sys
-            app_id = modal.App.lookup(app_name, create_if_missing=False).app_id
-            subprocess.run([sys.executable, '-m', 'modal', 'app', 'stop', app_id],
-                           check=True, timeout=30, capture_output=True)
-        return result
+        return drain(root, work, lane)
     except Exception as error:
         # Provider and HTTP exceptions can contain sensitive URLs/headers.
         import traceback
         locations = [(frame.name, frame.lineno) for frame in traceback.extract_tb(error.__traceback__)]
-        print('dispatcher-recovery-pending', type(error).__name__, locations)
+        print('dispatcher-recovery-pending', type(error).__name__, locations, flush=True)
         return {'status': 'recovery-pending', 'error': type(error).__name__}
 
 
-def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'):
+def drain(root, work, lane='foreground'):
     from on_demand.dispatcher import Dispatcher
-    from hosted_transfer import HostedProvider
-    from on_demand.vast_provider import VastProvider
+    from on_demand.journal import Journal
     from on_demand.transport import Service
+    from vast_host import LocalVastProvider
 
     if lane not in ('foreground', 'background'):
         raise ValueError('invalid-dispatch-lane')
@@ -142,8 +119,7 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
     journal = None
     outcome = 'unavailable'
     try:
-        volume.reload()
-        journal = durable_journal(work / 'dispatch.sqlite3', volume)
+        journal = Journal(work / 'dispatch.sqlite3')
         approval = db.read('render_library_approvals?select=id,enabled,policy,expires_at,active_worker_build_sha256')[0]
         policy = {
             **approval['policy'],
@@ -151,15 +127,14 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
             'enabled': approval['enabled'],
             'expiresAt': approval['expires_at'],
             'dispatcherId': os.environ['FURY_DISPATCHER_ID'] + ':' + lane,
-            'appName': os.environ['FURY_GPU_APP'],
-            'imageId': os.environ['FURY_GPU_IMAGE'],
+            'appName': 'vast-warm',
+            'imageId': 'vast-warm',
+            'providerKind': 'vast-warm',
+            'instanceId': os.environ['FURY_VAST_INSTANCE'],
         }
-        provider = HostedProvider(root, work)
-        if os.environ.get('FURY_PROVIDER') == 'vast-warm':
-            if policy['recipe'].get('gpuDevice') != 'NVIDIA GeForce RTX 5090':
-                raise RuntimeError('vast-worker-registration-required')
-            policy.update(providerKind='vast-warm', instanceId=os.environ['FURY_VAST_INSTANCE'])
-            provider = VastProvider(root, work)
+        if policy['recipe'].get('gpuDevice') != 'NVIDIA GeForce RTX 5090':
+            raise RuntimeError('vast-worker-registration-required')
+        provider = LocalVastProvider(root, work)
         service = Service(os.environ['FURY_SERVICE_ORIGIN'], os.environ['FURY_WORKER_TOKEN'],
                           os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'],
                           deployment_token())
@@ -172,7 +147,7 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
             worker.recover(pending[0])
             if pending[0]['phase'] not in ('uncertain', 'settled'):
                 active.append(pending[0])
-        # Each lane owns a separate volume and one serial invocation, never a shared SQLite writer.
+        # Each lane owns a separate journal and one serial loop, never a shared SQLite writer.
         row = active[0] if active else worker.new_job()
         if row is None:
             outcome = 'idle'
@@ -199,5 +174,27 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
     finally:
         if journal is not None:
             journal.db.close()
-            volume.commit()
         db.rpc('finish_cpu_cycle', {'cycleId': cycle, 'result': outcome})
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--lane', choices=('foreground', 'background'), required=True)
+    parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--work', type=Path, required=True)
+    parser.add_argument('--interval', type=float, default=3.0)
+    args = parser.parse_args()
+    if os.getuid() != 0:
+        sys.exit('root-required-for-isolated-render-slots')
+    initialize_journal(args.work)
+    while True:
+        result = run_dispatch(args.root.resolve(), args.work, args.lane)
+        if result['status'] != 'idle':
+            print(json.dumps(result), flush=True)
+        if result['status'] == 'processed':
+            continue
+        time.sleep(args.interval * (10 if result['status'] in ('budget-exhausted', 'budget-busy') else 1))
+
+
+if __name__ == '__main__':
+    main()
