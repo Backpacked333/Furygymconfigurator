@@ -230,8 +230,9 @@
   border: 1px solid rgb(255 255 255 / 0.55);
   border-radius: 999px;
   padding: 6px 12px 6px 7px;
+  /* No backdrop blur: the canvas under it changes every frame while refining, and a blur would be
+     redrawn over it each time, taking GPU time from the trace. The glass is near opaque anyway. */
   background: var(--glass);
-  backdrop-filter: blur(12px);
   box-shadow: 0 8px 22px rgb(0 0 0 / 0.12);
   color: var(--text);
   font-size: 11.5px;

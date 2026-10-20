@@ -93,3 +93,32 @@ Every change here leaves the images identical: same samples, same geometry, same
   - the timeline marks.
 - A reopen after 30 s starts unseeded and loads the denoiser network again. That is quick, and it
   happens behind the loading screen only if the scene was also unmounted.
+
+## Follow-up: refinement speed
+
+The first preview of this work refined visibly slower. Two causes were fixed, and one long-standing
+one was removed:
+
+- **The scene re-rendered for every progress report.**
+  - `LiveDesignScene` read the progress stores as React state.
+  - Every refinement report (each 2% of the pill's ring, several a second) reconciled the whole R3F
+    tree on the main thread the trace's frames run on.
+  - It now subscribes in an effect and hands the values to the gallery. Only the overlay and the
+    pill render them, which is tested.
+- **The pill's backdrop blur.** It sat over a canvas that changes every frame, so it was redrawn
+  each time. It is gone (the glass is near opaque).
+- **The GPU idled between batches.**
+  - Each frame waited for the last batch to finish before submitting the next.
+  - With 12 ms batches on a 16.7 ms frame, the GPU was busy at most ~72% of the time, and ~36% when
+    the completion landed just after a frame began.
+  - Two batches are now queued at once (`BATCHES_IN_FLIGHT`). The resting batch is 16 ms (was 24),
+    so a press waits at most about 32 ms.
+  - SwiftShader cannot show this: one sample costs it over a second at any size. Check on a GPU
+    with `?traceStats=1`.
+
+Sobol was timed against blue noise on the convergence harness:
+
+- the same time (60.1 s vs 60.2 s);
+- lower error at 32 and 128 samples (8.3% vs 9.0%, 4.3% vs 4.9%).
+
+It stays.

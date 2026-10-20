@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { environmentRadiance, equirectRadiance, skyLook } from '../lib/visuals'
 import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
 import {
+  BATCHES_IN_FLIGHT,
   EARLY_MILESTONES,
   EXPORT_SAMPLES,
   LONG_MILESTONES,
@@ -518,6 +519,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       textureAtlas: { textureInfo: [{}, {}, {}] as unknown[] },
       _pathTracer: {
         setSize: vi.fn(),
+        update: vi.fn(),
         outputTarget: new StorageTexture(64, 32),
         sampleCountTarget: new StorageTexture(64, 32),
       },
@@ -571,6 +573,30 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     }
     return { traced, tracer, begin, trace, unet, ...f }
   }
+
+  it('keeps the GPU fed: the next batch is queued behind the running one, never a third', async () => {
+    const t = session({ multiView: true })
+    const queue = (
+      t.traced as unknown as {
+        renderer: { backend: { device: { queue: { onSubmittedWorkDone: () => Promise<void> } } } }
+      }
+    ).renderer.backend.device.queue
+    const pending: (() => void)[] = []
+    queue.onSubmittedWorkDone = () => new Promise<void>((resolve) => pending.push(resolve))
+    t.begin()
+    t.traced.step()
+    t.traced.step()
+    t.traced.step()
+    expect(BATCHES_IN_FLIGHT).toBe(2)
+    expect(t.tracer.renderSample).toHaveBeenCalledTimes(2)
+    // The first finishes: another frame queues one behind the second.
+    pending.shift()!()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    t.traced.step()
+    expect(t.tracer.renderSample).toHaveBeenCalledTimes(3)
+    t.traced.step()
+    expect(t.tracer.renderSample).toHaveBeenCalledTimes(3)
+  })
 
   it('frees a stopped view’s history, denoisers, snapshot and guides, keeping its capture', async () => {
     const t = session({ multiView: true, keepHistoryAcrossSurfaces: true }, true)
@@ -922,7 +948,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     })
 
     it('takes larger batches once a view has rested a second, and none without a rest budget', async () => {
-      const rest = { afterMs: 1000, batchMs: 24, maxPasses: 16 }
+      const rest = { afterMs: 1000, batchMs: 16, maxPasses: 16 }
       const t = await run({ restBatch: rest })
       const budget = (at: number) =>
         (t.traced as unknown as { budget: (now: number) => unknown }).budget(at)
