@@ -7,6 +7,7 @@ import { skyLook } from '../lib/visuals'
 import type { GalleryCamera } from '../render/gallery'
 import { liveLoading, textureProgress, traceProgress } from '../render/progress'
 import { ProgressiveRenderer, REST_MS, TRIM_AFTER_MS } from './ProgressiveRenderer'
+import { bootStats } from './bootStats'
 
 const mocks = vi.hoisted(() => ({
   frames: new Map<number, () => void>(),
@@ -431,6 +432,26 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     settle()
     await render({ active: false })
     expect(traceProgress.get()).toEqual({ phase: 'idle' })
+  })
+
+  it('tells ?bootStats=1 why each trace stopped', async () => {
+    const restart = vi.spyOn(bootStats, 'restart').mockImplementation(() => {})
+    await render()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(1)
+    // Scans arriving mid-trace.
+    act(() => textureProgress.update(1, 1))
+    frame()
+    expect(restart).toHaveBeenLastCalledWith('scans arrived')
+    settle()
+    camera.position.x = 1
+    frame()
+    expect(restart).toHaveBeenLastCalledWith('camera moved')
+    settle()
+    act(() => canvas.dispatchEvent(new Event('pointerdown')))
+    expect(restart).toHaveBeenLastCalledWith('pointer or wheel')
+    // Each stop counted once.
+    expect(restart).toHaveBeenCalledTimes(3)
   })
 
   it('holds the first start until the BVHs, sky map and denoiser network are ready, never later ones', async () => {

@@ -38,6 +38,7 @@ import { pixelsFromPose } from './entryPose'
 import { ENTRY_TOLERANCE_PX } from './EntryWatch'
 import { cyclesSeed, earlyImages, liveProfile, liveSampler, traceScale } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
+import { bootStats } from './bootStats'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
 /**
@@ -158,6 +159,8 @@ export function ProgressiveRenderer({
     dirty: boolean
     ready: boolean
     tracing: boolean
+    /** Why the view was marked changed, for ?bootStats=1. */
+    dirtyReason: string
     interacting: boolean
     warming: boolean
     restAt: number
@@ -192,6 +195,7 @@ export function ProgressiveRenderer({
     const current = state.current
     if (current) {
       current.dirty = true
+      current.dirtyReason = 'view props changed'
       if (current.trimTimer) clearTimeout(current.trimTimer)
       current.trimTimer = null
       if (!active) {
@@ -235,6 +239,7 @@ export function ProgressiveRenderer({
       dirty: true,
       ready: false,
       tracing: false,
+      dirtyReason: 'view opened',
       interacting: false,
       warming: true,
       restAt: 0,
@@ -256,6 +261,25 @@ export function ProgressiveRenderer({
       trimTimer: null as ReturnType<typeof setTimeout> | null,
     }
     state.current = runtime
+    if (bootStats.running) {
+      bootStats.step('renderer mounted')
+      bootStats.context('quality', quality)
+      bootStats.context('backend', backendOf(renderer))
+      const info = (
+        renderer.backend as unknown as {
+          device?: {
+            adapterInfo?: { vendor?: string; architecture?: string; description?: string }
+          }
+        }
+      ).device?.adapterInfo
+      if (info)
+        bootStats.context(
+          'gpu',
+          [info.vendor, info.architecture, info.description].filter(Boolean).join(' / ') || '?',
+        )
+      const scans = textureProgress.get()
+      bootStats.step(`scans: ${scans.loaded} of ${scans.requested} loaded`)
+    }
     // The scene is mounted: what is left is its materials and light, then the tracer's start.
     liveLoading.set('materials')
     const loadingLimit = setTimeout(() => liveLoading.set('ready'), LOADING_LIMIT_MS)
@@ -292,8 +316,15 @@ export function ProgressiveRenderer({
     // Scans arriving swap maps on the materials the tracer holds: it reads the materials again on
     // its next start, keeping the meshes it captured and their BVH, and the views it traced
     // before seed a little (PathTraceSession texturesChanged).
+    let scansReported = false
     const texturesArrived = () => {
       runtime.dirty = true
+      runtime.dirtyReason = 'scans arrived'
+      const scans = textureProgress.get()
+      if (!scansReported && scans.loaded >= scans.requested) {
+        scansReported = true
+        bootStats.step(`all scans loaded (${scans.loaded})`)
+      }
       runtime.tracer?.texturesChanged()
       if (props.current.active) invalidate()
     }
@@ -311,14 +342,17 @@ export function ProgressiveRenderer({
     // Compile the pipeline's shaders asynchronously before its first frame, so opening the view
     // does not stall on synchronous compilation.
     void warmed(runtime.pipe).finally(() => {
+      bootStats.step('raster shaders compiled')
       runtime.warming = false
       if (!disposed && props.current.active) invalidate()
     })
     const textures = textureProgress.subscribe(texturesArrived)
     const interrupt = () => {
+      if (runtime.tracing) bootStats.restart('pointer or wheel')
       runtime.tracer?.halt()
       runtime.tracing = false
       runtime.dirty = true
+      runtime.dirtyReason = 'pointer or wheel'
       if (props.current.active) invalidate()
     }
     const down = () => {
@@ -337,10 +371,12 @@ export function ProgressiveRenderer({
     window.addEventListener('blur', up)
     const visibility = () => {
       if (document.hidden) {
+        if (runtime.tracing) bootStats.restart('tab hidden')
         runtime.tracer?.halt()
         runtime.tracing = false
       }
       runtime.dirty = true
+      runtime.dirtyReason = 'tab shown'
       if (!document.hidden && props.current.active) invalidate()
     }
     document.addEventListener('visibilitychange', visibility)
@@ -348,6 +384,7 @@ export function ProgressiveRenderer({
       void loadTracerModule()
         .then((modules) => {
           if (disposed) return
+          bootStats.step('path tracer code loaded')
           // The tracer packs the scans from their GPU copies (the atlas patch in patches/), so
           // their decoded pixels are freed after upload, as without it: none are kept.
           const profile = liveProfile(quality)
@@ -373,6 +410,7 @@ export function ProgressiveRenderer({
           // meanwhile.
           runtime.warmingTracer = true
           const started = performance.now()
+          let prepared = false
           void Promise.race([
             Promise.all([
               warmBVHs(scene).then((geometries) =>
@@ -384,11 +422,19 @@ export function ProgressiveRenderer({
                   }),
                 ),
               ),
-              prepareEnvironment(props.current.look),
+              prepareEnvironment(props.current.look).then(() => bootStats.step('sky map ready')),
               // The denoiser's network too, behind the loading screen rather than after it.
-              runtime.tracer.prepareDenoiser(),
-            ]),
-            new Promise((resolve) => setTimeout(resolve, WARM_TRACER_MS)),
+              runtime.tracer.prepareDenoiser().then(() => bootStats.step('denoiser network ready')),
+            ]).then(() => {
+              prepared = true
+              bootStats.step('tracer prepared (BVHs, sky, denoiser)')
+            }),
+            new Promise((resolve) => setTimeout(resolve, WARM_TRACER_MS)).then(() => {
+              if (!prepared)
+                bootStats.step(
+                  `gave up waiting on tracer preparation at ${WARM_TRACER_MS / 1000} s`,
+                )
+            }),
           ]).finally(() => {
             runtime.warmingTracer = false
             if (!disposed && props.current.active) invalidate()
@@ -432,6 +478,7 @@ export function ProgressiveRenderer({
     const report = (status: ViewerStatus) => {
       if (current.status === status) return
       current.status = status
+      if (status === 'settled') bootStats.settled()
       props.current.onStatus(status)
     }
     const now = performance.now()
@@ -453,6 +500,7 @@ export function ProgressiveRenderer({
     if (signature !== current.signature) {
       current.signature = signature
       current.dirty = true
+      current.dirtyReason = 'scene changed'
     }
     const moved = !current.view.equals(camera.matrixWorld)
     const resting = !moved && !current.interacting
@@ -472,6 +520,10 @@ export function ProgressiveRenderer({
     if (current.dirty) current.shutter.cut()
     if (pipe.shutter) pipe.shutter.value = current.shutter.frame(now, moved && !current.dirty)
     if (current.dirty || moved || !current.projection.equals(camera.projectionMatrix)) {
+      if (current.tracing)
+        bootStats.restart(
+          current.dirty ? current.dirtyReason : moved ? 'camera moved' : 'projection changed',
+        )
       tracer?.halt()
       current.tracing = false
       current.dirty = false
@@ -539,6 +591,11 @@ export function ProgressiveRenderer({
           // A resize marks the view changed, so each start reads the canvas's size again.
           renderer.getDrawingBufferSize(drawingBuffer)
           const scale = traceScale(quality, drawingBuffer.x, drawingBuffer.y)
+          if (!current.begun)
+            bootStats.context(
+              'trace size',
+              `${Math.round(drawingBuffer.x * scale)}×${Math.round(drawingBuffer.y * scale)} of a ${drawingBuffer.x}×${drawingBuffer.y} canvas`,
+            )
           if (atEntry && seed!.state === 'ready') {
             seed!.used = true
             try {
@@ -582,7 +639,10 @@ export function ProgressiveRenderer({
     if (current.tracing && tracer) {
       // The loading screen leaves once the first batch has finished on the GPU, not at the start:
       // that batch builds the tracer's kernels, and the view stalls until it is done.
-      if (tracer.started) liveLoading.set('ready')
+      if (tracer.started) {
+        if (liveLoading.get() !== 'ready') bootStats.step('first batch finished on the GPU')
+        liveLoading.set('ready')
+      }
       try {
         const developing = tracer.step()
         const view = tracer.view(now)
