@@ -572,6 +572,33 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     return { traced, tracer, begin, trace, unet, ...f }
   }
 
+  it('frees a stopped view’s history, denoisers, snapshot and guides, keeping its capture', async () => {
+    const t = session({ multiView: true, keepHistoryAcrossSurfaces: true }, true)
+    const clear = vi.spyOn(MultiViewHistory.prototype, 'clear')
+    const guides = vi.spyOn(GBuffer.prototype, 'dispose')
+    await t.trace()
+    // (The first start clears what was kept of another scene.)
+    clear.mockClear()
+    const disposed = denoisers.map((d) => {
+      const spy = vi.fn()
+      ;(d as unknown as { dispose: () => void }).dispose = spy
+      return spy
+    })
+    // Never while tracing.
+    t.traced.trim()
+    expect(clear).not.toHaveBeenCalled()
+    t.traced.halt()
+    clear.mockClear()
+    t.traced.trim()
+    expect(clear).toHaveBeenCalledOnce()
+    expect(guides).toHaveBeenCalledOnce()
+    for (const spy of disposed) expect(spy).toHaveBeenCalledOnce()
+    // The capture stays: the next start updates the camera, building nothing again.
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    expect(t.traced.seeded).toBe(false)
+  })
+
   it('gives both denoisers one network: loaded once, for both', async () => {
     const t = session({}, true)
     expect(denoisers).toHaveLength(2)

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import type { GalleryCamera } from '../render/gallery'
 import { liveLoading, textureProgress, traceProgress } from '../render/progress'
-import { ProgressiveRenderer } from './ProgressiveRenderer'
+import { ProgressiveRenderer, TRIM_AFTER_MS } from './ProgressiveRenderer'
 
 const mocks = vi.hoisted(() => ({
   frames: new Map<number, () => void>(),
@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     progress: vi.fn(() => ({ shown: 0, target: 1024 })),
     invalidate: vi.fn(),
     texturesChanged: vi.fn(),
+    trim: vi.fn(),
     dispose: vi.fn(),
   },
 }))
@@ -82,6 +83,7 @@ vi.mock('../render/pathtrace', () => ({
   sceneSignature: () => mocks.signature,
   lookKey: () => 'look',
   prepareEnvironment: mocks.sky,
+  trimEnvironments: vi.fn(),
   PathTraceSession: class {
     constructor(...args: unknown[]) {
       mocks.session(...args)
@@ -450,6 +452,27 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     settle()
     expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
     expect(mocks.warm).toHaveBeenCalledOnce()
+  })
+
+  it('frees a closed view’s memory after 30 s, never sooner, and not if it reopens first', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await render()
+      settle()
+      await render({ active: false })
+      act(() => vi.advanceTimersByTime(TRIM_AFTER_MS - 1))
+      expect(mocks.trace.trim).not.toHaveBeenCalled()
+      // Back before then: everything kept, and no trim pending.
+      await render({ active: true })
+      act(() => vi.advanceTimersByTime(TRIM_AFTER_MS))
+      expect(mocks.trace.trim).not.toHaveBeenCalled()
+      await render({ active: false })
+      act(() => vi.advanceTimersByTime(TRIM_AFTER_MS))
+      expect(mocks.trace.trim).toHaveBeenCalledOnce()
+      expect(TRIM_AFTER_MS).toBe(30000)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   describe('the loading screen’s steps', () => {

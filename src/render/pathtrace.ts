@@ -479,6 +479,16 @@ function cacheEnvironment(key: string, data: Float32Array) {
   return texture
 }
 
+/** Frees the cached sky maps but `look`'s (8 MB each). */
+export function trimEnvironments(look: SkyLook) {
+  const keep = lookKey(look)
+  for (const [key, texture] of environmentCache)
+    if (key !== keep) {
+      texture.dispose()
+      environmentCache.delete(key)
+    }
+}
+
 export function lookKey(look: SkyLook) {
   return `${look.environment}|${look.sunlight.direction.map((v) => v.toFixed(4)).join(',')}|${look.night.toFixed(3)}`
 }
@@ -1186,6 +1196,22 @@ export class PathTraceSession {
     this.samples = 0
     this.running = null
     for (const denoiser of this.denoisers) denoiser.reset()
+  }
+
+  /**
+   * Frees what a view that has stopped tracing can do without, keeping what is slow to make again:
+   * the views traced so far (history), the denoiser's network and images, the snapshot and the
+   * guides go; the tracer, its captured scene (BVH, atlas) and its compiled kernels stay, so the
+   * next start needs no long capture. The next `begin` starts unseeded and loads the network again.
+   */
+  trim() {
+    if (this.state !== 'off') return
+    this.history.clear()
+    this.traced = null
+    this.snapshot?.dispose()
+    this.snapshot = null
+    for (const denoiser of this.denoisers) denoiser.dispose()
+    this.gbuffer.dispose()
   }
 
   /** Forces the next `begin` to re-capture the whole scene (the stills', as scans arrive). */

@@ -63,6 +63,14 @@ export function prefetchEncoded(urls: Iterable<string>) {
 }
 
 /**
+ * Lets go of early downloads nothing took (the 360° view, closed, frees them): a later ask
+ * downloads the file itself, as for one never downloaded early.
+ */
+export function dropPrefetched() {
+  early.clear()
+}
+
+/**
  * The bytes an early download has (or has on the way) for a file the library now asks for, once:
  * from then on the library downloads that file itself.
  */

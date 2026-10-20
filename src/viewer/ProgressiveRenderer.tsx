@@ -21,8 +21,10 @@ import {
   lookKey,
   prepareEnvironment,
   sceneSignature,
+  trimEnvironments,
 } from '../render/pathtrace'
 import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pipeline'
+import { dropPrefetched } from '../render/scanFiles'
 import {
   liveLoading,
   refineProgress,
@@ -61,6 +63,11 @@ const LOADING_LIMIT_MS = 15000
  * itself, as before.
  */
 const WARM_TRACER_MS = 10000
+/**
+ * How long a closed view keeps everything, so a quick return to it is instant; then it frees what
+ * it can make again behind the loading screen (PathTraceSession trim): about 300–500 MB.
+ */
+export const TRIM_AFTER_MS = 30000
 /** Longest the first start at the entry pose waits for its Cycles image to decode. */
 const SEED_WAIT_MS = 800
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
@@ -72,6 +79,31 @@ const drawingBuffer = new Vector2()
  * Ultra, so the scene still matches the gallery's Cycles images.
  */
 const LEAN_RASTER: PipelineExtras = { reflections: false, gi: false }
+
+/**
+ * `?memStats=1` logs, at the first frame, a few seconds into the first trace and once a closed
+ * view has been trimmed, the JavaScript heap (Chrome's performance.memory) and the GPU memory three
+ * accounts for, to compare memory on a device.
+ */
+const MEM_STATS =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('memStats')
+
+function logMemory(renderer: WebGPURenderer, moment: string) {
+  if (!MEM_STATS) return
+  const mb = (bytes: number | undefined) =>
+    bytes === undefined ? '?' : (bytes / 2 ** 20).toFixed(0)
+  const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory
+  const gpu = (
+    renderer as unknown as {
+      info: { memory: Record<string, number> }
+    }
+  ).info.memory
+  console.info(
+    `[memory] ${moment}: JS heap ${mb(heap?.usedJSHeapSize)} MB; GPU ${mb(gpu.total)} MB ` +
+      `(textures ${mb(gpu.texturesSize)}, storage ${mb(gpu.storageAttributesSize)}, ` +
+      `attributes ${mb(gpu.attributesSize)}, render targets ${gpu.renderTargets})`,
+  )
+}
 
 /** Compiles a pipeline's shaders asynchronously; one that never finishes holds nothing up. */
 const warmed = (pipe: Pipeline) =>
@@ -149,21 +181,36 @@ export function ProgressiveRenderer({
     begun: boolean
     /** The scene's BVHs and sky map are being built in workers for the first start. */
     warmingTracer: boolean
+    /** Frees the closed view's memory TRIM_AFTER_MS after it closed. */
+    trimTimer: ReturnType<typeof setTimeout> | null
   } | null>(null)
   const props = useRef({ active, look, place, onReady, onStatus, entry })
   useLayoutEffect(() => {
     props.current = { active, look, place, onReady, onStatus, entry }
     state.current?.prepareSeed()
-    if (state.current) {
-      state.current.dirty = true
+    const current = state.current
+    if (current) {
+      current.dirty = true
+      if (current.trimTimer) clearTimeout(current.trimTimer)
+      current.trimTimer = null
       if (!active) {
-        state.current.tracer?.halt()
-        state.current.tracing = false
+        current.tracer?.halt()
+        current.tracing = false
         traceProgress.set({ phase: 'idle' })
+        // Closed: kept for a quick return, then freed.
+        current.trimTimer = setTimeout(() => {
+          current.trimTimer = null
+          current.tracer?.trim()
+          current.seed?.dispose()
+          trimEnvironments(props.current.look)
+          dropPrefetched()
+          setTimeout(() => logMemory(renderer, 'closed and trimmed'), 1000)
+        }, TRIM_AFTER_MS)
       }
     }
     invalidate()
   }, [
+    renderer,
     active,
     revision,
     look,
@@ -205,6 +252,7 @@ export function ProgressiveRenderer({
       prepareSeed: () => {},
       begun: false,
       warmingTracer: false,
+      trimTimer: null as ReturnType<typeof setTimeout> | null,
     }
     state.current = runtime
     // The scene is mounted: what is left is its materials and light, then the tracer's start.
@@ -353,6 +401,7 @@ export function ProgressiveRenderer({
     return () => {
       disposed = true
       clearTimeout(loadingLimit)
+      if (runtime.trimTimer) clearTimeout(runtime.trimTimer)
       traceProgress.set({ phase: 'idle' })
       state.current = null
       materials()
@@ -441,6 +490,7 @@ export function ProgressiveRenderer({
       if (!current.ready) {
         current.ready = true
         timeline(() => performance.mark('fury:live-first-frame'))
+        logMemory(renderer, 'first frame')
         props.current.onReady()
       }
       report(current.failed ? 'raster-only' : 'interactive')
@@ -509,6 +559,7 @@ export function ProgressiveRenderer({
           current.tracing = true
           current.begun = true
           liveLoading.set('ready')
+          setTimeout(() => logMemory(renderer, '5 s into the first trace'), 5000)
         } catch {
           tracer.halt()
           current.failed = true
