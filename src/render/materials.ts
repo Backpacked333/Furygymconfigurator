@@ -110,11 +110,17 @@ const decode = (blob: Blob) =>
 /** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
 const releasable = new Set<Texture>()
 /**
- * The local path tracer packs every map into a texture array of its own from the decoded pixels,
- * so while one exists they are kept: a released map would trace black (the ground, the brick),
- * and the exposure match would then brighten the whole view to make up for it.
+ * The legacy route's path tracer packs every map into a texture array of its own from the decoded
+ * pixels, so while one exists they are kept: a released map would trace black (the ground, the
+ * brick), and the exposure match would then brighten the whole view to make up for it. The 360°
+ * view's tracer packs them from the GPU copies (the atlas patch in patches/), so it keeps none.
  */
 let keepDecoded = false
+
+/** What a released map's image becomes: its size, which three and the tracer's atlas read. */
+type Released = { width: number; height: number; released: true }
+const isReleased = (image: unknown) =>
+  (image as Released | null)?.released === true || (image as ImageBitmap | null)?.width === 0
 
 /** Keeps scans decoded (and decodes the released ones again) while a local tracer needs them. */
 export function keepDecodedTextures(keep: boolean) {
@@ -139,9 +145,14 @@ async function fetchBitmapTexture(url: string) {
   const texture = new Texture(await decode(blob))
   texture.flipY = false
   texture.userData.scan = blob
-  // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map).
+  // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map). Its
+  // size stays (a closed bitmap reads 0 × 0): setting the image does not upload it again.
   texture.onUpdate = () => {
-    if (!keepDecoded) (texture.image as ImageBitmap).close()
+    if (keepDecoded || isReleased(texture.image)) return
+    const bitmap = texture.image as ImageBitmap
+    const released: Released = { width: bitmap.width, height: bitmap.height, released: true }
+    texture.image = released as unknown as ImageBitmap
+    bitmap.close()
   }
   return texture
 }
@@ -153,7 +164,7 @@ async function fetchBitmapTexture(url: string) {
 export function restoreTextures() {
   return Promise.all(
     [...releasable]
-      .filter((texture) => (texture.image as ImageBitmap).width === 0)
+      .filter((texture) => isReleased(texture.image))
       .map(async (texture) => {
         texture.image = await decode(texture.userData.scan as Blob)
         texture.needsUpdate = true

@@ -12,7 +12,7 @@ import {
 import type { SkyLook } from '../lib/visuals'
 import { loadAgxInverse } from '../render/agxInverse'
 import type { GalleryCamera } from '../render/gallery'
-import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
+import { onMaterialsChanged } from '../render/materials'
 import { warmBVHs } from '../render/bvhWarmup'
 import { MotionShutter } from '../render/motionBlur'
 import {
@@ -295,16 +295,12 @@ export function ProgressiveRenderer({
       if (!document.hidden && props.current.active) invalidate()
     }
     document.addEventListener('visibilitychange', visibility)
-    let kept = false
     if (!runtime.failed)
       void loadTracerModule()
-        .then(async (modules) => {
+        .then((modules) => {
           if (disposed) return
-          // The tracer packs the scans from their decoded pixels, which are otherwise freed after
-          // upload: a released map would trace black.
-          kept = true
-          await keepDecodedTextures(true)
-          if (disposed) return
+          // The tracer packs the scans from their GPU copies (the atlas patch in patches/), so
+          // their decoded pixels are freed after upload, as without it: none are kept.
           const profile = liveProfile(quality)
           runtime.tracer = new PathTraceSession(renderer, modules, true, {
             multiView: true,
@@ -369,7 +365,6 @@ export function ProgressiveRenderer({
       document.removeEventListener('visibilitychange', visibility)
       runtime.tracer?.dispose()
       runtime.seed?.dispose()
-      if (kept) void keepDecodedTextures(false)
       runtime.present.dispose()
       runtime.pipe.dispose()
       runtime.lean?.dispose()

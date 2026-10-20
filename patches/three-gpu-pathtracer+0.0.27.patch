@@ -1,3 +1,99 @@
+diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/AtlasTexture.js b/node_modules/three-gpu-pathtracer/src/webgpu/AtlasTexture.js
+index 259a90c..a87d215 100644
+--- a/node_modules/three-gpu-pathtracer/src/webgpu/AtlasTexture.js
++++ b/node_modules/three-gpu-pathtracer/src/webgpu/AtlasTexture.js
+@@ -447,33 +447,20 @@ export class AtlasTexture {
+ 			renderTarget.scissor.set( x, y, w, h );
+ 			renderer.setRenderTarget( renderTarget, page );
+ 
+-			if ( texture.isRenderTargetTexture ) {
+-
+-				// a render target's content only lives on the GPU, so draw it directly
+-				const prevAutoUpdate = texture.matrixAutoUpdate;
+-				_prevMatrix.copy( texture.matrix );
+-				texture.matrix.identity();
+-				texture.matrixAutoUpdate = false;
+-
+-				quadMesh.material.map = texture;
+-				quadMesh.render( renderer );
+-
+-				texture.matrixAutoUpdate = prevAutoUpdate;
+-				texture.matrix.copy( _prevMatrix );
+-
+-			} else {
+-
+-				// Clone the source so we get an independent texture handle
+-				const clone = texture.clone();
+-				clone.matrixAutoUpdate = false;
+-				clone.matrix.identity();
+-
+-				quadMesh.material.map = clone;
+-				quadMesh.render( renderer );
+-
+-				clone.dispose();
+-
+-			}
++			// Draw the texture itself, with its uv transform set aside: its texels are already on the
++			// GPU (a render target's only live there), so no copy is uploaded from its pixels, which
++			// the app may have freed once they were uploaded. A clone made a second GPU texture from
++			// the same pixels, with the same sampler and mipmaps: the same texels land in the atlas.
++			const prevAutoUpdate = texture.matrixAutoUpdate;
++			_prevMatrix.copy( texture.matrix );
++			texture.matrix.identity();
++			texture.matrixAutoUpdate = false;
++
++			quadMesh.material.map = texture;
++			quadMesh.render( renderer );
++
++			texture.matrixAutoUpdate = prevAutoUpdate;
++			texture.matrix.copy( _prevMatrix );
+ 
+ 		}
+ 
+diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js b/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js
+index e360a5e..8b78479 100644
+--- a/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js
++++ b/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js
+@@ -696,18 +696,22 @@ export class WebGPUPathTracer {
+ 
+ 		} );
+ 
+-		// Build TLAS and compute functions
+-		const bvhData = new PathtracerBVHComputeData( scene );
+-		bvhData.update();
+-		bvhData.textureAtlas.setTextures( this._renderer, bvhData.textures );
+-
++		// Free the previous scene's packed buffers and atlas before packing this one, so a capture
++		// never holds two atlases (a full copy of every texture) at once. Nothing dispatches
++		// between here and setBVHData.
+ 		if ( this._bvhData ) {
+ 
+ 			this._bvhData.dispose();
+ 			this._bvhData.textureAtlas.dispose();
++			this._bvhData = null;
+ 
+ 		}
+ 
++		// Build TLAS and compute functions
++		const bvhData = new PathtracerBVHComputeData( scene );
++		bvhData.update();
++		bvhData.textureAtlas.setTextures( this._renderer, bvhData.textures );
++
+ 		this.scene = scene;
+ 		this._bvhData = bvhData;
+ 		this._pathTracer.setBVHData( bvhData );
+@@ -1271,8 +1275,9 @@ export class WebGPUPathTracer {
+ 		this._pathTracer.dispose();
+ 		this._denoiser?.dispose();
+ 		this._upscaler?.dispose();
+-		this._bvhData.dispose();
+-		this._bvhData.textureAtlas.dispose();
++		// null when a capture failed after freeing the previous one (setScene)
++		this._bvhData?.dispose();
++		this._bvhData?.textureAtlas.dispose();
+ 		this._environmentCache.dispose();
+ 		this._backgroundCache.dispose();
+ 		this._lowResTarget.dispose();
 diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js b/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js
 index 1c7476e..89798ce 100644
 --- a/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js

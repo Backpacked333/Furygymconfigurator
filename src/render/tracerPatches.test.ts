@@ -40,6 +40,11 @@ const MARKERS: [file: string, marker: string][] = [
   ],
   // The transform and material struct lengths are computed once, not per packed object.
   ['src/webgpu/nodes/PathtracerBVHComputeData.js', 'struct.getLength = () => length;'],
+  // The atlas draws each texture's GPU copy, not a clone uploaded again from its freed pixels
+  // (byte-identical: scripts/atlas-check.mjs).
+  ['src/webgpu/AtlasTexture.js', 'quadMesh.material.map = texture;'],
+  // A capture frees the previous atlas before packing its own.
+  ['src/webgpu/WebGPUPathTracer.js', 'this._bvhData = null;'],
 ]
 
 /** Each hunk of the patch: the file it patches and its lines as they read once applied. */

@@ -46,3 +46,16 @@ declare module 'three-gpu-pathtracer/src/core/utils/GeometryPreparationUtils.js'
   /** Adds what the tracer packs and a geometry lacks: an index, and the named attributes. */
   export function setCommonAttributes(geometry: BufferGeometry, attributes: string[]): void
 }
+
+declare module 'three-gpu-pathtracer/src/webgpu/AtlasTexture.js' {
+  import type { Texture, WebGPURenderer } from 'three/webgpu'
+  /** Every texture the tracer's materials use, packed into the pages of one array texture. */
+  export class AtlasTexture {
+    readonly width: number
+    readonly height: number
+    readonly pageCount: number
+    readonly texture: Texture
+    setTextures(renderer: WebGPURenderer, textures: Texture[]): void
+    dispose(): void
+  }
+}

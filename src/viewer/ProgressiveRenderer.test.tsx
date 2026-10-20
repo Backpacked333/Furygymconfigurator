@@ -663,15 +663,13 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     expect(status).not.toHaveBeenCalledWith('raster-only')
   })
 
-  it('keeps decoded scans while its tracer lives, and releases them when it goes', async () => {
+  it('keeps no decoded scans: its tracer packs them from their GPU copies', async () => {
     await render()
     settle()
-    expect(mocks.keepDecoded).toHaveBeenCalledWith(true)
-    expect(mocks.keepDecoded.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.session.mock.invocationCallOrder[0],
-    )
+    expect(mocks.session).toHaveBeenCalled()
+    expect(mocks.trace.begin).toHaveBeenCalled()
     act(() => root.unmount())
-    expect(mocks.keepDecoded).toHaveBeenLastCalledWith(false)
+    expect(mocks.keepDecoded).not.toHaveBeenCalled()
     root = createRoot(host)
   })
 
