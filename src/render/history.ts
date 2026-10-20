@@ -161,6 +161,12 @@ export class GBuffer {
     minFilter: NearestFilter,
     magFilter: NearestFilter,
     samples: 4,
+    // Drawn in one cleared pass and read only once resolved: the 4× samples need not be stored
+    // past the pass, so three can keep them in transient memory where the GPU has it (tile-based
+    // GPUs), and never writes them back elsewhere.
+    stencilBuffer: false,
+    storeMultisampledColorBuffer: false,
+    storeMultisampledDepthBuffer: false,
   })
   /** The view's camera: position, world-to-clip, and view-to-world rotation. */
   readonly position = new Vector3()

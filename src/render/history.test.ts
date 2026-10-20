@@ -246,3 +246,13 @@ describe('a stored view seeding the next (GPU dispatch mocked)', () => {
     expect(f.seed(keys(1, 1))).toBe(false)
   })
 })
+
+describe("the view's G-buffer", () => {
+  it('is multisampled like the traced image, but keeps only the resolved textures it is read from', () => {
+    const { target } = new GBuffer()
+    expect(target.samples).toBe(4)
+    expect(target.storeMultisampledColorBuffer).toBe(false)
+    expect(target.storeMultisampledDepthBuffer).toBe(false)
+    expect(target.stencilBuffer).toBe(false)
+  })
+})
