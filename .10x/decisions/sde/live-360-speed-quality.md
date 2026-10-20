@@ -21,3 +21,36 @@
 ## Technical debt
 
 - `liveProfile` values are first guesses. They need real-GPU timing through the Vercel preview with `?bench=1`.
+
+## The full PR (one PR by the user's request): commit map
+
+| Commit                             | What                                                                                                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| b97f317                            | Phase 1: start gate, live profile, decoded textures, probe filter, milestones, shader warm-up, intent prefetch |
+| 78426c9                            | Crossfade binding fix (from the Phase 1 review)                                                                |
+| 39f84a6                            | Tracer struct-length cache patch                                                                               |
+| f144386                            | Photoreal entry: EntryWatch, curtain, close fade                                                               |
+| 06c919e                            | Persistent geometry, `texturesChanged`, history kept across surface edits, restyled reprojection               |
+| cec7c38                            | `?arc=N` orbit window                                                                                          |
+| 089ddab                            | Scan prefetch on intent, quiet-load counter fix, Studio skips hardscape                                        |
+| 6aa870a, 8d264c7, 7977f07, 6c6e1c8 | Guard tests, trace-scale cap, Cycles bounce and clamp parity, Ultra frame guard                                |
+| 1f255f5, 4314143, 6a5739d          | Fixes from the merged-changes reviews: atlas growth, reopen drift, background-compile jitter                   |
+
+## Deviations
+
+- **Material slots became a content-keyed geometry cache.** It keeps the same mesh identity with far
+  less code (ADR-002).
+- **Precompiling neighbouring materials was dropped.** Finishes already share one pipeline, and
+  neighbours would have downloaded about 48 MiB of scans (ADR-002).
+- **Scenery culling for the arc was deferred.** Toggling visibility changes the tracer's structure and
+  costs global illumination and shadow casters (ADR-003).
+- **Phase 3 was cut down.** FSR, SSR/SSGI on High, the glossy-blur kernel patch, refine-while-moving,
+  depth of field and a BVH worker are excluded, with reasons in ADR-004.
+
+## Technical debt
+
+- Relies on internals of the pinned three-gpu-pathtracer 0.0.27: `_pathTracer`, `textureAtlas`, and
+  struct nodes in the patch.
+- The frame-guard budget (40 ms) and the live profile values need device data.
+- The comment in `render-server/fury_render/protocol.py` still says the browser and Cycles trace the
+  same depth. That is a follow-up outside this PR's scope.
