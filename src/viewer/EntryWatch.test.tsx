@@ -41,10 +41,12 @@ vi.mock('@react-three/drei', async () => {
   return {
     OrbitControls: ({
       ref,
+      // drei's own default: the controls glide, and keep what a glide still owes between frames.
+      enableDamping = true,
       ...props
     }: Partial<OrbitControlsImpl> & { ref: React.Ref<OrbitControlsImpl> }) => {
       const controls = useMemo(() => new OrbitControls(state.three.camera as PerspectiveCamera), [])
-      Object.assign(controls, props)
+      Object.assign(controls, { enableDamping, ...props })
       useImperativeHandle(ref, () => controls, [controls])
       useFrame(() => {
         if (controls.enabled) controls.update()
@@ -281,8 +283,23 @@ describe('EntryWatch (no GPU)', () => {
       render()
       frame(3)
       render({ autoRotate: true })
-      frame(3)
+      // Damped, the rotation builds over its first frames; a fraction of a second shows it.
+      frame(30)
       expect(onLeave).toHaveBeenCalledTimes(1)
+    })
+
+    it('opens again at the pose, whatever motion was left when the view closed', () => {
+      render()
+      frame(3)
+      // Closed while rotating automatically: the controls hold the damped rotation still owed.
+      render({ autoRotate: true })
+      frame(180)
+      render({ active: false, autoRotate: false })
+      onLeave.mockClear()
+      render({ active: true })
+      frame(120)
+      expect(onLeave).not.toHaveBeenCalled()
+      expect(pixelsFromPose(camera, rig.pose!, HEIGHT)).toBeLessThanOrEqual(ENTRY_TOLERANCE_PX)
     })
 
     it('reports looking around inside', () => {

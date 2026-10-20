@@ -116,6 +116,8 @@ export function CameraRig({
   const home = pose ?? galleryCamera(c, angle, aspect, [dx, dy, dz])
   const homeRef = useRef(home)
   homeRef.current = home
+  const settleOnEntry = useRef(false)
+  settleOnEntry.current = pose !== undefined
   const poseKey = gallery ? JSON.stringify(home) : ''
   // Before the frame after the commit, so no frame of a new angle is drawn from the old pose.
   useLayoutEffect(() => {
@@ -147,6 +149,17 @@ export function CameraRig({
     // Enter at the selected gallery image's camera pose.
     if (!entered.current) {
       entered.current = true
+      // What was left of a fling or of auto-rotation when the view last closed (the controls froze
+      // with the frame loop) would replay on the first frame and carry the camera off the image's
+      // pose with no input. The library's 360° view, which opens on that image, ends it first.
+      const orbit = controls.current
+      if (settleOnEntry.current && orbit) {
+        // Without damping, one update spends what is owed and clears it; the pose is set after.
+        const damping = orbit.enableDamping
+        orbit.enableDamping = false
+        orbit.update()
+        orbit.enableDamping = damping
+      }
       const { position, target, fov } = homeRef.current
       const p = camera as PerspectiveCamera
       p.fov = fov
