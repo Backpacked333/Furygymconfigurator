@@ -17,6 +17,7 @@ from on_demand.vast_runtime import Runtime
 from on_demand.vast_provider import ssh_command
 from on_demand.validation import validate_claim, verify_receipt
 from on_demand.dispatcher import Dispatcher
+from setup_vast_worker import verify_interpreter
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -101,9 +102,37 @@ class VastLifecycleTests(unittest.TestCase):
                 self.runtime.poll()
         self.assertIsNone(self.runtime.read()["exitCode"])
 
+    def test_missing_saved_and_current_identity_is_not_a_live_supervisor(self):
+        self.create()
+        row = self.runtime.read()
+        row["processIdentity"] = None
+        self.runtime.save(row)
+        with patch("on_demand.vast_runtime.process_identity", return_value=None), patch("on_demand.vast_runtime.kill_slot") as kill, patch("on_demand.vast_runtime.os.kill") as signal_pid:
+            self.runtime.terminate()
+            signal_pid.assert_not_called()
+            kill.assert_called_once_with(10001)
+        self.assertEqual(self.runtime.poll(), {"exitCode": 1})
+
+    def test_create_without_pid_identity_stops_supervisor_before_releasing_lock(self):
+        with patch("on_demand.vast_runtime.subprocess.Popen") as popen, patch("on_demand.vast_runtime.process_identity", return_value=None), patch("on_demand.vast_runtime.kill_slot") as kill:
+            popen.return_value.pid = 999999
+            self.assertEqual(self.runtime.create(), {"id": self.runtime.id})
+            popen.return_value.kill.assert_called_once()
+            popen.return_value.wait.assert_called_once()
+            kill.assert_called_once_with(10001)
+        self.assertEqual(self.runtime.poll(), {"exitCode": 1})
+        self.runtime.supervise()
+        self.assertEqual(self.create().call_count, 0)
+
     def test_termination_signals_only_job_not_rental_and_release_preserves_evidence(self):
         self.create()
         self.runtime.send(io.BytesIO(b'{"bytes":4}\ndata'))
+        frames = self.runtime.directory / "frames.log"
+        frames.write_bytes(b"encoded-image-data")
+        with patch("on_demand.vast_runtime.process_identity", return_value="start-token"):
+            with self.assertRaisesRegex(ValueError, "job-still-running"):
+                self.runtime.release()
+        self.assertTrue(frames.exists())
         with patch("on_demand.vast_runtime.process_identity", return_value="start-token"), patch("on_demand.vast_runtime.os.kill") as kill:
             self.runtime.terminate()
             self.assertEqual(kill.call_count, 1)
@@ -112,7 +141,10 @@ class VastLifecycleTests(unittest.TestCase):
         row["exitCode"] = 0
         self.runtime.save(row)
         self.runtime.release()
+        self.runtime.release()
         self.assertFalse((self.runtime.directory / "input.stream").exists())
+        self.assertFalse(frames.exists())
+        self.assertTrue((self.runtime.directory / "state.json").exists())
         self.assertEqual(self.runtime.poll(), {"exitCode": 0})
 
     def test_input_timeout_rejects_late_upload(self):
@@ -142,6 +174,31 @@ class VastLifecycleTests(unittest.TestCase):
 
 
 class VastIsolationTests(unittest.TestCase):
+    def test_setup_rejects_missing_or_different_pinned_python(self):
+        with patch("setup_vast_worker.Path.is_file", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "pinned-python-required"):
+                verify_interpreter()
+        with patch("setup_vast_worker.Path.is_file", return_value=True), patch("setup_vast_worker.os.access", return_value=True), patch("setup_vast_worker.Path.resolve", side_effect=[Path('/pinned/python'), Path('/other/python')]):
+            with self.assertRaisesRegex(RuntimeError, "pinned-python-required"):
+                verify_interpreter()
+
+    def test_inherited_internet_descriptors_close_without_breaking_unix_ipc(self):
+        code = '''
+import errno, os, socket
+from on_demand.network_policy import block_internet
+internet = [socket.socket(family) for family in (socket.AF_INET, socket.AF_INET6)]
+descriptors = [s.detach() for s in internet]
+left, right = socket.socketpair()
+block_internet()
+for fd in descriptors:
+    try: os.fstat(fd)
+    except OSError as e: assert e.errno == errno.EBADF
+    else: raise AssertionError('internet descriptor survived')
+left.send(b'local')
+assert right.recv(5) == b'local'
+'''
+        subprocess.run([sys.executable, "-c", code], env={"PYTHONPATH": str(ROOT / "render-server")}, check=True)
+
     def test_network_denial_survives_exec_but_preserves_local_ipc(self):
         code = '''
 from on_demand.network_policy import block_internet

@@ -26,6 +26,11 @@ def process_identity(pid):
         return None
 
 
+def supervisor_alive(row):
+    return bool(row.get("pid") and row.get("processIdentity") and
+                process_identity(row["pid"]) == row["processIdentity"])
+
+
 def kill_slot(uid):
     if uid not in (10001, 10002):
         raise ValueError("invalid-slot")
@@ -100,6 +105,11 @@ class Runtime:
                                     cwd=self.root)
             row = self.read()
             row.update(pid=proc.pid, processIdentity=process_identity(proc.pid))
+            if not row["processIdentity"]:
+                proc.kill()
+                proc.wait()
+                kill_slot(row["uid"])
+                row.update(exitCode=1, finishedAt=time.time())
             self.save(row)
             return {"id": self.id}
 
@@ -146,6 +156,8 @@ class Runtime:
         with (self.state / "lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
         row = self.read()
+        if row["exitCode"] is not None:
+            return
         proc, code = None, 1
 
         def expired(*_):
@@ -173,7 +185,7 @@ class Runtime:
             with source.open("rb") as data, (self.directory / "frames.log").open("wb") as log:
                 proc = subprocess.Popen([sys.executable, "-m", "on_demand.sandbox_runner"], stdin=data,
                                         stdout=log, stderr=subprocess.DEVNULL, env=env, cwd=self.root,
-                                        start_new_session=True, preexec_fn=limits)
+                                        start_new_session=True, close_fds=True, preexec_fn=limits)
                 code = proc.wait(timeout=max(1, row["deadline"] - time.time()))
         except BaseException:
             code = 1
@@ -192,12 +204,12 @@ class Runtime:
 
     def poll(self):
         row = self.read()
-        if row["exitCode"] is None and (not row["pid"] or process_identity(row["pid"]) != row.get("processIdentity")):
+        if row["exitCode"] is None and not supervisor_alive(row):
             # A lost supervisor cannot turn into a second render or release a live slot.
             with (self.state / "lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 row = self.read()
-                if row["exitCode"] is None and (not row["pid"] or process_identity(row["pid"]) != row.get("processIdentity")):
+                if row["exitCode"] is None and not supervisor_alive(row):
                     kill_slot(row["uid"])
                     row.update(exitCode=1, finishedAt=time.time())
                     self.save(row)
@@ -205,7 +217,7 @@ class Runtime:
 
     def terminate(self):
         row = self.read()
-        if row["exitCode"] is None and row["pid"] and process_identity(row["pid"]) == row.get("processIdentity"):
+        if row["exitCode"] is None and supervisor_alive(row):
             os.kill(row["pid"], signal.SIGTERM)
         self.poll()
         return {"requested": True}
@@ -229,7 +241,7 @@ class Runtime:
     def release(self):
         if self.poll()["exitCode"] is None:
             raise ValueError("job-still-running")
-        for name in ("input.stream", "input.partial"):
+        for name in ("input.stream", "input.partial", "frames.log"):
             (self.directory / name).unlink(missing_ok=True)
         return {"released": True}
 

@@ -2,9 +2,30 @@
 
 import ctypes
 import errno
+import os
+import socket
+import stat
+
+
+def close_internet_sockets():
+    for name in os.listdir("/proc/self/fd"):
+        fd = int(name)
+        try:
+            if not stat.S_ISSOCK(os.fstat(fd).st_mode):
+                continue
+            existing = socket.socket(fileno=fd)
+        except OSError as error:
+            if error.errno == errno.EBADF:
+                continue
+            raise
+        if existing.family in (socket.AF_INET, socket.AF_INET6):
+            existing.close()
+        else:
+            existing.detach()
 
 
 def block_internet():
+    close_internet_sockets()
     library = ctypes.CDLL("libseccomp.so.2", use_errno=True)
     library.seccomp_init.argtypes = [ctypes.c_uint32]
     library.seccomp_init.restype = ctypes.c_void_p
