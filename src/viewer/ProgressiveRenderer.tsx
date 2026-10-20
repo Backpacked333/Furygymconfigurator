@@ -15,7 +15,13 @@ import type { GalleryCamera } from '../render/gallery'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { warmBVHs } from '../render/bvhWarmup'
 import { MotionShutter } from '../render/motionBlur'
-import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
+import {
+  PathTraceSession,
+  loadTracerModule,
+  lookKey,
+  prepareEnvironment,
+  sceneSignature,
+} from '../render/pathtrace'
 import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pipeline'
 import {
   liveLoading,
@@ -50,10 +56,11 @@ const SEED_CEILING = 0.94
  */
 const LOADING_LIMIT_MS = 15000
 /**
- * Longest the first start waits for its geometry BVHs to be built off the main thread
- * (bvhWarmup.ts); any not built by then the tracer builds itself, as before.
+ * Longest the first start waits for its geometry BVHs and sky map to be built off the main thread
+ * (bvhWarmup.ts, pathtrace.ts prepareEnvironment); whatever is not built by then the tracer builds
+ * itself, as before.
  */
-const BVH_WAIT_MS = 10000
+const WARM_TRACER_MS = 10000
 /** Longest the first start at the entry pose waits for its Cycles image to decode. */
 const SEED_WAIT_MS = 800
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
@@ -140,8 +147,8 @@ export function ProgressiveRenderer({
     prepareSeed: () => void
     /** The first trace has started: the loading screen is done. */
     begun: boolean
-    /** The scene's BVHs are being built in a worker for the first start. */
-    warmingBVHs: boolean
+    /** The scene's BVHs and sky map are being built in workers for the first start. */
+    warmingTracer: boolean
   } | null>(null)
   const props = useRef({ active, look, place, onReady, onStatus, entry })
   useLayoutEffect(() => {
@@ -197,7 +204,7 @@ export function ProgressiveRenderer({
       seed: null as EntrySeed | null,
       prepareSeed: () => {},
       begun: false,
-      warmingBVHs: false,
+      warmingTracer: false,
     }
     state.current = runtime
     // The scene is mounted: what is left is its materials and light, then the tracer's start.
@@ -317,22 +324,26 @@ export function ProgressiveRenderer({
           })
           runtime.dirty = true
           runtime.prepareSeed()
-          // The first start's longest work, its geometry BVHs, done in a worker meanwhile.
-          runtime.warmingBVHs = true
+          // The first start's longest work, its geometry BVHs and its sky map, done in workers
+          // meanwhile.
+          runtime.warmingTracer = true
           const started = performance.now()
           void Promise.race([
-            warmBVHs(scene).then((geometries) =>
-              timeline(() =>
-                performance.measure('fury:live-bvh-worker', {
-                  start: started,
-                  end: performance.now(),
-                  detail: { geometries },
-                }),
+            Promise.all([
+              warmBVHs(scene).then((geometries) =>
+                timeline(() =>
+                  performance.measure('fury:live-bvh-worker', {
+                    start: started,
+                    end: performance.now(),
+                    detail: { geometries },
+                  }),
+                ),
               ),
-            ),
-            new Promise((resolve) => setTimeout(resolve, BVH_WAIT_MS)),
+              prepareEnvironment(props.current.look),
+            ]),
+            new Promise((resolve) => setTimeout(resolve, WARM_TRACER_MS)),
           ]).finally(() => {
-            runtime.warmingBVHs = false
+            runtime.warmingTracer = false
             if (!disposed && props.current.active) invalidate()
           })
           if (props.current.active) invalidate()
@@ -472,7 +483,7 @@ export function ProgressiveRenderer({
         current.drawn >= START_FRAMES &&
         textures.loaded >= textures.requested &&
         !awaitingSeed &&
-        !(current.warmingBVHs && !current.begun)
+        !(current.warmingTracer && !current.begun)
       ) {
         try {
           current.present.capture(() => pipe.render())

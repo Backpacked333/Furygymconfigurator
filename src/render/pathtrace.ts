@@ -404,16 +404,66 @@ export function partsSignature(parts: SceneParts, lookKey: string) {
 }
 
 const environmentCache = new Map<string, DataTexture>()
-/** The site's radiance as an equirect HDR map, built on the CPU from the analytic sky. */
+/**
+ * The site's radiance as an equirect HDR map, built on the CPU from the analytic sky: here, at
+ * once, unless `prepareEnvironment` built it off the main thread beforehand.
+ */
 export function environmentTexture(look: SkyLook) {
   const key = lookKey(look)
   const cached = environmentCache.get(key)
   if (cached) return cached
-  const data = equirectRadiance(
-    ENV_WIDTH,
-    ENV_HEIGHT,
-    look.environment === 'studio' ? studioRadiance : (d) => environmentRadiance(d, look),
+  return cacheEnvironment(
+    key,
+    equirectRadiance(
+      ENV_WIDTH,
+      ENV_HEIGHT,
+      look.environment === 'studio' ? studioRadiance : (d) => environmentRadiance(d, look),
+    ),
   )
+}
+
+let skyWorker: Worker | null = null
+const skyRequests = new Map<string, Promise<void>>()
+let skyRequest = 0
+
+/**
+ * Builds `look`'s sky map in a worker (sky.worker.ts), the same map `environmentTexture` would
+ * build on the main thread (about half a second of it), so the tracer's first start finds it ready.
+ * Never rejects: where the worker fails, `environmentTexture` builds it as before.
+ */
+export function prepareEnvironment(look: SkyLook): Promise<void> {
+  const key = lookKey(look)
+  if (environmentCache.has(key)) return Promise.resolve()
+  const pending = skyRequests.get(key)
+  if (pending) return pending
+  const request = new Promise<void>((resolve) => {
+    try {
+      skyWorker ??= new Worker(new URL('./sky.worker.ts', import.meta.url), { type: 'module' })
+    } catch {
+      return resolve()
+    }
+    const worker = skyWorker
+    const id = ++skyRequest
+    const done = () => {
+      worker.removeEventListener('message', receive)
+      worker.removeEventListener('error', done)
+      skyRequests.delete(key)
+      resolve()
+    }
+    const receive = (event: MessageEvent<{ id: number; data: Float32Array }>) => {
+      if (event.data.id !== id) return
+      if (!environmentCache.has(key)) cacheEnvironment(key, event.data.data)
+      done()
+    }
+    worker.addEventListener('message', receive)
+    worker.addEventListener('error', done)
+    worker.postMessage({ id, look, width: ENV_WIDTH, height: ENV_HEIGHT })
+  })
+  skyRequests.set(key, request)
+  return request
+}
+
+function cacheEnvironment(key: string, data: Float32Array) {
   const texture = new DataTexture(data, ENV_WIDTH, ENV_HEIGHT, RGBAFormat, FloatType)
   texture.mapping = EquirectangularReflectionMapping
   texture.minFilter = texture.magFilter = LinearFilter

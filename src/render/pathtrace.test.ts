@@ -17,7 +17,7 @@ import {
   type Vector2,
 } from 'three/webgpu'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { skyLook } from '../lib/visuals'
+import { environmentRadiance, equirectRadiance, skyLook } from '../lib/visuals'
 import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
 import {
   EARLY_MILESTONES,
@@ -26,6 +26,8 @@ import {
   MILESTONES,
   PathTraceSession,
   REST_SAMPLES,
+  environmentTexture,
+  prepareEnvironment,
   historySignature,
   preparePathTraceScene,
   sceneParts,
@@ -894,4 +896,54 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       ).toEqual({ batchMs: 12, maxPasses: 8 })
     })
   })
+})
+
+describe('the sky map built off the main thread', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const same = (a: Float32Array, b: Float32Array) =>
+    Buffer.from(a.buffer, a.byteOffset, a.byteLength).equals(
+      Buffer.from(b.buffer, b.byteOffset, b.byteLength),
+    )
+  /** A worker that runs sky.worker.ts's arithmetic, or fails. */
+  const worker = (fail = false) => {
+    const posted: unknown[] = []
+    class FakeWorker extends EventTarget {
+      postMessage(message: {
+        id: number
+        look: ReturnType<typeof skyLook>
+        width: number
+        height: number
+      }) {
+        posted.push(message)
+        queueMicrotask(() => {
+          if (fail) return this.dispatchEvent(new Event('error'))
+          const { id, look, width, height } = message
+          const data = equirectRadiance(width, height, (d) => environmentRadiance(d, look))
+          this.dispatchEvent(new MessageEvent('message', { data: { id, data } }))
+        })
+      }
+    }
+    vi.stubGlobal('Worker', FakeWorker)
+    return posted
+  }
+
+  it('hands the tracer the map the worker built, the same one it would build itself', async () => {
+    const posted = worker()
+    const look = skyLook('campus', 9.25)
+    await prepareEnvironment(look)
+    expect(posted).toHaveLength(1)
+    const own = equirectRadiance(1024, 512, (d) => environmentRadiance(d, look))
+    expect(same((environmentTexture(look).image as { data: Float32Array }).data, own)).toBe(true)
+    // Asked again: ready, no second build.
+    await prepareEnvironment(look)
+    expect(posted).toHaveLength(1)
+  }, 30000)
+
+  it('never rejects: where the worker fails, the map is built as before', async () => {
+    worker(true)
+    const look = skyLook('desert', 15.75)
+    await expect(prepareEnvironment(look)).resolves.toBeUndefined()
+    const own = equirectRadiance(1024, 512, (d) => environmentRadiance(d, look))
+    expect(same((environmentTexture(look).image as { data: Float32Array }).data, own)).toBe(true)
+  }, 30000)
 })

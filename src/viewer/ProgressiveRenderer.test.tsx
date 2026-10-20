@@ -41,6 +41,8 @@ const mocks = vi.hoisted(() => ({
   table: vi.fn(),
   /** The worker's BVH builds (bvhWarmup.ts). */
   warm: vi.fn(() => Promise.resolve(0)),
+  /** The sky map built in a worker (pathtrace.ts prepareEnvironment). */
+  sky: vi.fn(() => Promise.resolve()),
   trace: {
     storeImage: vi.fn<(...args: unknown[]) => boolean>(() => true),
     begin: vi.fn(),
@@ -79,6 +81,7 @@ vi.mock('../render/pathtrace', () => ({
   loadTracerModule: mocks.load,
   sceneSignature: () => mocks.signature,
   lookKey: () => 'look',
+  prepareEnvironment: mocks.sky,
   PathTraceSession: class {
     constructor(...args: unknown[]) {
       mocks.session(...args)
@@ -425,14 +428,20 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     expect(traceProgress.get()).toEqual({ phase: 'idle' })
   })
 
-  it('holds the first start until the worker has built the scene’s BVHs, never later ones', async () => {
+  it('holds the first start until workers have built the BVHs and sky map, never later ones', async () => {
     let built!: (n: number) => void
+    let sky!: () => void
     mocks.warm.mockImplementationOnce(() => new Promise((resolve) => (built = resolve)))
+    mocks.sky.mockImplementationOnce(() => new Promise<void>((resolve) => (sky = resolve)))
     await render()
     expect(mocks.warm).toHaveBeenCalledWith(mocks.state.scene)
+    expect(mocks.sky).toHaveBeenCalledWith(look)
     settle()
     expect(mocks.trace.begin).not.toHaveBeenCalled()
     await act(async () => built(3))
+    settle()
+    expect(mocks.trace.begin).not.toHaveBeenCalled()
+    await act(async () => sky())
     settle()
     expect(mocks.trace.begin).toHaveBeenCalledOnce()
     // Later starts never wait on it.
