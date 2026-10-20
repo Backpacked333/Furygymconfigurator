@@ -214,6 +214,8 @@ export function ProgressiveRenderer({
     fitted: boolean
     /** The view has started over once at the resolution its measured cost fits (first visit). */
     refitted: boolean
+    /** The samples behind the last image ?bootStats=1 was told of. */
+    reportedShown: number
     /** The scene's BVHs and sky map are being built in workers for the first start. */
     warmingTracer: boolean
     /** Frees the closed view's memory TRIM_AFTER_MS after it closed. */
@@ -292,6 +294,7 @@ export function ProgressiveRenderer({
       traceMegapixels: 0,
       fitted: false,
       refitted: false,
+      reportedShown: 0,
       warmingTracer: false,
       trimTimer: null as ReturnType<typeof setTimeout> | null,
     }
@@ -625,6 +628,7 @@ export function ProgressiveRenderer({
           current.traceMegapixels =
             (Math.floor(drawingBuffer.x * scale) * Math.floor(drawingBuffer.y * scale)) / 1e6
           current.fitted = false
+          current.reportedShown = 0
           bootStats.context(
             'trace size',
             `${Math.round(drawingBuffer.x * scale)}×${Math.round(drawingBuffer.y * scale)} of a ${drawingBuffer.x}×${drawingBuffer.y} canvas`,
@@ -714,6 +718,13 @@ export function ProgressiveRenderer({
         const view = tracer.view(now)
         if (view.t > 0) current.present.render(view)
         const { shown, target } = tracer.progress()
+        if (bootStats.running && shown > current.reportedShown) {
+          current.reportedShown = shown
+          const { passes, latencyFloor } = tracer.pacing
+          bootStats.step(
+            `image at ${shown} of ${target} samples: ${passes} passes per batch, completion floor ${Number.isFinite(latencyFloor) ? Math.round(latencyFloor) : '?'} ms`,
+          )
+        }
         traceProgress.set(refineProgress(shown, target, !developing))
         report(developing ? 'refining' : 'settled')
         if (developing) invalidate()

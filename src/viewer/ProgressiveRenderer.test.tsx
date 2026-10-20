@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
     step: vi.fn(),
     view: vi.fn(),
     progress: vi.fn(() => ({ shown: 0, target: 1024 })),
+    pacing: { passes: 1, latencyFloor: Infinity },
     prepareDenoiser: vi.fn(() => Promise.resolve()),
     started: true,
     samplesPerSecond: null as number | null,

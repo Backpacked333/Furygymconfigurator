@@ -1231,6 +1231,11 @@ export class PathTraceSession {
     this.state = 'tracing'
   }
 
+  /** How batches are paced: passes per batch and the completion latency floor (?bootStats=1). */
+  get pacing() {
+    return { passes: this.passes, latencyFloor: this.latencyFloor }
+  }
+
   /** How far the image on screen has come: the samples behind it, of the view's target. */
   progress() {
     return { shown: this.denoising ? this.shownSamples : this.samples, target: this.target }

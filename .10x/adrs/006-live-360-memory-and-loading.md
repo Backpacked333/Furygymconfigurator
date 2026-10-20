@@ -141,3 +141,33 @@ left.
   - Building them ahead with three's `compileComputeAsync` was tried on SwiftShader and fails: the
     first sample sizes the buffers and textures they bind.
   - The 15 s limit still holds.
+
+## Follow-up: measured on the user's device (`?bootStats=1`)
+
+### What the timeline showed
+
+Apple GPU / Metal 3, Ultra, tracing 1921×1200:
+
+- The loading screen left at 6.3 s, of which the BVH worker took 3.7 s.
+- The first traced image appeared at 11.9 s.
+- 16 samples arrived at 43 s, 64 at 130 s and 256 at 455 s: about 1.8 s per sample.
+
+### Cause
+
+The GPU was mostly idle.
+
+- A pass is one bounce of up to 262144 paths, so a sample is some 35 passes.
+- Batches were sized on the time to `onSubmittedWorkDone`, which resolves about a frame late there.
+- So even one pass read as over budget, and batches never grew past one pass.
+
+### Changes
+
+- **Batches are sized on the time beyond the fastest one-pass batch** (`nextTracePassesOverLatency`).
+  - High and Ultra may hold up to 32 passes, or 64 at rest.
+  - Batch time, and so a press's wait, keeps its budget.
+- **"Fast and stable"**, the user's choice: each device's cost per megapixel-sample is measured and kept (`traceRate.ts`).
+  - A start traces as many pixels as give a clean 16-sample image within 2.5 s. Never below half the canvas across, never above the Cycles cap.
+  - The view settles at what 12 s buys (64–1024 samples), then stops changing.
+  - A first visit starts over once at the fitted resolution if it is far below.
+- **The BVHs build in a pool** of up to `min(4, cores − 1)` workers, largest first.
+- **The timeline logs** pacing at each image, and the measured rate and settle target.
