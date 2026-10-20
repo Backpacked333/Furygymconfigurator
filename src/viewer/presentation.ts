@@ -1,4 +1,12 @@
-import { RenderPipeline, RenderTarget, Vector2, type WebGPURenderer } from 'three/webgpu'
+import {
+  FloatType,
+  RenderPipeline,
+  RenderTarget,
+  RGBAFormat,
+  StorageTexture,
+  Vector2,
+  type WebGPURenderer,
+} from 'three/webgpu'
 import { clamp, ivec2, mix, screenUV, texture, textureLoad, uniform, vec2, vec4 } from 'three/tsl'
 import { stillFinish } from '../render/pipeline'
 import type { TraceView } from '../render/pathtrace'
@@ -12,6 +20,14 @@ export function createProgressivePresentation(renderer: WebGPURenderer) {
   const blend = uniform(0)
   const fromRaster = uniform(1)
   const exposure = uniform(1)
+  // What the outgoing taps read while nothing fades out. Texture nodes holding the same texture
+  // when the shader is built share one binding for good, so the outgoing and incoming taps must
+  // never hold the same image then: if they did, every later fade would read the outgoing image
+  // on both sides and the incoming one would cut in at its end. Weighted out whenever it is bound.
+  const none = new StorageTexture(1, 1)
+  none.type = FloatType
+  none.format = RGBAFormat
+  none.generateMipmaps = false
   // Bilinear by hand: the traced images are float storage textures, which need not be filterable.
   // A trace at the canvas's own size samples each texel exactly; a reduced-scale trace (Lite's
   // live profile) is filtered up instead of shown as blocks.
@@ -34,7 +50,7 @@ export function createProgressivePresentation(renderer: WebGPURenderer) {
   }
   const from: ReturnType<typeof textureLoad>[] = []
   const to: ReturnType<typeof textureLoad>[] = []
-  const hdr = mix(taps(from), taps(to), blend)
+  const hdr = mix(taps(from), taps(to), fromRaster.equal(1).select(1, blend))
   const finished = stillFinish(vec4(hdr.rgb, 1), exposure)
   pipeline.outputNode = mix(
     texture(raster.texture),
@@ -54,7 +70,7 @@ export function createProgressivePresentation(renderer: WebGPURenderer) {
       }
     },
     render(view: TraceView) {
-      for (const node of from) node.value = view.from ?? view.to
+      for (const node of from) node.value = view.from ?? none
       for (const node of to) node.value = view.to
       const image = view.to.image as { width: number; height: number }
       size.value.set(image.width, image.height)
@@ -67,6 +83,7 @@ export function createProgressivePresentation(renderer: WebGPURenderer) {
       finished.glow.dispose()
       pipeline.dispose()
       raster.dispose()
+      none.dispose()
     },
   }
 }
