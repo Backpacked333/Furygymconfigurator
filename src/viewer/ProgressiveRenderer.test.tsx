@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => ({
   present: { capture: vi.fn(), render: vi.fn(), dispose: vi.fn() },
   /** The inverse-AgX table's load. */
   table: vi.fn(),
+  /** The worker's BVH builds (bvhWarmup.ts). */
+  warm: vi.fn(() => Promise.resolve(0)),
   trace: {
     storeImage: vi.fn<(...args: unknown[]) => boolean>(() => true),
     begin: vi.fn(),
@@ -72,6 +74,7 @@ vi.mock('../render/renderer', () => ({
 }))
 vi.mock('./presentation', () => ({ createProgressivePresentation: () => mocks.present }))
 vi.mock('../render/agxInverse', () => ({ loadAgxInverse: mocks.table }))
+vi.mock('../render/bvhWarmup', () => ({ warmBVHs: mocks.warm }))
 vi.mock('../render/pathtrace', () => ({
   loadTracerModule: mocks.load,
   sceneSignature: () => mocks.signature,
@@ -420,6 +423,24 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     settle()
     await render({ active: false })
     expect(traceProgress.get()).toEqual({ phase: 'idle' })
+  })
+
+  it('holds the first start until the worker has built the scene’s BVHs, never later ones', async () => {
+    let built!: (n: number) => void
+    mocks.warm.mockImplementationOnce(() => new Promise((resolve) => (built = resolve)))
+    await render()
+    expect(mocks.warm).toHaveBeenCalledWith(mocks.state.scene)
+    settle()
+    expect(mocks.trace.begin).not.toHaveBeenCalled()
+    await act(async () => built(3))
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledOnce()
+    // Later starts never wait on it.
+    camera.position.x = 1
+    frame()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+    expect(mocks.warm).toHaveBeenCalledOnce()
   })
 
   describe('the loading screen’s steps', () => {
