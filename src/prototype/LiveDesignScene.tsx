@@ -9,6 +9,7 @@ import { defaultQuality } from '../render/quality'
 import { resolveNativeCamera } from '../render/nativeCamera'
 import { SceneSurface } from '../components/SceneSurface'
 import { ProgressiveRenderer, type ViewerStatus } from '../viewer/ProgressiveRenderer'
+import { EntryWatch } from '../viewer/EntryWatch'
 
 // This module loads only once the visitor shows intent to open the 360° view (LiveViewport): start
 // fetching the tracer and denoiser then too, on browsers that can run them, so a resting view can
@@ -25,6 +26,7 @@ export default memo(function LiveDesignScene({
   onReady,
   onStatus,
   onUnavailable,
+  onLeaveEntry,
 }: {
   design: DesignEnvelope
   active: boolean
@@ -35,6 +37,8 @@ export default memo(function LiveDesignScene({
   onReady: () => void
   onStatus: (status: ViewerStatus) => void
   onUnavailable: () => void
+  /** Once per opening: the camera has left `pose`, the gallery image's own camera. */
+  onLeaveEntry?: () => void
 }) {
   const config = useMemo(() => projectDesignToConfig(design), [design])
   const [quality] = useState(defaultQuality)
@@ -61,15 +65,18 @@ export default memo(function LiveDesignScene({
         reset={reset}
         onFallback={onUnavailable}
         effects={
-          <ProgressiveRenderer
-            active={active}
-            revision={JSON.stringify([staged.config, dimensions, unit])}
-            look={look}
-            quality={staged.quality}
-            place={camera.group}
-            onReady={onReady}
-            onStatus={onStatus}
-          />
+          <>
+            <ProgressiveRenderer
+              active={active}
+              revision={JSON.stringify([staged.config, dimensions, unit])}
+              look={look}
+              quality={staged.quality}
+              place={camera.group}
+              onReady={onReady}
+              onStatus={onStatus}
+            />
+            <EntryWatch active={active} pose={pose} onLeave={onLeaveEntry} />
+          </>
         }
       />
       {staged.updating && (

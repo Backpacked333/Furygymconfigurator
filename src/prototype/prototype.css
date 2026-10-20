@@ -52,6 +52,34 @@
   top: auto;
   bottom: 80px;
 }
+
+/* Opening the 360° view on the design's own rendered image: the image (the gallery figure, under
+   this layer) stays on the stage and the canvas draws unseen over it until the camera moves.
+   Opacity, never visibility or display: the canvas must keep its focus, keys and pointer input,
+   or the camera could never move and the image never lift. Nothing of the scene's own loading
+   shows over the image either; a compact status says what is on the stage. */
+.live-viewport.is-covered canvas {
+  opacity: 0;
+}
+.live-viewport.is-covered .scene-loading,
+.live-viewport.is-covered .scene-activity,
+.live-viewport.is-lifting .scene-loading {
+  display: none;
+}
+/* A renderer that failed to start says so legibly over the image, as over the loading veil. */
+.live-viewport.is-covered .graphics-fallback {
+  background: #ecebe7bd;
+}
+/* The camera has moved: the live view fades in over the image (LIVE_FADE_MS, LiveViewport.tsx). */
+.live-viewport.is-lifting canvas {
+  animation: still-in 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+/* Closing: the live view's last frame (the inactive canvas draws nothing more) fades off the
+   gallery image under it. Under reduced motion both are cuts (see the end of this file). */
+.live-viewport.is-leaving {
+  pointer-events: none;
+  animation: still-out 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
 .native-browse {
   display: inline-flex;
   align-items: center;

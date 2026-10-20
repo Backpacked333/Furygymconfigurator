@@ -29,6 +29,16 @@ const labels: Record<ViewerStatus, string> = {
   'raster-only': 'Live 3D · Path tracing unavailable on this device',
 }
 
+/** The crossfade between the gallery image and the live view, either way (prototype.css). */
+export const LIVE_FADE_MS = 300
+
+/**
+ * Whether the gallery image is on the stage under the live view: 'still' while the canvas draws
+ * unseen over this design's own rendered image, 'lifting' while it fades in over it, null once the
+ * live view stands alone.
+ */
+export type LiveCurtain = 'still' | 'lifting' | null
+
 /** This boundary is renderer-free until the user explicitly opens the live view. */
 export function LiveViewport(props: {
   design: DesignEnvelope
@@ -37,12 +47,21 @@ export function LiveViewport(props: {
   dimensions: boolean
   autoRotate: boolean
   reset: number
+  curtain: LiveCurtain
+  /** Closing: the inactive view stays up, holding its last frame, to fade off the gallery image. */
+  leaving: boolean
   onReadyChange: (ready: boolean) => void
+  onLeaveEntry: () => void
 }) {
   const [status, setStatus] = useState<ViewerStatus>('loading')
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
-  const { onReadyChange } = props
+  // The curtain is the gallery's, not the scene's: the memoised scene never re-renders for it.
+  const { curtain, leaving, onReadyChange, onLeaveEntry, ...scene } = props
+  // The gallery image is on the stage under the canvas, or the canvas is fading in over it. A
+  // failed view shows its failure over the image instead.
+  const covered = curtain !== null && !failed
+  const photo = covered && curtain === 'still'
   const onReady = useCallback(() => {
     setReady(true)
     onReadyChange(true)
@@ -53,23 +72,24 @@ export function LiveViewport(props: {
   }, [onReadyChange])
   return (
     <div
-      className={`live-viewport${ready && !failed ? ' is-ready' : ''}`}
-      hidden={!props.active}
+      className={`live-viewport${ready && !failed ? ' is-ready' : ''}${photo ? ' is-covered' : covered ? ' is-lifting' : ''}${leaving ? ' is-leaving' : ''}`}
+      hidden={!props.active && !leaving}
       aria-label="Interactive 360° design view"
     >
       <ViewerBoundary onUnavailable={onUnavailable}>
         <Suspense fallback={null}>
           {!failed && (
             <LiveDesignScene
-              {...props}
+              {...scene}
               onReady={onReady}
               onStatus={setStatus}
               onUnavailable={onUnavailable}
+              onLeaveEntry={onLeaveEntry}
             />
           )}
         </Suspense>
       </ViewerBoundary>
-      {(!ready || failed) && (
+      {(failed || (!ready && !covered)) && (
         <div className="live-viewport-loading" role="status">
           <strong>{failed ? 'Live 3D is unavailable on this device.' : labels.loading}</strong>
           <span>
@@ -79,12 +99,19 @@ export function LiveViewport(props: {
           </span>
         </div>
       )}
-      {ready && !failed && (
+      {/* Over the rendered image a compact note, not a veil: the image is what is on the stage. */}
+      {!failed && (ready || covered) && (
         <span className="live-viewport-status" role="status">
-          {labels[status]}
+          {!ready
+            ? labels.loading
+            : photo
+              ? 'Showing the rendered image · Drag to explore'
+              : labels[status]}
         </span>
       )}
-      <span className="live-viewport-disclaimer">Live concept preview · Not a saved render</span>
+      {!photo && (
+        <span className="live-viewport-disclaimer">Live concept preview · Not a saved render</span>
+      )}
     </div>
   )
 }
