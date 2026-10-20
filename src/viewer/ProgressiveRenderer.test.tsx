@@ -580,7 +580,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       firstFadeMs: 120,
       batchMs: 12,
       maxPasses: 8,
-      restBatch: { afterMs: 1000, batchMs: 16, maxPasses: 16 },
+      restBatch: { afterMs: 1000, batchMs: 24, maxPasses: 16 },
     })
   })
 

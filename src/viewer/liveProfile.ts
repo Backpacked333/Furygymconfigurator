@@ -55,9 +55,9 @@ export function liveProfile(quality: Quality): LiveProfile {
         maxBounces: 7,
         ...CYCLES_CLAMPS,
         ...pacing,
-        // After a second at rest the raster draws nothing, so batches may grow. Two are queued at
-        // once (pathtrace.ts BATCHES_IN_FLIGHT), so a press then waits at most about 32 ms.
-        rest: { afterMs: 1000, batchMs: 16, maxPasses: 16 },
+        // After a second at rest the raster draws nothing, so batches may take two frames' time:
+        // a press then waits at most that one batch, about 24 ms, before the view answers.
+        rest: { afterMs: 1000, batchMs: 24, maxPasses: 16 },
         cyclesSeedSamples: 16,
       }
 }
