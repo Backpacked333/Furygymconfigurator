@@ -96,6 +96,13 @@ const ENV_HEIGHT = 512
  * they keep the GPU busy for about two display frames.
  */
 const MAX_PASSES = 64
+/**
+ * Batches the GPU may hold at once. With one, each frame's batch waits for the last to finish, and
+ * the GPU idles from then until the next frame submits: often most of a frame. With two, the next
+ * batch is queued behind the running one and the GPU never waits, while a press still waits behind
+ * at most these batches before the view answers.
+ */
+export const BATCHES_IN_FLIGHT = 2
 /** Wavefront path slots per dispatch: ~300 bytes each, so this stays under 128 MB bindings. */
 const FRAME_BUDGET = 262144
 
@@ -683,7 +690,9 @@ export class PathTraceSession {
   private timing = { start: 0, first: 0, settled: 0, milestones: [] as [number, number][] }
   private frames = 0
   private passes = 1
-  private inFlight = false
+  private inFlight = 0
+  /** When the last batch finished: the next one's GPU time starts there, not at its submission. */
+  private lastDone = 0
   private measuring = false
   private accumulating = false
   /** Samples per pixel reached by every pixel. */
@@ -983,7 +992,7 @@ export class PathTraceSession {
     // without this the GPU queue would grow without bound.
     // Raw (undenoised) display keeps presenting through the tracer until its fade completes.
     const fading = !this.denoising && this.tracer.fadeState < 1
-    if ((this.accumulating || fading) && !this.inFlight) {
+    if ((this.accumulating || fading) && this.inFlight < BATCHES_IN_FLIGHT) {
       const previous = this.renderer.getRenderTarget()
       try {
         this.renderer.setRenderTarget(this.sink)
@@ -995,7 +1004,7 @@ export class PathTraceSession {
         this.renderer.setRenderTarget(previous)
       }
       this.frames++
-      this.inFlight = true
+      this.inFlight++
       const epoch = this.epoch
       const device = (
         this.renderer.backend as unknown as {
@@ -1005,9 +1014,12 @@ export class PathTraceSession {
       device.queue
         .onSubmittedWorkDone()
         .then(() => {
+          const done = performance.now()
+          // Its own GPU time: queued behind another batch, it started when that one finished.
+          const busy = done - Math.max(now, this.lastDone)
+          this.lastDone = done
           if (epoch !== this.epoch) return
           // Size batches to roughly two display frames of GPU time.
-          const busy = performance.now() - now
           const budget = this.budget(now)
           if (budget)
             this.passes = nextTracePasses(this.passes, busy, budget.batchMs, budget.maxPasses)
@@ -1016,7 +1028,7 @@ export class PathTraceSession {
         })
         .catch(() => {})
         .finally(() => {
-          this.inFlight = false
+          this.inFlight--
         })
       // Until the first image, read the count every batch: the earliest milestones are a frame
       // or two apart.
