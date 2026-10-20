@@ -17,7 +17,7 @@ import {
   safeError,
 } from '../src/render-library/contracts'
 import { computeSetIdentity, identityPayload } from '../src/render-library/identity'
-import { normalizeCustomerDesign } from '../src/render-library/views'
+import { normalizeCustomerDesign, viewDesign } from '../src/render-library/views'
 import {
   EXECUTION_LIMITS,
   artifactReceiptSchema,
@@ -56,7 +56,7 @@ export async function contractFixtures(root: string) {
   const syntheticInterior = imageDescriptorSchema.parse({
     ...images[0],
     imageKey: interiorKey,
-    design: { ...design, presentation: { ...design.presentation, cameraRef: 'entry-draft@1' } },
+    design: viewDesign(design, 'entry-draft@1'),
     url: `https://storage.example/storage/v1/object/public/render-library/${identity.setKey}/${interiorKey}/${images[0].sha256}.webp`,
     provenance: {
       kind: 'native-worker',
@@ -192,10 +192,7 @@ export async function contractFixtures(root: string) {
     jobId,
     attemptId,
     imageKey: claim.views[0].imageKey,
-    design: {
-      ...night,
-      presentation: { ...night.presentation, cameraRef: claim.views[0].cameraRef },
-    },
+    design: viewDesign(night, claim.views[0].cameraRef),
     recipeRelease: RECIPE_RELEASE,
     workerBuildSha256: claim.workerBuildSha256,
     recipeBundleSha256: claim.recipeBundleSha256,
