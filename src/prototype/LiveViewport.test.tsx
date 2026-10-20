@@ -4,15 +4,9 @@ import { readFileSync } from 'node:fs'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultDesign } from '../domain/design'
-import {
-  liveLoading,
-  refineProgress,
-  sceneProgress,
-  textureProgress,
-  traceProgress,
-} from '../render/progress'
+import { refineProgress } from '../render/progress'
 import type { ViewerStatus } from '../viewer/ProgressiveRenderer'
-import { LIVE_FADE_MS, LiveViewport, REFINED_SHOWN_MS } from './LiveViewport'
+import { LIVE_FADE_MS, LiveViewport, REFINED_SHOWN_MS, type LiveProgress } from './LiveViewport'
 
 const scene = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }))
 vi.mock('./LiveDesignScene', () => ({
@@ -30,9 +24,6 @@ vi.mock('./LiveDesignScene', () => ({
         <button onClick={() => props.onStatus('interactive')}>Scene interactive</button>
         <button onClick={props.onUnavailable}>Scene unavailable</button>
         <button onClick={props.onLeaveEntry}>Camera moved</button>
-        <button onClick={() => liveLoading.set('materials')}>Scene mounted</button>
-        <button onClick={() => liveLoading.set('tracer')}>Scans in</button>
-        <button onClick={() => liveLoading.set('ready')}>Trace started</button>
       </div>
     )
   },
@@ -52,11 +43,18 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
     act(() =>
       [...host.querySelectorAll('button')].find((item) => item.textContent === text)!.click(),
     )
+  /** What the scene reports of its load and refinement (LiveDesignScene useLiveProgress). */
+  let progress: LiveProgress
+  const report = (patch: Partial<LiveProgress>) =>
+    act(() => {
+      progress = { ...progress, ...patch }
+      ;(scene.props!.onProgress as (next: LiveProgress) => void)(progress)
+    })
   /** The view draws, its first trace starts, and the loading screen has faded out. */
   const opened = () => {
     click('Scene ready')
     click('Scene interactive')
-    click('Trace started')
+    report({ step: 'ready' })
     act(() => vi.advanceTimersByTime(LIVE_FADE_MS))
   }
   const steps = () =>
@@ -66,8 +64,7 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
-    sceneProgress.set('engine')
-    traceProgress.set({ phase: 'idle' })
+    progress = { step: 'engine', fraction: null, refine: { phase: 'idle' } }
     scene.props = null
     props = {
       design: defaultDesign(),
@@ -114,29 +111,28 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
     ])
     expect(host.querySelector('.live-loading .sr-only')?.textContent).toBe('Loading the 3D engine')
     // The renderer is up and the scene is mounting.
-    act(() => sceneProgress.set('shaders'))
+    report({ step: 'scene' })
     expect(steps()[1]).toBe('is-active:Building the scene')
-    click('Scene mounted')
+    report({ step: 'materials' })
     expect(steps().slice(0, 3)).toEqual([
       'is-done:Loading the 3D engine',
       'is-done:Building the scene',
       'is-active:Preparing materials and light',
     ])
-    // Scans arriving fill the bar: only those asked for since this view opened count.
+    // Scans arriving fill the bar.
     expect(host.querySelector('.live-loading-bar')?.classList).toContain('is-waiting')
-    act(() => textureProgress.update(4, 0))
-    act(() => textureProgress.update(0, 1))
+    report({ fraction: 0.25 })
     expect(host.querySelector<HTMLElement>('.live-loading-bar i')!.style.transform).toBe(
       'scaleX(0.25)',
     )
-    click('Scans in')
+    report({ step: 'tracer', fraction: null })
     expect(steps()[3]).toBe('is-active:Starting the path tracer')
     // Drawn, but the tracer's first start (its longest task) is still to come: the screen stays.
     click('Scene ready')
     click('Scene interactive')
     expect(host.querySelector('.live-loading')).not.toBeNull()
     expect(status()).not.toContain('Showing the rendered image')
-    click('Trace started')
+    report({ step: 'ready' })
     expect(host.querySelector('.live-loading')?.classList).toContain('is-done')
     expect(host.querySelector('.live-loading .sr-only')?.textContent).toBe('Ready')
     act(() => vi.advanceTimersByTime(LIVE_FADE_MS))
@@ -150,20 +146,20 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
     await render()
     opened()
     expect(shown()).toBe(false)
-    act(() => traceProgress.set(refineProgress(4, 1024, false)))
+    report({ refine: refineProgress(4, 1024, false) })
     expect(shown()).toBe(true)
     expect(pill().textContent).toBe('Refining · Light')
     expect(pill().getAttribute('aria-valuenow')).toBe(
       String(Math.round((Math.log2(5) / Math.log2(1025)) * 100)),
     )
-    act(() => traceProgress.set(refineProgress(32, 1024, false)))
+    report({ refine: refineProgress(32, 1024, false) })
     expect(pill().textContent).toBe('Refining · Reflections')
-    act(() => traceProgress.set(refineProgress(256, 1024, false)))
+    report({ refine: refineProgress(256, 1024, false) })
     expect(pill().textContent).toBe('Refining · Fine detail')
     // The camera moves: gone at once.
-    act(() => traceProgress.set({ phase: 'idle' }))
+    report({ refine: { phase: 'idle' } })
     expect(shown()).toBe(false)
-    act(() => traceProgress.set(refineProgress(1024, 1024, true)))
+    report({ refine: refineProgress(1024, 1024, true) })
     expect(shown()).toBe(true)
     expect(pill().className).toContain('is-done')
     expect(pill().textContent).toBe('Fully refined')
@@ -173,24 +169,18 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
     act(() => vi.advanceTimersByTime(1))
     expect(shown()).toBe(false)
     // The next rest shows it again.
-    act(() => traceProgress.set(refineProgress(2, 1024, false)))
+    report({ refine: refineProgress(2, 1024, false) })
     expect(shown()).toBe(true)
   })
 
   it('never shows the pill over the rendered image or the loading screen', async () => {
     await render({ curtain: 'still' })
-    act(() => traceProgress.set(refineProgress(8, 1024, false)))
+    report({ refine: refineProgress(8, 1024, false) })
     expect(host.querySelector('.live-refine')!.classList).not.toContain('is-shown')
     opened()
     expect(host.querySelector('.live-refine')!.classList).not.toContain('is-shown')
     await render({ curtain: null })
     expect(host.querySelector('.live-refine')!.classList).toContain('is-shown')
-  })
-
-  it('starts the steps over for a new view', async () => {
-    act(() => liveLoading.set('ready'))
-    await render()
-    expect(steps()[0]).toBe('is-active:Loading the 3D engine')
   })
 
   it('draws over the rendered image with a compact status and no disclaimer', async () => {

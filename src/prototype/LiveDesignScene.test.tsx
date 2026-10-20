@@ -8,6 +8,7 @@ import { createSceneDesignFixtures } from '../domain/designFixtures'
 import { DEFAULT_CONFIG } from '../lib/config'
 import { resolveNativeCamera } from '../render/nativeCamera'
 import { arcWindow } from '../viewer/arc'
+import { liveLoading, sceneProgress, textureProgress, traceProgress } from '../render/progress'
 import LiveDesignScene from './LiveDesignScene'
 
 const seen = vi.hoisted(() => ({
@@ -92,6 +93,33 @@ it('hands the renderer the design’s own image with the camera it was rendered 
   // The same image again: the same entry, so the renderer does not prepare it twice.
   act(() => root.render(<LiveDesignScene {...props} entryImage="/native-library/a.webp" />))
   expect(seen.renderer!.entry).toBe(first)
+})
+
+describe('reporting the view’s load and refinement to the gallery', () => {
+  const last = (onProgress: ReturnType<typeof vi.fn>) => onProgress.mock.lastCall![0]
+
+  it('starts a new view’s steps over and reports each as the stores move', () => {
+    act(() => liveLoading.set('ready'))
+    act(() => sceneProgress.set('engine'))
+    act(() => traceProgress.set({ phase: 'idle' }))
+    const onProgress = vi.fn()
+    act(() => root.render(<LiveDesignScene {...liveProps()} onProgress={onProgress} />))
+    expect(last(onProgress)).toEqual({ step: 'engine', fraction: null, refine: { phase: 'idle' } })
+    // The renderer compiles: the scene is mounting.
+    act(() => sceneProgress.set('shaders'))
+    expect(last(onProgress).step).toBe('scene')
+    act(() => liveLoading.set('materials'))
+    // Only scans asked for since this view opened count.
+    act(() => textureProgress.update(4, 0))
+    act(() => textureProgress.update(0, 1))
+    expect(last(onProgress)).toMatchObject({ step: 'materials', fraction: 0.25 })
+    act(() => textureProgress.update(0, 3))
+    act(() => liveLoading.set('ready'))
+    expect(last(onProgress)).toMatchObject({ step: 'ready', fraction: null })
+    act(() => traceProgress.set({ phase: 'refining', fill: 0.4, stage: 'reflections' }))
+    expect(last(onProgress).refine).toEqual({ phase: 'refining', fill: 0.4, stage: 'reflections' })
+    act(() => traceProgress.set({ phase: 'idle' }))
+  })
 })
 
 describe('fetching the tracer as the module loads, on intent', () => {

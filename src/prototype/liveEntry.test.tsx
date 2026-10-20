@@ -5,7 +5,6 @@ import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { serializeDesign, type DesignEnvelope } from '../domain/design'
 import { ImageConfigurator } from './ImageConfigurator'
-import { liveLoading } from '../render/progress'
 import { LIVE_FADE_MS } from './LiveViewport'
 import type { NativeEntry, NativeLibrary } from './nativeLibrary'
 
@@ -46,11 +45,13 @@ vi.mock('./LiveDesignScene', () => ({
     onReady,
     onLeaveEntry,
     entryImage,
+    onProgress,
   }: {
     active: boolean
     onReady: () => void
     onLeaveEntry: () => void
     entryImage?: string
+    onProgress?: (progress: { step: 'ready'; fraction: null; refine: { phase: 'idle' } }) => void
   }) => (
     <div data-live-scene data-active={active} data-entry-image={entryImage}>
       <canvas />
@@ -58,7 +59,7 @@ vi.mock('./LiveDesignScene', () => ({
       <button
         onClick={() => {
           onReady()
-          liveLoading.set('ready')
+          onProgress?.({ step: 'ready', fraction: null, refine: { phase: 'idle' } })
         }}
       >
         Scene ready

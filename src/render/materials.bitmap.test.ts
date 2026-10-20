@@ -41,30 +41,43 @@ describe('scans decoded off the main thread', () => {
     const m = material({ set: 'teak_veneer', color: '#e7d2bd' })
     expect(m.map).toBe(albedo)
 
+    const decoded = albedo.image as FakeBitmap
     albedo.onUpdate!(albedo)
-    expect((albedo.image as FakeBitmap).width).toBe(0)
+    // Freed, with its size kept (three and the 360° view's tracer atlas read it; a closed bitmap
+    // reads 0 × 0). Setting the stand-in uploads nothing.
+    expect(decoded.width).toBe(0)
+    expect(albedo.image).toEqual({ width: 4, height: 4, released: true })
+    expect([albedo.width, albedo.height]).toEqual([4, 4])
+    // A later upload has nothing more to free.
+    albedo.onUpdate!(albedo)
+    expect(albedo.image).toEqual({ width: 4, height: 4, released: true })
     const version = albedo.version
     decode.mockClear()
     await restoreTextures()
     expect(decode).toHaveBeenCalledTimes(1)
+    expect(albedo.image).toBeInstanceOf(FakeBitmap)
     expect((albedo.image as FakeBitmap).width).toBe(4)
     expect(albedo.version).toBe(version + 1)
   })
 
-  it('keep the decoded pixels while a local path tracer reads them', async () => {
+  it('keep the decoded pixels while the legacy route’s path tracer reads them', async () => {
     const { keepDecodedTextures, textureMaps } = await import('./materials')
     const albedo = (await textureMaps('teak_veneer')).albedo as Texture
-    // Released before the tracer loaded: decoded again, and kept through later uploads, since the
-    // tracer packs its own texture array from these pixels (a released map traces black).
+    // Released before the tracer loaded: decoded again, and kept through later uploads, since that
+    // tracer's atlas still reads them.
     albedo.onUpdate!(albedo)
     await keepDecodedTextures(true)
-    expect((albedo.image as FakeBitmap).width).toBe(4)
+    const kept = albedo.image as FakeBitmap
+    expect(kept).toBeInstanceOf(FakeBitmap)
+    expect(kept.width).toBe(4)
     albedo.onUpdate!(albedo)
-    expect((albedo.image as FakeBitmap).width).toBe(4)
+    expect(albedo.image).toBe(kept)
+    expect(kept.width).toBe(4)
     // Without a tracer the pixels are freed after upload again.
     await keepDecodedTextures(false)
     albedo.onUpdate!(albedo)
-    expect((albedo.image as FakeBitmap).width).toBe(0)
+    expect(kept.width).toBe(0)
+    expect(albedo.image).toEqual({ width: 4, height: 4, released: true })
   })
 })
 

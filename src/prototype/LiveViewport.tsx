@@ -1,25 +1,21 @@
-import {
-  Component,
-  Suspense,
-  lazy,
-  useCallback,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { DesignEnvelope } from '../domain/design'
 import type { Unit } from '../lib/config'
-import {
-  LIVE_STEPS,
-  liveLoading,
-  sceneProgress,
-  textureProgress,
-  traceProgress,
-  type LiveStep,
-  type RefineStage,
-} from '../render/progress'
 import type { ViewerStatus } from '../viewer/ProgressiveRenderer'
+
+/**
+ * How far the live view has come, as the scene (in its lazy chunk) reports it from the render
+ * stores (render/progress.ts liveLoading, textureProgress, traceProgress): the gallery's own code
+ * imports nothing of the renderer. `step` is where the load is, `fraction` the share of scans in
+ * while materials load, `refine` a resting view sharpening.
+ */
+export type LiveStep = 'engine' | 'scene' | 'materials' | 'tracer' | 'ready'
+export type RefineStage = 'light' | 'reflections' | 'detail'
+export type LiveRefine =
+  { phase: 'idle' } | { phase: 'refining' | 'done'; fill: number; stage: RefineStage }
+export type LiveProgress = { step: LiveStep; fraction: number | null; refine: LiveRefine }
+/** Before the scene's code has even loaded. */
+const STARTING: LiveProgress = { step: 'engine', fraction: null, refine: { phase: 'idle' } }
 
 const LiveDesignScene = lazy(() => import('./LiveDesignScene'))
 
@@ -50,14 +46,14 @@ const labels: Record<ViewerStatus, string> = {
 /** The crossfade between the gallery image and the live view, either way (prototype.css). */
 export const LIVE_FADE_MS = 300
 
-/** What the loading screen says each step is doing (render/progress.ts liveLoading). */
+/** What the loading screen says each step is doing. */
 const stepLabels: Record<Exclude<LiveStep, 'ready'>, string> = {
   engine: 'Loading the 3D engine',
   scene: 'Building the scene',
   materials: 'Preparing materials and light',
   tracer: 'Starting the path tracer',
 }
-const STEPS = LIVE_STEPS.filter((step): step is Exclude<LiveStep, 'ready'> => step !== 'ready')
+const STEPS = ['engine', 'scene', 'materials', 'tracer'] as const
 
 /** What a resting view is resolving as it refines (render/progress.ts REFINE_STAGES). */
 const refineLabels: Record<RefineStage, string> = {
@@ -75,8 +71,7 @@ const RING = 2 * Math.PI * 8
  * is resolving (light, then reflections, then fine detail), then "Fully refined" for a moment. It
  * leaves at once when the camera moves, and comes back at the next rest.
  */
-function RefinePill({ hidden }: { hidden: boolean }) {
-  const progress = useSyncExternalStore(traceProgress.subscribe, traceProgress.get)
+function RefinePill({ progress, hidden }: { progress: LiveRefine; hidden: boolean }) {
   const done = progress.phase === 'done'
   const [expired, setExpired] = useState(false)
   const [wasDone, setWasDone] = useState(done)
@@ -121,17 +116,6 @@ function RefinePill({ hidden }: { hidden: boolean }) {
       <span>{label}</span>
     </div>
   )
-}
-
-/**
- * Where the view is on its way to being explorable: the renderer's own phases move it to "scene"
- * (the engine is up and the scene is mounting) before the scene's controller takes over.
- */
-function useLiveStep(): LiveStep {
-  const step = useSyncExternalStore(liveLoading.subscribe, liveLoading.get)
-  const phase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
-  const mounting = phase === 'shaders' || phase === 'ready'
-  return step === 'engine' && mounting ? 'scene' : step
 }
 
 /**
@@ -206,17 +190,8 @@ export function LiveViewport(props: {
   const [status, setStatus] = useState<ViewerStatus>('loading')
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
-  // A new view starts its loading from the beginning (before any of its scene mounts).
-  useState(() => liveLoading.restart())
-  const step = useLiveStep()
-  // Scans are counted for the whole page: the share of those requested since this view opened.
-  const [textureBase] = useState(() => textureProgress.get())
-  const textures = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
-  const requested = textures.requested - textureBase.requested
-  const fraction =
-    step === 'materials' && requested > 0
-      ? Math.min(1, (textures.loaded - textureBase.loaded) / requested)
-      : null
+  const [progress, setProgress] = useState(STARTING)
+  const { step, fraction } = progress
   // The screen fades out (LIVE_FADE_MS) once the view is ready to explore.
   const loading = step !== 'ready'
   const [fading, setFading] = useState(false)
@@ -259,6 +234,7 @@ export function LiveViewport(props: {
               onStatus={setStatus}
               onUnavailable={onUnavailable}
               onLeaveEntry={onLeaveEntry}
+              onProgress={setProgress}
             />
           )}
         </Suspense>
@@ -285,7 +261,7 @@ export function LiveViewport(props: {
         <span className="live-viewport-disclaimer">Live concept preview · Not a saved render</span>
       )}
       {/* Refinement is invisible under the rendered image, and the loading screen covers it. */}
-      <RefinePill hidden={failed || loading || photo || !props.active} />
+      <RefinePill progress={progress.refine} hidden={failed || loading || photo || !props.active} />
     </div>
   )
 }
