@@ -287,6 +287,14 @@ function ImageConfiguratorContents({
       pickCamera(next === selectedCamera.group ? selectedCamera.ref : lastCameras.current[next])
   }
   function toggleLive() {
+    // The start of the 360° view's load, for the performance timeline (fury:live-first-frame,
+    // fury:trace-begin follow).
+    if (!live)
+      try {
+        performance.mark('fury:live-click')
+      } catch {
+        // Timing is a diagnostic only.
+      }
     setViewerStarted(true)
     setLive(!live)
     setAutoRotate(false)

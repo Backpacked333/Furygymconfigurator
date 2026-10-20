@@ -445,6 +445,7 @@ export function ProgressiveRenderer({
       sceneProgress.drawn()
       if (!current.ready) {
         current.ready = true
+        timeline(() => performance.mark('fury:live-first-frame'))
         props.current.onReady()
       }
       report(current.failed ? 'raster-only' : 'interactive')
