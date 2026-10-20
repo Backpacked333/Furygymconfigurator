@@ -76,7 +76,10 @@ lookup requests to follow the same shared set; never auto-create merely to gain 
 
 Network attribution is deliberately conservative: all anonymous traffic shares one HMAC
 network quota. Untrusted `X-Forwarded-For` cannot reset it. Limits are 3 admitted jobs/session/hour,
-6/network/hour, 12 globally/hour, 1 active reservation/session, 2 globally. Joins/cache hits
+6/network/hour and 12 globally/hour. Admission reserves full financial liability, not an idle
+GPU: additional distinct designs queue durably even when both execution slots are occupied.
+Dispatch is limited to one unsettled claimed job per lane and two globally, including uncertain
+provider starts. Both slots may belong to the same session. Joins/cache hits
 do not spend or count as new jobs. Configure platform rate limits for lookup/session endpoints
 before exposing the service broadly; these SQL admission quotas bound GPU spend, not arbitrary
 read traffic or session-row growth. Replacing shared network attribution requires a verified
@@ -84,7 +87,7 @@ platform IP source, not a request header accepted on faith.
 
 ## Database and Storage installation (operator approval required)
 
-Apply the three migrations in order to a chosen Supabase project only after review:
+Apply migrations in order to a chosen Supabase project only after review:
 
 - `202610190001_render_library.sql`: durable ledger, mutation RPCs, immutable identity/asset
   triggers, RLS and privilege revocation. Every mutation RPC serializes on one advisory lock;
@@ -95,6 +98,11 @@ Apply the three migrations in order to a chosen Supabase project only after revi
 - `202610190003_render_library_recovery.sql`: fenced uncertain-to-accepted dispatch
   resolution and service-only reads of the actual per-job reservation. Apply before
   starting the updated dispatcher; do not derive settlement from current policy limits.
+- `202610190004_hosted_dispatcher.sql` and `202610190005_dispatcher_headroom.sql`:
+  shared CPU/GPU budget accounting and recovery headroom.
+- `202610200001_render_queue_lanes.sql`: durable queue admission, latest-request priority,
+  independent foreground/background dispatch slots, and a fenced shared-app shutdown.
+  **Do not apply to the existing hosted worker without the compatibility rollout below.**
 
 `anon`, `authenticated` and `PUBLIC` have no table or RPC privileges on the ledger.
 `service_role` gets table DML and RPC execution; this credential is an administrative trust
@@ -117,7 +125,7 @@ objects later than token lifetime/job completion; never delete final immutable o
 
 ### Recipe, seed import, and spend activation
 
-1. Register `fury-native-five@1` only with independently established worker, recipe bundle,
+1. Register a reviewed recipe release only with independently established worker, recipe bundle,
    geometry, materials, cameras and renderer SHA-256 values. `registrationSchema` specifies
    the exact JSON. Registration cannot be updated/deleted: changed source requires a newly
    versioned contract/release, not changing what an existing key means. There are no placeholder
@@ -154,9 +162,15 @@ renderer or retryable Modal CPU Function. Deployment supervisors may restart the
 restarts never imply resubmitting a claimed dispatch. No manual operator action is needed per
 customer click while the dispatcher is healthy.
 
-1. Poll `render_library_claim_dispatch({dispatcherId})` with the service-role credential.
+1. Poll `render_library_claim_dispatch({dispatcherId,lane})` with the service-role credential.
+   `lane` is `foreground` (the default for old callers) or `background`. The foreground lane
+   selects each session's latest explicitly requested job. The background lane drains all
+   pending work oldest-first, including pre-migration jobs with no foreground pointer. A join
+   with a fresh idempotency key promotes a queued design without another reservation; replaying
+   an old key does not reorder work. Latest-request priority does not expire during a long render.
+   Browser edits/disconnects do not revoke a request, reservation or provider slot.
    A non-null `{dispatch,claimToken}` marks the outbox dispatching and job dispatch-uncertain
-   **before** external work. A null response means no admitted pending work. Back off idle
+   **before** external work. Null means no eligible work or that lane's slot is occupied. Back off idle
    polling. Claim loss is deliberately not reclaimed by a TTL.
 2. Call authenticated HTTP `worker/claim` with `{...dispatch,workerBuildSha256}` exactly once.
    `{claim:null}` must never produce GPU work. It checks current activation, registration,

@@ -25,11 +25,13 @@ export const DATABASE_CONTRACT = {
         reserved_micro_usd: 'bigint not null default 0',
         charged_micro_usd: 'bigint not null default 0',
         policy: 'jsonb not null',
+        dispatcher_halted: 'boolean not null default false',
       },
       invariants: [
         'One shared global ledger, locked by admission transaction.',
         'Nonnegative integer currency; reserved + charged <= budget.',
         'No default budget, activation or reconciliation of prior experiments.',
+        'App shutdown is fenced against CPU cycle starts; another live lane must finish first.',
       ],
     },
     [DATABASE_TABLES.sets]: {
@@ -125,6 +127,7 @@ export const DATABASE_CONTRACT = {
         result: 'jsonb',
         claimed_at: 'timestamptz',
         worker_claimed_at: 'timestamptz',
+        lane: "text not null default 'foreground'",
       },
       unique: ['job_id'],
       invariants: [
@@ -132,6 +135,7 @@ export const DATABASE_CONTRACT = {
         'Never lease-expire/re-send dispatching or uncertain messages.',
         'Worker claim is atomic at most once even if the provider delivers a duplicate.',
         'Crash between claim and spawn requires reconciliation, not automatic retry.',
+        'Claimed unsettled jobs occupy at most one slot per lane and two globally; pending jobs do not occupy GPU slots.',
       ],
     },
     [DATABASE_TABLES.events]: {
@@ -158,10 +162,13 @@ export const DATABASE_CONTRACT = {
         expires_at: 'timestamptz not null',
         window_start: 'timestamptz not null',
         admitted_count: 'integer not null default 0',
+        foreground_job_id: 'uuid references render_library_jobs(id)',
+        foreground_requested_at: 'timestamptz',
       },
       invariants: [
         'Server-issued signed HttpOnly Secure SameSite session cookie.',
-        'Global, session and network rate/concurrency checks share the admission transaction.',
+        'Global, session and network rate checks share the admission transaction; GPU capacity is checked at dispatch.',
+        'The latest explicit request is foreground; a later request never cancels older work.',
         'Request Origin plus CSRF required for create/retry; cross-site cookie minting denied.',
       ],
     },

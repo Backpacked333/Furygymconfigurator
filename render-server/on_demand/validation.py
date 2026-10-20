@@ -89,6 +89,8 @@ def validate_claim(claim, recipe):
         ("imageSeconds", 300),
         ("jobSeconds", 2100),
         ("maxContainers", 2),
+        ("maxActiveJobsPerSession", 2),
+        ("maxCreatesPerSessionPerHour", 3),
     ):
         if type(limits[key]) is not int or not 0 < limits[key] <= ceiling:
             raise ValueError("invalid-limit")

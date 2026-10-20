@@ -77,7 +77,7 @@ export interface RenderLibraryRpc {
     result: AdmissionResult
   }
   render_library_claim_dispatch: {
-    args: { dispatcherId: string }
+    args: { dispatcherId: string; lane?: 'foreground' | 'background' }
     result: OutboxClaim | null
   }
   render_library_record_dispatch: {

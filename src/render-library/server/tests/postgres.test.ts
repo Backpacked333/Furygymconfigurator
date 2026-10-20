@@ -46,7 +46,7 @@ const run = (query: string) =>
     stdio: ['pipe', 'pipe', 'pipe'],
   }).trim()
 const rpc = (name: string, values: string[]) =>
-  JSON.parse(run(`select public.${name}(${values.join(',')});`) || 'null')
+  JSON.parse(run(`select to_json(public.${name}(${values.join(',')}));`) || 'null')
 const asyncRun = promisify(execFile)
 async function parallelRpc(name: string, value: unknown) {
   const result = await asyncRun('docker', [
@@ -81,8 +81,20 @@ function reserve(input = command) {
 function ledger() {
   return JSON.parse(run('select row_to_json(a) from public.render_library_approvals a;'))
 }
-function dispatch() {
-  return rpc('render_library_claim_dispatch', [quote('test-dispatcher')])
+function dispatch(lane?: 'foreground' | 'background') {
+  return rpc('render_library_claim_dispatch', [
+    quote('test-dispatcher'),
+    ...(lane ? [quote(lane)] : []),
+  ])
+}
+
+async function variation(index: number) {
+  const next = structuredClone(command)
+  next.request.idempotencyKey = randomUUID()
+  next.request.design.presentation.lookRef =
+    index < 2 ? 'studio-day-draft@1' : 'studio-night-draft@1'
+  next.request.design.presentation.aspect = index % 2 ? 'tall' : 'wide'
+  return { ...next, identity: await computeSetIdentity(next.request.design) }
 }
 function workerClaim(envelope: unknown) {
   return workerClaimSchema.parse(
@@ -131,6 +143,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610190003_render_library_recovery.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610190004_hosted_dispatcher.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610190005_dispatcher_headroom.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200001_render_queue_lanes.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -235,7 +248,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     changed.request.design.presentation.cameraRef = 'front-draft@1'
     expect(reserve(changed).error.code).toBe('idempotency-conflict')
   })
-  it('enforces expiry, activation, valid session, global capacity and budget before reservation', async () => {
+  it('enforces expiry, activation, valid session and budget before reservation', async () => {
     run('update public.render_library_approvals set enabled=false;')
     expect(reserve().error.code).toBe('budget-unavailable')
     run(
@@ -361,23 +374,176 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       'entry-draft@1',
     ])
   })
-  it('bounds concurrent distinct designs to two globally and one per session', async () => {
+  it('queues additional variations from one session while both execution lanes are busy', async () => {
+    const first = reserve(await variation(0))
+    const foreground = dispatch()
+    expect(foreground.dispatch.jobId).toBe(first.snapshot.job.id)
+    const second = reserve(await variation(1))
+    const background = dispatch('background')
+    expect(background.dispatch.jobId).toBe(second.snapshot.job.id)
+    const thirdCommand = await variation(2)
+    const third = reserve(thirdCommand)
+    expect(third.status).toBe('admitted')
+    expect(third.snapshot.job.stage).toBe('queued')
+    expect(snapshot(thirdCommand.identity).job?.stage).toBe('queued')
+    expect(workerClaim(foreground.dispatch).limits.maxActiveJobsPerSession).toBe(2)
+    expect(workerClaim(background.dispatch).limits.maxActiveJobsPerSession).toBe(2)
+    expect(ledger().reserved_micro_usd).toBe(3 * 5500)
+    expect(dispatch()).toBeNull()
+    expect(dispatch('background')).toBeNull()
+    expect(reserve(await variation(3)).error.code).toBe('rate-limited')
+    recordDispatch(background, {
+      status: 'definitely-not-submitted',
+      reason: {
+        code: 'worker-failed',
+        message: 'Rendering stopped. Completed images remain available.',
+        retryable: false,
+      },
+    })
+    expect(dispatch('background')).toBeNull()
+    rpc('render_library_reconcile_terminal', [
+      quote(background.dispatch.jobId),
+      encoded({ kind: 'never-submitted', dispatchId: background.dispatch.dispatchId }),
+      '0',
+    ])
+    expect(dispatch('background').dispatch.jobId).toBe(third.snapshot.job.id)
+  })
+  it('reserves the foreground lane for the latest explicit request while draining older variations FIFO', async () => {
+    const old = reserve(await variation(0))
+    const middle = reserve(await variation(1))
+    const latest = reserve(await variation(2))
+    expect(dispatch('background').dispatch.jobId).toBe(old.snapshot.job.id)
+    expect(dispatch('background')).toBeNull()
+    expect(dispatch().dispatch.jobId).toBe(latest.snapshot.job.id)
+    expect(
+      run(`select stage from public.render_library_jobs where id=${quote(middle.snapshot.job.id)}`),
+    ).toBe('queued')
+  })
+  it('keeps the latest request prioritized through a long wait and after the browser leaves', async () => {
+    const first = reserve(await variation(0))
+    const second = reserve(await variation(1))
+    run(
+      "update public.render_library_sessions set foreground_requested_at=now()-interval '3 minutes',expires_at=now()-interval '1 second'",
+    )
+    expect(dispatch().dispatch.jobId).toBe(second.snapshot.job.id)
+    expect(dispatch('background').dispatch.jobId).toBe(first.snapshot.job.id)
+    expect(ledger().reserved_micro_usd).toBe(11000)
+  })
+  it('drains pre-migration jobs without foreground pointers through the background lane', () => {
+    const queued = reserve()
+    run(
+      'update public.render_library_sessions set foreground_job_id=null,foreground_requested_at=null',
+    )
+    expect(dispatch()).toBeNull()
+    expect(dispatch('background').dispatch.jobId).toBe(queued.snapshot.job.id)
+  })
+  it('does not shut down a sibling CPU cycle and fences new cycles after actual exhaustion', () => {
+    run('update public.render_library_approvals set budget_micro_usd=300000')
+    const cycleId = randomUUID()
+    expect(rpc('render_library_start_cpu_cycle', [quote(cycleId)])).toBe(true)
+    expect(rpc('render_library_start_cpu_cycle', [quote(randomUUID())])).toBe(false)
+    expect(rpc('render_library_halt_dispatcher_if_exhausted', [])).toBe(false)
+    rpc('render_library_finish_cpu_cycle', [quote(cycleId), quote('idle')])
+    expect(rpc('render_library_halt_dispatcher_if_exhausted', [])).toBe(false)
+    run('update public.render_library_approvals set charged_micro_usd=100000')
+    expect(rpc('render_library_halt_dispatcher_if_exhausted', [])).toBe(true)
+    run('update public.render_library_approvals set budget_micro_usd=1000000')
+    expect(rpc('render_library_start_cpu_cycle', [quote(randomUUID())])).toBe(false)
+    expect(ledger().enabled).toBe(true)
+    run('update public.render_library_approvals set dispatcher_halted=false')
+    expect(rpc('render_library_start_cpu_cycle', [quote(randomUUID())])).toBe(true)
+  })
+  it('can halt after a crashed CPU invocation times out without refunding its charge', () => {
+    run('update public.render_library_approvals set budget_micro_usd=300000')
+    const cycleId = randomUUID()
+    rpc('render_library_start_cpu_cycle', [quote(cycleId)])
+    run("update public.render_library_dispatcher_cycles set started_at=now()-interval '61 minutes'")
+    expect(rpc('render_library_halt_dispatcher_if_exhausted', [])).toBe(true)
+    expect(ledger().charged_micro_usd).toBe(250000)
+  })
+  it('blocks admission and dispatch while halted without cancelling queued liability', async () => {
     reserve()
-    let second = structuredClone(command)
-    second.request.design.presentation.lookRef = 'studio-night-draft@1'
-    second = { ...second, identity: await computeSetIdentity(second.request.design) }
-    second.request.idempotencyKey = randomUUID()
-    expect(reserve(second).error.code).toBe('capacity-full')
-    touch('c'.repeat(64))
-    second = { ...second, context: { ...second.context, sessionHash: 'c'.repeat(64) } }
-    expect(reserve(second).status).toBe('admitted')
-    let third = structuredClone(second)
-    third.request.design.presentation.aspect = 'tall'
-    third = { ...third, identity: await computeSetIdentity(third.request.design) }
-    third.request.idempotencyKey = randomUUID()
-    touch('d'.repeat(64))
-    third = { ...third, context: { ...third.context, sessionHash: 'd'.repeat(64) } }
-    expect(reserve(third).error.code).toBe('capacity-full')
+    run('update public.render_library_approvals set dispatcher_halted=true')
+    expect(dispatch()).toBeNull()
+    expect(dispatch('background')).toBeNull()
+    expect(reserve(await variation(1)).error.code).toBe('budget-unavailable')
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    expect(ledger().enabled).toBe(true)
+    run('update public.render_library_approvals set dispatcher_halted=false')
+    expect(dispatch()).not.toBeNull()
+  })
+  it('promotes an explicitly rejoined queued design without reserving twice; retries of old requests do not promote', async () => {
+    const firstCommand = await variation(0)
+    const first = reserve(firstCommand)
+    const secondCommand = await variation(1)
+    const second = reserve(secondCommand)
+    expect(reserve(firstCommand).status).toBe('joined')
+    expect(run('select foreground_job_id from public.render_library_sessions')).toBe(
+      second.snapshot.job.id,
+    )
+    const rejoin = {
+      ...firstCommand,
+      request: {
+        ...firstCommand.request,
+        idempotencyKey: randomUUID(),
+        design: {
+          ...firstCommand.request.design,
+          presentation: {
+            ...firstCommand.request.design.presentation,
+            cameraRef: 'entry-draft@1' as const,
+          },
+        },
+      },
+    }
+    expect(reserve(rejoin).status).toBe('joined')
+    expect(dispatch().dispatch.jobId).toBe(first.snapshot.job.id)
+    expect(
+      run(
+        `select priority_camera from public.render_library_jobs where id=${quote(first.snapshot.job.id)}`,
+      ),
+    ).toBe('entry-draft@1')
+    expect(ledger().reserved_micro_usd).toBe(11000)
+    expect(run('select admitted_count from public.render_library_sessions')).toBe('2')
+  })
+  it('serializes competing lane claims and holds uncertain slots until proven terminal', async () => {
+    for (let i = 0; i < 3; i++) reserve(await variation(i))
+    const claimConcurrently = async (lane: string) => {
+      const result = await asyncRun('docker', [
+        ...args,
+        '-c',
+        `select public.render_library_claim_dispatch('racing-dispatcher',${quote(lane)});`,
+      ])
+      return JSON.parse(result.stdout.trim() || 'null')
+    }
+    const claims = await Promise.all(
+      ['foreground', 'background', 'foreground', 'background'].map(claimConcurrently),
+    )
+    const claimed = claims.filter(Boolean)
+    expect(claimed).toHaveLength(2)
+    expect(new Set(claimed.map((entry) => entry.dispatch.jobId)).size).toBe(2)
+    for (const claim of claimed)
+      recordDispatch(claim, {
+        status: 'uncertain',
+        reason: {
+          code: 'dispatch-uncertain',
+          message: 'We are checking whether rendering started. Please do not submit again.',
+          retryable: false,
+        },
+      })
+    run(
+      "update public.render_library_outbox set claimed_at=now()-interval '1 day' where claimed_at is not null",
+    )
+    expect(dispatch()).toBeNull()
+    expect(dispatch('background')).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(16500)
+  })
+  it('rejects invalid lanes before claiming anything', () => {
+    reserve()
+    expect(() =>
+      rpc('render_library_claim_dispatch', [quote('test'), quote('unbounded')]),
+    ).toThrow()
+    expect(() => rpc('render_library_claim_dispatch', [quote('test'), 'null'])).toThrow()
+    expect(run("select count(*) from public.render_library_outbox where state='pending'")).toBe('1')
   })
   it('does not reclaim dispatch after restart or ambiguous result and claims worker once', () => {
     reserve()
@@ -735,7 +901,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       run(
         "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_claim_dispatch';",
       ),
-    ).toBe('{dispatcherId}')
+    ).toBe('{dispatcherId,lane}')
     expect(
       run(
         "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_record_dispatch';",

@@ -70,15 +70,31 @@ def durable_journal(path, volume):
     return VolumeJournal(path)
 
 
-def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
+class LaneService:
+    def __init__(self, service, database, lane):
+        self.service, self.database, self.lane = service, database, lane
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    def rpc(self, name, values):
+        if name == 'claim_dispatch':
+            return self.database.rpc(name, {**values, 'lane': self.lane})
+        return self.service.rpc(name, values)
+
+
+def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'):
     from on_demand.dispatcher import Dispatcher
     from hosted_transfer import HostedProvider
     from on_demand.transport import Service
 
+    if lane not in ('foreground', 'background'):
+        raise ValueError('invalid-dispatch-lane')
     db = Database()
     cycle = str(uuid.uuid4())
     if db.rpc('start_cpu_cycle', {'cycleId': cycle}) is not True:
-        return {'status': 'budget-exhausted'}
+        halted = db.rpc('halt_dispatcher_if_exhausted', {}) is True
+        return {'status': 'budget-exhausted' if halted else 'budget-busy', 'lane': lane}
     journal = None
     outcome = 'unavailable'
     try:
@@ -89,14 +105,14 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
             **approval['policy'],
             'enabled': approval['enabled'],
             'expiresAt': approval['expires_at'],
-            'dispatcherId': os.environ['FURY_DISPATCHER_ID'],
+            'dispatcherId': os.environ['FURY_DISPATCHER_ID'] + ':' + lane,
             'appName': os.environ['FURY_GPU_APP'],
             'imageId': os.environ['FURY_GPU_IMAGE'],
         }
         service = Service(os.environ['FURY_SERVICE_ORIGIN'], os.environ['FURY_WORKER_TOKEN'],
                           os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'],
                           deployment_token())
-        worker = Dispatcher(service, HostedProvider(root, work), journal, policy, root, work)
+        worker = Dispatcher(LaneService(service, db, lane), HostedProvider(root, work), journal, policy, root, work)
         worker.verify_source()
         pending = [row for row in journal.jobs() if row['phase'] != 'settled']
         active = [row for row in pending if row['phase'] != 'uncertain']
@@ -104,7 +120,7 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
             worker.recover(pending[0])
             if pending[0]['phase'] not in ('uncertain', 'settled'):
                 active.append(pending[0])
-        # Bound each invocation to one active job so recovery cannot exceed the CPU timeout.
+        # Each lane owns a separate volume and one serial invocation, never a shared SQLite writer.
         row = active[0] if active else worker.new_job()
         if row is None:
             outcome = 'idle'
@@ -125,7 +141,7 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state')):
         settled = [row for row in journal.jobs() if row['phase'] == 'settled' and journal.pending(row['dispatch']['dispatchId'])]
         if settled:
             worker.recover(settled[uuid.UUID(cycle).int % len(settled)])
-        return {'status': outcome, 'cycleId': cycle}
+        return {'status': outcome, 'cycleId': cycle, 'lane': lane}
     finally:
         if journal is not None:
             journal.db.close()
