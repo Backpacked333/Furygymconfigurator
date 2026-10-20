@@ -159,6 +159,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610200004_warm_worker_profile.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200005_warm_build_backlog.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200006_shared_interior_views.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200008_render_samples.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -207,6 +208,92 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     expect(snapshot(command.identity).coverage).toBe('missing')
     expect(run('select count(*) from public.render_library_jobs')).toBe('0')
     expect(ledger().reserved_micro_usd).toBe(0)
+  })
+  it('fences optional samples without touching durable sequences, artifact state or accounting', () => {
+    reserve()
+    const work = workerClaim(dispatch().dispatch)
+    const event = {
+      contractVersion: 'fury.render-library@1',
+      kind: 'progress',
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      fence: work.fence,
+      eventId: randomUUID(),
+      sequence: 1,
+      cameraRef: work.views[0].cameraRef,
+      stage: 'rendering',
+    }
+    expect(rpc('render_library_record_event', [encoded(event)]).accepted).toBe(true)
+    const before = snapshot(command.identity)
+    const charged = ledger()
+    const sample = {
+      jobId: work.jobId,
+      attemptId: work.attemptId,
+      fence: work.fence,
+      cameraRef: work.views[0].cameraRef,
+      imageKey: work.views[0].imageKey,
+      completed: 512,
+      total: 1024,
+      observedAt: new Date().toISOString(),
+    }
+    expect(rpc('render_library_record_samples', [encoded(sample)])).toBe(true)
+    expect(rpc('render_library_get_samples', [quote(work.jobId), quote(session)])).toEqual(sample)
+    expect(rpc('render_library_get_samples', [quote(work.jobId), quote('not-owner')])).toBeNull()
+    for (const invalid of [
+      { ...sample, fence: 10 },
+      { ...sample, attemptId: randomUUID() },
+      { ...sample, imageKey: 'img_' + '0'.repeat(64) },
+      { ...sample, total: 32 },
+      { ...sample, completed: 1025 },
+      { ...sample, completed: -1 },
+      { ...sample, observedAt: new Date(Date.now() - 16000).toISOString() },
+      { ...sample, observedAt: new Date(Date.now() + 10000).toISOString() },
+    ])
+      expect(rpc('render_library_record_samples', [encoded(invalid)])).toBe(false)
+    const later = new Date().toISOString()
+    expect(
+      rpc('render_library_record_samples', [
+        encoded({ ...sample, completed: 1, observedAt: later }),
+      ]),
+    ).toBe(false)
+    expect(snapshot(command.identity)).toEqual(before)
+    expect(ledger()).toEqual(charged)
+    expect(run('select last_sequence from public.render_library_jobs')).toBe('1')
+    expect(() => run('set role anon; select * from public.render_library_samples')).toThrow()
+    expect(() =>
+      run(
+        `set role authenticated; select public.render_library_get_samples(${quote(work.jobId)},${quote(session)})`,
+      ),
+    ).toThrow()
+    expect(
+      rpc('render_library_record_event', [
+        encoded({ ...event, eventId: randomUUID(), sequence: 2, stage: 'saving' }),
+      ]).accepted,
+    ).toBe(true)
+    expect(rpc('render_library_get_samples', [quote(work.jobId), quote(session)])).toBeNull()
+    expect(
+      rpc('render_library_record_samples', [
+        encoded({ ...sample, observedAt: new Date().toISOString() }),
+      ]),
+    ).toBe(false)
+    const camera = work.views[1]
+    expect(
+      rpc('render_library_record_event', [
+        encoded({ ...event, cameraRef: camera.cameraRef, eventId: randomUUID(), sequence: 3 }),
+      ]).accepted,
+    ).toBe(true)
+    expect(rpc('render_library_get_samples', [quote(work.jobId), quote(session)])).toBeNull()
+    const next = {
+      ...sample,
+      cameraRef: camera.cameraRef,
+      imageKey: camera.imageKey,
+      completed: 1,
+      observedAt: new Date().toISOString(),
+    }
+    expect(rpc('render_library_record_samples', [encoded(next)])).toBe(true)
+    expect(rpc('render_library_get_samples', [quote(work.jobId), quote(session)])).toEqual(next)
+    run("update public.render_library_samples set observed_at=now()-interval '16 seconds'")
+    expect(rpc('render_library_get_samples', [quote(work.jobId), quote(session)])).toBeNull()
   })
   it('upgrades execution without rewriting the image recipe or old customer policy', () => {
     const admitted = reserve()

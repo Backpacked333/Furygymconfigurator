@@ -223,6 +223,37 @@ function credentials(runtime: Runtime) {
 }
 
 describe('bounded request and session security', () => {
+  it('serves optional samples only through the signed session, with no admission or artifact RPC', async () => {
+    const database = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
+      expect(String(url)).toContain('/rpc/render_library_get_samples')
+      const body = JSON.parse(String(options?.body))
+      expect(body).toMatchObject({ jobId })
+      expect(body.sessionHash).toMatch(/^[a-f0-9]{64}$/)
+      return Response.json(null)
+    })
+    const runtime = testRuntime(database)
+    const endpoint = `jobs/${jobId}/samples`
+    expect((await route(request(endpoint), 'samples', () => runtime)).status).toBe(403)
+    expect(database).not.toHaveBeenCalled()
+    const response = await route(
+      request(endpoint, undefined, credentials(runtime)),
+      'samples',
+      () => runtime,
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.json()).toEqual({ sample: null })
+    expect(database).toHaveBeenCalledOnce()
+    expect(
+      (
+        await route(
+          request(endpoint, undefined, { ...credentials(runtime), origin: 'https://evil.example' }),
+          'samples',
+          () => runtime,
+        )
+      ).status,
+    ).toBe(403)
+  })
   it('connects the real browser client, session cookie, API routes and durable adapter without implicit admission', async () => {
     // PostgREST double only; the real ledger's concurrency/budget semantics have separate SQL tests.
     let durable = snapshot

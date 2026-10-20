@@ -1,4 +1,5 @@
 import type { DesignEnvelope } from '../../domain/design.js'
+import type { SampleProgress } from '../sampleProgress.js'
 import type {
   CreateJobRequest,
   ImageDescriptor,
@@ -67,6 +68,10 @@ export type VerifiedArtifact = {
 
 /** Service-only SQL functions. Each command is ONE transaction, not a sequence of REST writes. */
 export interface RenderLibraryRpc {
+  render_library_get_samples: {
+    args: { jobId: string; sessionHash: string }
+    result: SampleProgress | null
+  }
   render_library_reserve_set: { args: { command: ReserveCommand }; result: AdmissionResult }
   render_library_retry_failed: {
     args: {

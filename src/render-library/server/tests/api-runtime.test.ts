@@ -12,6 +12,7 @@ const entries = [
   'jobs/index.ts',
   'jobs/[jobId]/index.ts',
   'jobs/[jobId]/retry.ts',
+  'jobs/[jobId]/samples.ts',
   'worker/claim.ts',
   'worker/uploads.ts',
   'worker/events.ts',
@@ -58,7 +59,7 @@ it('loads emitted API handlers in native Node ESM without a bundler resolver', (
         assert.equal(response.headers.get('cache-control'), 'no-store');
         assert.ok((await response.json()).error);
       }
-      console.log('All eight native ESM handlers loaded and failed closed.');
+      console.log('All nine native ESM handlers loaded and failed closed.');
     `
     expect(
       execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
@@ -67,7 +68,7 @@ it('loads emitted API handlers in native Node ESM without a bundler resolver', (
         encoding: 'utf8',
         timeout: 30_000,
       }),
-    ).toContain('All eight native ESM handlers loaded and failed closed.')
+    ).toContain('All nine native ESM handlers loaded and failed closed.')
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

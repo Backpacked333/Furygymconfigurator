@@ -8,9 +8,13 @@ import { defaultDesign } from '../domain/design'
 import { RENDER_CTA, safeError } from '../render-library/contracts'
 import { snapshotFixture, queued } from './renderLibraryClient.fixtures'
 import type { useLibrarySet } from './useLibrarySet'
+import { useSampleProgress } from './useSampleProgress'
+
+vi.mock('./useSampleProgress', () => ({ useSampleProgress: vi.fn(() => null) }))
 
 let host: HTMLDivElement, root: Root
 beforeEach(() => {
+  vi.mocked(useSampleProgress).mockReturnValue(null)
   vi.stubGlobal('crypto', webcrypto)
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div')
@@ -81,6 +85,45 @@ it('shows only count-based progress alongside a ready image, without a second an
     '2/5 images ready',
   )
   expect(host.textContent).not.toContain(RENDER_CTA)
+})
+it('adds measured samples between completed views without pretending they are time remaining', async () => {
+  const snapshot = queued(await snapshotFixture(defaultDesign(), 2))
+  const view = snapshot.views[2]
+  snapshot.job!.stage = 'rendering'
+  snapshot.job!.currentCamera = view.cameraRef
+  snapshot.views[2] = {
+    cameraRef: view.cameraRef,
+    imageKey: view.imageKey,
+    status: 'pending',
+    stage: 'rendering',
+  }
+  vi.mocked(useSampleProgress).mockReturnValue({
+    jobId: snapshot.job!.id,
+    attemptId: '11111111-1111-4111-8111-111111111111',
+    fence: 1,
+    cameraRef: view.cameraRef,
+    imageKey: view.imageKey,
+    completed: 528,
+    total: 1024,
+    observedAt: new Date().toISOString(),
+  })
+  await show({ snapshot }, true)
+  expect(host.textContent).toContain('51.6% sampled (528/1024)')
+  expect(host.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')).toBe('50')
+})
+it('holds progress while saving and never claims 100% until verified views are ready', async () => {
+  const snapshot = queued(await snapshotFixture(defaultDesign(), 4))
+  const view = snapshot.views[4]
+  snapshot.job!.stage = 'saving'
+  snapshot.job!.currentCamera = view.cameraRef
+  snapshot.views[4] = {
+    cameraRef: view.cameraRef,
+    imageKey: view.imageKey,
+    status: 'pending',
+    stage: 'saving',
+  }
+  await show({ snapshot }, true)
+  expect(host.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')).toBe('99')
 })
 it('keeps completed images to one quiet summary without progress or refresh controls', async () => {
   await show({ snapshot: await snapshotFixture(defaultDesign(), 5) }, true)

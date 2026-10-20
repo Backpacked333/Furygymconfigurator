@@ -72,3 +72,5 @@ jobs:
       - run: pip install --require-hashes -r on_demand/requirements-cpu.lock
       - run: python -m pytest -q
       - run: python -m unittest discover -s on_demand/tests
+      - run: python -m unittest discover -s scripts -p test_render_sample_monitor.py
+        working-directory: .
