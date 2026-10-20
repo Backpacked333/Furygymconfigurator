@@ -26,6 +26,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 from .protocol import (
+    BOUNCES,
     ProtocolError,
     pack_image,
     parse_environment,
@@ -132,11 +133,11 @@ class Studio:
         s.view_settings.look = "None"
         c = s.cycles
         c.use_adaptive_sampling = True
-        # Matches the browser tracer: ten bounces, glossy filtering, no volumes.
-        c.max_bounces = 10
-        c.diffuse_bounces = 10
-        c.glossy_bounces = 10
-        c.transmission_bounces = 10
+        # Matches the browser tracer: the same bounces (protocol.py), glossy filtering, no volumes.
+        c.max_bounces = BOUNCES
+        c.diffuse_bounces = BOUNCES
+        c.glossy_bounces = BOUNCES
+        c.transmission_bounces = BOUNCES
         c.volume_bounces = 0
         # One-sided surfaces are transparent from behind, which spends transparent bounces.
         c.transparent_max_bounces = 32

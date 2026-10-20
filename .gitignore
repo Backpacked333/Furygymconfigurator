@@ -7,3 +7,5 @@ playwright-report
 test-results
 __pycache__/
 .pytest_cache/
+# Local, immutable CPU preparation receipts are handoff evidence, not application source.
+/src/render/prototype/.local-*/

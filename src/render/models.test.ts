@@ -5,6 +5,7 @@ import {
   CATALOG,
   DEFAULT_CONFIG,
   INTERIORS,
+  footprint,
   productHeight,
   setFamily,
   type Config,
@@ -44,14 +45,11 @@ describe('equipment models', () => {
       const parts = equipmentParts(item.id)
       expect(parts.length).toBeGreaterThan(3)
       const b = bounds(parts)
-      // The floor-plan collision check uses these footprints, so models must not exceed them.
-      // A racked Olympic bar overhangs its uprights, as on real racks; that overhang stays within
-      // the rack's side working clearance.
-      const sideAllowance = item.id === 'rack' || item.id === 'halfrack' ? item.clearance : 0.06
-      expect(b.max.x).toBeLessThanOrEqual(item.w / 2 + sideAllowance)
-      expect(-b.min.x).toBeLessThanOrEqual(item.w / 2 + sideAllowance)
-      expect(b.max.z).toBeLessThanOrEqual(item.d / 2 + 0.06)
-      expect(-b.min.z).toBeLessThanOrEqual(item.d / 2 + 0.06)
+      const f = footprint({ id: 'bounds', sku: item.id, x: 0, z: 0, rotation: 0 })
+      expect(b.max.x).toBeLessThanOrEqual(f.w / 2 + 0.06)
+      expect(-b.min.x).toBeLessThanOrEqual(f.w / 2 + 0.06)
+      expect(b.max.z).toBeLessThanOrEqual(f.d / 2 + 0.06)
+      expect(-b.min.z).toBeLessThanOrEqual(f.d / 2 + 0.06)
       expect(b.min.y).toBeGreaterThanOrEqual(-0.01)
       expect(b.max.y).toBeLessThanOrEqual(Math.max(item.h, 0.6) + 0.35)
     },
@@ -182,5 +180,57 @@ describe('surroundings', () => {
         expect(Number.isFinite(b.geometry.boundingSphere!.radius)).toBe(true)
       }
     }
+  })
+})
+
+/** Everything a part list renders: material identity, placement, and geometry. */
+function signature(parts: Part[]) {
+  return parts.map((p) => {
+    const position = p.geometry.getAttribute('position').array as ArrayLike<number>
+    let sum = 0
+    for (let i = 0; i < position.length; i++) sum += position[i] * ((i % 7) + 1)
+    return [p.material.uuid, p.shadow, Array.from(p.matrix.elements), position.length, sum]
+  })
+}
+
+// StudioModel caches each part list under a key naming only the inputs its builder reads; any
+// other input must leave the list unchanged, or a narrowed key would show stale geometry.
+describe('part lists ignore inputs outside their cache keys', () => {
+  const studio = DEFAULT_CONFIG
+  const container = setFamily(DEFAULT_CONFIG, 'container')
+  const others: Partial<Config>[] = [
+    { lights: false },
+    { mirror: true },
+    { environment: 'desert', time: 9 },
+    { accent: true },
+    { addons: { deck: true, gazebo: true, roof: true, stairs: false, canopy: false } },
+    { integratedFinish: true },
+  ]
+  // Not chalk: the interiors read the finish only to choose chalk or standard paint. The glazing
+  // frames follow the finish (bronze on an espresso shell), so its key does name it.
+  const finishes: Partial<Config>[] = [{ finish: 'olive' }, { finish: 'bronze' }]
+  it.each([
+    ['studio interior', studioInterior, studio, finishes],
+    ['container interior', containerInterior, container, finishes],
+    ['studio glazing', studioGlazing, studio, []],
+    ['roof deck', roofDeck, studio, finishes],
+    ['timber accent', timberAccent, studio, finishes],
+  ] as const)('%s', (_, build, base, ignoredFinishes) => {
+    const reference = signature(build(base))
+    for (const change of [...others, ...ignoredFinishes]) {
+      expect(signature(build({ ...base, ...change }))).toEqual(reference)
+    }
+    // The comparison does see changes to inputs the keys do name.
+    expect(signature(build({ ...base, length: 40 }))).not.toEqual(reference)
+  })
+
+  it('see the flooring and chalk paint in the interiors', () => {
+    const reference = signature(studioInterior(studio))
+    expect(signature(studioInterior({ ...studio, flooring: 'oak' }))).not.toEqual(reference)
+    // Chalk paint shows on the painted liners; gallery, cedar and birch interiors ignore it.
+    const painted: Config = { ...studio, interiorStyle: 'slatted' }
+    expect(signature(studioInterior({ ...painted, finish: 'chalk' }))).not.toEqual(
+      signature(studioInterior(painted)),
+    )
   })
 })

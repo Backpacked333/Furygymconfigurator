@@ -20,7 +20,6 @@ export const facadeGlass = (tint = '#1e2729') =>
     metalness: 0.2,
     clearcoat: 1,
     clearcoatRoughness: 0.03,
-    envIntensity: 1.35,
   })
 /**
  * Glazing with a room lit behind it. Its emissive strength is a live material property set by
@@ -36,7 +35,6 @@ export const litWindow = (color = '#ffcf98', tint = '#1e2729') => {
     metalness: 0.2,
     clearcoat: 1,
     clearcoatRoughness: 0.03,
-    envIntensity: 1.35,
     emissive: color,
     emissiveIntensity: 0,
   })
@@ -230,7 +228,6 @@ export function curtainWallOffice(opts: { length: number; floors: number; depth:
     color: '#334448',
     roughness: 0.25,
     metalness: 0.5,
-    envIntensity: 1.2,
   })
   const parts: Part[] = [part(box(length, H, depth), glass, [0, H / 2, -depth / 2])]
   for (const face of [

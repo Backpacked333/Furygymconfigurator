@@ -1,0 +1,6 @@
+# Isolated local CPU construction and tests; no gateway, Modal or rendering entrypoint.
+bpy==4.5.0
+numpy==1.26.4
+pillow==11.3.0
+pytest==8.3.5
+black==25.1.0

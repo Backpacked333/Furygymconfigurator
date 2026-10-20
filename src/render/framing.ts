@@ -1,5 +1,5 @@
 import { productHeight, type Config, type View } from '../lib/config'
-import { deckFront, roofTop } from './addons'
+import { deckFront, roofTop } from './envelope'
 
 type Vec3 = [number, number, number]
 

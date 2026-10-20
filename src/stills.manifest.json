@@ -1,0 +1,25 @@
+{
+  "version": "97f204ffff",
+  "base": "/stills/97f204ffff",
+  "widths": [320, 640, 960, 1280, 1600, 1920],
+  "hero": {
+    "design": "4f807d1dd16ad6aa",
+    "encoded": "N4IgbiBcDMA0IDMCGBbAlgGwJ5RAZwBcBXAEzQHsR4BjcgOwKTToFMAnAeQAcW7mBzXG3IYMAWiJcqIcjz51+ASToJMGXHXotpzAi35skekgDFmaPAAsoyDHhbxCpCgBkkWckQK48AjNsdiMnIAEXJyNlxLARYSaRJwtjxuXhskOwcQfwUCa0gAJgAGeFU+K1xyACNfMiQ6aSRqal5vSFt7eCQSBLo8KFASFmoAazSM+H4kAC8WSso29I6QYXIEMaXCJiT1zOo62RwFjIBfeENMAVx+DCQ8Pvhddgo2AGUCLH8r9P82HBKMRKXSDLIiVSrsaToNjCSJHJZcRrDJD8bTAwhsXj8XI6PQoPqQADaoDQcTRBAxOUsYkMIzEYgArNI8MMiEJEdIAB5QBnwKbcwoAOgAHGdyIwCBR6pBCqdiaT8OTMbkxOC6NQqYUmSzcKr1ZyoMUQHzIGJBfTReLJQbZSAST5FZSxAB3FhofiWAh4BkC-Ja1nAl1uj33EBcyD0n287kARgFAE4LUYrdLjgBdeC8MBoYR0FAtIQsGq8ZohiV5qDRgBsAvNWSDnqg5KILGOQA"
+  },
+  "looks": {
+    "residences|-0.4170,0.7161,0.5598|0.000": {
+      "exterior": 1,
+      "interior": 1
+    }
+  },
+  "stills": {
+    "0dfc8abfffd1c822": {
+      "entry|wide": ["daa417c0", 2400, 1500, 1024],
+      "front-left|wide": ["cb6ea8a6", 2400, 1500, 1024]
+    },
+    "4f807d1dd16ad6aa": {
+      "entry|wide": ["72a95e9d", 2400, 1500, 1024],
+      "front-left|wide": ["7ea9c6eb", 2400, 1500, 1024]
+    }
+  }
+}

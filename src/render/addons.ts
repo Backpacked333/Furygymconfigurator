@@ -1,26 +1,16 @@
 import { productHeight, type Config } from '../lib/config'
-import { STUDIO, finishColor } from './architecture'
+import { finishColor } from './architecture'
+import { GRADE_DECK, ROOF_FRAME, STUDIO, deckFront, roofTop } from './envelope'
 import { box, cylinder, extrude, roundedBox, roundedRectShape } from './geometry'
 import { material } from './materials'
 import { palette } from './palette'
 import { part, rod, type Part, type V3 } from './parts'
 
 const DECK_TOP = 0.86
-/** Container decks sit at grade, a step below the opening sill. */
-const GRADE_DECK = { top: 0.5, depth: 5.5 }
 /** Stair geometry: 17 risers and 10 in. goings up to the roof deck. */
 export const STAIR = { x: 2, risers: 17, going: 0.83, start: 11.5, width: 3.5 }
-/** Height of the Container roof deck's timber-clad frame above the roof. */
-const ROOF_FRAME = 1.1
 
-/** Walking surface of the rooftop deck for either family. */
-export function roofTop(c: Config) {
-  return c.family === 'studio'
-    ? STUDIO.base + productHeight(c) + 0.12
-    : productHeight(c) + ROOF_FRAME
-}
-/** Front edge of the grade or raised deck, for dimension lines and camera framing. */
-export const deckFront = (c: Config) => (c.family === 'studio' ? 13 : 4 + GRADE_DECK.depth)
+export { deckFront, roofTop }
 
 function boards(depth: number, centerZ: number, top: number, length: number, x = 0) {
   const teak = palette.teak()

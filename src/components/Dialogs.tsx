@@ -1,15 +1,6 @@
 import { useState } from 'react'
-import {
-  ArrowDownToLine,
-  ArrowRight,
-  Bookmark,
-  Check,
-  Copy,
-  FileText,
-  Info,
-  Plus,
-  Trash2,
-} from 'lucide-react'
+import { ArrowDownToLine, ArrowRight, FileText, Info, Plus } from 'lucide-react'
+import { LoadingExperience } from './LoadingExperience'
 import {
   ADDONS,
   FINISHES,
@@ -37,9 +28,16 @@ import {
   PRODUCT_SOURCE_DATE,
   productFamily,
 } from '../lib/products'
-import { downloadFile, exportBrief } from '../lib/export'
+import { PdfToolUnavailable, downloadFile, exportBrief } from '../lib/export'
 import Modal from './Modal'
 import { Elevation } from './Elevation'
+import {
+  BuildLibraryView,
+  BuildShareView,
+  EmptyBuildLibraryView,
+  SavedBuildView,
+} from './BuildDialogView'
+import { SpecificationView } from './SpecificationView'
 
 export function EstimateDialog({ config, onClose }: { config: Config; onClose: () => void }) {
   const { lines, startingPrice, source } = estimate(config)
@@ -110,28 +108,18 @@ export function ShareDialog({
       subtitle="Every finish, every detail, every decision. In one link."
       onClose={onClose}
     >
-      <div className="share-visual">
-        <Elevation config={config} className="mini-studio" />
-        <span>
-          {productName(config)}
-          <small>
+      <BuildShareView
+        visual={<Elevation config={config} className="mini-studio" />}
+        name={productName(config)}
+        summary={
+          <>
             {config.items.length} interior items ·{' '}
             {FINISHES.find((f) => f.id === config.finish)!.name}
-          </small>
-        </span>
-      </div>
-      <label className="field-label">
-        Configuration link
-        <input
-          readOnly
-          value={url}
-          onFocus={(e) => e.target.select()}
-          aria-label="Configuration share link"
-        />
-      </label>
-      <button
-        className="primary full"
-        onClick={async () => {
+          </>
+        }
+        link={url}
+        copied={copied}
+        onCopy={async () => {
           try {
             await navigator.clipboard.writeText(url)
             setCopied(true)
@@ -139,13 +127,7 @@ export function ShareDialog({
             notify('Clipboard unavailable. Select the link and copy it manually.')
           }
         }}
-      >
-        {copied ? <Check size={17} /> : <Copy size={17} />}
-        {copied ? 'Link copied' : 'Copy your build link'}
-      </button>
-      <button
-        className="secondary full"
-        onClick={() =>
+        onDownload={() =>
           downloadFile(
             `fury-${config.family}-${config.length}-configuration.json`,
             JSON.stringify(
@@ -160,15 +142,8 @@ export function ShareDialog({
             ),
           )
         }
-      >
-        <ArrowDownToLine size={16} />
-        Download configuration JSON
-      </button>
-      <p className="muted small">
-        The full configuration is in the link; no account needed. Anyone with the link can view it.
-        Preview links may require session access. Saved builds remain on this browser, not in the
-        cloud.
-      </p>
+        notice="The full configuration is in the link; no account needed. Anyone with the link can view it. Preview links may require session access. Saved builds remain on this browser, not in the cloud."
+      />
     </Modal>
   )
 }
@@ -237,8 +212,12 @@ export function BriefDialog({
           try {
             await exportBrief(config, await capture(), { name, notes })
             notify('Build brief downloaded. Your next step: share it with your project team.')
-          } catch {
-            notify('Could not create the PDF. Try again, or download the configuration from Share.')
+          } catch (error) {
+            notify(
+              error instanceof PdfToolUnavailable
+                ? 'The PDF tool didn’t load. Check your connection, or reload the page (your design is kept) and try again.'
+                : 'Could not create the PDF. Try again, or download the configuration from Share.',
+            )
           } finally {
             setBusy(false)
           }
@@ -247,6 +226,14 @@ export function BriefDialog({
         <ArrowDownToLine size={17} />
         {busy ? 'Preparing your brief…' : 'Download build brief'}
       </button>
+      {busy && (
+        <LoadingExperience
+          config={config}
+          compact
+          title="Your vision, ready to share."
+          label="Preparing your build brief"
+        />
+      )}
     </Modal>
   )
 }
@@ -268,8 +255,10 @@ export function LibraryDialog({
       `${productName(config)} / ${FINISHES.find((f) => f.id === config.finish)!.name}`,
     ),
     [compare, setCompare] = useState<string[]>([])
-  const persist = (next: SavedBuild[]) => {
+  // Changes apply to what is stored now, so a build saved from another tab is not overwritten.
+  const persist = (change: (stored: SavedBuild[]) => SavedBuild[]) => {
     try {
+      const next = change(readSaved())
       writeSaved(next)
       setSaved(next)
       return true
@@ -282,179 +271,137 @@ export function LibraryDialog({
   }
   const comparisons = compare.map((id) => saved.find((s) => s.id === id)!).filter(Boolean)
   return (
-    <Modal
-      title="Keep the possibilities open."
-      subtitle="Save a few directions. Find the one that feels right."
+    <BuildLibraryView
       onClose={onClose}
-      wide
-    >
-      <div className="save-row">
-        <label className="field-label">
-          Name this build
-          <input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <button
-          className="primary"
-          disabled={!name.trim() || saved.length >= 12}
-          onClick={() => {
-            const next = [
-              {
+      saveRow={
+        <>
+          <label className="field-label">
+            Name this build
+            <input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <button
+            className="primary"
+            disabled={!name.trim() || saved.length >= 12}
+            onClick={() => {
+              const build = {
                 id: crypto.randomUUID(),
                 name: name.trim(),
                 date: new Date().toISOString(),
                 config: structuredClone(config),
-              },
-              ...saved,
-            ]
-            if (persist(next)) notify('Build saved on this browser.')
-          }}
-        >
-          <Plus size={16} /> Save current
-        </button>
-      </div>
-      <p className="muted small">
-        {saved.length}/12 saved locally on this browser. No account or cloud backup. Select two
-        builds to compare.
-      </p>
+              }
+              if (persist((stored) => [build, ...stored])) notify('Build saved on this browser.')
+            }}
+          >
+            <Plus size={16} /> Save current
+          </button>
+        </>
+      }
+      summary={
+        <>
+          {saved.length}/12 saved locally on this browser. No account or cloud backup. Select two
+          builds to compare.
+        </>
+      }
+    >
       {saved.length === 0 ? (
-        <div className="empty-library">
-          <Bookmark size={32} strokeWidth={1} />
-          <h3>Your ideas belong here.</h3>
-          <p>Save your first design above. Come back to it whenever inspiration strikes.</p>
-        </div>
+        <EmptyBuildLibraryView />
       ) : (
         <div className="saved-grid">
           {saved.map((build) => (
-            <div className="saved-card" key={build.id}>
-              <div className="saved-visual">
-                <Elevation config={build.config} className="mini-studio" />
-                <button
-                  className="icon-button"
-                  aria-label={`Delete ${build.name}`}
-                  onClick={() => {
-                    if (window.confirm(`Delete “${build.name}” from this browser?`)) {
-                      if (persist(saved.filter((s) => s.id !== build.id)))
-                        setCompare(compare.filter((id) => id !== build.id))
-                    }
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <h3>{build.name}</h3>
-              <p>{productName(build.config)} · Quote required</p>
-              <div className="saved-actions">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={compare.includes(build.id)}
-                    disabled={!compare.includes(build.id) && compare.length >= 2}
-                    onChange={(e) =>
-                      setCompare(
-                        e.target.checked
-                          ? [...compare, build.id]
-                          : compare.filter((id) => id !== build.id),
-                      )
-                    }
-                  />{' '}
-                  Compare
-                </label>
-                <button
-                  onClick={() => {
-                    onLoad(build.config)
-                    onClose()
-                    notify(`Loaded “${build.name}”.`)
-                  }}
-                >
-                  Load <ArrowRight size={14} />
-                </button>
-              </div>
-            </div>
+            <SavedBuildView
+              key={build.id}
+              name={build.name}
+              visual={<Elevation config={build.config} className="mini-studio" />}
+              summary={<>{productName(build.config)} · Quote required</>}
+              onDelete={() => {
+                if (window.confirm(`Delete “${build.name}” from this browser?`)) {
+                  if (persist((stored) => stored.filter((s) => s.id !== build.id)))
+                    setCompare(compare.filter((id) => id !== build.id))
+                }
+              }}
+              actions={
+                <>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={compare.includes(build.id)}
+                      disabled={!compare.includes(build.id) && compare.length >= 2}
+                      onChange={(e) =>
+                        setCompare(
+                          e.target.checked
+                            ? [...compare, build.id]
+                            : compare.filter((id) => id !== build.id),
+                        )
+                      }
+                    />{' '}
+                    Compare
+                  </label>
+                  <button
+                    onClick={() => {
+                      onLoad(build.config)
+                      onClose()
+                      notify(`Loaded “${build.name}”.`)
+                    }}
+                  >
+                    Load <ArrowRight size={14} />
+                  </button>
+                </>
+              }
+            />
           ))}
         </div>
       )}
       {comparisons.length === 2 && (
-        <div className="comparison">
-          <h3>Side by side.</h3>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Your decisions</th>
-                  {comparisons.map((s) => (
-                    <th scope="col" key={s.id}>
-                      {s.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ['Product', (c: Config) => productName(c)],
-                  ['Height', (c: Config) => distance(productHeight(c), unit)],
-                  [
-                    'Footprint',
-                    (c: Config) =>
-                      `${distance(c.length, unit)} × ${distance(8, unit)} / ${area(c.length * 8, unit)}`,
-                  ],
-                  [
-                    'Concept exterior',
-                    (c: Config) =>
-                      `${FINISHES.find((f) => f.id === c.finish)!.name}${c.accent ? ' + timber' : ''}${c.integratedFinish ? ' / Integrated exterior finish' : ''}`,
-                  ],
-                  [
-                    'Interior',
-                    (c: Config) => INTERIORS.find((f) => f.id === c.interiorStyle)!.name,
-                  ],
-                  [
-                    'Outdoor',
-                    (c: Config) =>
-                      ADDONS.filter((a) => c.addons[a.id])
-                        .map((a) => a.name)
-                        .join(', ') || 'None',
-                  ],
-                  ['Floor', (c: Config) => FLOORS.find((f) => f.id === c.flooring)!.name],
-                  ['Equipment', (c: Config) => `${c.items.length} pieces / ${c.package}`],
-                  [
-                    'Opening',
-                    (c: Config) =>
-                      c.family === 'container'
-                        ? `${CONTAINER_OPENINGS.find((o) => o.id === c.containerOpening)!.name}${c.openingInfill !== 'none' ? ` / ${OPENING_INFILLS.find((o) => o.id === c.openingInfill)!.name}` : ''}`
-                        : STUDIO_DOORS.find((d) => d.id === c.studioDoor)!.name,
-                  ],
-                  [
-                    'Configuration request',
-                    (c: Config) =>
-                      c.family === 'studio'
-                        ? STUDIO_LAYOUTS.find((o) => o.id === c.studioLayout)!.name
-                        : 'Single unit',
-                  ],
-                  [
-                    'Published family starting price',
-                    (c: Config) => money(estimate(c).startingPrice),
-                  ],
-                  ['Configured price', () => 'Quote required'],
-                ].map(([label, getter]) => {
-                  const get = getter as (c: Config) => string
-                  const values = comparisons.map((s) => get(s.config))
-                  return (
-                    <tr key={String(label)} className={values[0] !== values[1] ? 'different' : ''}>
-                      <th scope="row">{String(label)}</th>
-                      {values.map((v, i) => (
-                        <td key={i}>{v}</td>
-                      ))}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="muted small">
-            Highlighted rows differ. Family starting prices are not configured project totals. All
-            selections and site costs require a quote.
-          </p>
-        </div>
+        <SpecificationView
+          title="Side by side."
+          columns={comparisons.map(({ id, name }) => ({ id, name }))}
+          rows={[
+            ['Product', (c: Config) => productName(c)],
+            ['Height', (c: Config) => distance(productHeight(c), unit)],
+            [
+              'Footprint',
+              (c: Config) =>
+                `${distance(c.length, unit)} × ${distance(8, unit)} / ${area(c.length * 8, unit)}`,
+            ],
+            [
+              'Concept exterior',
+              (c: Config) =>
+                `${FINISHES.find((f) => f.id === c.finish)!.name}${c.accent ? ' + timber' : ''}${c.integratedFinish ? ' / Integrated exterior finish' : ''}`,
+            ],
+            ['Interior', (c: Config) => INTERIORS.find((f) => f.id === c.interiorStyle)!.name],
+            [
+              'Outdoor',
+              (c: Config) =>
+                ADDONS.filter((a) => c.addons[a.id])
+                  .map((a) => a.name)
+                  .join(', ') || 'None',
+            ],
+            ['Floor', (c: Config) => FLOORS.find((f) => f.id === c.flooring)!.name],
+            ['Equipment', (c: Config) => `${c.items.length} pieces / ${c.package}`],
+            [
+              'Opening',
+              (c: Config) =>
+                c.family === 'container'
+                  ? `${CONTAINER_OPENINGS.find((o) => o.id === c.containerOpening)!.name}${c.openingInfill !== 'none' ? ` / ${OPENING_INFILLS.find((o) => o.id === c.openingInfill)!.name}` : ''}`
+                  : STUDIO_DOORS.find((d) => d.id === c.studioDoor)!.name,
+            ],
+            [
+              'Configuration request',
+              (c: Config) =>
+                c.family === 'studio'
+                  ? STUDIO_LAYOUTS.find((o) => o.id === c.studioLayout)!.name
+                  : 'Single unit',
+            ],
+            ['Published family starting price', (c: Config) => money(estimate(c).startingPrice)],
+            ['Configured price', () => 'Quote required'],
+          ].map(([label, getter]) => {
+            const get = getter as (c: Config) => string
+            const values = comparisons.map((s) => get(s.config))
+            return { label: String(label), values, different: values[0] !== values[1] }
+          })}
+          notice="Highlighted rows differ. Family starting prices are not configured project totals. All selections and site costs require a quote."
+        />
       )}
-    </Modal>
+    </BuildLibraryView>
   )
 }

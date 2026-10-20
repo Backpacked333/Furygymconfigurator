@@ -1,12 +1,8 @@
 import {
-  DataTexture,
-  FloatType,
-  Matrix3,
-  MeshBasicNodeMaterial,
+  AgXToneMapping,
   type DirectionalLight,
-  QuadMesh,
   RenderPipeline,
-  RenderTarget,
+  SRGBColorSpace,
   UnsignedByteType,
   Vector2,
   type Camera,
@@ -17,21 +13,18 @@ import {
   type WebGPURenderer,
 } from 'three/webgpu'
 import {
-  acos,
-  atan,
   builtinAOContext,
   cameraFar,
   cameraNear,
   context,
   diffuseColor,
-  emissive,
   float,
   interleavedGradientNoise,
   ivec2,
-  log,
-  luminance,
+  int,
   max,
   metalness,
+  min,
   mix,
   mrt,
   normalView,
@@ -47,15 +40,15 @@ import {
   screenCoordinate,
   screenUV,
   smoothstep,
-  texture,
   textureLoad,
+  toneMapping,
   uniform,
   unpackRGBToNormal,
-  uv,
   vec2,
   vec3,
   vec4,
   velocity,
+  workingToColorSpace,
 } from 'three/tsl'
 import { ao } from 'three/addons/tsl/display/GTAONode.js'
 import { bloom } from 'three/addons/tsl/display/BloomNode.js'
@@ -63,26 +56,54 @@ import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
 import { ssr } from 'three/addons/tsl/display/SSRNode.js'
 import { sss } from 'three/addons/tsl/display/SSSNode.js'
 import { traa } from 'three/addons/tsl/display/TRAANode.js'
+import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js'
+import { BLUR_SAMPLES, MAX_STREAK } from './motionBlur'
 import type { Quality } from './renderer'
+import { siteAmbient } from './siteLightNode'
 
 export type Pipeline = {
   render: () => void
+  warm: () => Promise<void>
   dispose: () => void
   /** Frames to keep rendering after a change so temporal AA, AO, and GI converge. */
   settleFrames: number
-  /** The latest linear HDR frame, before finishing; it holds still while nothing renders. */
-  hdr: Texture
+  /**
+   * The motion blur's shutter (motionBlur.ts): 0.5 while the camera moves, 0 at rest, where the
+   * frame is exactly the unblurred one. Null on Lite, which has no velocity buffer.
+   */
+  shutter: { value: number } | null
+  /**
+   * Where the camera stands, for the reach of the ambient occlusion (AO_REACH). Lite has none.
+   */
+  setPlace: (place: 'exterior' | 'interior') => void
 }
 
-/** Display-referred finishing: filmic tone mapping, a soft lens vignette, and dither. */
-function finish(hdr: Node<'vec4'>) {
-  const display = renderOutput(hdr)
-  const edge = screenUV.sub(0.5).length().mul(1.18)
-  const vignette = mix(float(0.8), float(1), smoothstep(0.98, 0.32, edge))
-  const dither = interleavedGradientNoise(screenCoordinate.xy)
+/**
+ * How far the ambient occlusion looks (its radius and depth thickness, feet). Outside, the light
+ * from the sky is captured once, at the unit's centre (Atmosphere): a point at the foot of a
+ * courtyard wall, under a tree or beside the unit has much of that sky taken by them, and only
+ * a reach of the walls' own scale finds them on screen (at 0.9 ft, shade at a wall's foot read
+ * more than a stop brighter than traced). Inside, the room's light is captured in the room
+ * (InteriorProbe), its walls already in it: a long reach would count them twice.
+ */
+export const AO_REACH = { exterior: 4, interior: 0.9 } as const
+
+/** A fraction of a level of noise against banding in smooth gradients (the sky). */
+const dither = () =>
+  interleavedGradientNoise(screenCoordinate.xy)
     .sub(0.5)
     .mul(1 / 255)
-  return vec4(display.rgb.mul(vignette).add(dither), 1)
+
+/**
+ * Display-referred finishing: AgX tone mapping at the renderer's exposure, sRGB, and dither, as the
+ * stills are finished (stillFinish). Named here rather than taken from the renderer: R3F's Canvas
+ * sets ACES Filmic over the renderer's AgX when it first configures it, and ACES (which also
+ * scales exposure by 1/0.6) made the live view about half a stop brighter and more saturated than
+ * the stills. No vignette, as the stills have none.
+ */
+export function rasterFinish(hdr: Node<'vec4'>) {
+  const display = renderOutput(hdr, AgXToneMapping, SRGBColorSpace)
+  return vec4(display.rgb.add(dither()), 1)
 }
 
 /** View distances (ft) over which contact shadows fade from full strength to none. */
@@ -104,10 +125,26 @@ function findSun(scene: Scene) {
  *
  * - Lite: one 4x MSAA scene pass.
  * - High: depth/normal/velocity pre-pass, GTAO injected only into ambient light, sun contact
- *   shadows, emissive bloom, temporal reprojection anti-aliasing.
+ *   shadows, temporal reprojection anti-aliasing, and the stills' bloom (STILL_BLOOM).
  * - Ultra: High plus screen-space global illumination (one diffuse bounce of on-screen light) and
  *   screen-space reflections on metals.
  */
+export async function warmPipeline(renderer: WebGPURenderer, pipeline: RenderPipeline) {
+  const render = renderer.render
+  const compiles: Promise<unknown>[] = []
+  renderer.render = ((scene: Scene, camera: Camera) => {
+    compiles.push(renderer.compileAsync(scene, camera))
+  }) as typeof renderer.render
+  try {
+    pipeline.render()
+  } catch {
+    // Unsupported passes compile on their first real frame instead.
+  } finally {
+    renderer.render = render
+  }
+  await Promise.allSettled(compiles)
+}
+
 export function createPipeline(
   renderer: WebGPURenderer,
   scene: Scene,
@@ -120,17 +157,26 @@ export function createPipeline(
 
   if (quality === 'lite') {
     const scenePass = pass(scene, camera, { samples: 4 })
-    pipeline.outputNode = finish(scenePass)
+    // No occlusion pass on Lite: the site's own light (siteLightNode.ts) still scales the ambient.
+    scenePass.contextNode = builtinAOContext(siteAmbient())
+    pipeline.outputNode = rasterFinish(scenePass)
     return {
       render: () => pipeline.render(),
-      dispose: () => pipeline.dispose(),
+      warm: () => warmPipeline(renderer, pipeline),
+      // Scene passes own full-resolution render targets that the pipeline does not release.
+      dispose: () => {
+        pipeline.dispose()
+        scenePass.dispose()
+      },
       settleFrames: 1,
-      hdr: scenePass.getTexture('output'),
+      shutter: null,
+      setPlace: () => {},
     }
   }
 
   // Opaque geometry only: glazing must not occlude the interior in AO, GI, or reprojection.
   const prePass = pass(scene, camera)
+  disposables.push(prePass)
   prePass.transparent = false
   const reflective = quality === 'ultra'
   prePass.setMRT(
@@ -152,8 +198,8 @@ export function createPipeline(
 
   const occlusion = ao(preDepth, preNormal, camera)
   occlusion.resolutionScale = 0.5
-  occlusion.radius.value = 0.9
-  occlusion.thickness.value = 1.2
+  occlusion.radius.value = AO_REACH.exterior
+  occlusion.thickness.value = AO_REACH.exterior
   occlusion.distanceExponent.value = 1.5
   occlusion.samples.value = 16
   disposables.push(occlusion)
@@ -161,7 +207,7 @@ export function createPipeline(
   // Contact shadows: a short screen-space march toward the sun resolves the fine shadows a shadow
   // map spread over the whole site cannot (feet on the floor, a bench leg on paving, a plate on
   // its horn). They multiply the sun's shadow only, so lamps and sky light are untouched.
-  let lighting = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r)
+  let lighting = builtinAOContext(occlusion.getTextureNode().sample(screenUV).r.mul(siteAmbient()))
   let contactDebug: Node<'float'> | null = null
   const sun = findSun(scene)
   if (sun) {
@@ -196,15 +242,12 @@ export function createPipeline(
     })
   }
   const scenePass = pass(scene, camera)
+  disposables.push(scenePass)
   scenePass.contextNode = lighting
-  scenePass.setMRT(
-    mrt(quality === 'ultra' ? { output, emissive, diffuseColor } : { output, emissive }),
-  )
+  if (quality === 'ultra') scenePass.setMRT(mrt({ output, diffuseColor }))
   const color = scenePass.getTextureNode('output')
-  const glow = bloom(scenePass.getTextureNode('emissive'), 0.55, 0.45, 0.05)
-  disposables.push(glow)
 
-  let lit: Node<'vec4'> = color.add(vec4(glow.rgb, 0))
+  let lit: Node<'vec4'> = color
   if (quality === 'ultra') {
     const diffuseTexture = scenePass.getTexture('diffuseColor')
     diffuseTexture.type = UnsignedByteType
@@ -240,194 +283,111 @@ export function createPipeline(
 
   const resolved = traa(lit, preDepth, preVelocity, camera)
   disposables.push(resolved)
-  pipeline.outputNode = finish(resolved)
-  // `?debug=ao|normal|contact|reflections` shows the occlusion, normal, contact-shadow, or
-  // screen-space reflection buffer for tuning.
+  const resolvedTexture = (
+    resolved as unknown as { getTextureNode: () => Node<'vec4'> }
+  ).getTextureNode()
+  // The stills' lens (STILL_BLOOM): a faint glow on whatever is brighter than its threshold, lamps
+  // and sun glints and a sunlit white wall alike, so the room keeps the soft veil its stills have.
+  const glow = bloom(
+    resolvedTexture,
+    STILL_BLOOM.strength,
+    STILL_BLOOM.radius,
+    STILL_BLOOM.threshold,
+  )
+  disposables.push(glow)
+  // Motion blur, after the temporal resolve, along each pixel's own motion. three's velocity is the
+  // offset in normalized device coordinates since the frame before (VelocityNode: current minus
+  // previous clip xy / w, across -1..1 with y up); a texture coordinate runs across 0..1 with y
+  // down, so a streak of the shutter's share of that motion is velocity × (0.5, -0.5) × shutter.
+  const shutter = uniform(0)
+  const motion = preVelocity.xy.mul(vec2(0.5, -0.5))
+  const streak = motion.mul(shutter)
+  const capped = streak.mul(min(float(1), float(MAX_STREAK).div(max(streak.length(), 1e-6))))
+  // three r186's motionBlur adds its `n` taps to the centre one and divides by `n`, which brightens
+  // the picture by 1/n while it moves; scaled back here (motionBlur.test.ts watches for a fix).
+  const blurred = motionBlur(resolvedTexture, capped, int(BLUR_SAMPLES)).mul(
+    BLUR_SAMPLES / (BLUR_SAMPLES + 1),
+  )
+  // At rest the shutter is exactly 0 and the frame is the resolved one untouched.
+  const image = shutter.greaterThan(0).select(blurred, resolved)
+  pipeline.outputNode = rasterFinish(image.add(vec4(glow.rgb, 0)))
+  // `?debug=ao|normal|contact|reflections|motion` shows the occlusion, normal, contact-shadow,
+  // screen-space reflection, or velocity buffer for tuning (motion: grey at rest, red for motion
+  // to the right, green for motion up, full strength at a twentieth of the screen per frame).
   const debug = new URLSearchParams(window.location.search).get('debug')
   if (debug === 'ao')
     pipeline.outputNode = vec4(vec3(occlusion.getTextureNode().sample(screenUV).r), 1)
   if (debug === 'normal')
     pipeline.outputNode = vec4(prePass.getTextureNode().sample(screenUV).rgb, 1)
   if (debug === 'contact' && contactDebug) pipeline.outputNode = vec4(vec3(contactDebug), 1)
-  if (debug === 'reflections' && reflectionNode) pipeline.outputNode = finish(reflectionNode)
+  if (debug === 'reflections' && reflectionNode) pipeline.outputNode = rasterFinish(reflectionNode)
+  if (debug === 'motion')
+    pipeline.outputNode = vec4(motion.mul(vec2(10, -10)).add(0.5), float(0.5), 1)
   return {
     render: () => pipeline.render(),
+    warm: () => warmPipeline(renderer, pipeline),
     dispose: () => disposables.forEach((d) => d.dispose()),
     settleFrames: quality === 'ultra' ? 40 : 28,
-    hdr: (resolved as unknown as { getTextureNode: () => { value: Texture } }).getTextureNode()
-      .value,
+    shutter,
+    setPlace: (place) => {
+      occlusion.radius.value = AO_REACH[place]
+      occlusion.thickness.value = Math.max(1.2, AO_REACH[place])
+    },
   }
 }
 
-export type TracePresent = {
-  /** Composites the traced images over the frozen raster frame and finishes them. */
-  render: (view: { from: Texture | null; to: Texture; t: number; gain: number }) => void
+export type StillFinish = {
+  /** Finishes a traced HDR image (unfilterable float, rows top down) onto the canvas. */
+  render: (image: Texture, exposure: number) => void
   dispose: () => void
 }
 
 /**
- * Presents path-traced images with the same finishing as the raster image. `from` (or, when it is
- * null, the frozen raster frame) blends into `to`, so every change of image reads as the picture
- * settling rather than a cut. Bright highlights (lamps, sun glints) get a faint lens bloom, as a
- * camera would record them.
+ * The cloud's bloom on a finished still (render-server finishing.py): a faint glow on what is
+ * brighter than the threshold, as a lens records lamps and sun glints.
  */
-export function createTracePresent(
-  renderer: WebGPURenderer,
-  raster: Texture,
-  traced: Texture,
-): TracePresent {
+export const STILL_BLOOM = { strength: 0.045, radius: 0.5, threshold: 2.4 } as const
+
+/**
+ * A still's finishing, as the render server finishes the cloud's (finishing.py): the bloom, AgX
+ * tone mapping at the still's own exposure, sRGB, and a fraction of a level of dither. No
+ * vignette: a still is the same photograph whether this device or the cloud traced it.
+ */
+export function stillFinish(hdr: Node<'vec4'>, exposure: Node<'float'>) {
+  const glow = bloom(hdr, STILL_BLOOM.strength, STILL_BLOOM.radius, STILL_BLOOM.threshold)
+  const bloomed = vec4(hdr.rgb.add(glow.rgb), 1)
+  // The colour space node is untyped in three's typings; it keeps its input's type (vec4).
+  const display = workingToColorSpace(
+    toneMapping(AgXToneMapping, exposure, bloomed),
+    SRGBColorSpace,
+  ) as unknown as Node<'vec4'>
+  return { output: vec4(display.rgb.add(dither()), 1), glow }
+}
+
+/**
+ * Finishes this device's path-traced stills (stillFinish) for the canvas, where RenderEffects reads
+ * them off as WebP, as the cloud's arrive.
+ */
+export function createStillFinish(renderer: WebGPURenderer, traced: Texture): StillFinish {
   const pipeline = new RenderPipeline(renderer)
   pipeline.outputColorTransform = false
-  const t = uniform(0)
-  const fromRaster = uniform(1)
   const size = uniform(new Vector2(1, 1))
+  const exposure = uniform(1)
   // Traced images are unfilterable float with rows top down, like screen coordinates.
-  const gain = uniform(1)
-  const pixel = ivec2(screenUV.mul(size).floor())
-  const from = textureLoad(traced, pixel)
-  const to = textureLoad(traced, pixel)
-  const before = mix(vec4(from.rgb.mul(gain), 1), texture(raster), fromRaster)
-  const after = vec4(to.rgb.mul(gain), 1)
-  const glow = bloom(after, 0.16, 0.5, 1.4)
-  const image = mix(before, after.add(vec4(glow.rgb, 0)), t)
-  pipeline.outputNode = finish(image)
+  const image = textureLoad(traced, ivec2(screenUV.mul(size).floor()))
+  const { output, glow } = stillFinish(vec4(image.rgb, 1), exposure)
+  pipeline.outputNode = output
   return {
-    render: (view) => {
-      to.value = view.to
-      from.value = view.from ?? view.to
-      fromRaster.value = view.from ? 0 : 1
-      const { width, height } = view.to.image as { width: number; height: number }
+    render: (next, value) => {
+      image.value = next
+      const { width, height } = next.image as { width: number; height: number }
       size.value.set(width, height)
-      t.value = view.t
-      gain.value = view.gain
+      exposure.value = value
       pipeline.render()
     },
     dispose: () => {
       glow.dispose()
       pipeline.dispose()
-    },
-  }
-}
-
-/** What the spin shows (spin.ts): a frame, or a 360° panorama, fading in over the previous one. */
-export type SpinView = {
-  from: Texture | null
-  to: Texture
-  t: number
-  /** For a panorama: the camera's rotation and lens, to look up each pixel's direction. */
-  panorama: { rotation: Matrix3; tanHalfFov: number; aspect: number } | null
-}
-
-/**
- * Shows the path-traced spin. Its frames come finished from the server (exposure, bloom, tone
- * mapping, sRGB), so only the screen's vignette and dither are added, as finish() does. A
- * panorama is looked up per pixel by viewing direction, which is exact for any rotation.
- */
-export function createSpinPresent(renderer: WebGPURenderer) {
-  const pipeline = new RenderPipeline(renderer)
-  pipeline.outputColorTransform = false
-  const blank = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1)
-  blank.needsUpdate = true
-  const t = uniform(1)
-  const isPanorama = uniform(0)
-  const rotation = uniform(new Matrix3())
-  const tanHalf = uniform(1)
-  const aspect = uniform(1)
-  // Screen rows run top down, as frames do (screenUV's origin is the top left).
-  const ndc = screenUV.mul(2).sub(1)
-  const ray = vec3(ndc.x.mul(tanHalf).mul(aspect), ndc.y.mul(tanHalf).negate(), float(-1))
-  const direction = rotation.mul(ray).normalize()
-  // Cycles' equirectangular camera, measured: u = 0.5 + atan2(x, -z) / 2π, v = acos(y) / π.
-  const panoramaUV = vec2(
-    atan(direction.x, direction.z.negate())
-      .div(Math.PI * 2)
-      .add(0.5),
-    acos(direction.y.clamp(-1, 1)).div(Math.PI),
-  )
-  const lookup = mix(screenUV, panoramaUV, isPanorama)
-  const to = texture(blank, lookup)
-  const from = texture(blank, lookup)
-  const color = mix(from.rgb, to.rgb, t)
-  const edge = screenUV.sub(0.5).length().mul(1.18)
-  const vignette = mix(float(0.8), float(1), smoothstep(0.98, 0.32, edge))
-  const dither = interleavedGradientNoise(screenCoordinate.xy)
-    .sub(0.5)
-    .mul(1 / 255)
-  pipeline.outputNode = vec4(color.mul(vignette).add(dither), 1)
-  return {
-    render: (view: SpinView) => {
-      to.value = view.to
-      from.value = view.from ?? view.to
-      t.value = view.from ? view.t : 1
-      isPanorama.value = view.panorama ? 1 : 0
-      if (view.panorama) {
-        rotation.value.copy(view.panorama.rotation)
-        tanHalf.value = view.panorama.tanHalfFov
-        aspect.value = view.panorama.aspect
-      }
-      pipeline.render()
-    },
-    dispose: () => {
-      blank.dispose()
-      pipeline.dispose()
-    },
-  }
-}
-
-/**
- * Matrix metering for HDR images: the log-average luminance over a coarse grid, as a camera
- * meters a scene. Used to hand over from the raster frame to the traced one without a jump in
- * brightness: the traced image keeps the exposure the viewer was looking at, while its light
- * distribution (occlusion, bounce, sky visibility) stays physically resolved.
- */
-export function createExposureMeter(renderer: WebGPURenderer, sample: Texture) {
-  const width = 48,
-    height = 30
-  const target = new RenderTarget(width, height, { type: FloatType, depthBuffer: false })
-  const size = uniform(new Vector2(1, 1))
-  // Material output is clamped to non-negative values, so store the log luminance offset.
-  const OFFSET = 10
-  const logLuminance = (color: Node<'vec4'>) =>
-    vec4(log(max(luminance(color.rgb), float(1e-4))).add(OFFSET), 0, 0, 1)
-  // Raster frames are filterable; traced images are unfilterable float and read texel by texel.
-  const rasterNode = texture(sample, uv())
-  const tracedNode = textureLoad(sample, ivec2(uv().mul(size).floor()))
-  const rasterMaterial = new MeshBasicNodeMaterial()
-  rasterMaterial.colorNode = logLuminance(rasterNode)
-  const tracedMaterial = new MeshBasicNodeMaterial()
-  tracedMaterial.colorNode = logLuminance(tracedNode)
-  const quad = new QuadMesh(rasterMaterial)
-  return {
-    /** Mean log luminance of `image`; `traced` selects texel reads for unfilterable floats. */
-    async measure(image: Texture, traced: boolean) {
-      const material = traced ? tracedMaterial : rasterMaterial
-      if (traced) {
-        tracedNode.value = image
-        const { width: w, height: h } = image.image as { width: number; height: number }
-        size.value.set(w, h)
-      } else rasterNode.value = image
-      quad.material = material
-      const previous = renderer.getRenderTarget()
-      renderer.setRenderTarget(target)
-      quad.render(renderer)
-      renderer.setRenderTarget(previous)
-      const pixels = (await renderer.readRenderTargetPixelsAsync(
-        target,
-        0,
-        0,
-        width,
-        height,
-      )) as Float32Array
-      const stride = pixels.length / height
-      let sum = 0
-      for (let y = 0; y < height; y++)
-        for (let x = 0; x < width; x++) sum += pixels[y * stride + x * 4]
-      return sum / (width * height) - OFFSET
-    },
-    dispose() {
-      target.dispose()
-      rasterMaterial.dispose()
-      tracedMaterial.dispose()
     },
   }
 }

@@ -4,7 +4,7 @@ The spin viewer shows many pre-rendered frames, so they travel as small WebP ima
 at 1200x827) instead of linear half floats (4 MB). The browser's finishing therefore happens here:
 
 - exposure match (a gain);
-- emissive bloom (three.js BloomNode with strength 0.16, radius 0.5, threshold 1.4);
+- emissive bloom (three.js BloomNode with strength 0.045, radius 0.5, threshold 2.4);
 - AgX tone mapping at the renderer's exposure (three.js r186);
 - sRGB encoding and dither.
 
@@ -17,6 +17,12 @@ from __future__ import annotations
 import io
 
 import numpy as np
+
+# Part of a cached frame's name (api.py frame_version): bump it whenever finishing changes, so
+# frames finished the old way are rendered again instead of served. 2: bloom radii scale with
+# the frame's width, and frames twice the reference width and wider bloom on a smaller image.
+# 3: restrained highlight-only glow, preserving material contrast around practical lights.
+FINISHING_VERSION = 3
 
 # three.js ToneMappingFunctions.js. TSL's mat3(a, b, c) takes columns, so with row vectors the
 # product is v @ [a, b, c].
@@ -48,12 +54,32 @@ SRGB_TO_AGX = (SRGB_TO_REC2020 @ AGX_INSET).astype(np.float32)
 LUMINANCE = np.array([0.2126, 0.7152, 0.0722], np.float32)
 
 # BloomNode: bright pass, then five mips blurred progressively at half resolution and below. With
-# radius 0.5 every mip's factor mix(f, 1.2 - f, 0.5) is 0.6.
-BLOOM_STRENGTH = 0.16
-BLOOM_THRESHOLD = 1.4
+# radius 0.5 every mip's factor mix(f, 1.2 - f, 0.5) is 0.6. The kernel radii are pixels of each
+# mip, matched to the browser at frames about 1200 px wide; bloom_kernels scales them with the
+# width, so a 1x preview and the full-resolution frame glow alike.
+BLOOM_STRENGTH = 0.045
+BLOOM_THRESHOLD = 2.4
 BLOOM_SMOOTH = 0.01
 BLOOM_KERNELS = (6, 10, 14, 18, 22)
+BLOOM_REFERENCE_WIDTH = 1200
 BLOOM_MIP_FACTOR = 0.6
+
+
+def bloom_kernels(width: int) -> tuple[int, tuple[int, ...]]:
+    """The blur for a frame `width` pixels wide: how often to halve it first, then the radii.
+
+    The radii are BLOOM_KERNELS scaled with the width, rounded, at least 1. A blur costs the
+    radius times the pixels, and at the panorama's 8192 px the first mip alone took ten seconds,
+    so from twice the reference width on the frame is halved once more for every doubling, with
+    the radii halved along: the glow is smooth enough not to tell, and the work stays under a
+    2400 px frame's whatever the size.
+    """
+    scale = width / BLOOM_REFERENCE_WIDTH
+    halvings = 1
+    while scale >= 2:
+        scale /= 2
+        halvings += 1
+    return halvings, tuple(max(1, int(radius * scale + 0.5)) for radius in BLOOM_KERNELS)
 
 
 def agx(rgb: np.ndarray, exposure: float) -> np.ndarray:
@@ -82,14 +108,11 @@ def srgb_encode(c: np.ndarray) -> np.ndarray:
     return np.where(c <= 0.0031308, 12.92 * c, 1.055 * np.power(c, 1 / 2.4) - 0.055)
 
 
-def _gaussian_1d(image: np.ndarray, radius: int, axis: int) -> np.ndarray:
-    """BloomNode's separable Gaussian (sigma = radius / 3, truncated at radius), clamped edges."""
-    sigma = radius / 3
-    offsets = np.arange(-(radius - 1), radius)
-    weights = np.exp(-0.5 * offsets**2 / sigma**2)
-    weights /= weights.sum()
+def _filter_1d(image: np.ndarray, weights: np.ndarray, axis: int) -> np.ndarray:
+    """Convolves along `axis` with a symmetric kernel of odd length, clamped at the edges."""
+    reach = len(weights) // 2
     pad = [(0, 0)] * image.ndim
-    pad[axis] = (radius - 1, radius - 1)
+    pad[axis] = (reach, reach)
     padded = np.pad(image, pad, mode="edge")
     out = np.zeros_like(image)
     n = image.shape[axis]
@@ -97,6 +120,25 @@ def _gaussian_1d(image: np.ndarray, radius: int, axis: int) -> np.ndarray:
         window = padded[k : k + n] if axis == 0 else padded[:, k : k + n]
         out += w * window
     return out
+
+
+def _gaussian_1d(image: np.ndarray, radius: int, axis: int) -> np.ndarray:
+    """BloomNode's separable Gaussian (sigma = radius / 3, truncated at radius), clamped edges."""
+    sigma = radius / 3
+    offsets = np.arange(-(radius - 1), radius)
+    weights = np.exp(-0.5 * offsets**2 / sigma**2)
+    return _filter_1d(image, weights / weights.sum(), axis)
+
+
+def _double(image: np.ndarray) -> np.ndarray:
+    """Bilinear upsampling by two, pixel centres aligned as in _resize.
+
+    Each pixel repeated, then a quarter of each neighbour mixed in: the same values as gathering
+    them at the larger size, without the larger temporaries.
+    """
+    up = np.repeat(np.repeat(image, 2, axis=0), 2, axis=1)
+    tent = np.array([0.25, 0.5, 0.25])
+    return _filter_1d(_filter_1d(up, tent, 1), tent, 0)
 
 
 def _half(image: np.ndarray) -> np.ndarray:
@@ -129,10 +171,13 @@ def bloom(hdr: np.ndarray) -> np.ndarray:
     bright = hdr * (t * t * (3 - 2 * t))[..., None]
     if not bright.any():
         return np.zeros_like(hdr)
-    level = _half(bright)
+    halvings, radii = bloom_kernels(width)
+    level = bright
+    for _ in range(halvings):
+        level = _half(level)
     base = level.shape[:2]
     glow = np.zeros_like(level)
-    for radius in BLOOM_KERNELS:
+    for radius in radii:
         if min(level.shape[:2]) < 2:
             break
         level = _gaussian_1d(_gaussian_1d(level, radius, 1), radius, 0)
@@ -140,6 +185,9 @@ def bloom(hdr: np.ndarray) -> np.ndarray:
         glow += level if level.shape[:2] == base else _resize(level, *base)
         level = _half(level)
     glow *= np.float32(BLOOM_MIP_FACTOR * BLOOM_STRENGTH)
+    # Back to half the frame's size bilinearly, on the frames halved further (small, so cheap).
+    for _ in range(halvings - 1):
+        glow = _double(glow)
     # The glow is blurred over several texels, so repeating pixels scales it up as well as
     # bilinear filtering would, at a fraction of the cost.
     up = np.repeat(np.repeat(glow, 2, axis=0), 2, axis=1)[:height, :width]

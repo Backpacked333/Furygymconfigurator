@@ -4,7 +4,11 @@ import { DEFAULT_CONFIG, SIGNATURES, setFamily, type Config } from '../lib/confi
 import ConfigPanel from './ConfigPanel'
 import { EstimateDialog } from './Dialogs'
 
-const panel = (config: Config, step: number) =>
+const panel = (
+  config: Config,
+  step: number,
+  tracing: { trace?: boolean; traceSupported?: boolean; cloud?: boolean } = {},
+) =>
   renderToStaticMarkup(
     <ConfigPanel
       config={config}
@@ -18,9 +22,11 @@ const panel = (config: Config, step: number) =>
       trace
       setTrace={vi.fn()}
       traceSupported
+      cloud={false}
       notify={vi.fn()}
       onPlan={vi.fn()}
       onSignature={vi.fn()}
+      {...tracing}
     />,
   )
 
@@ -37,10 +43,43 @@ describe('family-specific presentation', () => {
     for (const name of ['Polished concrete look', 'Functional trainer', 'Air bike', 'Half rack'])
       expect(html).toContain(name)
   })
-  it('offers all six surroundings', () => {
+  it('offers path-traced stills wherever an engine can trace them, and says which', () => {
+    const stills = (tracing: { trace?: boolean; traceSupported?: boolean; cloud?: boolean }) => {
+      const html = panel(DEFAULT_CONFIG, 3, tracing)
+      const match =
+        /<button class="toggle-row" role="switch" aria-checked="(true|false)"><span><strong>Path-traced stills<\/strong><small>([^<]*)<\/small>/.exec(
+          html,
+        )
+      expect(match).not.toBeNull()
+      return { on: match![1] === 'true', detail: match![2] }
+    }
+    // WebGPU alone: this device traces.
+    expect(stills({ traceSupported: true, cloud: false })).toMatchObject({ on: true })
+    expect(stills({ traceSupported: true, cloud: false }).detail).toContain('traced on this device')
+    // A cloud renderer traces for any browser, WebGPU or not: the switch follows `trace` and
+    // turns it off, rather than showing it off and stuck.
+    expect(stills({ traceSupported: false, cloud: true })).toMatchObject({ on: true })
+    expect(stills({ traceSupported: false, cloud: true }).detail).toContain('traced in the cloud')
+    expect(stills({ trace: false, traceSupported: false, cloud: true })).toMatchObject({
+      on: false,
+    })
+    expect(stills({ traceSupported: true, cloud: true }).detail).toContain('traced in the cloud')
+    // Neither: off, and said why.
+    const neither = stills({ traceSupported: false, cloud: false })
+    expect(neither.on).toBe(false)
+    expect(neither.detail).toContain('Needs a browser with WebGPU or a cloud renderer')
+  })
+  it('offers exactly the four customer scenes', () => {
     const html = panel(DEFAULT_CONFIG, 3)
-    for (const name of ['Residential courtyard', 'Corporate campus', 'Private backyard'])
+    for (const name of [
+      'Studio backdrop',
+      'Residential courtyard',
+      'Corporate campus',
+      'Desert retreat',
+    ])
       expect(html).toContain(name)
+    expect(html).not.toContain('Private backyard')
+    expect(html.match(/class="environment-card /g)).toHaveLength(4)
   })
   it('shows source-backed Container dimensions and no Studio configuration selector', () => {
     const html = panel(setFamily(DEFAULT_CONFIG, 'container'), 0)

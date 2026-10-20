@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useReducer } from 'react'
-import { encodeConfig, initialConfig, type Config } from './config'
+import { useCallback, useEffect, useMemo, useReducer } from 'react'
+import { encodeConfig, initialConfig, writeDraft, type Config } from './config'
 
 type State = { past: Config[]; present: Config; future: Config[]; notice: string }
 type Action = { type: 'set'; config: Config } | { type: 'undo' } | { type: 'redo' }
@@ -35,15 +35,18 @@ export function useConfig() {
   const setConfig = useCallback((config: Config) => dispatch({ type: 'set', config }), [])
   const undo = useCallback(() => dispatch({ type: 'undo' }), [])
   const redo = useCallback(() => dispatch({ type: 'redo' }), [])
+  // Encoded once per change, for both the draft and the share fragment in the address bar.
+  const encoded = useMemo(() => encodeConfig(state.present), [state.present])
   useEffect(() => {
     try {
-      localStorage.setItem('fury-draft-v1', encodeConfig(state.present))
+      writeDraft(encoded)
     } catch {
       /* The live build still works without persistence. */
     }
-  }, [state.present])
+  }, [encoded])
   return {
     config: state.present,
+    encoded,
     setConfig,
     undo,
     redo,
