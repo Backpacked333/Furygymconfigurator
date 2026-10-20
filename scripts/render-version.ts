@@ -18,8 +18,7 @@ import { join } from 'node:path'
  *   their scale). Images are hashed as they are, byte for byte.
  * - The render server's Blender scene, finishing (exposure, bloom, tone mapping, WebP) and wire
  *   format: render-server/fury_render/{blender,finishing,protocol}.py; and the Blender it runs:
- *   render-server/requirements.txt, and the lines of render-server/modal_app.py that pin Blender
- *   (bpy) and Python for the cloud's image.
+ *   render-server/requirements.txt.
  *
  * Everything else (the app shell, styles, the panel, tests) leaves the version alone. Line
  * endings of text files are normalized, so a Windows checkout gets the same version.
@@ -48,10 +47,9 @@ export const RENDER_SOURCES = {
     'render-server/fury_render/finishing.py',
     'render-server/fury_render/protocol.py',
     'render-server/requirements.txt',
-    'render-server/modal_app.py',
   ],
   /** Files of which only these lines count: the rest of the deploy script changes no pixel. */
-  lines: { 'render-server/modal_app.py': /bpy==|python_version=/ } as Record<string, RegExp>,
+  lines: {} as Record<string, RegExp>,
 }
 
 /** Characters of the hash kept: plenty to tell versions apart, short enough for a path. */

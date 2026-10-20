@@ -7,7 +7,7 @@ describe('display private module boundary independent of DEV service flags', () 
     '/src/render-library/server/runtime.ts',
     '/@fs/checkout/src/render-library/server/artifacts.ts?raw',
     '/%2573rc%252frender-library%252fserver%252fhttpSafety.ts',
-    '/render-server/on_demand/provider.py',
+    '/render-server/on_demand/dispatcher.py',
     '/src/render/display/browser/entry.ts',
     '/src//render/display/browser/entry.ts?raw',
     '/src/render/ignored/../display/browser/entry.ts',

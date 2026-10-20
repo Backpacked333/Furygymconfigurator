@@ -19,24 +19,23 @@ frontend alone. Check and settle existing admitted work before switching package
 pins; do not disable the always-on service or reset its cumulative budget. Existing
 Studio cached images remain readable. A fresh Container render is still required
 for visual acceptance. Importing these
-modules, packaging source and running the tests do not invoke Modal, Blender or Supabase.
-The retired gateway and `render-server/modal_app.py` remain disabled.
+modules, packaging source and running the tests do not invoke a GPU, Blender or Supabase.
+The retired gateway remains disabled.
 
 ## Boundaries and customer flow
 
-A dedicated non-root CPU process automatically drains **already admitted** durable
+A dispatcher on the Vast host automatically drains **already admitted** durable
 outbox rows. There is no operator command per customer job. The database enforces
 budget, global capacity, per-session admission and exactly-once dispatch claims.
 The daemon obtains the one-shot worker claim before trusted CPU preparation and
-before any GPU allocation. A null/failed claim never creates a Sandbox.
+before any GPU work. A null/failed claim never starts a render slot.
 
 The CPU preparation imports source-pinned geometry/material/camera code, not a
 browser scene, renderer, arbitrary path or executable. Only missing views are
-prepared; the selected camera comes first. A named single-use L40S Sandbox receives
-the prepared package over private stdin, without service or provider credentials,
-network access, secrets, public ports, HTTP endpoints or mounted storage. It runs
-as UID/GID 10001: the supervisor drops supplementary groups and root privileges
-before reading input because Modal ignores image `USER` instructions. It runs
+prepared; the selected camera comes first. An isolated render slot (UID 10001 or 10002)
+receives the prepared package over private stdin, without service or provider credentials,
+network access, secrets, public ports, HTTP endpoints or mounted storage. The supervisor
+drops supplementary groups and root privileges before reading input. It runs
 Blender 4.5.0/Cycles/OptiX, rejects CPU ray-tracing fallback, and requires 1024
 non-adaptive samples, a completion handler and final-sample log evidence.
 CPU denoising is intentional; it is not CPU path-tracing fallback.
@@ -48,30 +47,19 @@ independently verifies and publishes immutable library artifacts. Progress is ac
 render/save/verify activity, never a fabricated timer. Draft/unqualified provenance
 remains explicit in the prepared manifests and recipe release.
 
-## Lifetimes, no retries, and SDK constraint
+## Lifetimes and no retries
 
 - One GPU, one render child at a time; one CPU daemon consumes sequentially.
 - DB global cap is two unsettled provider claims; queued reservations do not occupy GPUs.
   Minimum warm GPUs remain 0 and provider retries 0.
 - Preparation ≤120 s, startup ≤180 s, each image process ≤300 s, at most five views.
-- Sandbox hard timeout and idle timeout are both the remaining admitted lifetime,
-  capped at 2100 s and approval/claim expiry. Idle timeout is not shorter than a render.
+- The slot watchdog enforces the remaining admitted lifetime, capped at 2100 s and
+  approval/claim expiry.
 - GPU stdin has a separate 180 s startup alarm. Process groups are killed/joined;
   child file size, package, stdout frame, aggregate output and image byte caps apply.
 
-Modal Functions are not used: container failure retries are not a finite billing bound.
-Modal 1.1.4's `Sandbox.create` itself retries its creation RPC by default. The isolated
-one-shot **provider subprocess** temporarily overrides only SandboxCreate's retry
-parameters (`max_retries=0`, 150 s RPC timeout), restoring the original function in
-`finally`. No concurrent dispatch shares that subprocess. Exact installed version
-and SHA-256 of `sandbox.py`, `client.py` and `grpc_utils.py` must match the audited
-source; drift fails closed. The test exercises the actual SDK create/resolver/request
-path with a fake transport accepting then disconnecting, and asserts one RPC only.
-This is not evidence of a live provider billing bound; qualification is still required.
-
-References: [Sandbox lifecycle](https://modal.com/docs/guide/sandboxes),
-[Sandbox reference](https://modal.com/docs/reference/modal.Sandbox),
-[Function retries](https://modal.com/docs/guide/retries).
+Provider starts are never retried automatically: an ambiguous start is quarantined
+and reconciled, never resubmitted. This is not evidence of a provider billing bound.
 
 ## Build an offline, content-addressed package
 
@@ -96,14 +84,16 @@ only from the generated package with operator-approved digest-pinned Node 24 and
 Python 3.11 Debian-bookworm base images (`NODE_IMAGE`, `PYTHON_IMAGE` build args).
 GPU OS libraries are resolved by apt at build time; capture the final image digest
 and OS package manifest for qualification—this is not a bit-reproducible OS build.
-The GPU image contains no Modal SDK, HTTP gateway or service transport. These Docker
+The GPU image contains no provider SDK, HTTP gateway or service transport. These Docker
 builds and live image execution have **not** been validated in this implementation.
 
-## Deploy the CPU runtime (separate approval required)
+## Standalone dispatcher daemon (separate approval required)
 
-1. Review/qualify CPU and GPU image digests, native pixels, exact device/sample logs,
-   bounded allocation/termination and measured cost. Provision the private Modal app
-   and immutable GPU image separately. Runtime only uses existing app/image IDs.
+The production path is the Vast-hosted dispatcher below. `python -m on_demand.dispatcher`
+is an equivalent single-lane daemon that drives the warm worker through `VastProvider`.
+
+1. Review/qualify the worker release, native pixels, exact device/sample logs,
+   bounded termination and measured cost. Provision the warm host separately.
 2. Register the exact generated recipe hashes in the service, set the same bounded
    liability ceiling in the worker policy and database admission policy, and obtain
    explicit spending approval/expiry. Never enable using the fixture hashes.
@@ -114,7 +104,7 @@ builds and live image execution have **not** been validated in this implementati
    serverless filesystems, NFS SQLite, replicas sharing an uncoordinated journal, or
    journal rollback snapshots. Preserve the DB, WAL, spool files and provider proofs.
 4. Supply CPU-only environment: `FURY_SERVICE_ORIGIN`, `FURY_WORKER_TOKEN`,
-   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`.
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, plus the `FURY_VAST_*` SSH settings.
    Never bake these into images, policy files, logs or GPU environment.
    Protected Vercel previews may additionally use a short-lived `VERCEL_OIDC_TOKEN`
    from the linked project's development environment. It is sent only to the configured
@@ -130,8 +120,10 @@ builds and live image execution have **not** been validated in this implementati
      "maxJobLiabilityMicroUsd": 0,
      "globalBudgetMicroUsd": 0,
      "dispatcherId": "unique-persistent-cpu-host",
-     "appName": "approved-private-modal-app",
-     "imageId": "im-APPROVED_IMMUTABLE_IMAGE",
+     "appName": "vast-warm",
+     "imageId": "vast-warm",
+     "providerKind": "vast-warm",
+     "instanceId": "REPLACE_WITH_VAST_INSTANCE_ID",
      "recipe": "REPLACE_WITH_GENERATED_RECIPE_OBJECT"
    }
    ```
@@ -157,13 +149,12 @@ builds and live image execution have **not** been validated in this implementati
 ## Crash/reconciliation runbook
 
 The journal records `creating` **before** the single creation call. Any crash after
-that barrier is possibly billable. Resume only by saved `sb-...` ID or deterministic
-name `fury-{dispatchId}`; never call create again, even if stdin was never sent.
+that barrier is possibly billable. Resume only by saved `vast:<instance>:fury-{dispatchId}`
+provider ID; never call create again, even if stdin was never sent.
 The input is single-send too. A lost transfer waits for timeout, not resubmission.
 Only deterministic metadata/upload delivery is replayed; no image is re-rendered.
 
-`from_name` finds running Sandboxes only. **Name absent is not proof of no allocation
-or no spend.** Such jobs remain quarantined/reserved indefinitely pending independent
+**An absent job record is not proof that nothing ran.** Such jobs remain quarantined/reserved indefinitely pending independent
 operator/provider reconciliation. Job expiry, a worker terminal event, a kill request,
 a local exception or missing process is not termination evidence. The daemon polls
 provider status independently; only an observed provider exit creates a timestamped,
@@ -205,29 +196,27 @@ CPU uses quoted PostgREST RPC argument names, confirmed with the service builder
 Worker claim/uploads/events use the three `WORKER_API_PATHS` with bearer auth.
 Upload preparation and event posting bind the same entire artifact-event body.
 `claim_dispatch` selects pending rows only: **no automatic expired consumed-lease
-reclaim**. Provider IDs are opaque `sb-...`, not Function-call IDs. No schema extension
-is needed for independent terminal evidence. The source protocol comment that says
-only the dispatch envelope reaches Modal needs clarification by the integrator:
-the CPU sends a trusted, claim-bound prepared package to the private Sandbox; the
-browser still sends no scene/code/path/URL payload.
+reclaim**. Provider IDs are `vast:<instance>:fury-{dispatchId}`. No schema extension
+is needed for independent terminal evidence. The dispatcher sends a trusted,
+claim-bound prepared package to the isolated render slot; the browser still sends
+no scene/code/path/URL payload.
 
 ## Continuously available private dispatcher
 
-`render-server/deploy_dispatcher.py` hosts the existing dispatcher on Modal; it does
-not expose a public gateway or keep a GPU running. Two private scheduled CPU functions
-check the durable outbox every 15 seconds. Each handles one job at a time using its own
-persistent journal: `dispatch` handles foreground requests; `dispatch_background` drains
-older work. The database caps unsettled dispatches at one per lane and two globally,
-even across deployments/restarts and uncertain provider creation. Admission is independently
-bounded by the approved budget and unchanged hourly quotas, not GPU occupancy. A
-click on **Bring your vision to life** is still required. Cache lookup, page reload,
-changing a camera and restoring a shared design never admit work. Queue pickup can
-take a schedule interval plus container startup before preparation starts; an
-already active job in that lane can extend the wait. Queues are not GPU capacity reservations
-and cannot guarantee an immediate start. The two schedules increase idle CPU
-coordination costs, still charged to the same cumulative ledger. GPU sampling,
-image quality and one-shot dispatch are unchanged. Worker protocol compatibility requires
-the rollout described below; do not replace an immutable registered build in place.
+The dispatcher runs on the retained Vast RTX 5090 host itself; there is no separate CPU
+provider. `render-server/vast-dispatcher.sh` supervises two long-running lanes of
+`render-server/hosted_dispatcher.py` as root: `foreground` handles the most recent
+requests, `background` drains older work. Each lane polls the durable outbox every
+3 seconds, handles one job at a time with its own journal under
+`/var/lib/fury-dispatch/<lane>/dispatch.sqlite3`, and restarts after a crash. The
+database caps unsettled dispatches at one per lane and two globally, even across restarts
+and uncertain starts. Admission is independently bounded by the approved budget and unchanged hourly
+quotas, not GPU occupancy. A click on **Bring your vision to life** is still required.
+Cache lookup, page reload, changing a camera and restoring a shared design never admit work.
+Queues are not GPU capacity reservations and cannot guarantee an immediate start.
+GPU sampling, image quality and one-shot dispatch are unchanged. Worker protocol
+compatibility requires the rollout described below; do not replace an immutable
+registered build in place.
 
 Preview credentials are branch-scoped. Merging or opening a new PR does **not**
 copy that configuration. Before sharing a new preview, provision its exact
@@ -246,34 +235,31 @@ then settle measured elapsed time. Crashed cycles keep their maximum charge; do 
 refund them automatically. Configure `dispatcher_headroom_micro_usd=500000` on the
 active approval to leave recovery capacity outside new GPU reservations.
 
-Create the Modal secret `fury-render-library-dispatcher` with these server-only values:
+Install on the Vast host (root):
 
-- `FURY_SERVICE_ORIGIN`, `FURY_WORKER_TOKEN`
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- `VERCEL_TOKEN`, `FURY_VERCEL_PROJECT`, `FURY_VERCEL_TEAM`
-- `FURY_DISPATCHER_ID`, `FURY_GPU_APP`, `FURY_GPU_IMAGE`
-
-Use the registered immutable native package, not a freshly repackaged source tree
-with a different recipe hash. With the pinned CPU requirements installed:
+1. Node 24.22.0 at `/usr/local/node` (checksum-verified tarball) and the pinned
+   `/usr/local/bin/python` with `on_demand/requirements-cpu.lock`.
+2. Copy the registered immutable native package to `/opt/fury-dispatch/<build>` and run
+   `npm ci` there; write `<build>` to `/etc/fury/dispatch-build`. Use the registered
+   package, not a freshly repackaged source tree with a different recipe hash.
+3. Copy `hosted_dispatcher.py`, `vast_host.py` and `vast-dispatcher.sh` to `/opt/host`.
+4. Write `/etc/fury/dispatcher.env` (root, mode 0600) with `FURY_SERVICE_ORIGIN`,
+   `FURY_WORKER_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VERCEL_TOKEN`,
+   `FURY_VERCEL_PROJECT`, `FURY_VERCEL_TEAM`, `FURY_DISPATCHER_ID` and `FURY_VAST_INSTANCE`.
+   Render slots run as UIDs 10001/10002 and never see this file.
+5. Start both lanes and add the same line to `/root/onstart.sh` so they survive restarts:
 
 ```sh
-export FURY_NATIVE_PACKAGE=/absolute/path/to/registered-native-package
-python -m modal deploy render-server/deploy_dispatcher.py
-# ONCE, on a new empty persistent volume; never reset a recovery journal:
-python -m modal run render-server/deploy_dispatcher.py::initialize
-python -m modal run render-server/deploy_dispatcher.py::initialize_background
+for lane in foreground background; do
+  nohup setsid /opt/host/vast-dispatcher.sh $lane >> /var/log/fury-dispatch-$lane.log 2>&1 < /dev/null &
+done
 ```
 
-The foreground journal remains in `fury-render-library-dispatch-journal`; the background
-journal uses `fury-render-library-background-journal`. Each is mounted at `/state` only
-in its own function. Both functions have `max_containers=1`, no automatic retries and
-no concurrent inputs. Never point them at the same journal or reinitialize existing state.
-Every mutation commits the Volume before proceeding. Missing journal state fails
-closed; ambiguous provider starts remain quarantined, never automatically retried.
-The GPU app can be the deployed private dispatcher app namespace. The GPU image
-must match the registered recipe; GPU Sandboxes receive no service credentials.
+Journals are created empty on first start; never delete or reinitialize an existing
+journal. Missing provider state fails closed; ambiguous starts remain quarantined,
+never automatically retried. Render slots receive no service credentials.
 
-The protected preview's development OIDC token is refreshed on each cycle through
+The protected preview's development OIDC token is refreshed every 15 minutes through
 the Vercel API. Keep the service origin aligned with the API's allowed origin.
 Enable the approval only after the journal is initialized and recipe validation
 passes. An enabled idle probe returns `status: idle`; `recovery-pending` requires
@@ -282,16 +268,15 @@ investigation, not a second GPU submission. Observe CPU cycles in
 
 The approved $1,000 allowance is cumulative (`budget_micro_usd=1000000000`), not a
 daily reset. Keep the approval enabled after tests. At exhausted compute capacity,
-new GPU jobs are denied and the paid dispatcher stops; Vercel/Supabase cached-image
+new GPU jobs are denied and the dispatcher lanes idle; Vercel/Supabase cached-image
 reads remain available. Restarting after exhaustion requires a newly authorized
-budget, clearing `dispatcher_halted` under operator control, and redeployment, not resetting
+budget, and clearing `dispatcher_halted` under operator control, not resetting
 charged balances. A failed CPU reservation returns `budget-busy` while a sibling cycle can
-still be running; it must not stop that sibling's app. The transactional halt RPC fences
+still be running; it must not stop that sibling lane. The transactional halt RPC fences
 new cycles before returning `budget-exhausted`. A crashed cycle retains its full charge;
-only its hosted one-hour hard timeout allows shutdown, never a GPU liability refund.
-The ledger is conservative
-application accounting, not a verified Modal invoice or an account-wide billing cap;
-unrelated Modal apps, storage, network and hosting bills must be monitored separately.
+never a GPU liability refund. The ledger is conservative application accounting,
+not a verified Vast invoice or an account-wide billing cap; warm-host rent, network and
+hosting bills must be monitored separately.
 
 Foreground dispatch prioritizes the most recently requested pending selection across sessions.
 If none is eligible, it uses idle capacity for older queued work; background remains FIFO.

@@ -44,8 +44,8 @@ export function renderSession(storage: SessionStore | null = storageOf()): strin
 }
 
 /**
- * This page's render session. The gateway gives each session a GPU of its own
- * (render-server/modal_app.py), so every request from the page, render or upload, names it. A query
+ * This page's render session. The gateway gives each session a GPU of its own, so every
+ * request from the page, render or upload, names it. A query
  * parameter rather than a header: no CORS preflight depends on it, so a page works against a
  * gateway from before sessions too.
  */

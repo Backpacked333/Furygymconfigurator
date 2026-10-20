@@ -1,10 +1,9 @@
 # Legacy render modules — dispatch retired
 
-This directory retains Fury's Blender geometry/material conversion, finishing, protocol and queue code for future private reuse. **It is not an operational or qualified P04 service.** The historical browser-to-Modal integration was unauthenticated beyond origin checks and did not participate in durable cost reservations or kill reconciliation.
+This directory retains Fury's Blender geometry/material conversion, finishing, protocol and queue code for future private reuse. **It is not an operational or qualified P04 service.** The historical browser-to-GPU integration was unauthenticated beyond origin checks and did not participate in durable cost reservations or kill reconciliation.
 
 ## Entry points
 
-- `modal_app.py` raises `LEGACY_RENDER_DISABLED` before importing Modal or declaring a GPU, app, volume or image. Do not run a deployment to test this.
 - `fury_render.gateway.create_gateway` never invokes its dispatch callback. Work receives typed non-retryable 503, including warm/render/blob and preflight requests. Health reports `ok:false` and `paidExecutionAllowed:false`.
 - `python -m fury_render.local` refuses before loading the HTTP server or renderer. There is no bypass flag.
 - `npm run bake` and `npm run bake:quick` are retired at the repository level; neither changes retained images/manifests.
@@ -19,8 +18,8 @@ Use Python 3.11 with FastAPI 0.143.2, HTTPX 0.28.1, pytest 8.3.5, NumPy 1.26.4, 
 
 ```sh
 cd render-server
-python -m pytest -q -p no:cacheprovider tests/test_gateway.py tests/test_modal_app.py tests/test_queue.py tests/test_server.py
-python -m black --check fury_render/api.py fury_render/gateway.py fury_render/local.py modal_app.py tests/test_gateway.py tests/test_modal_app.py tests/test_queue.py tests/test_server.py
+python -m pytest -q -p no:cacheprovider tests/test_gateway.py tests/test_queue.py tests/test_server.py
+python -m black --check fury_render/api.py fury_render/gateway.py fury_render/local.py tests/test_gateway.py tests/test_queue.py tests/test_server.py
 ```
 
 These tests use in-process ASGI calls, fake dispatch and guarded imports. They do not prove real provider behavior. The former raw HTTP render tests are replaced by factory-denial coverage. Remaining low-level rendering tests require Blender and separate execution approval; they are not part of this boundary check. See [P04 retirement](../docs/p04-legacy-retirement.md) and [P04 provider decision](../docs/p04-provider-decision.md).
