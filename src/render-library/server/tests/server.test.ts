@@ -1,6 +1,8 @@
 // @vitest-environment node
 import sharp from 'sharp'
 import { readFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { gzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { lookupSet, readJob, submitSet } from '../../../prototype/renderLibraryClient'
 import { jobId, queued } from '../../../prototype/renderLibraryClient.fixtures'
@@ -289,6 +291,56 @@ describe('bounded request and session security', () => {
       boundedBytes(new Response('abcd', { headers: { 'content-length': '3' } }), 10),
     ).rejects.toThrow('invalid-request')
     await expect(boundedBytes(new Response('abcd'), 3)).rejects.toThrow('invalid-request')
+  })
+  it('reads fetch-decoded gzip responses without comparing wire and decoded lengths', async () => {
+    const body = JSON.stringify({ views: 'saved-image'.repeat(100) })
+    const compressed = gzipSync(body)
+    const server = createServer((_request, response) => {
+      response.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Encoding': 'gzip',
+        'Content-Length': compressed.length,
+      })
+      response.end(compressed)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const address = server.address()
+      if (!address || typeof address === 'string') throw Error('Expected local server port')
+      const url = `http://127.0.0.1:${address.port}`
+      const response = await fetch(url)
+      expect(response.headers.get('content-length')).toBe(String(compressed.length))
+      expect(new TextDecoder().decode(await boundedBytes(response, 2048))).toBe(body)
+      await expect(boundedBytes(await fetch(url), 512)).rejects.toThrow('invalid-request')
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  })
+  it('keeps raw request and response limits strict with content-encoding headers', async () => {
+    for (const encoding of ['gzip', 'deflate', 'br']) {
+      const headers = { 'content-encoding': encoding, 'content-length': '3' }
+      expect(await boundedBytes(new Response('abcd', { headers }), 10)).toHaveLength(4)
+      await expect(
+        boundedBytes(new Request(origin, { method: 'POST', body: 'abcd', headers }), 10),
+      ).rejects.toThrow('invalid-request')
+      await expect(boundedBytes(new Response('abcd', { headers }), 3)).rejects.toThrow(
+        'invalid-request',
+      )
+      await expect(
+        boundedBytes(new Response('abcd', { headers: { ...headers, 'content-length': 'x' } }), 10),
+      ).rejects.toThrow('invalid-request')
+    }
+    await expect(
+      boundedBytes(
+        new Response('abcd', {
+          headers: { 'content-encoding': 'identity', 'content-length': '3' },
+        }),
+        10,
+      ),
+    ).rejects.toThrow('invalid-request')
   })
   it('requires a separately configured worker bearer token', () => {
     expect(() => requireBearer(request('worker/events', {}), key)).toThrow('origin-denied')
