@@ -1,7 +1,8 @@
 import { RefreshCw } from 'lucide-react'
 import { projectDesignToConfig, type DesignEnvelope } from '../domain/design'
 import { CUSTOMER_CAMERAS } from '../render-library/views'
-import { RENDER_CTA } from '../render-library/contracts'
+import { RENDER_CTA, type SavedVariant } from '../render-library/contracts'
+import { resolveLook } from '../domain/presentation'
 import { BuildAnimation, WorkProgress } from '../components/LoadingExperience'
 import { findNativeImage, type NativeLibrary } from './nativeLibrary'
 import { activeJob, type useLibrarySet } from './useLibrarySet'
@@ -27,6 +28,7 @@ export function LibrarySetStatus({
   imageError,
   onRetryImage,
   onDetails,
+  onUseVariant,
 }: {
   design: DesignEnvelope
   library: ReturnType<typeof useLibrarySet>
@@ -36,6 +38,7 @@ export function LibrarySetStatus({
   imageError?: string
   onRetryImage?: () => void
   onDetails?: () => void
+  onUseVariant?: (presentation: SavedVariant['presentation']) => void
 }) {
   const { snapshot, checking, message, submitting, uncertain } = library
   const job = snapshot?.job
@@ -100,6 +103,22 @@ export function LibrarySetStatus({
               : count === 5
                 ? 'Your exact views are ready.'
                 : 'We could not confirm which views exist. This is not a confirmed cache miss; no work is queued.')
+  const current = design.presentation
+  const variantLabel = ({ presentation }: SavedVariant) =>
+    [
+      presentation.aspect !== current.aspect &&
+        (presentation.aspect === 'wide' ? 'Landscape' : 'Portrait'),
+      presentation.lookRef !== current.lookRef &&
+        resolveLook(presentation.lookRef).name.replace('DRAFT — ', ''),
+      presentation.doorPose !== current.doorPose &&
+        (presentation.doorPose === 'open' ? 'Door open' : 'Door closed'),
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  const savedVariants =
+    onUseVariant && !working && !submitting
+      ? (library.variants ?? []).filter((variant) => variant.readyViews > count).slice(0, 3)
+      : []
   const label = `${count}/5 images ready${working ? ` · ${stageNames[job!.stage]}` : ''}`
   return (
     <section
@@ -139,6 +158,23 @@ export function LibrarySetStatus({
             >
               {RENDER_CTA}
             </button>
+          )}
+          {savedVariants.length > 0 && (
+            <div
+              className="library-saved-variants"
+              role="group"
+              aria-label="Saved images of this build"
+            >
+              <span>Saved images of this build:</span>
+              {savedVariants.map((variant) => (
+                <button
+                  key={`${variant.presentation.aspect}|${variant.presentation.lookRef}|${variant.presentation.doorPose}`}
+                  onClick={() => onUseVariant!(variant.presentation)}
+                >
+                  {variantLabel(variant)} · {variant.readyViews}/5 views
+                </button>
+              ))}
+            </div>
           )}
           {mayRetry && (
             <button

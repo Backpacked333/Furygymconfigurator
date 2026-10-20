@@ -32,6 +32,7 @@ async function show(
     message: null,
     paused: false,
     uncertain: false,
+    variants: [],
     submitting: false,
     request: vi.fn(),
     refresh: vi.fn(),
@@ -131,4 +132,46 @@ it('leaves initial lookup progress indeterminate and disables unavailable or unc
   await show({ uncertain: true })
   expect(host.querySelector<HTMLButtonElement>('button.primary')?.disabled).toBe(true)
   expect(host.textContent).toContain('do not submit a new request')
+})
+it('offers saved sets of the same build in another format or scene without requesting a render', async () => {
+  const onUseVariant = vi.fn()
+  const library = {
+    signature: 'test',
+    snapshot: await snapshotFixture(),
+    checking: false,
+    message: null,
+    paused: false,
+    uncertain: false,
+    submitting: false,
+    request: vi.fn(),
+    refresh: vi.fn(),
+    variants: [
+      {
+        presentation: {
+          aspect: 'tall',
+          doorPose: 'closed',
+          lookRef: 'studio-night-draft@1',
+        },
+        readyViews: 5,
+      },
+    ] as const,
+  }
+  await act(async () =>
+    root.render(
+      <LibrarySetStatus
+        design={defaultDesign()}
+        library={library}
+        catalog={null}
+        hasImage={false}
+        onUseVariant={onUseVariant}
+      />,
+    ),
+  )
+  const button = [...host.querySelectorAll('.library-saved-variants button')]
+  expect(button.map((entry) => entry.textContent)).toEqual([
+    'Portrait · Studio · night · 5/5 views',
+  ])
+  act(() => (button[0] as HTMLButtonElement).click())
+  expect(onUseVariant).toHaveBeenCalledWith(library.variants[0].presentation)
+  expect(library.request).not.toHaveBeenCalled()
 })

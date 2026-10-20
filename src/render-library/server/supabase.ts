@@ -94,6 +94,36 @@ export class SupabaseRepository implements RenderLibraryRepository {
       await this.transport.call('render_library_snapshot', { identity }),
     )
   }
+  /** Candidate saved sets of one product/finish; callers re-verify identity and exact config. */
+  async savedSets(design: DesignEnvelope) {
+    const { product, appearance } = design.config
+    const filters = new URLSearchParams({
+      release_id: `eq.${RECIPE_RELEASE.id}`,
+      'design->config->product->>family': `eq.${product.family}`,
+      'design->config->product->>lengthFt': `eq.${product.lengthFt}`,
+      'design->config->appearance->>finish': `eq.${appearance.finish}`,
+      'design->config->appearance->>interior': `eq.${appearance.interior}`,
+      select: 'set_key,design',
+      limit: '200',
+    })
+    const sets = z
+      .array(z.object({ set_key: z.string().regex(/^set_[a-f0-9]{64}$/), design: z.unknown() }))
+      .max(200)
+      .parse(await this.transport.json(`/rest/v1/render_library_sets?${filters}`))
+    if (!sets.length) return []
+    const images = z
+      .array(z.object({ set_key: z.string(), image_key: z.string() }))
+      .parse(
+        await this.transport.json(
+          `/rest/v1/render_library_images?set_key=in.(${sets.map((set) => set.set_key).join(',')})&select=set_key,image_key&limit=1000`,
+        ),
+      )
+    return sets.map((set) => ({
+      setKey: set.set_key,
+      design: set.design,
+      imageKeys: images.filter((image) => image.set_key === set.set_key).map((i) => i.image_key),
+    }))
+  }
   async getJob(jobId: string, sessionHash?: string) {
     const result = await this.transport.call('render_library_get_job', {
       jobId,

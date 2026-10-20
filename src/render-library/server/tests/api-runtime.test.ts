@@ -8,6 +8,7 @@ import { expect, it } from 'vitest'
 const root = fileURLToPath(new URL('../../../../', import.meta.url))
 const entries = [
   'lookup.ts',
+  'variants.ts',
   'session.ts',
   'jobs/index.ts',
   'jobs/[jobId]/index.ts',
@@ -53,12 +54,12 @@ it('loads emitted API handlers in native Node ESM without a bundler resolver', (
           method,
           ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
         }));
-        const expected = entry.includes('/worker/') ? 403 : entry.endsWith('/lookup.js') ? 400 : 503;
+        const expected = entry.includes('/worker/') ? 403 : entry.endsWith('/lookup.js') || entry.endsWith('/variants.js') ? 400 : 503;
         assert.equal(response.status, expected, entry);
         assert.equal(response.headers.get('cache-control'), 'no-store');
         assert.ok((await response.json()).error);
       }
-      console.log('All eight native ESM handlers loaded and failed closed.');
+      console.log('All nine native ESM handlers loaded and failed closed.');
     `
     expect(
       execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
@@ -67,7 +68,7 @@ it('loads emitted API handlers in native Node ESM without a bundler resolver', (
         encoding: 'utf8',
         timeout: 30_000,
       }),
-    ).toContain('All eight native ESM handlers loaded and failed closed.')
+    ).toContain('All nine native ESM handlers loaded and failed closed.')
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

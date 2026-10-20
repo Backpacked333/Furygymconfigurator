@@ -8,6 +8,7 @@ export const API_PATHS = Object.freeze({
   lookup: '/api/render-library/lookup',
   jobs: '/api/render-library/jobs',
   session: '/api/render-library/session',
+  variants: '/api/render-library/variants',
 })
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 export const SEED_MANIFEST_SHA256 =
@@ -363,6 +364,30 @@ export const setSnapshotSchema = z
   })
 export type SetSnapshot = z.infer<typeof setSnapshotSchema>
 export const lookupResponseSchema = z.union([setSnapshotSchema, apiErrorSchema])
+
+/** Saved sets of the same configuration under another format, door pose or scene. */
+export const savedVariantSchema = z
+  .object({
+    presentation: presentationSchema
+      .pick({ aspect: true, doorPose: true })
+      .extend({ lookRef: customerLookSchema })
+      .strict(),
+    readyViews: z.number().int().min(1).max(5),
+  })
+  .strict()
+export const MAX_SAVED_VARIANTS = 24
+export const variantsResponseSchema = z.union([
+  z
+    .object({
+      contractVersion: z.literal(CONTRACT_VERSION),
+      status: z.literal('ok'),
+      variants: z.array(savedVariantSchema).max(MAX_SAVED_VARIANTS),
+    })
+    .strict(),
+  apiErrorSchema,
+])
+export type SavedVariant = z.infer<typeof savedVariantSchema>
+export type VariantsResponse = z.infer<typeof variantsResponseSchema>
 export const jobResponseSchema = lookupResponseSchema
 export type LibraryResponse = z.infer<typeof lookupResponseSchema>
 

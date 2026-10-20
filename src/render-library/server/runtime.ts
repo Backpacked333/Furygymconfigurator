@@ -71,6 +71,7 @@ export function createRuntime(env: Record<string, string | undefined> = process.
 export type Runtime = ReturnType<typeof createRuntime>
 export type Route =
   | 'lookup'
+  | 'variants'
   | 'session'
   | 'jobs'
   | 'status'
@@ -126,6 +127,10 @@ async function handleRoute(request: Request, endpoint: Route, factory: () => Run
     if (endpoint === 'lookup')
       return json(
         await runtime.service.lookup(input(lookupRequestSchema, await boundedJson(request))),
+      )
+    if (endpoint === 'variants')
+      return json(
+        await runtime.service.variants(input(lookupRequestSchema, await boundedJson(request))),
       )
     if (!runtime.security || !runtime.repository) throw unavailable()
     if (endpoint === 'session') {
