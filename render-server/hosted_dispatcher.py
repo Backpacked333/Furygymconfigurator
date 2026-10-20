@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 import urllib.request
 import uuid
+from urllib.parse import urlencode
 
 
 class NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -83,6 +84,19 @@ class LaneService:
         return self.service.rpc(name, values)
 
 
+def worker_recipe(database, approval):
+    original = approval['policy']['recipe']
+    build = approval.get('active_worker_build_sha256')
+    if not build or build == original['workerBuildSha256']:
+        return original
+    query = urlencode({'worker_build_sha256': 'eq.' + build,
+                       'release_id': 'eq.' + original['releaseId'], 'select': 'registration'})
+    rows = database.read('render_library_worker_builds?' + query)
+    if len(rows) != 1 or rows[0]['registration']['workerBuildSha256'] != build:
+        raise RuntimeError('worker-registration-mismatch')
+    return rows[0]['registration']
+
+
 def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'):
     from on_demand.dispatcher import Dispatcher
     from hosted_transfer import HostedProvider
@@ -100,9 +114,10 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
     try:
         volume.reload()
         journal = durable_journal(work / 'dispatch.sqlite3', volume)
-        approval = db.read('render_library_approvals?select=id,enabled,policy,expires_at')[0]
+        approval = db.read('render_library_approvals?select=id,enabled,policy,expires_at,active_worker_build_sha256')[0]
         policy = {
             **approval['policy'],
+            'recipe': worker_recipe(db, approval),
             'enabled': approval['enabled'],
             'expiresAt': approval['expires_at'],
             'dispatcherId': os.environ['FURY_DISPATCHER_ID'] + ':' + lane,

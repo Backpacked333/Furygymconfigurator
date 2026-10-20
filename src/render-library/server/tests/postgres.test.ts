@@ -68,6 +68,11 @@ const registration = {
   rendererSha256: '6'.repeat(64),
 }
 const approvalId = '00000000-0000-4000-8000-000000000099'
+const workerRegistration = {
+  ...registration,
+  workerBuildSha256: '8'.repeat(64),
+  recipeBundleSha256: '9'.repeat(64),
+}
 let expiresAt: string
 let command: ReserveCommand
 function touch(hash: string, net = network) {
@@ -96,9 +101,9 @@ async function variation(index: number) {
   next.request.design.presentation.aspect = index % 2 ? 'tall' : 'wide'
   return { ...next, identity: await computeSetIdentity(next.request.design) }
 }
-function workerClaim(envelope: unknown) {
+function workerClaim(envelope: unknown, build = workerRegistration.workerBuildSha256) {
   return workerClaimSchema.parse(
-    rpc('render_library_claim_worker', [encoded(envelope), quote(registration.workerBuildSha256)]),
+    rpc('render_library_claim_worker', [encoded(envelope), quote(build)]),
   )
 }
 function recordDispatch(
@@ -144,6 +149,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610190004_hosted_dispatcher.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610190005_dispatcher_headroom.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200001_render_queue_lanes.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200002_worker_builds.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -161,7 +167,12 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       recipe: registration,
     }
     run(`insert into public.render_library_recipes(release_id,registration) values('fury-native-five@2',${encoded(registration)});
-      insert into public.render_library_approvals(id,enabled,expires_at,budget_micro_usd,policy) values(${quote(approvalId)},true,${quote(expiresAt)},100000,${encoded(policy)});`)
+      insert into public.render_library_worker_builds(worker_build_sha256,release_id,revision,registration,max_active_jobs_per_session)
+        values(${quote(registration.workerBuildSha256)},'fury-native-five@2','original',${encoded(registration)},1);
+      insert into public.render_library_worker_builds(worker_build_sha256,release_id,revision,registration,max_active_jobs_per_session,parent_worker_build_sha256)
+        values(${quote(workerRegistration.workerBuildSha256)},'fury-native-five@2','queue-worker@1',${encoded(workerRegistration)},2,${quote(registration.workerBuildSha256)});
+      insert into public.render_library_approvals(id,enabled,expires_at,budget_micro_usd,policy,active_worker_build_sha256)
+        values(${quote(approvalId)},true,${quote(expiresAt)},100000,${encoded(policy)},${quote(workerRegistration.workerBuildSha256)});`)
     touch(session)
     const design = customerDesignSchema.parse(contract.create.design)
     command = {
@@ -187,6 +198,39 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     expect(snapshot(command.identity).coverage).toBe('missing')
     expect(run('select count(*) from public.render_library_jobs')).toBe('0')
     expect(ledger().reserved_micro_usd).toBe(0)
+  })
+  it('upgrades execution without rewriting the image recipe or old customer policy', () => {
+    const admitted = reserve()
+    const claim = workerClaim(dispatch().dispatch)
+    expect(claim.workerBuildSha256).toBe(workerRegistration.workerBuildSha256)
+    expect(claim.recipeBundleSha256).toBe(workerRegistration.recipeBundleSha256)
+    expect(claim.identity).toEqual(admitted.snapshot.identity)
+    expect(ledger().policy.recipe).toEqual(registration)
+    expect(JSON.parse(run('select registration from public.render_library_recipes'))).toEqual(
+      registration,
+    )
+    expect(() =>
+      run("update public.render_library_worker_builds set revision='rewritten'"),
+    ).toThrow()
+    expect(() => run('delete from public.render_library_worker_builds')).toThrow()
+    expect(() => run('set role anon; select * from public.render_library_worker_builds')).toThrow()
+  })
+  it('supports a safe legacy rollout window with the original per-session ceiling', async () => {
+    run('update public.render_library_approvals set active_worker_build_sha256=null')
+    reserve()
+    reserve(await variation(1))
+    const first = dispatch()
+    expect(
+      workerClaim(first.dispatch, registration.workerBuildSha256).limits.maxActiveJobsPerSession,
+    ).toBe(1)
+    expect(dispatch('background')).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(11000)
+  })
+  it('rejects inactive builds without consuming the one-shot worker claim', () => {
+    reserve()
+    const claimed = dispatch()
+    expect(() => workerClaim(claimed.dispatch, registration.workerBuildSha256)).toThrow()
+    expect(workerClaim(claimed.dispatch).limits.maxActiveJobsPerSession).toBe(2)
   })
   it('accounts for hosted CPU cycles inside the same cumulative budget', () => {
     run('update public.render_library_approvals set budget_micro_usd=1000000')
@@ -717,8 +761,8 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
         ...work.design,
         presentation: { ...work.design.presentation, cameraRef: view.cameraRef },
       },
-      workerBuildSha256: registration.workerBuildSha256,
-      recipeBundleSha256: registration.recipeBundleSha256,
+      workerBuildSha256: work.workerBuildSha256,
+      recipeBundleSha256: work.recipeBundleSha256,
     }
     const receiptSha256 = checksum(canonicalJson(receipt))
     const image = imageDescriptorSchema.parse({
@@ -740,8 +784,8 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
         kind: 'native-worker',
         jobId: work.jobId,
         attemptId: work.attemptId,
-        workerBuildSha256: registration.workerBuildSha256,
-        recipeBundleSha256: registration.recipeBundleSha256,
+        workerBuildSha256: work.workerBuildSha256,
+        recipeBundleSha256: work.recipeBundleSha256,
         receiptSha256,
       },
       productionAllowed: false,
@@ -931,9 +975,14 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     }
     expect(
       run(
-        "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join unnest(array['SELECT','INSERT','UPDATE','DELETE']) privilege where n.nspname='public' and c.relkind='r' and c.relname like 'render_library_%' and not has_table_privilege('service_role',c.oid,privilege);",
+        "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join unnest(array['SELECT','INSERT','UPDATE','DELETE']) privilege where n.nspname='public' and c.relkind='r' and c.relname like 'render_library_%' and c.relname<>'render_library_worker_builds' and not has_table_privilege('service_role',c.oid,privilege);",
       ),
     ).toBe('0')
+    expect(
+      run(
+        "select has_table_privilege('service_role','public.render_library_worker_builds','SELECT') and has_table_privilege('service_role','public.render_library_worker_builds','INSERT') and not has_table_privilege('service_role','public.render_library_worker_builds','UPDATE,DELETE,TRUNCATE');",
+      ),
+    ).toBe('t')
     expect(
       run(
         "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like 'render_library_%' and not has_function_privilege('service_role',p.oid,'EXECUTE');",

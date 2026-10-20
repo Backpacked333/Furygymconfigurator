@@ -5,11 +5,26 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from hosted_dispatcher import LaneService, drain, durable_journal
+from hosted_dispatcher import LaneService, drain, durable_journal, worker_recipe
 from on_demand.journal import Journal
 
 
 class HostedJournalTests(unittest.TestCase):
+    def test_worker_build_does_not_rewrite_customer_admission_recipe(self):
+        original = {'releaseId': 'fury-native-five@2', 'workerBuildSha256': 'a' * 64}
+        active = {**original, 'workerBuildSha256': 'b' * 64}
+        approval = {'policy': {'recipe': original}}
+        database = Mock()
+        self.assertEqual(worker_recipe(database, approval), original)
+        database.read.assert_not_called()
+        approval['active_worker_build_sha256'] = active['workerBuildSha256']
+        database.read.return_value = [{'registration': active}]
+        self.assertEqual(worker_recipe(database, approval), active)
+        self.assertEqual(approval['policy']['recipe'], original)
+        database.read.return_value = []
+        with self.assertRaises(RuntimeError):
+            worker_recipe(database, approval)
+
     def test_lanes_only_change_the_dispatch_rpc(self):
         for lane in ('foreground', 'background'):
             database, service = Mock(), Mock()
@@ -77,7 +92,7 @@ class HostedJournalTests(unittest.TestCase):
         worker.recover.side_effect = recover
         database = Mock()
         database.rpc.return_value = True
-        database.read.return_value = [{'policy': {}, 'enabled': True, 'expires_at': '2099-01-01T00:00:00Z'}]
+        database.read.return_value = [{'policy': {'recipe': {'workerBuildSha256': 'a' * 64}}, 'enabled': True, 'expires_at': '2099-01-01T00:00:00Z'}]
         env = {key: 'test' for key in ['FURY_DISPATCHER_ID', 'FURY_GPU_APP', 'FURY_GPU_IMAGE',
                                      'FURY_SERVICE_ORIGIN', 'FURY_WORKER_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']}
         with patch.dict('os.environ', env), patch('hosted_dispatcher.Database', return_value=database), \

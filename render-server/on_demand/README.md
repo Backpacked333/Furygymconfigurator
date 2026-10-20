@@ -39,7 +39,8 @@ remains explicit in the prepared manifests and recipe release.
 ## Lifetimes, no retries, and SDK constraint
 
 - One GPU, one render child at a time; one CPU daemon consumes sequentially.
-- DB global cap must be ≤2 active/reserved jobs, minimum warm GPUs 0, provider retries 0.
+- DB global cap is two unsettled provider claims; queued reservations do not occupy GPUs.
+  Minimum warm GPUs remain 0 and provider retries 0.
 - Preparation ≤120 s, startup ≤180 s, each image process ≤300 s, at most five views.
 - Sandbox hard timeout and idle timeout are both the remaining admitted lifetime,
   capped at 2100 s and approval/claim expiry. Idle timeout is not shorter than a render.
@@ -280,29 +281,48 @@ The ledger is conservative
 application accounting, not a verified Modal invoice or an account-wide billing cap;
 unrelated Modal apps, storage, network and hosting bills must be monitored separately.
 
-### Queue-lane rollout hold
+### Compatible queue-worker rollout
 
-The currently registered `fury-native-five@2` package validates
-`maxActiveJobsPerSession` as exactly 1. Queue lanes emit 2. This source change is **not a
+The original `fury-native-five@2` package validates
+`maxActiveJobsPerSession` as exactly 1. The queue worker permits 2. This source change is **not a
 drop-in deployment of that archived package**: the image-build preflight deliberately
 rejects a worker that cannot accept the two-job ceiling. The new schema still accepts
 old one-job claims for recovery, but the old schema cannot accept new claims.
 
-Before applying the queue migration, produce and review a newly versioned immutable worker
-release and its API/recipe registration. Do not repack changed source under the existing
-release ID or overwrite its hashes. Changing recipe identity also changes cache keys; a
-cache-compatibility strategy and in-flight legacy receipt handling must be reviewed before
-that cutover. This patch does not change recipe IDs, alter stored images, reset balances,
-apply live migrations, or deploy workers.
+Build the execution-only upgrade from the exact registered archived source closure, not
+the current application checkout:
 
-With the compatible release ready: stop new admissions for the coordinated maintenance
-window, let existing work settle, inventory any uncertain dispatches, and preserve the
-existing foreground journal. Apply the migration, deploy the compatible API and both
-dispatcher functions, and initialize **only** the new background volume on an existing
-installation. Keep uncertain reservations occupying their slots. Verify two separate
-GPU jobs, persistence of a third queued design, and a saved-image cache hit before claiming
-hosted readiness; restore authorized admission after verification. Rollback must drain or
-reconcile queued liabilities rather than reverting to the old admission cap underneath them.
+```sh
+python scripts/native-render-package.py --queue-upgrade /path/to/verified/archive /path/to/new-package
+```
+
+The command verifies every archived file and registration hash, then makes only the audited
+TypeScript/Python limit changes. The manifest identifies `fury-native-queue-worker@1`, its
+parent build, and exact changed-file hashes. Geometry, materials, cameras, renderer code,
+assets and image keys remain unchanged. Broad bundle/renderer aggregate hashes change
+because they also cover execution validation; they must not be misrepresented as the old build.
+
+Register the new package in the additive, immutable `render_library_worker_builds` table;
+never overwrite `render_library_recipes`. Keep the approval's original `policy.recipe`
+unchanged so existing customer APIs remain compatible. Only the separate
+`active_worker_build_sha256` selects execution. The dispatcher resolves that registration;
+the worker API validates historical events using each job's stored build, even after cutover.
+
+Deploy the compatible API to an explicitly credential-scoped trusted preview. Build a new
+GPU image with the upgraded `recipe.json`; the old GPU image cannot run new-build claims.
+Apply the queue and worker-build migrations atomically, retaining all balances and evidence.
+Until activation, claims retain the original one-job ceiling. Preserve the original journal,
+initialize **only** the background journal, and drain existing provider work before replacing
+the dispatcher. Deploy both functions using the new package/image and trusted API origin,
+then select the new registered build. Do not stop customer admissions as test cleanup.
+
+Rollback requires draining/reconciling in-flight new-build work first, retaining the upgraded
+API's historical validation and both journals. Select the old build and redeploy its original
+dispatcher/image together; do not feed old workers two-job claims or delete queued liabilities.
+The old single-lane dispatcher cannot service all background backlog: preserve that backlog
+for the restored two-lane deployment. Keep uncertain reservations occupying their slots.
+Verify two separate GPU jobs, durable overflow, and a saved-image cache hit before claiming
+hosted readiness; a successful deployment alone proves none of these.
 
 ## Offline checks and explicit fidelity holds
 

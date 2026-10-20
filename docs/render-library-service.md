@@ -103,6 +103,11 @@ Apply migrations in order to a chosen Supabase project only after review:
 - `202610200001_render_queue_lanes.sql`: durable queue admission, latest-request priority,
   independent foreground/background dispatch slots, and a fenced shared-app shutdown.
   **Do not apply to the existing hosted worker without the compatibility rollout below.**
+- `202610200002_worker_builds.sql`: append-only execution registrations and an active-build
+  pointer separate from the unchanged customer policy/image recipe. Historical jobs and
+  receipts retain their own registrations. Legacy builds keep the one-job session ceiling;
+  the approved queue build permits two. Apply together with the queue migration, following
+  the compatible queue-worker rollout in `render-server/on_demand/README.md`.
 
 `anon`, `authenticated` and `PUBLIC` have no table or RPC privileges on the ledger.
 `service_role` gets table DML and RPC execution; this credential is an administrative trust
