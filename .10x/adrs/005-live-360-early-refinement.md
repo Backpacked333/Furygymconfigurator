@@ -42,7 +42,23 @@ Each was to ship on by default only where it measurably helps.
      through an invalid 2D view. The same Dawn here rejected a 3D version.
    - Verified on SwiftShader WebGPU by `scripts/seed-check.mjs`: light within 1% of the CPU lookup,
      rows the right way up (a flipped-rows control fails it), averaging and the white cutoff.
-3. **Sobol sampling.** SOBOL_DECISION
+3. **Sobol sampling (shipped, live only, `?sampler=blue` to compare).**
+   - The tracer's default already draws Sobol numbers: the same sequence for every pixel, offset by
+     a blue-noise dither. The alternative is Sobol scrambled per pixel (`RANDOM_SOBOL`).
+   - `scripts/convergence.mjs` traced both with the real tracer on SwiftShader (64×40, 7 bounces as
+     live, 3 runs each, against a 1024-sample reference). Error per sample, lower is better:
+
+     | View      | Sampler           | 2 spp | 8 spp | 32 spp | 128 spp |
+     | --------- | ----------------- | ----- | ----- | ------ | ------- |
+     | room      | blue dither (old) | 33.8% | 18.9% | 8.8%   | 4.9%    |
+     | room      | Sobol scrambled   | 34.8% | 18.0% | 8.3%   | 4.3%    |
+     | equipment | blue dither (old) | 70.9% | 35.4% | 16.8%  | 8.9%    |
+     | equipment | Sobol scrambled   | 69.6% | 32.3% | 16.0%  | 8.7%    |
+
+   - Even at 2 samples, and 5–9% lower from 8 on: the same error for roughly 10–18% fewer samples.
+   - What is shown is denoised, never the raw noise the blue dither is designed to make look
+     smoother. OIDN is trained on independent per-pixel noise, which the scrambled sequence gives.
+   - Stills and exports keep the default.
 4. **Smarter light picking (dropped).**
    - The tracer already weights light selection by power, distance and spot cone
      (`LightsInfoNode.getLightWeight`). What remains is its TODO: culling lights below the surface's

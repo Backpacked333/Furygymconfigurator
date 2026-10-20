@@ -620,6 +620,13 @@ export class PathTraceSession {
        */
       restBatch?: { afterMs: number; batchMs: number; maxPasses: number }
       /**
+       * The tracer's random numbers: its default blue-noise-dithered Sobol sequence (the same
+       * sequence for every pixel, offset by a blue-noise dither), or Sobol scrambled per pixel,
+       * which converged 5–9% lower in error per sample from 8 samples on in
+       * scripts/convergence.mjs (equal at 2). The images shown are denoised, never raw noise.
+       */
+      random?: 'blue' | 'sobol'
+      /**
        * Mark each view's first image and milestones in the performance timeline
        * (`fury:trace-first-image`, `fury:trace-milestone-<spp>`).
        */
@@ -650,6 +657,7 @@ export class PathTraceSession {
     tracer.clampDirect = options.clampDirect ?? 0
     tracer.clampIndirect = options.clampIndirect ?? 10
     tracer.transmissiveBackground = module.TRANSMISSIVE_BACKGROUND_ENVIRONMENT
+    if (options.random === 'sobol') tracer.setRandom(module.RANDOM_SOBOL)
     // The session crossfades from the raster image itself, so skip the tracer's low-res preview.
     tracer.dynamicLowRes = false
     tracer.renderDelay = 0

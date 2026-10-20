@@ -503,6 +503,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       reset: vi.fn(),
       setSize: vi.fn(),
       renderSample: vi.fn(),
+      setRandom: vi.fn(),
       dispose: vi.fn(),
       getSampleCountsAsync: () => Promise.resolve({ min: 0 }),
       renderScale: 1,
@@ -536,6 +537,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
           }
         },
         TRANSMISSIVE_BACKGROUND_ENVIRONMENT: 0,
+        RANDOM_SOBOL: 'sobol-strategy',
         OIDNDenoiser: class {
           complete = false
           texture: Texture | null = null
@@ -586,6 +588,13 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     )
     expect(tracer).toContain('this._clampDirect = 0;')
     expect(tracer).toContain('this._clampIndirect = 10;')
+  })
+
+  it('draws Sobol numbers scrambled per pixel only where asked (the 360° view)', () => {
+    const sobol = session({ random: 'sobol' })
+    expect(sobol.tracer.setRandom).toHaveBeenCalledWith('sobol-strategy')
+    const stills = session()
+    expect(stills.tracer.setRandom).not.toHaveBeenCalled()
   })
 
   it("passes the 360° view's depth and clamps to the tracer", () => {

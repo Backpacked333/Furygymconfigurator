@@ -70,6 +70,14 @@ export function earlyImages(search = window.location.search) {
   return new URLSearchParams(search).get('firstImage') !== '8'
 }
 
+/**
+ * The live trace's random numbers: Sobol scrambled per pixel (pathtrace.ts `random`), or
+ * `?sampler=blue` for the tracer's default blue-noise dither, to compare.
+ */
+export function liveSampler(search = window.location.search): 'blue' | 'sobol' {
+  return new URLSearchParams(search).get('sampler') === 'blue' ? 'blue' : 'sobol'
+}
+
 /** `?cyclesSeed=0` starts the first trace without the design's Cycles image, to compare. */
 export function cyclesSeed(search = window.location.search) {
   return new URLSearchParams(search).get('cyclesSeed') !== '0'

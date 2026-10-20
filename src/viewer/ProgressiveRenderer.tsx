@@ -21,7 +21,7 @@ import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/rend
 import { FrameGuard } from './frameGuard'
 import { pixelsFromPose } from './entryPose'
 import { ENTRY_TOLERANCE_PX } from './EntryWatch'
-import { cyclesSeed, earlyImages, liveProfile, traceScale } from './liveProfile'
+import { cyclesSeed, earlyImages, liveProfile, liveSampler, traceScale } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
@@ -280,6 +280,7 @@ export function ProgressiveRenderer({
             fadeMs: profile.fadeMs,
             firstFadeMs: profile.firstFadeMs,
             earlyImages: earlyImages(),
+            random: liveSampler(),
             batchMs: profile.batchMs,
             maxPasses: profile.maxPasses,
             restBatch: profile.rest ?? undefined,

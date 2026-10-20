@@ -449,6 +449,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     settle()
     expect(mocks.session.mock.lastCall![3]).toMatchObject({
       earlyImages: true,
+      random: 'sobol',
       timeline: true,
       fadeMs: 260,
       firstFadeMs: 120,
@@ -459,11 +460,15 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
   })
 
   it('keeps Lite batches small at rest, and ?firstImage=8 restores the first image at 8 samples', async () => {
-    window.history.replaceState(null, '', '/?firstImage=8')
+    window.history.replaceState(null, '', '/?firstImage=8&sampler=blue')
     try {
       await render({ quality: 'lite' })
       settle()
-      expect(mocks.session.mock.lastCall![3]).toMatchObject({ earlyImages: false, batchMs: 12 })
+      expect(mocks.session.mock.lastCall![3]).toMatchObject({
+        earlyImages: false,
+        random: 'blue',
+        batchMs: 12,
+      })
       expect(mocks.session.mock.lastCall![3].restBatch).toBeUndefined()
     } finally {
       window.history.replaceState(null, '', '/')

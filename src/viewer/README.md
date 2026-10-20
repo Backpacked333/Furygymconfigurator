@@ -72,6 +72,8 @@ sampler may retire settled tiles earlier. Its sample count is not a measure of n
   `?firstImage=8` restores the old first milestone for comparison. Each view's first image and
   milestones are marked `fury:trace-first-image` and `fury:trace-milestone-<spp>` in the performance
   timeline, and listed in the `?traceStats=1` log.
+- The live trace draws Sobol numbers scrambled per pixel, not the tracer's default blue-noise
+  dither: 5–9% lower error per sample from 8 samples on in `scripts/convergence.mjs`, and equal at 2. `?sampler=blue` restores the default for comparison.
 - The entry's Cycles image seeds the first trace at its pose (`?cyclesSeed=0` turns this off).
   - The library image the view opens on is read back to scene-linear light. This uses Blender
     4.5's own AgX "Medium High Contrast" view, inverted: `render/agxInverse.bin`, built by
