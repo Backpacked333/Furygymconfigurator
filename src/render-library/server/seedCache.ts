@@ -10,6 +10,7 @@ import {
   type ImageDescriptor,
 } from '../contracts.js'
 import { computeSetIdentity } from '../identity.js'
+import { viewDesign } from '../views.js'
 
 /** Import these EXACT historical receipts, not an editable manifest with a matching design. */
 export function verifySeedManifest(bytes: Uint8Array): NativeLibrary {
@@ -39,10 +40,7 @@ export async function seedImagesForSet(
   for (const entry of manifest.entries) {
     const camera = cameraRefSchema.safeParse(entry.design.presentation.cameraRef)
     if (!camera.success || camera.data === 'entry-draft@1') continue
-    const selectedView = {
-      ...requested,
-      presentation: { ...requested.presentation, cameraRef: camera.data },
-    }
+    const selectedView = viewDesign(requested, camera.data)
     if (serializeDesign(selectedView) !== serializeDesign(entry.design)) continue
     images.push(
       imageDescriptorSchema.parse({
