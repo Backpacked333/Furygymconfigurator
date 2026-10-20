@@ -31,7 +31,8 @@ grant select,insert on public.render_library_worker_builds to service_role;
 alter table public.render_library_approvals add column active_worker_build_sha256 text
   references public.render_library_worker_builds(worker_build_sha256);
 
-create or replace function public.render_library_claim_dispatch("dispatcherId" text, lane text default 'foreground') returns jsonb
+drop function public.render_library_claim_dispatch(text,text);
+create function public.render_library_claim_dispatch("dispatcherId" text, lane text default 'foreground', "workerBuildSha256" text default null) returns jsonb
 language plpgsql security definer set search_path = pg_catalog, public as $$
 declare o public.render_library_outbox; token uuid := gen_random_uuid();
 begin
@@ -52,6 +53,8 @@ begin
     left join public.render_library_worker_builds w on w.worker_build_sha256=
       coalesce(a.active_worker_build_sha256,a.policy->'recipe'->>'workerBuildSha256')
     where b.state='pending' and a.enabled and not a.dispatcher_halted and a.expires_at>now() and r.status='reserved'
+      and coalesce("workerBuildSha256",a.policy->'recipe'->>'workerBuildSha256')=
+        coalesce(a.active_worker_build_sha256,a.policy->'recipe'->>'workerBuildSha256')
       and (render_library_claim_dispatch.lane='background' or exists(select 1 from public.render_library_sessions s
         where s.foreground_job_id=j.id))
       and (select count(*) from public.render_library_outbox busy
@@ -108,5 +111,8 @@ begin
   update public.render_library_jobs set attempt_id=attempt,fence=fence+1,deadline_at=deadline,worker_claim=c,updated_at=now() where id=j.id;
   return c;
 end $$;
+
+revoke all on function public.render_library_claim_dispatch(text,text,text) from public,anon,authenticated;
+grant execute on function public.render_library_claim_dispatch(text,text,text) to service_role;
 
 notify pgrst,'reload schema';

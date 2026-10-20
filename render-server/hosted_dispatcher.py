@@ -72,15 +72,16 @@ def durable_journal(path, volume):
 
 
 class LaneService:
-    def __init__(self, service, database, lane):
+    def __init__(self, service, database, lane, worker_build):
         self.service, self.database, self.lane = service, database, lane
+        self.worker_build = worker_build
 
     def __getattr__(self, name):
         return getattr(self.service, name)
 
     def rpc(self, name, values):
         if name == 'claim_dispatch':
-            return self.database.rpc(name, {**values, 'lane': self.lane})
+            return self.database.rpc(name, {**values, 'lane': self.lane, 'workerBuildSha256': self.worker_build})
         return self.service.rpc(name, values)
 
 
@@ -127,7 +128,8 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
         service = Service(os.environ['FURY_SERVICE_ORIGIN'], os.environ['FURY_WORKER_TOKEN'],
                           os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'],
                           deployment_token())
-        worker = Dispatcher(LaneService(service, db, lane), HostedProvider(root, work), journal, policy, root, work)
+        worker = Dispatcher(LaneService(service, db, lane, policy['recipe']['workerBuildSha256']),
+                            HostedProvider(root, work), journal, policy, root, work)
         worker.verify_source()
         pending = [row for row in journal.jobs() if row['phase'] != 'settled']
         active = [row for row in pending if row['phase'] != 'uncertain']

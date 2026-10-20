@@ -7,6 +7,11 @@ import modal
 
 APP_NAME = 'fury-render-library-dispatcher'
 app = modal.App(APP_NAME)
+runtime_overrides = {key: os.environ[key] for key in ('FURY_SERVICE_ORIGIN', 'FURY_GPU_IMAGE') if key in os.environ}
+if runtime_overrides and len(runtime_overrides) != 2:
+    raise RuntimeError('service-origin-and-gpu-image-must-be-pinned-together')
+runtime_secrets = [modal.Secret.from_name('fury-render-library-dispatcher'),
+                   modal.Secret.from_dict(runtime_overrides)]
 volume = modal.Volume.from_name('fury-render-library-dispatch-journal', create_if_missing=True)
 background_volume = modal.Volume.from_name('fury-render-library-background-journal', create_if_missing=True)
 package = Path(os.environ['FURY_NATIVE_PACKAGE']).resolve()
@@ -33,7 +38,7 @@ image = (
 @app.function(
     image=image,
     schedule=modal.Period(seconds=15),
-    secrets=[modal.Secret.from_name('fury-render-library-dispatcher')],
+    secrets=runtime_secrets,
     volumes={'/state': volume},
     cpu=(2, 2), memory=(4096, 4096),
     timeout=3600, max_containers=1, retries=0, serialized=True, include_source=False,
@@ -46,7 +51,7 @@ def dispatch():
 @app.function(
     image=image,
     schedule=modal.Period(seconds=15),
-    secrets=[modal.Secret.from_name('fury-render-library-dispatcher')],
+    secrets=runtime_secrets,
     volumes={'/state': background_volume},
     cpu=(2, 2), memory=(4096, 4096),
     timeout=3600, max_containers=1, retries=0, serialized=True, include_source=False,

@@ -86,10 +86,14 @@ function reserve(input = command) {
 function ledger() {
   return JSON.parse(run('select row_to_json(a) from public.render_library_approvals a;'))
 }
-function dispatch(lane?: 'foreground' | 'background') {
+function dispatch(
+  lane: 'foreground' | 'background' = 'foreground',
+  build: string | null = workerRegistration.workerBuildSha256,
+) {
   return rpc('render_library_claim_dispatch', [
     quote('test-dispatcher'),
-    ...(lane ? [quote(lane)] : []),
+    quote(lane),
+    build === null ? 'null' : quote(build),
   ])
 }
 
@@ -219,12 +223,23 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run('update public.render_library_approvals set active_worker_build_sha256=null')
     reserve()
     reserve(await variation(1))
-    const first = dispatch()
+    expect(dispatch()).toBeNull()
+    const first = dispatch('foreground', null)
     expect(
       workerClaim(first.dispatch, registration.workerBuildSha256).limits.maxActiveJobsPerSession,
     ).toBe(1)
-    expect(dispatch('background')).toBeNull()
+    expect(dispatch('background', null)).toBeNull()
     expect(ledger().reserved_micro_usd).toBe(11000)
+  })
+  it('fences legacy and inactive dispatchers before consuming queued work at cutover', () => {
+    reserve()
+    expect(rpc('render_library_claim_dispatch', [quote('legacy-dispatcher')])).toBeNull()
+    expect(dispatch('foreground', registration.workerBuildSha256)).toBeNull()
+    expect(
+      run('select count(*) from public.render_library_outbox where claimed_at is not null'),
+    ).toBe('0')
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    expect(dispatch().dispatch.jobId).toBeTruthy()
   })
   it('rejects inactive builds without consuming the one-shot worker claim', () => {
     reserve()
@@ -555,7 +570,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       const result = await asyncRun('docker', [
         ...args,
         '-c',
-        `select public.render_library_claim_dispatch('racing-dispatcher',${quote(lane)});`,
+        `select public.render_library_claim_dispatch('racing-dispatcher',${quote(lane)},${quote(workerRegistration.workerBuildSha256)});`,
       ])
       return JSON.parse(result.stdout.trim() || 'null')
     }
@@ -945,7 +960,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       run(
         "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_claim_dispatch';",
       ),
-    ).toBe('{dispatcherId,lane}')
+    ).toBe('{dispatcherId,lane,workerBuildSha256}')
     expect(
       run(
         "select proargnames::text from pg_proc where pronamespace='public'::regnamespace and proname='render_library_record_dispatch';",

@@ -28,10 +28,11 @@ class HostedJournalTests(unittest.TestCase):
     def test_lanes_only_change_the_dispatch_rpc(self):
         for lane in ('foreground', 'background'):
             database, service = Mock(), Mock()
-            wrapped = LaneService(service, database, lane)
+            wrapped = LaneService(service, database, lane, 'a' * 64)
             values = {'dispatcherId': 'test:' + lane}
             wrapped.rpc('claim_dispatch', values)
-            database.rpc.assert_called_once_with('claim_dispatch', {**values, 'lane': lane})
+            database.rpc.assert_called_once_with('claim_dispatch', {**values, 'lane': lane,
+                                                                   'workerBuildSha256': 'a' * 64})
             self.assertNotIn('lane', values)
             wrapped.rpc('reconcile_terminal', {'jobId': 'job'})
             service.rpc.assert_called_once_with('reconcile_terminal', {'jobId': 'job'})

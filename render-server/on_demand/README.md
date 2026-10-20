@@ -311,10 +311,14 @@ the worker API validates historical events using each job's stored build, even a
 Deploy the compatible API to an explicitly credential-scoped trusted preview. Build a new
 GPU image with the upgraded `recipe.json`; the old GPU image cannot run new-build claims.
 Apply the queue and worker-build migrations atomically, retaining all balances and evidence.
+Dispatch claims carry the worker build hash. Legacy callers without that hash can only claim
+while the original build is active; mismatched dispatchers leave queued work untouched.
 Until activation, claims retain the original one-job ceiling. Preserve the original journal,
 initialize **only** the background journal, and drain existing provider work before replacing
-the dispatcher. Deploy both functions using the new package/image and trusted API origin,
-then select the new registered build. Do not stop customer admissions as test cleanup.
+the dispatcher. Select the new build to fence legacy dispatchers, then deploy both functions
+with `FURY_NATIVE_PACKAGE`, `FURY_GPU_IMAGE` and `FURY_SERVICE_ORIGIN` pinned together.
+The latter two override only those settings, retaining the existing named credentials.
+Queued admissions remain durable during this handoff. Do not stop customer admissions as test cleanup.
 
 Rollback requires draining/reconciling in-flight new-build work first, retaining the upgraded
 API's historical validation and both journals. Select the old build and redeploy its original
