@@ -1,6 +1,22 @@
-import { Component, Suspense, lazy, useCallback, useState, type ReactNode } from 'react'
+import {
+  Component,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import type { DesignEnvelope } from '../domain/design'
 import type { Unit } from '../lib/config'
+import {
+  LIVE_STEPS,
+  liveLoading,
+  sceneProgress,
+  textureProgress,
+  type LiveStep,
+} from '../render/progress'
 import type { ViewerStatus } from '../viewer/ProgressiveRenderer'
 
 const LiveDesignScene = lazy(() => import('./LiveDesignScene'))
@@ -32,6 +48,72 @@ const labels: Record<ViewerStatus, string> = {
 /** The crossfade between the gallery image and the live view, either way (prototype.css). */
 export const LIVE_FADE_MS = 300
 
+/** What the loading screen says each step is doing (render/progress.ts liveLoading). */
+const stepLabels: Record<Exclude<LiveStep, 'ready'>, string> = {
+  engine: 'Loading the 3D engine',
+  scene: 'Building the scene',
+  materials: 'Preparing materials and light',
+  tracer: 'Starting the path tracer',
+}
+const STEPS = LIVE_STEPS.filter((step): step is Exclude<LiveStep, 'ready'> => step !== 'ready')
+
+/**
+ * Where the view is on its way to being explorable: the renderer's own phases move it to "scene"
+ * (the engine is up and the scene is mounting) before the scene's controller takes over.
+ */
+function useLiveStep(): LiveStep {
+  const step = useSyncExternalStore(liveLoading.subscribe, liveLoading.get)
+  const phase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
+  const mounting = phase === 'shaders' || phase === 'ready'
+  return step === 'engine' && mounting ? 'scene' : step
+}
+
+/**
+ * The loading screen over the stage while the 360° view prepares (over the gallery image, which
+ * stays visible behind it). Every animation in it is a transform or an opacity, which the
+ * compositor runs off the main thread: it keeps moving through the scene's longest tasks.
+ */
+function LiveLoading({
+  step,
+  fraction,
+  done,
+}: {
+  step: LiveStep
+  fraction: number | null
+  done: boolean
+}) {
+  const current = step === 'ready' ? STEPS.length : STEPS.indexOf(step)
+  return (
+    <div className={`live-viewport-loading live-loading${done ? ' is-done' : ''}`} role="status">
+      <div className="live-loading-card">
+        <svg className="live-loading-ring" viewBox="0 0 40 40" aria-hidden="true">
+          <circle cx="20" cy="20" r="16" />
+          <circle cx="20" cy="20" r="16" />
+        </svg>
+        <strong>{labels.loading}</strong>
+        <ol className="live-loading-steps" aria-hidden="true">
+          {STEPS.map((item, index) => (
+            <li
+              key={item}
+              className={index < current ? 'is-done' : index === current ? 'is-active' : undefined}
+            >
+              <i />
+              {stepLabels[item]}
+            </li>
+          ))}
+        </ol>
+        <div
+          className={`live-loading-bar${fraction === null ? ' is-waiting' : ''}`}
+          aria-hidden="true"
+        >
+          <i style={fraction === null ? undefined : { transform: `scaleX(${fraction})` }} />
+        </div>
+        <span className="sr-only">{step === 'ready' ? 'Ready' : stepLabels[step]}</span>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Whether the gallery image is on the stage under the live view: 'still' while the canvas draws
  * unseen over this design's own rendered image, 'lifting' while it fades in over it, null once the
@@ -58,6 +140,30 @@ export function LiveViewport(props: {
   const [status, setStatus] = useState<ViewerStatus>('loading')
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
+  // A new view starts its loading from the beginning (before any of its scene mounts).
+  useState(() => liveLoading.restart())
+  const step = useLiveStep()
+  // Scans are counted for the whole page: the share of those requested since this view opened.
+  const [textureBase] = useState(() => textureProgress.get())
+  const textures = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
+  const requested = textures.requested - textureBase.requested
+  const fraction =
+    step === 'materials' && requested > 0
+      ? Math.min(1, (textures.loaded - textureBase.loaded) / requested)
+      : null
+  // The screen fades out (LIVE_FADE_MS) once the view is ready to explore.
+  const loading = step !== 'ready'
+  const [fading, setFading] = useState(false)
+  const [wasLoading, setWasLoading] = useState(loading)
+  if (wasLoading !== loading) {
+    setWasLoading(loading)
+    if (!loading) setFading(true)
+  }
+  useEffect(() => {
+    if (!fading) return
+    const timer = setTimeout(() => setFading(false), LIVE_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [fading])
   // The curtain is the gallery's, not the scene's: the memoised scene never re-renders for it.
   const { curtain, leaving, onReadyChange, onLeaveEntry, ...scene } = props
   // The gallery image is on the stage under the canvas, or the canvas is fading in over it. A
@@ -91,18 +197,16 @@ export function LiveViewport(props: {
           )}
         </Suspense>
       </ViewerBoundary>
-      {(failed || (!ready && !covered)) && (
+      {failed ? (
         <div className="live-viewport-loading" role="status">
-          <strong>{failed ? 'Live 3D is unavailable on this device.' : labels.loading}</strong>
-          <span>
-            {failed
-              ? 'Close the 360° view to return to your gallery. Your design is unchanged.'
-              : 'Your selected design is loading. No cloud render is started.'}
-          </span>
+          <strong>Live 3D is unavailable on this device.</strong>
+          <span>Close the 360° view to return to your gallery. Your design is unchanged.</span>
         </div>
-      )}
+      ) : loading || fading || (!ready && !covered) ? (
+        <LiveLoading step={step} fraction={fraction} done={!loading && (ready || covered)} />
+      ) : null}
       {/* Over the rendered image a compact note, not a veil: the image is what is on the stage. */}
-      {!failed && (ready || covered) && (
+      {!failed && !loading && (ready || covered) && (
         <span className="live-viewport-status" role="status">
           {!ready
             ? labels.loading

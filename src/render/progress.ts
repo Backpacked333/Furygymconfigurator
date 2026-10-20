@@ -55,6 +55,39 @@ export const sceneProgress = {
 }
 
 /**
+ * Where the live 360° view is on its way from the press of "Explore in 360°" to a view that can
+ * be explored without a stall: the engine's code, the scene, its materials and light (scans and
+ * shaders), the path tracer's first start (its scene capture, the view's longest task). `ready`
+ * once that start has happened, or once it cannot (no WebGPU, a failure).
+ */
+export const LIVE_STEPS = ['engine', 'scene', 'materials', 'tracer', 'ready'] as const
+export type LiveStep = (typeof LIVE_STEPS)[number]
+const liveListeners = new Set<Listener>()
+let liveStep: LiveStep = 'engine'
+
+export const liveLoading = {
+  subscribe(listener: Listener) {
+    liveListeners.add(listener)
+    return () => {
+      liveListeners.delete(listener)
+    }
+  },
+  get: () => liveStep,
+  /** Moves to `next`; never back, except through `restart`. */
+  set(next: LiveStep) {
+    if (LIVE_STEPS.indexOf(next) <= LIVE_STEPS.indexOf(liveStep)) return
+    liveStep = next
+    liveListeners.forEach((listener) => listener())
+  },
+  /** A new live view is starting from nothing. */
+  restart() {
+    if (liveStep === 'engine') return
+    liveStep = 'engine'
+    liveListeners.forEach((listener) => listener())
+  },
+}
+
+/**
  * Render-cost estimates for scheduling. The visible status uses observed request stages and
  * measured local samples instead: elapsed time is not evidence of cloud render completion.
  */

@@ -16,7 +16,7 @@ import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
 import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
 import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pipeline'
-import { sceneProgress, textureProgress } from '../render/progress'
+import { liveLoading, sceneProgress, textureProgress } from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
 import { FrameGuard } from './frameGuard'
 import { pixelsFromPose } from './entryPose'
@@ -37,6 +37,11 @@ const START_FRAMES = 3
  * an 8-bit image spans a large step of light (agxInverse.ts), past about 3.3× middle grey here.
  */
 const SEED_CEILING = 0.94
+/**
+ * Longest the loading screen stays up once the scene is mounted: a design whose scans are slow (or
+ * a tracer that never starts) opens as it is rather than keep the visitor waiting.
+ */
+const LOADING_LIMIT_MS = 15000
 /** Longest the first start at the entry pose waits for its Cycles image to decode. */
 const SEED_WAIT_MS = 800
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
@@ -121,6 +126,8 @@ export function ProgressiveRenderer({
     /** The entry's Cycles image, decoding or decoded, until the first start at its pose. */
     seed: EntrySeed | null
     prepareSeed: () => void
+    /** The first trace has started: the loading screen is done. */
+    begun: boolean
   } | null>(null)
   const props = useRef({ active, look, place, onReady, onStatus, entry })
   useLayoutEffect(() => {
@@ -174,8 +181,12 @@ export function ProgressiveRenderer({
       lean: null as Pipeline | null,
       seed: null as EntrySeed | null,
       prepareSeed: () => {},
+      begun: false,
     }
     state.current = runtime
+    // The scene is mounted: what is left is its materials and light, then the tracer's start.
+    liveLoading.set('materials')
+    const loadingLimit = setTimeout(() => liveLoading.set('ready'), LOADING_LIMIT_MS)
     // The entry's image is on the stage already, so fetching it again reads the browser's cache;
     // it decodes off the main thread. Once per image: a reopened view whose history holds it
     // already, or a camera that left the pose first, has no use for it.
@@ -300,6 +311,7 @@ export function ProgressiveRenderer({
     invalidate()
     return () => {
       disposed = true
+      clearTimeout(loadingLimit)
       state.current = null
       materials()
       textures()
@@ -391,6 +403,14 @@ export function ProgressiveRenderer({
       report(current.failed ? 'raster-only' : 'interactive')
       current.drawn++
       const textures = textureProgress.get()
+      // The loading screen: materials while scans arrive, then the tracer's first start, which
+      // builds its scene in one long task. The screen says so at least the rest window (REST_MS)
+      // ahead, so it is on screen before the main thread is busy with it: a scan's arrival
+      // restarts that window.
+      if (!current.begun) {
+        if (current.failed) liveLoading.set('ready')
+        else if (textures.loaded >= textures.requested) liveLoading.set('tracer')
+      }
       // The first start at the entry's pose begins from its Cycles image: wait a little for it to
       // decode, never longer than SEED_WAIT_MS.
       const entry = props.current.entry
@@ -443,6 +463,8 @@ export function ProgressiveRenderer({
             performance.measure('fury:trace-begin', { start: began, end: performance.now() }),
           )
           current.tracing = true
+          current.begun = true
+          liveLoading.set('ready')
         } catch {
           tracer.halt()
           current.failed = true

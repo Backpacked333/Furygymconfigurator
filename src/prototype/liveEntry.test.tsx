@@ -5,6 +5,7 @@ import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { serializeDesign, type DesignEnvelope } from '../domain/design'
 import { ImageConfigurator } from './ImageConfigurator'
+import { liveLoading } from '../render/progress'
 import { LIVE_FADE_MS } from './LiveViewport'
 import type { NativeEntry, NativeLibrary } from './nativeLibrary'
 
@@ -53,7 +54,15 @@ vi.mock('./LiveDesignScene', () => ({
   }) => (
     <div data-live-scene data-active={active} data-entry-image={entryImage}>
       <canvas />
-      <button onClick={onReady}>Scene ready</button>
+      {/* Drawn, with its first trace started: the loading screen is done. */}
+      <button
+        onClick={() => {
+          onReady()
+          liveLoading.set('ready')
+        }}
+      >
+        Scene ready
+      </button>
       <button onClick={onLeaveEntry}>Camera moved</button>
     </div>
   ),
@@ -129,8 +138,11 @@ describe('entering the 360° view on the rendered image (jsdom, scene mocked)', 
     await open()
     expect(figure().hidden).toBe(false)
     expect(viewport().classList).toContain('is-covered')
-    expect(host.querySelector('.live-viewport-loading')).toBeNull()
+    // The loading screen over the image while the view prepares, gone once it can be explored.
+    expect(host.querySelector('.live-loading')).not.toBeNull()
     click('Scene ready')
+    advance(LIVE_FADE_MS)
+    expect(host.querySelector('.live-viewport-loading')).toBeNull()
     expect(host.querySelector('.stage')!.classList).toContain('is-live')
     expect(figure().hidden).toBe(false)
     expect(viewport().className).toBe('live-viewport is-ready is-covered')

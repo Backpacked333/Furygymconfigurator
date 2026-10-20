@@ -195,6 +195,10 @@ export const SceneSurface = memo(function SceneSurface({
             setMaxAnisotropy(renderer.getMaxAnisotropy())
             // The first frame compiles every shader in view.
             sceneProgress.set('shaders')
+            // The live view's loading screen says the scene is being built before the scene's
+            // synchronous mount takes the main thread: one painted frame first.
+            if (mode === 'live')
+              await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
             return renderer
           }}
           onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}

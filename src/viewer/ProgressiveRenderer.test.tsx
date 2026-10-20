@@ -5,7 +5,7 @@ import { PerspectiveCamera, Scene, Vector3, type Vector2 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import type { GalleryCamera } from '../render/gallery'
-import { textureProgress } from '../render/progress'
+import { liveLoading, textureProgress } from '../render/progress'
 import { ProgressiveRenderer } from './ProgressiveRenderer'
 
 const mocks = vi.hoisted(() => ({
@@ -119,6 +119,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.frames.clear()
     mocks.materialListeners.clear()
     mocks.pipe.settleFrames = 10
+    liveLoading.restart()
     mocks.create.mockImplementation((...args: unknown[]) =>
       (args[4] as { gi?: boolean } | undefined)?.gi === false ? mocks.lean : mocks.pipe,
     )
@@ -401,6 +402,60 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect(mocks.trace.begin).toHaveBeenCalledOnce()
       expect(now).toBeLessThan(800)
       expect(mocks.trace.storeImage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the loading screen’s steps', () => {
+    it('says materials while scans arrive, then the tracer before its first start', async () => {
+      await render()
+      expect(liveLoading.get()).toBe('materials')
+      act(() => textureProgress.update(2, 0))
+      // Even at rest with every scan in, a start waits for the frame after the announcement.
+      const frameNumber = () => mocks.beginFrame.mock.calls.length
+      let announcedIn = -1
+      const stop = liveLoading.subscribe(() => {
+        if (liveLoading.get() === 'tracer') announcedIn = frameNumber()
+      })
+      let begunIn = -1
+      mocks.trace.begin.mockImplementation(() => void (begunIn = frameNumber()))
+      settle()
+      expect(liveLoading.get()).toBe('materials')
+      expect(mocks.trace.begin).not.toHaveBeenCalled()
+      act(() => textureProgress.update(0, 2))
+      frame()
+      // The screen says it first; the long start comes in a later frame (after the rest the
+      // scans' arrival restarted).
+      expect(liveLoading.get()).toBe('tracer')
+      expect(mocks.trace.begin).not.toHaveBeenCalled()
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      stop()
+      expect(announcedIn).toBeGreaterThan(0)
+      expect(begunIn).toBeGreaterThan(announcedIn)
+      expect(liveLoading.get()).toBe('ready')
+    })
+
+    it('is done at once where the view cannot trace (WebGL)', async () => {
+      mocks.backend = 'webgl2'
+      await render()
+      frame()
+      expect(liveLoading.get()).toBe('ready')
+    })
+
+    it('never keeps the visitor waiting past 15 s', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        act(() => textureProgress.update(1, 0))
+        await render()
+        settle()
+        act(() => vi.advanceTimersByTime(14999))
+        expect(liveLoading.get()).toBe('materials')
+        act(() => vi.advanceTimersByTime(1))
+        expect(liveLoading.get()).toBe('ready')
+      } finally {
+        act(() => textureProgress.update(0, 1))
+        vi.useRealTimers()
+      }
     })
   })
 
