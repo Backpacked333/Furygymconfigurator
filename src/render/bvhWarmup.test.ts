@@ -10,7 +10,7 @@ import { MeshBVH } from 'three-mesh-bvh'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { TRACER_BVH_OPTIONS, attachBVH, buildBVH, bvhRequest } from './bvhBuild'
-import { MIN_TRIANGLES, geometriesToWarm, warmBVHs } from './bvhWarmup'
+import { MIN_TRIANGLES, POOL_SIZE, geometriesToWarm, warmBVHs } from './bvhWarmup'
 
 /** A geometry well above MIN_TRIANGLES, indexed or not, with groups or not. */
 const big = (indexed: boolean, groups = false) => {
@@ -96,6 +96,30 @@ describe('building the tracer’s BVHs off the main thread', () => {
     expect(await warmBVHs(root, build)).toBe(1)
     expect((kept as BufferGeometry & { boundsTree?: unknown }).boundsTree).toBeInstanceOf(MeshBVH)
     expect((replaced as BufferGeometry & { boundsTree?: unknown }).boundsTree).toBeUndefined()
+  })
+
+  it('builds several side by side, largest first, never more than the pool at once', async () => {
+    const material = new MeshBasicMaterial()
+    const root = new Group()
+    const sizes = [40, 96, 64, 128, 48]
+    const geometries = sizes.map((segments) => new SphereGeometry(1, segments, segments))
+    for (const geometry of geometries) root.add(new Mesh(geometry, material))
+    let running = 0
+    let most = 0
+    const started: number[] = []
+    const build = vi.fn(async (request: Parameters<typeof buildBVH>[0]) => {
+      started.push(request.position.length)
+      running++
+      most = Math.max(most, running)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      running--
+      return buildBVH(request)
+    })
+    expect(await warmBVHs(root, build, 3)).toBe(geometries.length)
+    expect(most).toBe(3)
+    expect(started).toEqual([...started].sort((a, b) => b - a))
+    expect(POOL_SIZE).toBeGreaterThanOrEqual(1)
+    expect(POOL_SIZE).toBeLessThanOrEqual(4)
   })
 
   it('never rejects: a geometry that fails to build is left to the tracer', async () => {
