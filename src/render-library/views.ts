@@ -43,36 +43,9 @@ export function customerAngle(angle: string): CustomerAngle {
   return CUSTOMER_ANGLES.includes(angle as CustomerAngle) ? (angle as CustomerAngle) : 'front-left'
 }
 
-export const INTERIOR_CAMERA_REF = 'entry-draft@1' as const
-export const INTERIOR_KEYING = 'interior-visible@1' as const
-
-/**
- * The interior view is keyed only by what the room camera can see: family, size, interior wall,
- * floor, mirror, the Studio door or Container opening/infill/integrated finish, scene, door pose
- * and aspect. Exterior-only choices (finish, accent, additions, railing) collapse to one neutral
- * representative so an exterior-only change reuses the saved interior image.
- */
-export function interiorDesign(input: unknown): DesignEnvelope {
-  const design = parseDesign(input)
-  return parseDesign({
-    ...design,
-    config: {
-      ...design.config,
-      structure: { ...design.config.structure, addons: [], railing: 'glass' },
-      appearance: { ...design.config.appearance, finish: 'obsidian', accent: false },
-    },
-    presentation: { ...design.presentation, cameraRef: INTERIOR_CAMERA_REF },
-  })
-}
-
-/** The design whose pixels a camera's image shows; identical to the request except for the interior. */
-export function viewDesign(input: unknown, cameraRef: CameraRef): DesignEnvelope {
-  const design = parseDesign(input)
-  if (cameraRef === INTERIOR_CAMERA_REF) return interiorDesign(design)
-  return parseDesign({ ...design, presentation: { ...design.presentation, cameraRef } })
-}
-
 export function fiveViewDesigns(input: unknown): readonly DesignEnvelope[] {
   const design = parseDesign(input)
-  return CUSTOMER_CAMERA_REFS.map((cameraRef) => viewDesign(design, cameraRef))
+  return CUSTOMER_CAMERA_REFS.map((cameraRef) =>
+    parseDesign({ ...design, presentation: { ...design.presentation, cameraRef } }),
+  )
 }

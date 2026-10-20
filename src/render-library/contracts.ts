@@ -354,7 +354,8 @@ export const setSnapshotSchema = z
         issue('View identity mismatch.')
       if (
         view.status === 'ready' &&
-        (view.image.imageKey !== view.imageKey ||
+        (view.image.setKey !== snapshot.identity.setKey ||
+          view.image.imageKey !== view.imageKey ||
           view.image.design.presentation.cameraRef !== view.cameraRef)
       )
         issue('Descriptor binding mismatch.')

@@ -7,8 +7,7 @@ import { compileCyclesConstruction, worldGeometry } from '../src/render/prototyp
 import { verifyPreparationAsset } from '../src/render/prototype/assetValidation'
 import { TEXTURE_SETS, type TextureSet } from '../src/render/textureSets'
 import type { MaterialSpec } from '../src/render/materials'
-import { projectDesignToConfig, serializeDesign } from '../src/domain/design'
-import { viewDesign } from '../src/render-library/views'
+import { projectDesignToConfig, parseDesign } from '../src/domain/design'
 import {
   skyLook,
   equirectRadiance,
@@ -57,74 +56,73 @@ export async function prepareNativeClaim(
     textures[id] = value
     return id
   }
-  const sceneryObjects = (parts: typeof scenery.parts) =>
-    parts.map((p, i) => {
-      const spec = p.material.userData.prototypeMaterial?.authoredSpec as MaterialSpec | undefined
-      if (!spec) throw Error('uncaptured-native-material')
-      const id = hash(JSON.stringify(spec))
-      if (!materials[id]) {
-        const maps: Record<string, string> = {}
-        if (spec.set) {
-          const info: { size: number; detailOnly?: boolean; metallic?: boolean } =
-            TEXTURE_SETS[spec.set]
-          if (!info) throw Error('unknown-texture')
-          if (!info.detailOnly) maps.map = map(spec.set, 'albedo')
-          maps.normalMap = map(spec.set, 'normal')
-          maps.roughnessMap = map(spec.set, 'arm')
-          if (info.metallic) maps.metalnessMap = maps.roughnessMap
-        }
-        materials[id] = {
-          color: new Color(spec.color ?? '#ffffff').toArray(),
-          roughness: spec.roughness ?? 0.6,
-          metalness: spec.metalness ?? 0,
-          emissive: new Color(spec.emissive ?? '#000000').toArray(),
-          emissiveIntensity: spec.emissiveIntensity ?? 1,
-          transmission: spec.transmission ?? 0,
-          ior: spec.ior ?? 1.5,
-          clearcoat: spec.clearcoat ?? 0,
-          clearcoatRoughness: spec.clearcoatRoughness ?? 0.1,
-          sheen: 0,
-          sheenRoughness: 1,
-          sheenColor: [0, 0, 0],
-          specularIntensity: 1,
-          specularColor: [1, 1, 1],
-          opacity: 1,
-          transparent: false,
-          alphaTest: 0,
-          side: spec.side ?? 0,
-          normalScale: [spec.normalScale ?? 1, spec.normalScale ?? 1],
-          maps,
-        }
+  const objects = scenery.parts.map((p, i) => {
+    const spec = p.material.userData.prototypeMaterial?.authoredSpec as MaterialSpec | undefined
+    if (!spec) throw Error('uncaptured-native-material')
+    const id = hash(JSON.stringify(spec))
+    if (!materials[id]) {
+      const maps: Record<string, string> = {}
+      if (spec.set) {
+        const info: { size: number; detailOnly?: boolean; metallic?: boolean } =
+          TEXTURE_SETS[spec.set]
+        if (!info) throw Error('unknown-texture')
+        if (!info.detailOnly) maps.map = map(spec.set, 'albedo')
+        maps.normalMap = map(spec.set, 'normal')
+        maps.roughnessMap = map(spec.set, 'arm')
+        if (info.metallic) maps.metalnessMap = maps.roughnessMap
       }
-      let instances: string | undefined
-      if (p.instances) {
-        const bytes = Buffer.alloc(8 + p.instances.length * 64)
-        bytes.write('FRI1')
-        bytes.writeUInt32LE(p.instances.length, 4)
-        p.instances.forEach((m, i) =>
-          m.elements.forEach((v, k) => bytes.writeFloatLE(v, 8 + i * 64 + k * 4)),
-        )
-        instances = add(bytes)
+      materials[id] = {
+        color: new Color(spec.color ?? '#ffffff').toArray(),
+        roughness: spec.roughness ?? 0.6,
+        metalness: spec.metalness ?? 0,
+        emissive: new Color(spec.emissive ?? '#000000').toArray(),
+        emissiveIntensity: spec.emissiveIntensity ?? 1,
+        transmission: spec.transmission ?? 0,
+        ior: spec.ior ?? 1.5,
+        clearcoat: spec.clearcoat ?? 0,
+        clearcoatRoughness: spec.clearcoatRoughness ?? 0.1,
+        sheen: 0,
+        sheenRoughness: 1,
+        sheenColor: [0, 0, 0],
+        specularIntensity: 1,
+        specularColor: [1, 1, 1],
+        opacity: 1,
+        transparent: false,
+        alphaTest: 0,
+        side: spec.side ?? 0,
+        normalScale: [spec.normalScale ?? 1, spec.normalScale ?? 1],
+        maps,
       }
-      let geometry = p.geometry
-      if (!geometry.getAttribute('uv')) {
-        if (spec.set) throw Error('Textured scenery must retain authored UVs')
-        geometry = geometry.clone()
-        geometry.setAttribute(
-          'uv',
-          new BufferAttribute(new Float32Array(geometry.getAttribute('position').count * 2), 2),
-        )
-      }
-      const bytes = worldGeometry(geometry, p.matrix)
-      if (geometry !== p.geometry) geometry.dispose()
-      return {
-        id: `scenery-${i}`,
-        geometry: add(bytes),
-        matrix: new Matrix4().toArray(),
-        materials: [id],
-        ...(instances ? { instances } : {}),
-      }
-    })
+    }
+    let instances: string | undefined
+    if (p.instances) {
+      const bytes = Buffer.alloc(8 + p.instances.length * 64)
+      bytes.write('FRI1')
+      bytes.writeUInt32LE(p.instances.length, 4)
+      p.instances.forEach((m, i) =>
+        m.elements.forEach((v, k) => bytes.writeFloatLE(v, 8 + i * 64 + k * 4)),
+      )
+      instances = add(bytes)
+    }
+    let geometry = p.geometry
+    if (!geometry.getAttribute('uv')) {
+      if (spec.set) throw Error('Textured scenery must retain authored UVs')
+      geometry = geometry.clone()
+      geometry.setAttribute(
+        'uv',
+        new BufferAttribute(new Float32Array(geometry.getAttribute('position').count * 2), 2),
+      )
+    }
+    const bytes = worldGeometry(geometry, p.matrix)
+    if (geometry !== p.geometry) geometry.dispose()
+    return {
+      id: `scenery-${i}`,
+      geometry: add(bytes),
+      matrix: new Matrix4().toArray(),
+      materials: [id],
+      ...(instances ? { instances } : {}),
+    }
+  })
   let environment: { blob: string } | null = null
   const lights: Record<string, unknown>[] = []
   if (config.environment !== 'studio') {
@@ -158,29 +156,17 @@ export async function prepareNativeClaim(
       Number(a.cameraRef === claim.design.presentation.cameraRef),
   )
   const manifests = []
-  const sceneries = new Map<string, { scenery: typeof scenery; objects: unknown[] }>()
   for (const view of views) {
-    // The interior view renders the interior-visible design, so its pixels match its shared key.
-    const design = viewDesign(claim.design, view.cameraRef)
-    const sceneryKey = serializeDesign({
-      ...design,
-      presentation: { ...design.presentation, cameraRef: claim.design.presentation.cameraRef },
+    const design = parseDesign({
+      ...claim.design,
+      presentation: { ...claim.design.presentation, cameraRef: view.cameraRef },
     })
-    let viewScenery = sceneries.get(sceneryKey)
-    if (!viewScenery) {
-      const parts =
-        sceneryKey === serializeDesign(claim.design)
-          ? scenery
-          : nativeScenery(projectDesignToConfig(design))
-      viewScenery = { scenery: parts, objects: sceneryObjects(parts.parts) }
-      sceneries.set(sceneryKey, viewScenery)
-    }
     const compiled = compileCyclesConstruction(design, resolveNativeCamera(design))
     for (const [key, blob] of compiled.blobs) nativeBlobs.set(key, blob.bytes)
     const { width, height } = IMAGE_DIMENSIONS[design.presentation.aspect]
     const scene = {
       ...compiled.manifest.scene,
-      objects: [...compiled.manifest.scene.objects, ...viewScenery.objects],
+      objects: [...compiled.manifest.scene.objects, ...objects],
       materials: { ...compiled.manifest.scene.materials, ...materials },
       textures: { ...compiled.manifest.scene.textures, ...textures },
       lights,
@@ -195,7 +181,7 @@ export async function prepareNativeClaim(
       scene,
       environmentId: config.environment,
       time: config.time,
-      nativeHolds: viewScenery.scenery.holds,
+      nativeHolds: scenery.holds,
       qualification: {
         visuallyQualified: false,
         strictReference: false,
