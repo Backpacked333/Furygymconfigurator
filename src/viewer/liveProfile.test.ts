@@ -5,6 +5,11 @@ import { STRICT_REFERENCE_SETTINGS } from '../render/prototype/strictReference'
 import {
   CLEAN_MS,
   CLEAN_SAMPLES,
+  LIGHT,
+  UPGRADE_MS,
+  UPGRADE_SHOW_SAMPLES,
+  deviceTier,
+  upgradePlan,
   MIN_BUDGET_SCALE,
   REFERENCE_PIXELS,
   budgetPixels,
@@ -156,5 +161,35 @@ describe('"fast and stable": fitting the trace to what a sample costs on the dev
     expect(settleSamples(0.5)).toBe(64)
     expect(settleSamples(10)).toBe(120)
     expect(settleSamples(500)).toBe(1024)
+  })
+})
+
+describe('device tiers: light on slow GPUs, a full-quality upgrade on decent and fast ones', () => {
+  it('ranks a device by what a clean full-depth image at the Cycles cap costs it', () => {
+    expect(deviceTier(null)).toBe('unknown')
+    expect(deviceTier(40)).toBe('fast')
+    expect(deviceTier(300)).toBe('decent')
+    // The user's Mac, measured: 1061 ms per megapixel-sample.
+    expect(deviceTier(1061)).toBe('slow')
+  })
+
+  it('traces light on slow GPUs: four bounces, down to 0.35 across, settling from 16 samples', () => {
+    expect(LIGHT.maxBounces).toBe(4)
+    expect(traceScale('ultra', 2329, 1456, null, 1061, LIGHT.floor)).toBe(LIGHT.floor)
+    expect(settleSamples(1.1, LIGHT.leastSettle)).toBe(16)
+    expect(settleSamples(1.1)).toBe(64)
+  })
+
+  it('upgrades at full resolution only where the first shown image comes within UPGRADE_MS', () => {
+    const decent = upgradePlan(300, 2329, 1456)
+    expect(decent.scale).toBe(1)
+    expect(decent.affordable).toBe(true)
+    // What UPGRADE_MS buys (44 samples here), never under 64.
+    expect(Math.floor(UPGRADE_MS / ((300 * 2329 * 1456) / 1e6))).toBe(44)
+    expect(decent.target).toBe(64)
+    expect(upgradePlan(5, 2329, 1456).target).toBe(1024)
+    // The Mac: 32 samples of 3.4 MP at 1061 ms take far longer.
+    expect(upgradePlan(1061, 2329, 1456).affordable).toBe(false)
+    expect(UPGRADE_SHOW_SAMPLES).toBe(32)
   })
 })

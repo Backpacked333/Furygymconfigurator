@@ -115,12 +115,13 @@ export function traceScale(
   height: number,
   requested = requestedTraceScale(),
   msPerMegapixelSample: number | null = null,
+  floor = MIN_BUDGET_SCALE,
 ) {
   if (quality === 'lite') return 0.5
   if (requested !== null) return requested
   const pixels = width * height
   const cap = Math.min(REFERENCE_PIXELS, budgetPixels(msPerMegapixelSample))
-  return pixels > cap ? Math.max(MIN_BUDGET_SCALE, Math.sqrt(cap / pixels)) : 1
+  return pixels > cap ? Math.max(floor, Math.sqrt(cap / pixels)) : 1
 }
 
 /**
@@ -142,7 +143,50 @@ export function budgetPixels(msPerMegapixelSample: number | null) {
   return (CLEAN_MS / CLEAN_SAMPLES / msPerMegapixelSample) * 1e6
 }
 
-/** Samples a view gaining `samplesPerSecond` settles at: what SETTLE_MS buys, within 64–1024. */
-export function settleSamples(samplesPerSecond: number) {
-  return Math.min(1024, Math.max(64, Math.floor(samplesPerSecond * (SETTLE_MS / 1000))))
+/** Samples a view gaining `samplesPerSecond` settles at: what SETTLE_MS buys, within `least`–1024. */
+export function settleSamples(samplesPerSecond: number, least = 64) {
+  return Math.min(1024, Math.max(least, Math.floor(samplesPerSecond * (SETTLE_MS / 1000))))
+}
+
+/**
+ * How a device traces, from what a sample costs it at full depth (7 bounces, ms per
+ * megapixel-sample, traceRate.ts), measured at the Cycles cap (REFERENCE_PIXELS):
+ * - fast: a clean image (CLEAN_SAMPLES) there within CLEAN_MS;
+ * - decent: within DECENT_CLEAN_MS;
+ * - slow: slower, so it traces light (LIGHT);
+ * - unknown: not measured yet (a first visit).
+ */
+export type DeviceTier = 'fast' | 'decent' | 'slow' | 'unknown'
+export const DECENT_CLEAN_MS = 20000
+
+export function deviceTier(fullDepthCost: number | null): DeviceTier {
+  if (fullDepthCost === null || !Number.isFinite(fullDepthCost) || fullDepthCost <= 0)
+    return 'unknown'
+  const clean = (fullDepthCost * REFERENCE_PIXELS * CLEAN_SAMPLES) / 1e6
+  return clean <= CLEAN_MS ? 'fast' : clean <= DECENT_CLEAN_MS ? 'decent' : 'slow'
+}
+
+/**
+ * Light budget mode, for slow GPUs: four bounces (Cycles' 3) instead of seven, down to 0.35 of the
+ * canvas across, settling at what SETTLE_MS buys even if that is only 16 samples. Stable within
+ * seconds there, at somewhat softer light.
+ */
+export const LIGHT = { maxBounces: 4, floor: 0.35, leastSettle: 16 } as const
+
+/**
+ * The full-quality upgrade, for fast and decent GPUs: once a view has settled and rested
+ * UPGRADE_REST_MS, it is traced again at the canvas's full resolution and full depth, unseen until
+ * UPGRADE_SHOW_SAMPLES (so it never replaces the settled image with a worse one), then refining to
+ * what UPGRADE_MS buys. Only where those first samples take at most UPGRADE_MS.
+ */
+export const UPGRADE_REST_MS = 1000
+export const UPGRADE_SHOW_SAMPLES = 32
+export const UPGRADE_MS = 45000
+
+export function upgradePlan(fullDepthCost: number, width: number, height: number) {
+  const sampleMs = (fullDepthCost * width * height) / 1e6
+  const affordable =
+    Number.isFinite(sampleMs) && sampleMs > 0 && sampleMs * UPGRADE_SHOW_SAMPLES <= UPGRADE_MS
+  const target = Math.min(1024, Math.max(64, Math.floor(UPGRADE_MS / sampleMs)))
+  return { scale: 1, target, affordable }
 }
