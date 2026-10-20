@@ -85,6 +85,21 @@ sampler may retire settled tiles earlier. Its sample count is not a measure of n
   - Real samples outweigh it within the first milestones. The assumption is that the tracer's
     light matches Cycles' (same scene code, same bounces and clamps), which is unmeasured here. A
     mismatch would show as the first images' light shifting as samples arrive.
+- Loading and refinement UX (ADR-006).
+  - From the press of 360° until the tracer's first start, a loading screen covers the stage:
+    engine, scene, materials and light (with the scans' share as a bar), path tracer.
+  - Its animations are transforms and opacities, so they keep moving through long tasks.
+  - The tracer's BVHs and sky map are built in workers meanwhile (`render/bvh.worker.ts`,
+    `render/sky.worker.ts`).
+  - On a resting view, a pill names what is resolving (light, reflections, fine detail) as its
+    ring fills, then shows "Fully refined".
+- Memory (ADR-006).
+  - The tracer's atlas draws the scans' GPU copies, so no decoded pixels are kept (the legacy
+    route's tracer still keeps them).
+  - Both denoisers share one network, and the G-buffer stores no MSAA samples.
+  - A view closed for 30 s frees its history, denoiser, snapshot and guides
+    (`PathTraceSession.trim`), keeping its captured scene.
+  - `?memStats=1` logs memory.
 - GPU batches adapt toward a 12 ms budget, capped at eight passes; this is a scheduling target,
   not a guaranteed frame time. After a second of undisturbed tracing, High and Ultra take 24 ms
   batches of up to 16 passes, since the raster draws nothing then. A press waits at most one such
@@ -113,6 +128,8 @@ Two checks run the real kernels on SwiftShader's WebGPU in headless Chromium (sl
 
 - `node scripts/seed-check.mjs` checks the Cycles-image seed kernel against the CPU's reading of the
   same table: light, row order, averaging, and the near-white cutoff.
+- `node scripts/atlas-check.mjs` checks that the tracer's atlas drawn from the scans' GPU copies is
+  byte-identical to the one drawn from clones.
 - `node scripts/convergence.mjs` traces a small gym-like interior with the real tracer and reports
   the error against a reference at 2–128 samples, to compare tracer settings at equal samples. It
   measures convergence per sample, not speed on any device.
