@@ -16,7 +16,16 @@ const mocks = vi.hoisted(() => ({
   /** The canvas's drawing buffer, in device pixels. */
   buffer: { w: 1000, h: 625 },
   beginFrame: vi.fn(),
+  /** createPipeline: the tier's own pipeline, or the lean one when asked for no GI. */
+  create: vi.fn(),
   pipe: {
+    render: vi.fn(),
+    warm: vi.fn(() => Promise.resolve()),
+    dispose: vi.fn(),
+    setPlace: vi.fn(),
+    settleFrames: 10,
+  },
+  lean: {
     render: vi.fn(),
     warm: vi.fn(() => Promise.resolve()),
     dispose: vi.fn(),
@@ -48,7 +57,9 @@ vi.mock('../render/materials', () => ({
     return () => mocks.materialListeners.delete(listener)
   },
 }))
-vi.mock('../render/pipeline', () => ({ createPipeline: () => mocks.pipe }))
+vi.mock('../render/pipeline', () => ({
+  createPipeline: (...args: unknown[]) => mocks.create(...args),
+}))
 vi.mock('../render/renderer', () => ({
   backendOf: () => mocks.backend,
   beginFrame: mocks.beginFrame,
@@ -75,13 +86,23 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     invalidate = vi.fn()
   const look = skyLook('backyard', 16.5)
   let props: Parameters<typeof ProgressiveRenderer>[0]
-  const frame = () =>
+  /** One display frame, `ms` after the last. */
+  const frame = (ms = 32) =>
     act(() => {
-      now += 32
+      now += ms
       for (const [, callback] of [...mocks.frames].sort(([a], [b]) => a - b)) callback()
     })
   const settle = () => {
     for (let i = 0; i < 15; i++) frame()
+  }
+  /** A held drag of `frames` frames `ms` apart, each turning the camera a little. */
+  const drag = (frames: number, ms: number, during?: (frame: number) => number | void) => {
+    act(() => canvas.dispatchEvent(new Event('pointerdown')))
+    for (let i = 0; i < frames; i++) {
+      camera.position.x += 0.01
+      frame(during?.(i) ?? ms)
+    }
+    act(() => window.dispatchEvent(new Event('pointerup')))
   }
   const render = async (patch: Partial<typeof props> = {}) => {
     props = { ...props, ...patch }
@@ -93,6 +114,10 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.frames.clear()
     mocks.materialListeners.clear()
     mocks.pipe.settleFrames = 10
+    mocks.create.mockImplementation((...args: unknown[]) =>
+      (args[4] as { gi?: boolean } | undefined)?.gi === false ? mocks.lean : mocks.pipe,
+    )
+    mocks.lean.warm.mockReset()
     mocks.backend = 'webgpu'
     mocks.signature = 1
     mocks.buffer = { w: 1000, h: 625 }
@@ -425,5 +450,170 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     frame()
     expect(mocks.pipe.render).toHaveBeenCalled()
     expect(ready).toHaveBeenCalledOnce()
+  })
+
+  describe("Ultra's frame guard (mocked clock)", () => {
+    const LEAN = { reflections: false, gi: false }
+    /** The lean pipeline's compile, held until the test lets it finish. */
+    const holdCompile = () => {
+      let finish!: () => void
+      mocks.lean.warm.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finish = resolve)),
+      )
+      return () => act(async () => finish())
+    }
+
+    for (const quality of ['lite', 'high', 'ultra'] as const)
+      it(`builds the ${quality} tier's own pipeline, asking for no extras`, async () => {
+        await render({ quality })
+        expect(mocks.create).toHaveBeenCalledOnce()
+        expect(mocks.create.mock.calls[0]).toEqual([
+          mocks.state.gl,
+          mocks.state.scene,
+          camera,
+          quality,
+        ])
+      })
+
+    it('drops screen-space GI and reflections at the next rest after slow moves, once', async () => {
+      const compiled = holdCompile()
+      await render({ quality: 'ultra' })
+      settle()
+      // 60 ms frames while dragging: too slow, but nothing is rebuilt mid-drag.
+      drag(40, 60)
+      expect(mocks.create).toHaveBeenCalledOnce()
+      frame()
+      expect(mocks.create).toHaveBeenCalledTimes(2)
+      expect(mocks.create).toHaveBeenLastCalledWith(
+        mocks.state.gl,
+        mocks.state.scene,
+        camera,
+        'ultra',
+        LEAN,
+      )
+      // The scene keeps its tier: the tracer's session is the same one, never remade.
+      expect(mocks.session).toHaveBeenCalledOnce()
+      // The current pipeline draws on while the lean one compiles.
+      mocks.pipe.render.mockClear()
+      drag(5, 16)
+      expect(mocks.pipe.render).toHaveBeenCalledTimes(5)
+      expect(mocks.pipe.dispose).not.toHaveBeenCalled()
+      // Ready while the view rests, part of the way to starting a trace.
+      frame()
+      frame()
+      frame()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      await compiled()
+      frame()
+      expect(mocks.pipe.dispose).toHaveBeenCalledOnce()
+      // Its temporal passes settle from scratch before the next trace captures a frame of it.
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+      const capture = mocks.trace.begin.mock.invocationCallOrder[1]
+      const leanFrames = mocks.lean.render.mock.invocationCallOrder.filter((at) => at < capture)
+      expect(leanFrames.length).toBeGreaterThanOrEqual(6)
+      mocks.pipe.render.mockClear()
+      drag(40, 60)
+      expect(mocks.lean.render).toHaveBeenCalled()
+      expect(mocks.pipe.render).not.toHaveBeenCalled()
+      settle()
+      // Once per session.
+      expect(mocks.create).toHaveBeenCalledTimes(2)
+    })
+
+    it('swaps in a pipeline that finished compiling mid-drag only once the view rests', async () => {
+      const compiled = holdCompile()
+      await render({ quality: 'ultra' })
+      settle()
+      drag(40, 60)
+      frame()
+      expect(mocks.create).toHaveBeenCalledTimes(2)
+      act(() => canvas.dispatchEvent(new Event('pointerdown')))
+      camera.position.x += 0.01
+      frame(16)
+      await compiled()
+      for (let i = 0; i < 5; i++) {
+        camera.position.x += 0.01
+        frame(16)
+      }
+      expect(mocks.pipe.dispose).not.toHaveBeenCalled()
+      expect(mocks.lean.render).not.toHaveBeenCalled()
+      act(() => window.dispatchEvent(new Event('pointerup')))
+      frame()
+      expect(mocks.pipe.dispose).toHaveBeenCalledOnce()
+      expect(mocks.lean.render).toHaveBeenCalledOnce()
+    })
+
+    for (const [quality, ms] of [
+      ['ultra', 1000 / 60],
+      ['high', 120],
+      ['lite', 120],
+    ] as const)
+      it(`keeps the ${quality} pipeline at ${Math.round(ms)} ms frames`, async () => {
+        await render({ quality })
+        settle()
+        for (let i = 0; i < 5; i++) {
+          drag(60, ms)
+          settle()
+        }
+        expect(mocks.create).toHaveBeenCalledOnce()
+      })
+
+    it('leaves frames that stop a trace, and the next, out of its measure', async () => {
+      // Turning out of a resting trace without a pointer (auto-rotate, keys): the frame that halts
+      // the trace and the one after carry its GPU work and halt, not the raster's own cost.
+      await render({ quality: 'ultra' })
+      settle()
+      for (let i = 0; i < 30; i++) {
+        for (const ms of [400, 400, 16]) {
+          camera.position.x += 0.01
+          frame(ms)
+        }
+        settle()
+      }
+      expect(mocks.trace.begin.mock.calls.length).toBeGreaterThan(30)
+      expect(mocks.create).toHaveBeenCalledOnce()
+    })
+
+    it('leaves the frames after scans arrive out of its measure, while they upload', async () => {
+      await render({ quality: 'ultra' })
+      settle()
+      // Mid-drag, scans arrive every 13 frames; the 8 frames after each are slow, the rest smooth.
+      drag(13 * 12, 16, (i) => {
+        if (i % 13 === 0) mocks.materialListeners.forEach((listener) => listener('textures'))
+        return i % 13 <= 8 ? 200 : 16
+      })
+      settle()
+      expect(mocks.create).toHaveBeenCalledOnce()
+    })
+
+    it('disposes a lean pipeline still compiling when the view closes', async () => {
+      const compiled = holdCompile()
+      await render({ quality: 'ultra' })
+      settle()
+      drag(40, 60)
+      frame()
+      expect(mocks.create).toHaveBeenCalledTimes(2)
+      act(() => root.unmount())
+      expect(mocks.lean.dispose).not.toHaveBeenCalled()
+      await compiled()
+      expect(mocks.lean.dispose).toHaveBeenCalledOnce()
+      expect(mocks.lean.render).not.toHaveBeenCalled()
+      root = createRoot(host)
+    })
+
+    it('disposes a compiled lean pipeline that never took over when the view closes', async () => {
+      const compiled = holdCompile()
+      await render({ quality: 'ultra' })
+      settle()
+      drag(40, 60)
+      frame()
+      act(() => canvas.dispatchEvent(new Event('pointerdown')))
+      await compiled()
+      act(() => root.unmount())
+      expect(mocks.lean.dispose).toHaveBeenCalledOnce()
+      expect(mocks.pipe.dispose).toHaveBeenCalledOnce()
+      root = createRoot(host)
+    })
   })
 })

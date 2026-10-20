@@ -51,6 +51,12 @@ sampler may retire settled tiles earlier. Its sample count is not a measure of n
   of the scene (shapes, placement, lights, sky, emitters, glass) clears the history. The legacy
   stills and exports keep clearing it on any change. This does **not** implement world-space
   edit-local GI reuse.
+- Ultra watches its raster frames while the camera moves (`viewer/frameGuard.ts`): if the median
+  interval of 24 steady moving frames exceeds 40 ms (8 skipped after each change), the next rest
+  rebuilds the raster pipeline without screen-space GI and reflections (`createPipeline` extras),
+  once per session and never mid-drag. `quality` is never lowered, so the scene still matches the
+  gallery's Cycles images; the traced image is unaffected. It is marked `fury:raster-shed` in the
+  performance timeline. The budget is a judgment call without device data.
 - GPU batches adapt toward a 12 ms budget, capped at eight passes; this is a scheduling target,
   not a guaranteed frame time. Already-submitted GPU work cannot be cancelled. Epoch checks fence
   obsolete measurements; movement, edits, pointer holds, hidden tabs and gallery return stop new tracing.

@@ -5,9 +5,10 @@ import type { SkyLook } from '../lib/visuals'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
 import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
-import { createPipeline, type Pipeline } from '../render/pipeline'
+import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pipeline'
 import { sceneProgress, textureProgress } from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
+import { FrameGuard } from './frameGuard'
 import { liveProfile, traceScale } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
 
@@ -18,15 +19,25 @@ const START_FRAMES = 6
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
 const WARM_TIMEOUT_MS = 1500
 const drawingBuffer = new Vector2()
+/**
+ * Ultra without its screen-space GI and reflections, for a device that cannot draw it while moving
+ * (frameGuard.ts). Post-processing only: `quality`, which also decides what is in the scene, stays
+ * Ultra, so the scene still matches the gallery's Cycles images.
+ */
+const LEAN_RASTER: PipelineExtras = { reflections: false, gi: false }
+
+/** Compiles a pipeline's shaders asynchronously; one that never finishes holds nothing up. */
+const warmed = (pipe: Pipeline) =>
+  Promise.race([pipe.warm(), new Promise((resolve) => setTimeout(resolve, WARM_TIMEOUT_MS))])
 
 /**
- * Records `name` in the browser's performance timeline (User Timing), from `start` to now, where the
- * Performance panel and `performance.getEntriesByName` show it. Never throws: where User Timing is
- * missing or refuses the entry, the view goes on untimed.
+ * Records an entry in the browser's performance timeline (User Timing), where the Performance panel
+ * and `performance.getEntriesByName` show it. Never throws: where User Timing is missing or refuses
+ * the entry, the view goes on unrecorded.
  */
-function measure(name: string, start: number) {
+function timeline(record: () => void) {
   try {
-    performance.measure(name, { start, end: performance.now() })
+    record()
   } catch {
     // Timing is a diagnostic only.
   }
@@ -70,6 +81,13 @@ export function ProgressiveRenderer({
     status: ViewerStatus
     shutter: MotionShutter
     signature: number | null
+    /** Ultra's watch on its moving frames; null on other tiers and once it has tripped. */
+    guard: FrameGuard | null
+    /** The guard tripped: build the lean pipeline at the next rest. */
+    shedDue: boolean
+    shed: () => void
+    /** The lean pipeline, compiled and waiting for a rest to take over. */
+    lean: Pipeline | null
   } | null>(null)
   const props = useRef({ active, look, place, onReady, onStatus })
   useLayoutEffect(() => {
@@ -114,8 +132,30 @@ export function ProgressiveRenderer({
       status: 'loading' as ViewerStatus,
       shutter: new MotionShutter(),
       signature: null as number | null,
+      // Only Ultra carries passes it can do without; once per session, never touching `quality`.
+      guard: quality === 'ultra' ? new FrameGuard() : null,
+      shedDue: false,
+      shed: () => {},
+      lean: null as Pipeline | null,
     }
     state.current = runtime
+    // Building the lean graph is synchronous CPU work, so it starts at rest; the current pipeline
+    // keeps drawing while the new one compiles, and the swap waits for a rest too.
+    runtime.shed = () => {
+      runtime.shedDue = false
+      let next: Pipeline
+      try {
+        next = createPipeline(renderer, scene, camera, quality, LEAN_RASTER)
+      } catch {
+        return
+      }
+      timeline(() => performance.mark('fury:raster-shed'))
+      void warmed(next).finally(() => {
+        if (disposed) return next.dispose()
+        runtime.lean = next
+        if (props.current.active) invalidate()
+      })
+    }
     // Scans arriving swap maps on the materials the tracer holds: it reads the materials again on
     // its next start, keeping the meshes it captured and their BVH, and the views it traced
     // before seed a little (PathTraceSession texturesChanged).
@@ -131,11 +171,8 @@ export function ProgressiveRenderer({
       else if (!runtime.tracing && props.current.active) invalidate()
     })
     // Compile the pipeline's shaders asynchronously before its first frame, so opening the view
-    // does not stall on synchronous compilation; a compile that never resolves does not hold it.
-    void Promise.race([
-      runtime.pipe.warm(),
-      new Promise((resolve) => setTimeout(resolve, WARM_TIMEOUT_MS)),
-    ]).finally(() => {
+    // does not stall on synchronous compilation.
+    void warmed(runtime.pipe).finally(() => {
       runtime.warming = false
       if (!disposed && props.current.active) invalidate()
     })
@@ -215,6 +252,7 @@ export function ProgressiveRenderer({
       if (kept) void keepDecodedTextures(false)
       runtime.present.dispose()
       runtime.pipe.dispose()
+      runtime.lean?.dispose()
     }
   }, [renderer, scene, camera, quality, invalidate])
 
@@ -224,7 +262,6 @@ export function ProgressiveRenderer({
   useFrame(() => {
     const current = state.current
     if (!current || !props.current.active || document.hidden) return
-    const { pipe, tracer } = current
     const report = (status: ViewerStatus) => {
       if (current.status === status) return
       current.status = status
@@ -239,6 +276,20 @@ export function ProgressiveRenderer({
       current.dirty = true
     }
     const moved = !current.view.equals(camera.matrixWorld)
+    const resting = !moved && !current.interacting
+    // The guard measures frames of a steady move only: one that carries a change (an edit, scans, a
+    // press) or stops a trace also pays for that work, not just for drawing.
+    const steady = moved && !current.dirty && !current.tracing
+    if (current.dirty) current.guard?.change()
+    if (current.lean && resting) {
+      // The lean pipeline takes over; its temporal passes settle again before a trace may start.
+      current.pipe.dispose()
+      current.pipe = current.lean
+      current.lean = null
+      current.drawn = 0
+    }
+    if (current.shedDue && resting) current.shed()
+    const { pipe, tracer } = current
     if (current.dirty) current.shutter.cut()
     if (pipe.shutter) pipe.shutter.value = current.shutter.frame(now, moved && !current.dirty)
     if (current.dirty || moved || !current.projection.equals(camera.projectionMatrix)) {
@@ -254,6 +305,10 @@ export function ProgressiveRenderer({
     if (current.warming) return
     if (!current.tracing) {
       pipe.render()
+      if (current.guard?.frame(now, steady)) {
+        current.guard = null
+        current.shedDue = true
+      }
       sceneProgress.drawn()
       if (!current.ready) {
         current.ready = true
@@ -278,7 +333,9 @@ export function ProgressiveRenderer({
           // Its first start builds the tracer's BVH, the view's longest main-thread stall.
           const began = performance.now()
           tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples, scale)
-          measure('fury:trace-begin', began)
+          timeline(() =>
+            performance.measure('fury:trace-begin', { start: began, end: performance.now() }),
+          )
           current.tracing = true
         } catch {
           tracer.halt()

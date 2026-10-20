@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { DirectionalLight, PerspectiveCamera, Scene, type Node } from 'three/webgpu'
-import { createPipeline } from './pipeline'
+import { createPipeline, type PipelineExtras } from './pipeline'
 
 /** What each build made: its render pipelines (whose output graph is read) and its SSR and SSGI. */
 const made = vi.hoisted(() => ({
@@ -73,8 +73,32 @@ function fingerprint(output: Node) {
   return lines
 }
 
+type Pass = Node & {
+  isPassNode?: boolean
+  transparent: boolean
+  opaque: boolean
+  options: { samples?: number }
+  getMRT: () => { outputNodes: Record<string, Node> } | null
+}
+/**
+ * The scene passes the output draws from, in traversal order, with what each renders: its
+ * attachments (an MRT layout the graph above need not read), its surfaces and its multisampling.
+ */
+function passesOf(output: Node) {
+  const seen = new Set<Pass>()
+  output.traverse((visited) => {
+    if ((visited as Pass).isPassNode) seen.add(visited as Pass)
+  })
+  return [...seen].map((pass) => ({
+    attachments: Object.keys(pass.getMRT()?.outputNodes ?? { output: true }),
+    transparent: pass.transparent,
+    opaque: pass.opaque,
+    samples: pass.options.samples ?? null,
+  }))
+}
+
 /** Builds a tier's pipeline against a GPU-less renderer: TSL builds its node graph on the CPU. */
-function build(quality: 'lite' | 'high' | 'ultra') {
+function build(quality: 'lite' | 'high' | 'ultra', extras?: PipelineExtras) {
   made.pipelines.length = 0
   made.ssr = made.ssgi = 0
   const scene = new Scene()
@@ -82,13 +106,16 @@ function build(quality: 'lite' | 'high' | 'ultra') {
   sun.userData.sun = true
   scene.add(sun)
   const camera = new PerspectiveCamera(34, 1.6, 0.1, 2000)
-  const pipeline = createPipeline({} as never, scene, camera, quality)
+  const pipeline = extras
+    ? createPipeline({} as never, scene, camera, quality, extras)
+    : createPipeline({} as never, scene, camera, quality)
   expect(made.pipelines).toHaveLength(1)
   return {
     pipeline,
     ssr: made.ssr,
     ssgi: made.ssgi,
     graph: fingerprint(made.pipelines[0].outputNode as Node),
+    passes: passesOf(made.pipelines[0].outputNode as Node),
   }
 }
 
@@ -110,6 +137,28 @@ const CAPTURED = {
   ultra: { ssr: 1, ssgi: 1, settleFrames: 40, nodes: 394, sha256: '6c9e0cca5af8ebc2' },
 } as const
 
+/**
+ * Each tier's scene passes, captured from createPipeline as it was before the extras (the graph's
+ * fingerprint does not see an attachment nothing reads, which still costs a render target).
+ */
+const scenePass = (attachments: string[], samples: number | null = null) => ({
+  attachments,
+  transparent: true,
+  opaque: true,
+  samples,
+})
+const prePass = (attachments: string[]) => ({
+  attachments,
+  transparent: false,
+  opaque: true,
+  samples: null,
+})
+const PASSES = {
+  lite: [scenePass(['output'], 4)],
+  high: [scenePass(['output']), prePass(['output', 'velocity'])],
+  ultra: [scenePass(['output', 'diffuseColor']), prePass(['output', 'velocity', 'metalrough'])],
+}
+
 describe("each tier's raster pipeline (CPU node graph, not a GPU test)", () => {
   for (const quality of ['lite', 'high', 'ultra'] as const)
     it(`builds the same ${quality} graph it always has`, () => {
@@ -121,4 +170,55 @@ describe("each tier's raster pipeline (CPU node graph, not a GPU test)", () => {
         ...digest(built.graph),
       }).toEqual(CAPTURED[quality])
     })
+
+  for (const quality of ['lite', 'high', 'ultra'] as const)
+    it(`renders the same ${quality} passes into the same attachments as it always has`, () => {
+      expect(build(quality).passes).toEqual(PASSES[quality])
+    })
+
+  it("builds each tier's own passes when extras name them as the tier has them", () => {
+    for (const quality of ['lite', 'high', 'ultra'] as const) {
+      const own = quality === 'ultra'
+      const tier = build(quality)
+      for (const extras of [{ reflections: own, gi: own }, {}]) {
+        const named = build(quality, extras)
+        expect(named.graph).toEqual(tier.graph)
+        expect(named.passes).toEqual(tier.passes)
+      }
+    }
+  })
+
+  it('builds Ultra without its screen-space GI and reflections where asked, settling as High does', () => {
+    const lean = build('ultra', { reflections: false, gi: false })
+    expect([lean.ssr, lean.ssgi, lean.pipeline.settleFrames]).toEqual([0, 0, 28])
+    expect(lean.graph).not.toContain('SSGINode')
+    expect(lean.graph).not.toContain('SSRNode')
+    // Its output and its passes are High's, without the attachments only GI and reflections read;
+    // its contact shadows (in the scene's lighting, not this graph) stay Ultra's, following the tier.
+    const high = build('high')
+    expect(lean.graph).toEqual(high.graph)
+    expect(lean.passes).toEqual(high.passes)
+    // Each switch on its own.
+    const reflections = build('ultra', { gi: false })
+    expect([reflections.ssr, reflections.ssgi, reflections.pipeline.settleFrames]).toEqual([
+      1, 0, 28,
+    ])
+    expect(reflections.passes.map((pass) => pass.attachments)).toEqual([
+      ['output'],
+      ['output', 'velocity', 'metalrough'],
+    ])
+    const gi = build('ultra', { reflections: false })
+    expect([gi.ssr, gi.ssgi, gi.pipeline.settleFrames]).toEqual([0, 1, 40])
+    expect(gi.passes.map((pass) => pass.attachments)).toEqual([
+      ['output', 'diffuseColor'],
+      ['output', 'velocity'],
+    ])
+  })
+
+  it('leaves Lite as it is, whatever the extras: it has no pre-pass for them', () => {
+    const lite = build('lite', { reflections: true, gi: true })
+    expect([lite.ssr, lite.ssgi, lite.pipeline.settleFrames]).toEqual([0, 0, 1])
+    expect(lite.graph).toEqual(build('lite').graph)
+    expect(lite.passes).toEqual(PASSES.lite)
+  })
 })
