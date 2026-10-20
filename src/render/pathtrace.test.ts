@@ -518,6 +518,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       textureAtlas: { textureInfo: [{}, {}, {}] as unknown[] },
       _pathTracer: {
         setSize: vi.fn(),
+        update: vi.fn(),
         outputTarget: new StorageTexture(64, 32),
         sampleCountTarget: new StorageTexture(64, 32),
       },
@@ -592,6 +593,49 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     t.traced.halt()
     t.begin()
     expect(t.traced.started).toBe(false)
+  })
+
+  it('measures samples per second from when every pixel holds two, and settles at an image', async () => {
+    const t = session({ multiView: true })
+    let min = 0
+    t.tracer.getSampleCountsAsync = () => Promise.resolve({ min })
+    let clock = 1000
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+    try {
+      t.begin()
+      const sample = async (count: number, at: number) => {
+        min = count
+        clock = at
+        // The count is read every sixth batch.
+        for (let i = 0; i < 6; i++) {
+          t.traced.step()
+          await flush()
+        }
+      }
+      await sample(1, 1100)
+      expect(t.traced.samplesPerSecond).toBeNull()
+      await sample(2, 1200)
+      await sample(4, 1600)
+      // Too few since the start of the measure.
+      expect(t.traced.samplesPerSecond).toBeNull()
+      await sample(10, 2200)
+      expect(t.traced.samplesPerSecond).toBeCloseTo(8)
+      // Settles at the last image at or under the target, never below what it holds.
+      t.traced.settleAt(100)
+      expect(t.traced.progress().target).toBe(64)
+      t.traced.settleAt(5)
+      expect(t.traced.progress().target).toBe(16)
+      // Never raised by it.
+      t.traced.settleAt(512)
+      expect(t.traced.progress().target).toBe(16)
+      // Each start measures afresh.
+      t.traced.halt()
+      t.begin()
+      expect(t.traced.samplesPerSecond).toBeNull()
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('loads the shared denoiser network ahead of the first image, and never rejects', async () => {

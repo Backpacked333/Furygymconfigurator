@@ -114,9 +114,35 @@ export function traceScale(
   width: number,
   height: number,
   requested = requestedTraceScale(),
+  msPerMegapixelSample: number | null = null,
 ) {
   if (quality === 'lite') return 0.5
   if (requested !== null) return requested
   const pixels = width * height
-  return pixels > REFERENCE_PIXELS ? Math.sqrt(REFERENCE_PIXELS / pixels) : 1
+  const cap = Math.min(REFERENCE_PIXELS, budgetPixels(msPerMegapixelSample))
+  return pixels > cap ? Math.max(MIN_BUDGET_SCALE, Math.sqrt(cap / pixels)) : 1
+}
+
+/**
+ * "Fast and stable": a resting view shows a clean image (CLEAN_SAMPLES, denoised) within
+ * CLEAN_MS of starting, and stops changing within about SETTLE_MS. A device's measured cost of a
+ * sample sets the pixels traced so the first holds (budgetPixels), and its measured rate the
+ * samples it settles at (settleSamples). Fast GPUs keep the full Cycles resolution and target.
+ */
+export const CLEAN_SAMPLES = 16
+export const CLEAN_MS = 2500
+export const SETTLE_MS = 12000
+/** Never below half the canvas's resolution across: past that the denoiser cannot hide it. */
+export const MIN_BUDGET_SCALE = 0.5
+
+/** The most pixels a device that takes `msPerMegapixelSample` can trace CLEAN_SAMPLES of in CLEAN_MS. */
+export function budgetPixels(msPerMegapixelSample: number | null) {
+  if (!msPerMegapixelSample || !Number.isFinite(msPerMegapixelSample) || msPerMegapixelSample <= 0)
+    return Infinity
+  return (CLEAN_MS / CLEAN_SAMPLES / msPerMegapixelSample) * 1e6
+}
+
+/** Samples a view gaining `samplesPerSecond` settles at: what SETTLE_MS buys, within 64–1024. */
+export function settleSamples(samplesPerSecond: number) {
+  return Math.min(1024, Math.max(64, Math.floor(samplesPerSecond * (SETTLE_MS / 1000))))
 }

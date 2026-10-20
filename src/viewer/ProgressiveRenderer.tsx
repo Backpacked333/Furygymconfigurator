@@ -36,7 +36,16 @@ import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/rend
 import { FrameGuard } from './frameGuard'
 import { pixelsFromPose } from './entryPose'
 import { ENTRY_TOLERANCE_PX } from './EntryWatch'
-import { cyclesSeed, earlyImages, liveProfile, liveSampler, traceScale } from './liveProfile'
+import {
+  cyclesSeed,
+  earlyImages,
+  liveProfile,
+  liveSampler,
+  requestedTraceScale,
+  settleSamples,
+  traceScale,
+} from './liveProfile'
+import { recordTraceCost, traceCost } from './traceRate'
 import { createProgressivePresentation } from './presentation'
 import { bootStats } from './bootStats'
 
@@ -116,6 +125,20 @@ const warmed = (pipe: Pipeline) =>
  * and `performance.getEntriesByName` show it. Never throws: where User Timing is missing or refuses
  * the entry, the view goes on unrecorded.
  */
+/** The GPU, as its adapter names it, for keying what a sample costs on it (traceRate.ts). */
+function gpuName(renderer: WebGPURenderer) {
+  const info = (
+    renderer.backend as unknown as
+      | {
+          device?: {
+            adapterInfo?: { vendor?: string; architecture?: string; description?: string }
+          }
+        }
+      | undefined
+  )?.device?.adapterInfo
+  return [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(' / ') || '?'
+}
+
 function timeline(record: () => void) {
   try {
     record()
@@ -183,6 +206,14 @@ export function ProgressiveRenderer({
     prepareSeed: () => void
     /** The first trace has started: the loading screen is done. */
     begun: boolean
+    /** This device's trace cost is stored under (traceRate.ts): its GPU and the quality tier. */
+    costKey: string
+    /** Megapixels the current view traces. */
+    traceMegapixels: number
+    /** The current view's rate has been measured and its settle target set. */
+    fitted: boolean
+    /** The view has started over once at the resolution its measured cost fits (first visit). */
+    refitted: boolean
     /** The scene's BVHs and sky map are being built in workers for the first start. */
     warmingTracer: boolean
     /** Frees the closed view's memory TRIM_AFTER_MS after it closed. */
@@ -257,6 +288,10 @@ export function ProgressiveRenderer({
       seed: null as EntrySeed | null,
       prepareSeed: () => {},
       begun: false,
+      costKey: `${gpuName(renderer)}|${quality}`,
+      traceMegapixels: 0,
+      fitted: false,
+      refitted: false,
       warmingTracer: false,
       trimTimer: null as ReturnType<typeof setTimeout> | null,
     }
@@ -265,18 +300,7 @@ export function ProgressiveRenderer({
       bootStats.step('renderer mounted')
       bootStats.context('quality', quality)
       bootStats.context('backend', backendOf(renderer))
-      const info = (
-        renderer.backend as unknown as {
-          device?: {
-            adapterInfo?: { vendor?: string; architecture?: string; description?: string }
-          }
-        }
-      ).device?.adapterInfo
-      if (info)
-        bootStats.context(
-          'gpu',
-          [info.vendor, info.architecture, info.description].filter(Boolean).join(' / ') || '?',
-        )
+      bootStats.context('gpu', gpuName(renderer))
       const scans = textureProgress.get()
       bootStats.step(`scans: ${scans.loaded} of ${scans.requested} loaded`)
     }
@@ -590,12 +614,21 @@ export function ProgressiveRenderer({
           current.present.capture(() => pipe.render())
           // A resize marks the view changed, so each start reads the canvas's size again.
           renderer.getDrawingBufferSize(drawingBuffer)
-          const scale = traceScale(quality, drawingBuffer.x, drawingBuffer.y)
-          if (!current.begun)
-            bootStats.context(
-              'trace size',
-              `${Math.round(drawingBuffer.x * scale)}×${Math.round(drawingBuffer.y * scale)} of a ${drawingBuffer.x}×${drawingBuffer.y} canvas`,
-            )
+          const cost = traceCost(current.costKey)
+          const scale = traceScale(
+            quality,
+            drawingBuffer.x,
+            drawingBuffer.y,
+            requestedTraceScale(),
+            cost,
+          )
+          current.traceMegapixels =
+            (Math.floor(drawingBuffer.x * scale) * Math.floor(drawingBuffer.y * scale)) / 1e6
+          current.fitted = false
+          bootStats.context(
+            'trace size',
+            `${Math.round(drawingBuffer.x * scale)}×${Math.round(drawingBuffer.y * scale)} of a ${drawingBuffer.x}×${drawingBuffer.y} canvas`,
+          )
           if (atEntry && seed!.state === 'ready') {
             seed!.used = true
             try {
@@ -613,6 +646,10 @@ export function ProgressiveRenderer({
           // Its first start builds the tracer's BVH, the view's longest main-thread stall.
           const began = performance.now()
           tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples, scale)
+          // A known cost settles the view at what SETTLE_MS buys from the start; a measured rate
+          // refines it (below).
+          if (cost !== null && quality !== 'lite')
+            tracer.settleAt(settleSamples(1000 / (cost * current.traceMegapixels)))
           timeline(() =>
             performance.measure('fury:trace-begin', { start: began, end: performance.now() }),
           )
@@ -642,6 +679,35 @@ export function ProgressiveRenderer({
       if (tracer.started) {
         if (liveLoading.get() !== 'ready') bootStats.step('first batch finished on the GPU')
         liveLoading.set('ready')
+      }
+      // Once this view's rate is measured: keep its cost, settle at what SETTLE_MS buys, and on a
+      // first visit, start over once at the resolution that cost fits, if far below this one.
+      const rate = current.fitted ? null : tracer.samplesPerSecond
+      if (rate !== null && current.traceMegapixels > 0) {
+        current.fitted = true
+        const cost = 1000 / rate / current.traceMegapixels
+        const known = traceCost(current.costKey) !== null
+        recordTraceCost(current.costKey, cost)
+        if (quality !== 'lite') tracer.settleAt(settleSamples(rate))
+        bootStats.step(
+          `measured ${rate.toFixed(1)} samples/s at ${current.traceMegapixels.toFixed(2)} MP (${Math.round(cost)} ms per MP-sample); settling at ${tracer.progress().target}`,
+        )
+        renderer.getDrawingBufferSize(drawingBuffer)
+        const fitted = traceScale(
+          quality,
+          drawingBuffer.x,
+          drawingBuffer.y,
+          requestedTraceScale(),
+          cost,
+        )
+        const fittedMegapixels =
+          (Math.floor(drawingBuffer.x * fitted) * Math.floor(drawingBuffer.y * fitted)) / 1e6
+        if (!known && !current.refitted && fittedMegapixels < 0.8 * current.traceMegapixels) {
+          current.refitted = true
+          current.dirty = true
+          current.dirtyReason = 'resolution fitted to this GPU'
+          bootStats.step(`starting over at ${fittedMegapixels.toFixed(2)} MP to fit this GPU`)
+        }
       }
       try {
         const developing = tracer.step()

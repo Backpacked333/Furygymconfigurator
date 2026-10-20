@@ -2,7 +2,17 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { historyCapacity } from '../render/historyCache'
 import { STRICT_REFERENCE_SETTINGS } from '../render/prototype/strictReference'
-import { REFERENCE_PIXELS, liveProfile, requestedTraceScale, traceScale } from './liveProfile'
+import {
+  CLEAN_MS,
+  CLEAN_SAMPLES,
+  MIN_BUDGET_SCALE,
+  REFERENCE_PIXELS,
+  budgetPixels,
+  liveProfile,
+  requestedTraceScale,
+  settleSamples,
+  traceScale,
+} from './liveProfile'
 
 describe("the 360° view's trace scale", () => {
   it('traces Lite at half, whatever the canvas or the request', () => {
@@ -118,5 +128,33 @@ describe("the 360° view's live profile", () => {
     ])
     for (const quality of ['lite', 'high', 'ultra'] as const)
       expect(liveProfile(quality)).toMatchObject({ clampDirect: direct, clampIndirect: indirect })
+  })
+})
+
+describe('"fast and stable": fitting the trace to what a sample costs on the device', () => {
+  it('traces as many pixels as give a clean image within CLEAN_MS', () => {
+    // 156 ms per megapixel-sample: 16 samples of a megapixel take 2.5 s.
+    const cost = CLEAN_MS / CLEAN_SAMPLES
+    expect(budgetPixels(cost)).toBeCloseTo(1e6)
+    const scale = traceScale('ultra', 2421, 1512, null, cost)
+    const traced = Math.floor(scale * 2421) * Math.floor(scale * 1512)
+    expect(traced).toBeLessThanOrEqual(1e6)
+    expect(traced).toBeGreaterThan(0.99e6)
+  })
+
+  it('changes nothing for a fast GPU or an unknown one, and never goes below half', () => {
+    const full = traceScale('ultra', 2421, 1512, null)
+    expect(traceScale('ultra', 2421, 1512, null, null)).toBe(full)
+    expect(traceScale('ultra', 2421, 1512, null, 5)).toBe(full)
+    expect(traceScale('ultra', 2421, 1512, null, 1e6)).toBe(MIN_BUDGET_SCALE)
+    // A pinned ?traceScale and Lite are as before.
+    expect(traceScale('ultra', 2421, 1512, 0.75, 1e6)).toBe(0.75)
+    expect(traceScale('lite', 2421, 1512, null, 1e6)).toBe(0.5)
+  })
+
+  it('settles at what SETTLE_MS buys, between 64 and 1024 samples', () => {
+    expect(settleSamples(0.5)).toBe(64)
+    expect(settleSamples(10)).toBe(120)
+    expect(settleSamples(500)).toBe(1024)
   })
 })

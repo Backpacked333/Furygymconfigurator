@@ -53,6 +53,8 @@ const mocks = vi.hoisted(() => ({
     progress: vi.fn(() => ({ shown: 0, target: 1024 })),
     prepareDenoiser: vi.fn(() => Promise.resolve()),
     started: true,
+    samplesPerSecond: null as number | null,
+    settleAt: vi.fn(),
     invalidate: vi.fn(),
     texturesChanged: vi.fn(),
     trim: vi.fn(),
@@ -143,6 +145,12 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.load.mockResolvedValue({})
     mocks.trace.step.mockReturnValue(true)
     mocks.trace.started = true
+    mocks.trace.samplesPerSecond = null
+    try {
+      window.localStorage.clear()
+    } catch {
+      // No storage in this environment.
+    }
     mocks.trace.view.mockReturnValue({ from: null, to: {}, t: 1 })
     now = 0
     vi.spyOn(performance, 'now').mockImplementation(() => now)
@@ -432,6 +440,32 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     settle()
     await render({ active: false })
     expect(traceProgress.get()).toEqual({ phase: 'idle' })
+  })
+
+  it('fits a first visit to the GPU once its rate is measured: settles, keeps the cost, starts over once', async () => {
+    mocks.buffer = { w: 2421, h: 1512 }
+    await render()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledOnce()
+    const first = mocks.trace.begin.mock.lastCall![4] as number
+    expect(mocks.trace.settleAt).not.toHaveBeenCalled()
+    // 0.6 samples a second at ~2.3 MP: far too slow for a clean image in 2.5 s.
+    mocks.trace.samplesPerSecond = 0.6
+    frame()
+    expect(mocks.trace.settleAt).toHaveBeenLastCalledWith(64)
+    expect(Object.keys(window.localStorage).some((key) => key.startsWith('fury:trace-cost:'))).toBe(
+      true,
+    )
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+    const fitted = mocks.trace.begin.mock.lastCall![4] as number
+    expect(fitted).toBeLessThan(first)
+    // The next start knows the cost: it settles from its start (then again as it measures its
+    // own rate), and never starts over for it again.
+    expect(mocks.trace.settleAt.mock.calls.length).toBeGreaterThanOrEqual(2)
+    frame()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
   })
 
   it('tells ?bootStats=1 why each trace stopped', async () => {

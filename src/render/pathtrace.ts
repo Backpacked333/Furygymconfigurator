@@ -689,6 +689,8 @@ export class PathTraceSession {
    * pass. Batches are sized on the time beyond it (nextTracePassesOverLatency).
    */
   private latencyFloor = Infinity
+  /** When every pixel first held two samples, and how many it holds since (samplesPerSecond). */
+  private rate = { at: 0, samples: 0 }
   /** A batch of this view has finished on the GPU: its kernels are built and running. */
   private batchDone = false
   private measuring = false
@@ -890,6 +892,33 @@ export class PathTraceSession {
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0, milestones: [] }
     this.batchDone = false
+    this.rate = { at: 0, samples: 0 }
+  }
+
+  /**
+   * Samples per pixel per second this view is gaining, measured from when every pixel held two
+   * (past the first batch's kernel build); null until a few more have come in.
+   */
+  get samplesPerSecond() {
+    const { at, samples } = this.rate
+    const elapsed = performance.now() - at
+    if (!at || this.samples < samples + 4 || elapsed <= 0) return null
+    return ((this.samples - samples) * 1000) / elapsed
+  }
+
+  /**
+   * Lowers the view's target: it settles at the last image (milestone) at or under `target`
+   * samples instead, never below what it holds already. An export raises it again (retarget).
+   */
+  settleAt(target: number) {
+    if (this.state !== 'tracing' || target >= this.target) return
+    // The last image at or under `target`, or failing that the next this view can still show.
+    const reachable = ALL_MILESTONES.filter((m) => m >= this.samples && m < this.target)
+    const milestone = reachable.filter((m) => m <= target).at(-1) ?? reachable[0]
+    if (milestone === undefined) return
+    this.target = milestone
+    this.tracer.maxSamples = milestone
+    if (this.samples >= milestone) this.accumulating = false
   }
 
   /**
@@ -1096,6 +1125,8 @@ export class PathTraceSession {
       .then((counts) => {
         if (epoch !== this.epoch || this.state !== 'tracing') return
         this.samples = counts.min
+        if (!this.rate.at && counts.min >= 2)
+          this.rate = { at: performance.now(), samples: counts.min }
         if (counts.min >= this.target) this.accumulating = false
       })
       .catch(() => {})
