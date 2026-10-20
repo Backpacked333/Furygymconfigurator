@@ -1,5 +1,6 @@
 import { serializeDesign } from '../../domain/design.js'
 import { canonicalJson, computeSetIdentity } from '../identity.js'
+import { viewDesign } from '../views.js'
 import {
   artifactReceiptSchema,
   workerClaimSchema,
@@ -42,10 +43,7 @@ export async function verifyArtifactReceipt(
   const receipt = artifactReceiptSchema.parse(input)
   const camera = receipt.design.presentation.cameraRef
   const requested = claim.views.find((view) => view.cameraRef === camera)
-  const expectedDesign = {
-    ...claim.design,
-    presentation: { ...claim.design.presentation, cameraRef: camera },
-  }
+  const expectedDesign = viewDesign(claim.design, camera)
   if (
     !requested ||
     canonicalJson(receipt.recipeRelease) !== canonicalJson(claim.identity.recipeRelease) ||
@@ -59,7 +57,7 @@ export async function verifyArtifactReceipt(
     receipt.renderSeconds > claim.limits.imageSeconds
   )
     throw new Error('Artifact does not match the claimed work.')
-  const identity = await computeSetIdentity(receipt.design)
+  const identity = await computeSetIdentity(claim.design)
   if (
     identity.setKey !== claim.identity.setKey ||
     receipt.imageKey !== identity.imageKeys[requested.cameraRef]
