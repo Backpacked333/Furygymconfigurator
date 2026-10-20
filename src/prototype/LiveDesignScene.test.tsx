@@ -3,9 +3,11 @@ import { act, type ReactElement, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Scene from '../components/Scene'
-import { defaultDesign } from '../domain/design'
+import { defaultDesign, parseDesign, type DesignEnvelope } from '../domain/design'
+import { createSceneDesignFixtures } from '../domain/designFixtures'
 import { DEFAULT_CONFIG } from '../lib/config'
 import { resolveNativeCamera } from '../render/nativeCamera'
+import { arcWindow } from '../viewer/arc'
 import LiveDesignScene from './LiveDesignScene'
 
 const seen = vi.hoisted(() => ({
@@ -109,5 +111,73 @@ describe('who shares part geometry across edits', () => {
       />,
     )
     expect(props.reuseGeometry).toBeUndefined()
+  })
+})
+
+describe('live 360° view under ?arc= (no GPU)', () => {
+  let root: Root
+  const base = createSceneDesignFixtures().find((f) => f.id === 'studio-20-baseline')!.design
+  const courtyard = parseDesign({
+    ...base,
+    presentation: { ...base.presentation, lookRef: 'courtyard-day-draft@1', aspect: 'wide' },
+  })
+  const show = (design: DesignEnvelope) =>
+    act(() =>
+      root.render(
+        <LiveDesignScene
+          design={design}
+          active
+          unit="ft"
+          dimensions={false}
+          autoRotate={false}
+          reset={0}
+          onReady={() => {}}
+          onStatus={() => {}}
+          onUnavailable={() => {}}
+        />,
+      ),
+    )
+  const arc = () => seen.surfaces.at(-1)!.arc
+
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    root = createRoot(document.createElement('div'))
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    window.history.replaceState(null, '', '/')
+    vi.unstubAllGlobals()
+  })
+
+  it('hands the orbit the design’s window, the same one across a finish edit', () => {
+    window.history.replaceState(null, '', '/?experience=library&arc=180')
+    show(courtyard)
+    expect(arc()).toEqual(arcWindow(courtyard, 180))
+    const first = arc()
+    show(
+      parseDesign({
+        ...courtyard,
+        config: {
+          ...courtyard.config,
+          appearance: { ...courtyard.config.appearance, finish: 'chalk' },
+        },
+      }),
+    )
+    expect(arc()).toBe(first)
+    // The address is read once, on opening.
+    window.history.replaceState(null, '', '/?experience=library&arc=90')
+    const studio = parseDesign({
+      ...courtyard,
+      presentation: { ...courtyard.presentation, lookRef: 'studio-day-draft@1' },
+    })
+    show(studio)
+    expect(arc()).toEqual(arcWindow(studio, 180))
+    expect(arc()).not.toEqual(first)
+  })
+
+  it('leaves the orbit free without ?arc=', () => {
+    window.history.replaceState(null, '', '/?experience=library')
+    show(courtyard)
+    expect(arc()).toBeUndefined()
   })
 })

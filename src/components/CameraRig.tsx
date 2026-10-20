@@ -1,13 +1,24 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
-import { Euler, PerspectiveCamera, Quaternion, Vector3 } from 'three'
+import { Euler, PerspectiveCamera, Quaternion, Vector3, type Camera } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { productHeight, type Config, type View } from '../lib/config'
 import { deckFront, roofTop } from '../render/envelope'
 import { aspectClassOf, galleryCamera, type AngleId, type GalleryCamera } from '../render/gallery'
 import { DAMPING, motionPixels, settleGlide } from '../render/motion'
 import { ORBIT_LIMITS } from '../render/orbit'
+import { FREE_ORBIT, room, sweep, widen, type ArcWindow } from '../viewer/orbitWindow'
+
+/** OrbitControls' rotateSpeed under a limited arc: a drag turns the view more steadily. */
+const ARC_ROTATE_SPEED = 0.6
+/** Within this many radians of an end of the arc (about 0.006°), the camera stands on it. */
+const AT_END = 1e-4
+const UP = new Vector3(0, 1, 0)
+
+/** The azimuth OrbitControls reads for the camera (orbitWindow.ts ArcWindow). */
+const azimuth = (camera: Camera, orbit: OrbitControlsImpl) =>
+  Math.atan2(camera.position.x - orbit.target.x, camera.position.z - orbit.target.z)
 
 export function CameraRig({
   config: c,
@@ -19,6 +30,7 @@ export function CameraRig({
   gallery,
   active,
   pose,
+  arc,
 }: {
   config: Config
   view: View
@@ -38,6 +50,11 @@ export function CameraRig({
   gallery: boolean
   active: boolean
   pose?: GalleryCamera
+  /**
+   * The exterior orbit's azimuth window (`?arc=`, viewer/arc.ts), from the library's 360° view
+   * only. None by default: the orbit goes all the way round.
+   */
+  arc?: ArcWindow
 }) {
   const { camera, size, gl, invalidate } = useThree()
   const controls = useRef<OrbitControlsImpl>(null)
@@ -49,6 +66,38 @@ export function CameraRig({
     pitch = useRef(0)
   const [dx, dy, dz] = direction
   const live = !gallery && active
+  // Numbers, not the window object, so a new object for the same window changes nothing.
+  const arcMin = arc?.min ?? -Infinity,
+    arcMax = arc?.max ?? Infinity
+  const limited = Number.isFinite(arcMin) && Number.isFinite(arcMax)
+  // Auto-rotation within a limited arc is a sweep back and forth (orbitWindow.ts), not
+  // OrbitControls' own, which would creep to an end and stop there.
+  const sweeping = live && autoRotate && view === 'exterior' && limited
+  // The arc is put on the controls here, not passed as props: none while the camera eases between
+  // poses (three-stdlib clamps the straight path it takes, which would pin it at an end short of
+  // where it is going, or throw it to the far end past ±180°), and, once it rests, the window
+  // widened just enough to hold where it stands, so taking effect never moves the camera.
+  const designed = useRef<ArcWindow>(FREE_ORBIT),
+    held = useRef<ArcWindow>(FREE_ORBIT)
+  const hold = useCallback((window: ArcWindow) => {
+    held.current = window
+    const orbit = controls.current
+    if (!orbit) return
+    orbit.minAzimuthAngle = window.min
+    orbit.maxAzimuthAngle = window.max
+  }, [])
+  /** The camera has stopped easing, or never was: the arc holds it from where it stands. */
+  const rest = useCallback(() => {
+    moving.current = false
+    const orbit = controls.current
+    if (orbit) hold(widen(designed.current, azimuth(camera, orbit)))
+  }, [camera, hold])
+  useLayoutEffect(() => {
+    designed.current = limited ? { min: arcMin, max: arcMax } : FREE_ORBIT
+    // A new window (a look or the stage's shape moves the cameras) takes effect under a still
+    // camera only widened to hold it; an ease under way takes it on landing.
+    if (!moving.current) rest()
+  }, [arcMin, arcMax, limited, rest])
   // Framing depends only on what changes the build's silhouette, not on every edit.
   const framingKey = JSON.stringify([
     c.length,
@@ -109,6 +158,7 @@ export function CameraRig({
       const forward = new Vector3(...target).sub(p.position).normalize()
       yaw.current = Math.atan2(-forward.x, -forward.z)
       pitch.current = Math.asin(forward.y)
+      rest()
       invalidate()
       return
     }
@@ -126,8 +176,9 @@ export function CameraRig({
     }
     moving.current = true
     stalled.current = 0
+    hold(FREE_ORBIT)
     invalidate()
-  }, [camera, framingKey, view, angle, reset, invalidate, live])
+  }, [camera, framingKey, view, angle, reset, invalidate, live, rest, hold])
   useEffect(() => {
     const el = gl.domElement
     // In the gallery the canvas is a picture: it takes no focus, and drags do nothing.
@@ -137,7 +188,7 @@ export function CameraRig({
       lastX = 0,
       lastY = 0
     const down = (e: PointerEvent) => {
-      moving.current = false
+      rest()
       drag = true
       lastX = e.clientX
       lastY = e.clientY
@@ -158,7 +209,7 @@ export function CameraRig({
       if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '-', '='].includes(e.key))
         return
       e.preventDefault()
-      moving.current = false
+      rest()
       if (view === 'interior') {
         yaw.current += e.key === 'ArrowLeft' ? 0.12 : e.key === 'ArrowRight' ? -0.12 : 0
         pitch.current = Math.max(
@@ -171,8 +222,13 @@ export function CameraRig({
         camera.quaternion.setFromEuler(new Euler(pitch.current, yaw.current, 0, 'YXZ'))
       } else if (controls.current) {
         const offset = camera.position.clone().sub(controls.current.target)
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
-          offset.applyAxisAngle(new Vector3(0, 1, 0), e.key === 'ArrowLeft' ? 0.1 : -0.1)
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          const way = e.key === 'ArrowLeft' ? 1 : -1
+          // No further than the arc's end: a camera turned past ±180° by position would be
+          // clamped to the far end instead.
+          const turn = Math.min(0.1, room(held.current, Math.atan2(offset.x, offset.z), way))
+          offset.applyAxisAngle(UP, way * turn)
+        }
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown')
           offset.y = Math.max(2, offset.y + (e.key === 'ArrowUp' ? 2 : -2))
         if (e.key === '+' || e.key === '=') offset.multiplyScalar(0.92)
@@ -196,7 +252,7 @@ export function CameraRig({
       window.removeEventListener('pointerup', up)
       el.removeEventListener('keydown', key)
     }
-  }, [camera, gl, view, invalidate, live])
+  }, [camera, gl, view, invalidate, live, rest])
   // Ends an orbit's damped glide once it is no longer visible, so the view comes to rest (and its
   // settle run ends) promptly. Runs after OrbitControls' own update.
   const glide = useRef({ dragging: false, position: new Vector3(), quaternion: new Quaternion() })
@@ -215,8 +271,17 @@ export function CameraRig({
     )
     last.position.copy(camera.position)
     last.quaternion.copy(camera.quaternion)
-    if (!orbit?.enabled || last.dragging || moving.current || orbit.autoRotate) return
-    if (pixels > 0 && settleGlide(orbit, pixels)) invalidate()
+    if (!orbit?.enabled || last.dragging || moving.current || orbit.autoRotate || sweeping) return
+    if (pixels > 0) {
+      if (settleGlide(orbit, pixels)) invalidate()
+      return
+    }
+    // Held still at an end of the arc while what is left of a fling pushes on into it, unseen
+    // (settleGlide waits for motion, so it never ends it): stopped outright, or the next turn back
+    // would be pulled to the end again.
+    const theta = azimuth(camera, orbit)
+    if (room(held.current, theta, 1) < AT_END || room(held.current, theta, -1) < AT_END)
+      settleGlide(orbit, 0)
   })
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)'), [])
   useFrame((_, delta) => {
@@ -235,7 +300,7 @@ export function CameraRig({
       // Land exactly, so the view is the same each time.
       camera.position.copy(targetPosition.current)
       orbit?.target.copy(targetLook.current)
-      moving.current = false
+      rest()
     }
     if (orbit) orbit.update()
     else camera.lookAt(targetLook.current)
@@ -247,7 +312,24 @@ export function CameraRig({
     // undercounts, so it never counts as held.
     const pinned = !!orbit && orbit.getDistance() <= orbit.minDistance + 1e-3
     stalled.current = !pinned && after > before - 0.5 * t * before ? stalled.current + 1 : 0
-    if (stalled.current >= 8) moving.current = false
+    if (stalled.current >= 8) rest()
+    invalidate()
+  })
+  const sweepWay = useRef<1 | -1>(-1)
+  useFrame((_, delta) => {
+    const orbit = controls.current
+    if (!sweeping || !orbit || moving.current || glide.current.dragging) return
+    // Timed in seconds, a frame never more than 1/30 s as the ease above.
+    const offset = camera.position.clone().sub(orbit.target)
+    const step = sweep(
+      held.current,
+      Math.atan2(offset.x, offset.z),
+      sweepWay.current,
+      Math.min(delta, 1 / 30),
+    )
+    sweepWay.current = step.way
+    camera.position.copy(orbit.target).add(offset.applyAxisAngle(UP, step.turn))
+    camera.lookAt(orbit.target)
     invalidate()
   })
   return (
@@ -257,16 +339,19 @@ export function CameraRig({
       enabled={live && view !== 'interior'}
       enablePan={false}
       {...ORBIT_LIMITS}
-      autoRotate={live && autoRotate && view === 'exterior'}
+      rotateSpeed={limited ? ARC_ROTATE_SPEED : 1}
+      autoRotate={live && autoRotate && view === 'exterior' && !limited}
       autoRotateSpeed={0.45}
       dampingFactor={DAMPING}
       onStart={() => {
-        moving.current = false
+        rest()
         glide.current.dragging = true
         if (controls.current) controls.current.dampingFactor = DAMPING
       }}
       onEnd={() => {
         glide.current.dragging = false
+        // A frame to resume the sweep, or to end a glide left pushing into an end of the arc.
+        if (limited) invalidate()
       }}
     />
   )

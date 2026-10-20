@@ -8,6 +8,7 @@ import { loadTracerModule } from '../render/pathtrace'
 import { defaultQuality } from '../render/quality'
 import { resolveNativeCamera } from '../render/nativeCamera'
 import { SceneSurface } from '../components/SceneSurface'
+import { arcWindow, requestedArc } from '../viewer/arc'
 import { ProgressiveRenderer, type ViewerStatus } from '../viewer/ProgressiveRenderer'
 import { EntryWatch } from '../viewer/EntryWatch'
 
@@ -45,6 +46,20 @@ export default memo(function LiveDesignScene({
   const staged = useStagedScene(config, quality)
   const camera = resolveCamera(design.presentation.cameraRef)
   const pose = useMemo(() => resolveNativeCamera(design), [design])
+  // Experimental `?arc=N` (ADR-003): the exterior orbit kept to a window around this design's
+  // cameras. Read once; the window follows the design, but a finish edit (a new design object for
+  // the same cameras) hands CameraRig the same window.
+  const [degrees] = useState(() => requestedArc())
+  const limits = useMemo(
+    () => (degrees === null ? null : arcWindow(design, degrees)),
+    [design, degrees],
+  )
+  const arcMin = limits?.min,
+    arcMax = limits?.max
+  const arc = useMemo(
+    () => (arcMin === undefined || arcMax === undefined ? undefined : { min: arcMin, max: arcMax }),
+    [arcMin, arcMax],
+  )
   const look = useMemo(
     () => skyLook(staged.config.environment, staged.config.time),
     [staged.config.environment, staged.config.time],
@@ -58,6 +73,7 @@ export default memo(function LiveDesignScene({
         view={camera.group}
         angle={camera.previewAngle}
         pose={pose}
+        arc={arc}
         mode="live"
         unit={unit}
         dimensions={dimensions}

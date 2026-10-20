@@ -12,6 +12,7 @@ import { deckFront } from '../render/envelope'
 import { GeometryReuse } from '../render/geometryReuse'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import type { AngleId, GalleryCamera } from '../render/gallery'
+import type { ArcWindow } from '../viewer/orbitWindow'
 import { CameraRig } from './CameraRig'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
 import { sceneProgress } from '../render/progress'
@@ -100,6 +101,7 @@ export const SceneSurface = memo(function SceneSurface({
   effects,
   pose,
   reuseGeometry = false,
+  arc,
   onFallback,
   onBackend,
 }: {
@@ -126,6 +128,8 @@ export const SceneSurface = memo(function SceneSurface({
    * the meshes it has (geometryReuse.ts). The live 360° view only; the stills keep rebuilding.
    */
   reuseGeometry?: boolean
+  /** The live view's exterior orbit window (`?arc=`, viewer/arc.ts); the legacy route has none. */
+  arc?: ArcWindow
   onFallback: () => void
   onBackend?: (backend: Backend) => void
 }) {
@@ -203,6 +207,7 @@ export const SceneSurface = memo(function SceneSurface({
             <CameraRig
               active={active}
               pose={pose}
+              arc={arc}
               config={config}
               view={view}
               reset={reset}

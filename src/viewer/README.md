@@ -18,6 +18,9 @@ load the tracer. The diagnostic image routes retain their existing restrictions.
   devices refine stationary views with the existing path tracer and denoiser. WebGL remains raster-only.
 - `viewer/presentation.ts`: retains the raster frame and crossfades current traced images using
   the existing bloom, tone mapping and exposure treatment.
+- `viewer/arc.ts` and `viewer/orbitWindow.ts`: the experimental `?arc=N` exterior orbit window
+  (ADR-003). The library adapter computes it from the design's exterior customer cameras; the
+  shared camera rig only applies it. The legacy route never passes one, so its orbit stays free.
 
 To reuse this in another configurator, supply the scene contents, camera controls, a stable scene
 revision and a `SkyLook` environment recipe to `ProgressiveRenderer` inside an R3F canvas made with
