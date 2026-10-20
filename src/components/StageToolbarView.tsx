@@ -30,6 +30,8 @@ export type StageToolbarViewProps = {
   onSettingsOpen?: () => void | (() => void)
   onMoreSettings: () => void
   onToggleLive?: () => void
+  /** The visitor is about to open the 360° view (pointer, focus, or touch on its button). */
+  onLiveIntent?: () => void
   dimensions?: boolean
   onDimensions?: () => void
   autoRotate?: boolean
@@ -53,6 +55,7 @@ export function StageToolbarView({
   onSettingsOpen,
   onMoreSettings,
   onToggleLive,
+  onLiveIntent,
   dimensions = false,
   onDimensions,
   autoRotate = false,
@@ -186,6 +189,9 @@ export function StageToolbarView({
           aria-pressed={live}
           aria-label={liveLabel ?? (live ? 'Close the 360° View' : '360° View')}
           onClick={onToggleLive}
+          onPointerEnter={live ? undefined : onLiveIntent}
+          onFocus={live ? undefined : onLiveIntent}
+          onTouchStart={live ? undefined : onLiveIntent}
           disabled={!!liveDisabledReason}
           aria-describedby={liveDisabledReason ? `${popover}-live-reason` : undefined}
           title={liveDisabledReason}

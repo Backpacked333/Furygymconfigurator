@@ -9,8 +9,10 @@ import { SceneRefresh } from './SceneRefresh'
 import { Atmosphere } from './Atmosphere'
 import { InteriorProbe, SiteProbe } from './InteriorProbe'
 import { deckFront } from '../render/envelope'
+import { GeometryReuse } from '../render/geometryReuse'
 import { backendOf, createRenderer, type Backend, type Quality } from '../render/renderer'
 import type { AngleId, GalleryCamera } from '../render/gallery'
+import type { ArcWindow } from '../viewer/orbitWindow'
 import { CameraRig } from './CameraRig'
 import { restoreTextures, setMaxAnisotropy } from '../render/materials'
 import { sceneProgress } from '../render/progress'
@@ -98,6 +100,8 @@ export const SceneSurface = memo(function SceneSurface({
   angle,
   effects,
   pose,
+  reuseGeometry = false,
+  arc,
   onFallback,
   onBackend,
 }: {
@@ -119,6 +123,13 @@ export const SceneSurface = memo(function SceneSurface({
   effects: ReactNode
   /** Product adapter's exact saved-image camera, used on entry and reset. */
   pose?: GalleryCamera
+  /**
+   * Part lists share merged geometry across edits, so a finish or floor edit swaps materials on
+   * the meshes it has (geometryReuse.ts). The live 360° view only; the stills keep rebuilding.
+   */
+  reuseGeometry?: boolean
+  /** The live view's exterior orbit window (`?arc=`, viewer/arc.ts); the legacy route has none. */
+  arc?: ArcWindow
   onFallback: () => void
   onBackend?: (backend: Backend) => void
 }) {
@@ -184,37 +195,44 @@ export const SceneSurface = memo(function SceneSurface({
             setMaxAnisotropy(renderer.getMaxAnisotropy())
             // The first frame compiles every shader in view.
             sceneProgress.set('shaders')
+            // The live view's loading screen says the scene is being built before the scene's
+            // synchronous mount takes the main thread: one painted frame first.
+            if (mode === 'live')
+              await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
             return renderer
           }}
           onCreated={({ gl }) => onBackend?.(backendOf(gl as unknown as WebGPURenderer))}
         >
-          <Atmosphere config={config} quality={quality} view={view} />
-          <Landscape config={config} quality={quality} />
-          <StudioModel config={config} quality={quality} />
-          {dimensions && <Dimensions config={config} unit={unit} />}
-          <CameraRig
-            active={active}
-            pose={pose}
-            config={config}
-            view={view}
-            reset={reset}
-            direction={camera}
-            autoRotate={autoRotate}
-            angle={angle}
-            gallery={mode === 'gallery'}
-          />
-          <InteriorProbe config={config} quality={quality} />
-          <SiteProbe config={config} quality={quality} />
-          {effects}
-          <SceneRefresh
-            active={active}
-            config={config}
-            view={view}
-            dimensions={dimensions}
-            unit={unit}
-            quality={quality}
-            autoRotate={autoRotate}
-          />
+          <GeometryReuse.Provider value={reuseGeometry}>
+            <Atmosphere config={config} quality={quality} view={view} />
+            <Landscape config={config} quality={quality} />
+            <StudioModel config={config} quality={quality} />
+            {dimensions && <Dimensions config={config} unit={unit} />}
+            <CameraRig
+              active={active}
+              pose={pose}
+              arc={arc}
+              config={config}
+              view={view}
+              reset={reset}
+              direction={camera}
+              autoRotate={autoRotate}
+              angle={angle}
+              gallery={mode === 'gallery'}
+            />
+            <InteriorProbe config={config} quality={quality} />
+            <SiteProbe config={config} quality={quality} />
+            {effects}
+            <SceneRefresh
+              active={active}
+              config={config}
+              view={view}
+              dimensions={dimensions}
+              unit={unit}
+              quality={quality}
+              autoRotate={autoRotate}
+            />
+          </GeometryReuse.Provider>
         </Canvas>
       )}
       <SceneLoadingStatus />

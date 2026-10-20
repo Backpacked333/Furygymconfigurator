@@ -73,7 +73,11 @@ function groupParts(parts: Part[]) {
   return [...groups.values()]
 }
 
-/** A batch's geometry key: its parts' geometry keys and placements, so not its material. */
+/**
+ * A batch's geometry key: its parts' geometry keys and placements, so not its material. Placements
+ * match to 4 decimals, the tolerance the generators' keys (geometry.ts) and the scene fingerprints
+ * already accept; a part's source geometry is taken as immutable once batched.
+ */
 function batchKey(parts: Part[]) {
   const keys = parts.map((p) => {
     const source = (p.geometry.userData as { key?: unknown }).key
@@ -99,31 +103,143 @@ export function batchKeys(parts: Part[]): BatchKey[] {
  * detailed model costs a handful of draw calls. Mirrored transforms flip winding, which is
  * corrected per part so faces stay front-facing. Each merged geometry is named by its content
  * (`userData.key`: the parts' geometry keys and placements), so a model rebuilt from the same
- * parts reads as the same shape to the scene fingerprints (pathtrace.ts sceneParts).
+ * parts reads as the same shape to the scene fingerprints (pathtrace.ts sceneParts). Each call
+ * merges geometries of its own, which the caller owns and disposes (Equipment keeps them per
+ * product); the live 360° view shares them by content instead (`cachedBatches`).
  */
 export function batch(parts: Part[]): Batch[] {
-  return groupParts(parts).map(({ material, shadow, parts: grouped }) => {
-    const items = grouped.map((p) => {
-      const g = p.geometry.index ? p.geometry.toNonIndexed() : p.geometry.clone()
-      for (const name of Object.keys(g.attributes))
-        if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name)
-      if (!g.getAttribute('uv'))
-        g.setAttribute(
-          'uv',
-          new BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2),
-        )
-      g.applyMatrix4(p.matrix)
-      if (p.matrix.determinant() < 0) flipWinding(g)
-      g.clearGroups()
-      return g
-    })
-    const geometry = mergeGeometries(items, false)
-    items.forEach((g) => g.dispose())
-    geometry.computeBoundingSphere()
-    geometry.computeBoundingBox()
-    geometry.userData.key = batchKey(grouped)
-    return { geometry, material, shadow }
+  return groupParts(parts).map(({ material, shadow, parts: grouped }) => ({
+    geometry: merge(grouped, batchKey(grouped)),
+    material,
+    shadow,
+  }))
+}
+
+/** One batch's parts baked into one geometry, named `key`. */
+function merge(grouped: Part[], key: string) {
+  const items = grouped.map((p) => {
+    const g = p.geometry.index ? p.geometry.toNonIndexed() : p.geometry.clone()
+    for (const name of Object.keys(g.attributes))
+      if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name)
+    if (!g.getAttribute('uv'))
+      g.setAttribute(
+        'uv',
+        new BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2),
+      )
+    g.applyMatrix4(p.matrix)
+    if (p.matrix.determinant() < 0) flipWinding(g)
+    g.clearGroups()
+    return g
   })
+  const geometry = mergeGeometries(items, false)
+  items.forEach((g) => g.dispose())
+  geometry.computeBoundingSphere()
+  geometry.computeBoundingBox()
+  geometry.userData.key = key
+  return geometry
+}
+
+/** A batch whose geometry comes from the shared cache (`cachedBatches`), with its key. */
+export type CachedBatch = Batch & { key: string }
+
+/**
+ * Merged geometry shared by content, for the live 360° view (geometryReuse.ts). A finish or floor
+ * edit rebuilds a part list into the same batches with other materials (siblings.ts), so a list
+ * rebuilt for it finds every batch's geometry here and its meshes keep their geometry: the path
+ * tracer sees the same structure and updates materials in place instead of building its BVH
+ * again.
+ *
+ * Merging happens while rendering, but a render may never commit (a concurrent render thrown
+ * away, StrictMode), so references are counted only by the effects of what did commit
+ * (`acquireBatches`, `releaseBatches`). An entry no effect holds is disposed later, not when let
+ * go: a list rebuilt to the same batches lets go of them and takes them up again in one commit.
+ * Later means a later task, never a microtask, since React may run a commit's effects tasks after
+ * the render that was handed the entry. Each time an entry no effect holds is handed out, or let
+ * go by the last, it is stamped, and a sweep disposes only entries stamped before it was
+ * scheduled, so one handed out again meanwhile survives it. Entries are counted, not owned: a
+ * renderer rebuilt after a lost device mounts its scene before the old one unmounts, holding
+ * each entry twice for a while.
+ */
+type Entry = { key: string; geometry: BufferGeometry; refs: number; stamp: number }
+const entries = new Map<string, Entry>()
+/** Each cached geometry's entry, so the effects count what they were handed, not a key's. */
+const owners = new WeakMap<BufferGeometry, Entry>()
+/** Entries no effect holds, waiting for a sweep. */
+const idle = new Set<Entry>()
+let clock = 0
+let sweeping = false
+
+function unheld(entry: Entry) {
+  entry.stamp = ++clock
+  idle.add(entry)
+  schedule()
+}
+
+function schedule() {
+  if (sweeping) return
+  sweeping = true
+  const horizon = clock
+  setTimeout(() => {
+    sweeping = false
+    sweep(horizon)
+  }, 0)
+}
+
+function sweep(horizon: number) {
+  for (const entry of idle) {
+    if (entry.refs > 0) idle.delete(entry)
+    else if (entry.stamp <= horizon) {
+      idle.delete(entry)
+      if (entries.get(entry.key) === entry) entries.delete(entry.key)
+      entry.geometry.dispose()
+    }
+  }
+  // Handed out or let go since this sweep was scheduled: the next one decides.
+  if (idle.size) schedule()
+}
+
+/**
+ * The batches `batch` makes of a part list, their geometry shared with every list of the same
+ * content: batches already cached are looked up by key, and only the others are merged. Counts
+ * no reference: the effects of the render that shows them do (`acquireBatches`).
+ */
+export function cachedBatches(parts: Part[]): CachedBatch[] {
+  return groupParts(parts).map(({ material, shadow, parts: grouped }) => {
+    const key = batchKey(grouped)
+    let entry = entries.get(key)
+    if (!entry) {
+      entry = { key, geometry: merge(grouped, key), refs: 0, stamp: 0 }
+      entries.set(key, entry)
+      owners.set(entry.geometry, entry)
+    }
+    // Not held yet: a render that never commits must not keep it.
+    if (entry.refs === 0) unheld(entry)
+    return { key, geometry: entry.geometry, material, shadow }
+  })
+}
+
+/** Holds the cached batches a committed render shows (an effect's setup). */
+export function acquireBatches(batches: readonly CachedBatch[]) {
+  for (const b of batches) {
+    const entry = owners.get(b.geometry)
+    if (!entry) continue
+    entry.refs++
+    idle.delete(entry)
+    // Swept between the render that was handed it and this commit: it is the geometry on the
+    // mesh, so it is kept (three uploads a disposed geometry again). A list merged since under
+    // its key keeps that entry; this one lives on until let go.
+    if (!entries.has(entry.key)) entries.set(entry.key, entry)
+  }
+}
+
+/** Lets go of cached batches (that effect's cleanup): disposed once no effect holds them. */
+export function releaseBatches(batches: readonly CachedBatch[]) {
+  for (const b of batches) {
+    const entry = owners.get(b.geometry)
+    if (!entry || entry.refs === 0) continue
+    entry.refs--
+    if (entry.refs === 0) unheld(entry)
+  }
 }
 
 function flipWinding(g: BufferGeometry) {

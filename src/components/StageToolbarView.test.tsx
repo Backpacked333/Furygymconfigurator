@@ -51,6 +51,19 @@ describe('renderer-free toolbar slots and accessibility', () => {
       ),
     ).toEqual(['Adjust scene', '360° View', 'Download image'])
   })
+  it('signals intent to open the 360° view on pointer or focus, and not once it is open', () => {
+    const onLiveIntent = vi.fn()
+    show({ onLiveIntent })
+    const live = button('360° View')
+    act(() => live.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+    expect(onLiveIntent).toHaveBeenCalledTimes(1)
+    act(() => live.focus())
+    expect(onLiveIntent).toHaveBeenCalledTimes(2)
+    act(() => live.blur())
+    show({ onLiveIntent, live: true })
+    act(() => button('Close the 360° View').focus())
+    expect(onLiveIntent).toHaveBeenCalledTimes(2)
+  })
   it('keeps the scene trigger named when responsive styling hides its visible label', () => {
     show()
     const trigger = host.querySelector<HTMLButtonElement>('.stage-toolbar > button')!

@@ -1,40 +1,37 @@
 # Handoff
 
-**Where things stand.** Stage 1 (path-traced stills) is implemented in `src/render/pathtrace.ts`,
-`src/components/RenderEffects.tsx`, `src/render/pipeline.ts` (`createTracePresent`), and
-`src/lib/visuals.ts` (shared sky calibration, cloud port, equirect builder). Decisions are in
-`.10x/decisions/sde/photoreal-rendering.md`.
+**Where things stand.** PR #38 (`claude/eager-ramanujan-m4j744`) carries the whole live 360° speed
+and quality change. The commit map is in `decisions/sde/live-360-speed-quality.md`, status is in
+`status.md`, and the decisions are ADR-001 to ADR-004.
+Every item is limited to the library live viewer, and the legacy route behaves as before. The
+investigations, with file:line evidence, live in the session scratch outputs. Their conclusions are
+in the ADRs.
 
-**Speed work (stacked branch `claude/gifted-mccarthy-3c2zyf`).** `src/render/motion.ts` ends an
-orbit's sub-pixel glide so the view comes to rest; `src/render/history.ts` keeps each traced view
-and seeds the next one from it. Decisions in `.10x/decisions/sde/trace-speed.md`. The GPU check is
-`dev-history.html` + `dev/history-harness.ts` (git-excluded), run like the trace harness below.
+## Remaining
 
-**How to verify locally.** Headless Chromium in the cloud container cannot present WebGPU to a
-canvas (device lost) but can run WebGPU offscreen. `dev-trace.html` + `src/dev/trace.tsx`
-(git-excluded) render a signature build through the real raster and trace pipelines into render
-targets and draw them to 2D canvases. Launch Chromium with
-`--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader --enable-unsafe-swiftshader`. Do not
-disable Dawn's lazy clear: uninitialized atlas pages then poison texture sampling (black images).
-The session zero-fills the 3D energy table itself. Read back with the 256-byte row stride. It is
-CPU-emulated: 320×200 reaches 16 spp in ~25–35 min.
+1. Real-GPU acceptance check (below). This is the user's call.
+2. Merge, or drop the PR if the check fails. Rollback is in `decisions/devops/live-360-speed-quality.md`.
 
-**Gotchas.**
+## GPU acceptance checklist (Vercel preview, `?experience=library`)
 
-- `three-gpu-pathtracer` is pinned to 0.0.27; the session calls its internal
-  `_pathTracer.update()` for extra passes per batch.
-- The tracer's 3D GGX energy table must not auto-generate mipmaps (set in the session ctor).
-- Path tracing presents nothing until the first image is ready, so the display does not pace it;
-  the session keeps one GPU batch in flight via `queue.onSubmittedWorkDone()`.
-- Any new TSL-only material needs `material.userData.pathTrace = { ...plain PBR fields }` or it
-  will be traced with its default (white) properties.
+Add `&bench=1` and `&traceStats=1` for timings.
 
-**Stage 2 so far.** Contact shadows and SSR live in `createPipeline` (`src/render/pipeline.ts`);
-`?debug=contact` and `?debug=reflections` show each buffer. The site probe is `SiteProbe` in
-`src/components/InteriorProbe.tsx`; materials opt in with `site: true` in `palette.ts`, and the
-unit's root group carries `userData.unit` so the capture can hide it. The sun light carries
-`userData.sun` so the pipeline can find it. The contact debug view bypasses TRAA, so it shows the
-march's per-frame noise; the final image is resolved.
-
-**Next.** Stage 2 items in `.10x/status.md`; check the live crossfade on a real GPU via the Vercel
-preview.
+- **Opening the 360° view:**
+  - the Cycles image stays until the first drag;
+  - the dissolve has no ghosting;
+  - the tone jump from Cycles to raster is acceptable. This is the go/no-go check.
+- **Refinement:**
+  - textured surfaces are not black when traced;
+  - the trace refines on a phone (Lite);
+  - images fade in, not cut.
+- **Edits:**
+  - a finish click restarts the trace seeded. `traceStats` logs "seeded".
+  - the click causes no BVH rebuild: compare the `fury:trace-begin` measures
+    (`performance.getEntriesByName('fury:trace-begin')`); a rebuild shows as a long one;
+  - obsidian to chalk and rubber to oak trace correctly.
+- **Timing and cost:**
+  - compare time to the first refined image and frame time while orbiting against main;
+  - check that the default Studio design downloads about 3.4 MB of scans, down from about 11.1 MB.
+- **`?arc=180`:** reach every customer camera, and check the edge feel and the slow sweep.
+- **While the entry image shows,** check GPU load, fan and battery: the trace refines unseen
+  under it (ADR-004 risk).
