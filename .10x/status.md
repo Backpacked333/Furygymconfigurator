@@ -1,19 +1,28 @@
 # Status
 
-**Phase: Discovery Complete** (2026-10-20, main-branch @ 0d813f1). Awaiting user confirmation of findings.
+## Live 360° speed and quality (spec `specs/2026-10-20-live-360-speed-quality-design.md`, ADR-001)
 
-## Discovery (this session)
+**Phase 1: implemented (b97f317).** Awaiting real-GPU measurement before Phase 2.
 
-- [x] Mapped both experiences: v3 legacy at `/` and v4 image-first library at `?experience=library`
-- [x] Mapped the client render stack: procedural scene, raster tiers, path tracer, history reuse
-- [x] Mapped the backend render library: Vercel API, Supabase RPCs, Modal dispatcher, Vast/Modal GPU worker
-- [x] Deep-dived the live 360° viewer (`decisions/architect/live-360-viewer.md`)
-- [x] Baseline on main-branch: typecheck OK, lint OK. vitest: 2449 passed, 1 failed, 35 skipped.
-  - The failing test is `image-service/control-plane/objects.test.ts` "fails closed on denied filesystem reads…".
-  - The container runs as root, which bypasses chmod, so this is environment-specific.
-- [x] QA finding F1 confirmed by probe: the 360° viewer never starts path tracing on Lite at 60 Hz
-- [ ] User to confirm or correct the discovered decisions; decide whether to fix F1 and F2
+- [x] Lite start-gate fix and demand-loop test
+- [x] Per-tier live profile (6 bounces; Lite at half scale and 128 spp) with bilinear upsampling
+- [x] Keep decoded textures for the tracer
+- [x] Probe changes no longer restart the trace
+- [x] Milestones to 1024; 260 ms live crossfade
+- [x] Shader warm-up before the first frame
+- [x] Intent prefetch of the 360° chunk and the tracer
+- [x] Single scene walk in `begin()`
+- [ ] Real-GPU bench: preview `?experience=library&bench=1`, before and after
+- [ ] Phase 2:
+  - finish and floor as material-slot swaps;
+  - history kept across material-only edits;
+  - sibling material precompile;
+  - `?arc=180` experiment;
+  - texture prefetch on intent
+- [ ] Phase 3 (outline in the spec)
 
-## Earlier work (photoreal rendering, v3 route)
+## Discovery (2026-10-20)
 
-These items are tracked in `decisions/sde/photoreal-rendering.md`, `trace-speed.md` and `cloud-render.md`. Draft PR Backpacked333/Furygymconfigurator#9 predates the library route.
+Done. See the `[DISCOVERED]` records.
+
+Baseline vitest has 1 root-only failure: `image-service/control-plane/objects.test.ts`, the permission case.
