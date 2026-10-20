@@ -67,6 +67,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     previous: null,
   })
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const queued = useRef<{ show: () => void; release: () => void } | null>(null)
   const [snapshot, setSnapshot] = useState<Snapshot>({
     generation: -1,
     progress: { state: 'pending' },
@@ -79,10 +80,15 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     held.current.previous?.release()
     held.current.previous = null
     setSnapshot((value) => ({ ...value, previous: null }))
+    const next = queued.current
+    queued.current = null
+    next?.show()
   }, [])
   useLayoutEffect(
     () => () => {
       clearTimeout(fadeTimer.current)
+      queued.current?.release()
+      queued.current = null
       held.current.previous?.release()
       held.current.shown?.release()
       held.current = { shown: null, previous: null }
@@ -93,6 +99,8 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     const design = parseDesign(JSON.parse(key))
     const token = ++active.current
     const controller = new AbortController()
+    queued.current?.release()
+    queued.current = null
     const descriptor = dynamicRef.current
     const artifact = held.current.shown?.reply.artifact
     const shownHash = artifact && ('sha256' in artifact ? artifact.sha256 : artifact.imageSha256)
@@ -109,10 +117,13 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
         return
       }
       delivered.current = progress.state === 'ready' ? { generation, attempt } : null
-      clearTimeout(fadeTimer.current)
       const retained = held.current
-      retained.previous?.release()
-      retained.previous = null
+      // Finish the visible blend before starting another; never snap a half-faded layer opaque.
+      if (progress.state === 'ready' && retained.previous) {
+        queued.current?.release()
+        queued.current = { show: () => update(progress, release), release }
+        return
+      }
       if (progress.state === 'ready') {
         const old = retained.shown
         const animate =
@@ -129,11 +140,14 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
           aspect: design.presentation.aspect,
           release,
         }
-        if (animate) fadeTimer.current = setTimeout(() => finishTransition(progress.src), 550)
+        if (animate) fadeTimer.current = setTimeout(() => finishTransition(progress.src), 800)
       } else if (
         progress.state !== 'pending' ||
         retained.shown?.aspect !== design.presentation.aspect
       ) {
+        clearTimeout(fadeTimer.current)
+        retained.previous?.release()
+        retained.previous = null
         retained.shown?.release()
         retained.shown = null
       }

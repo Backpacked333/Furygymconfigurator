@@ -132,7 +132,7 @@ it('waits for a dynamic lookup before treating a static catalog miss as missing'
   }
 })
 
-it('bounds rapid switches to two leases and ignores obsolete animation completion', async () => {
+it('finishes the visible fade before blending the latest decoded selection', async () => {
   vi.useFakeTimers()
   const releases = [vi.fn(), vi.fn(), vi.fn()]
   for (let i = 0; i < 3; i++)
@@ -142,11 +142,19 @@ it('bounds rapid switches to two leases and ignores obsolete animation completio
     await h.render(defaultDesign())
     await h.render(defaultDesign({ family: 'container', lengthFt: 20 }))
     await h.render(defaultDesign({ family: 'container', lengthFt: 40 }))
-    expect(releases[0]).toHaveBeenCalledTimes(1)
+    expect(h.image.shown?.src).toBe('blob:1')
+    expect(h.image.previous?.src).toBe('blob:0')
+    expect(h.image.current).toBe(false)
+    expect(releases[0]).not.toHaveBeenCalled()
     expect(releases[1]).not.toHaveBeenCalled()
     act(() => h.image.finishTransition('blob:1'))
+    expect(releases[0]).toHaveBeenCalledTimes(1)
+    expect(h.image.shown?.src).toBe('blob:2')
+    expect(h.image.current).toBe(true)
     expect(h.image.previous?.src).toBe('blob:1')
-    act(() => vi.advanceTimersByTime(550))
+    act(() => h.image.finishTransition('blob:1'))
+    expect(h.image.previous?.src).toBe('blob:1')
+    act(() => vi.advanceTimersByTime(800))
     expect(h.image.previous).toBeNull()
     expect(releases[1]).toHaveBeenCalledTimes(1)
   } finally {
@@ -201,11 +209,36 @@ it('does not cut a cached-image fade short when the background set lookup finish
     expect(calls.decode).toHaveBeenCalledTimes(2)
     expect(calls.dynamic).not.toHaveBeenCalled()
     expect(release).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(550))
+    act(() => vi.advanceTimersByTime(800))
     expect(release).toHaveBeenCalledTimes(1)
   } finally {
     h.close()
   }
+})
+
+it('keeps a running blend intact while loading and discards superseded queued images', async () => {
+  vi.useFakeTimers()
+  const releases = Array.from({ length: 4 }, () => vi.fn())
+  for (let i = 0; i < 4; i++)
+    calls.decode.mockResolvedValueOnce({ src: `blob:${i}`, release: releases[i] })
+  const h = harness()
+  try {
+    await h.render(defaultDesign())
+    await h.render(defaultDesign({ family: 'container', lengthFt: 20 }))
+    await h.render(defaultDesign({ family: 'container', lengthFt: 40 }))
+    await h.render(defaultDesign({ family: 'studio', lengthFt: 40 }))
+    expect(h.image.shown?.src).toBe('blob:1')
+    expect(h.image.previous?.src).toBe('blob:0')
+    expect(releases[2]).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(700))
+    expect(releases[0]).not.toHaveBeenCalled()
+    act(() => h.image.finishTransition('blob:1'))
+    expect(h.image.shown?.src).toBe('blob:3')
+    expect(h.image.previous?.src).toBe('blob:1')
+  } finally {
+    h.close()
+  }
+  for (const release of releases) expect(release).toHaveBeenCalledTimes(1)
 })
 
 it('shows the assembly state rather than a substitute image while a new view is GPU rendering', async () => {

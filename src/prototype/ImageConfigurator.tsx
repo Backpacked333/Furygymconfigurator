@@ -22,9 +22,10 @@ import {
   transitionDesign,
   type DesignAction,
 } from '../domain/designTransitions'
-import { defaultDesign, type DesignEnvelope } from '../domain/design'
+import { defaultDesign, projectDesignToConfig, type DesignEnvelope } from '../domain/design'
 import { resolveCamera, resolveLook, type CameraRef } from '../domain/presentation'
 import { CUSTOMER_CAMERAS, normalizeCustomerDesign } from '../render-library/views'
+import { BuildAnimation } from '../components/LoadingExperience'
 import { LibrarySetStatus } from './LibrarySetStatus'
 import { LibraryThumbnail } from './LibraryThumbnail'
 import { SceneLookControls } from './SceneLookControls'
@@ -734,6 +735,13 @@ function ImageConfiguratorContents({
                           (view) => view.cameraRef === camera.ref,
                         )
                         if (view?.status === 'ready') return <LibraryThumbnail image={view.image} />
+                        if (nativeLibrary && view?.status === 'pending')
+                          return (
+                            <span className="film-build">
+                              <BuildAnimation config={projectDesignToConfig(design)} />
+                              <small>{view.stage === 'queued' ? 'Queued' : 'Rendering'}</small>
+                            </span>
+                          )
                         return (
                           <span className="prototype-camera-placeholder">
                             {camera.name.replace('DRAFT — ', '')}
@@ -753,14 +761,18 @@ function ImageConfiguratorContents({
                       })(),
                     }))}
                   />
-                  {setState && image.current && !live && (
-                    <LibrarySetStatus
-                      design={design}
-                      library={setState}
-                      catalog={catalog}
-                      hasImage={image.current}
-                      onDetails={() => setDialog('image')}
-                    />
+                  {nativeLibrary && !live && (
+                    <div className="native-image-status-slot">
+                      {setState && image.current ? (
+                        <LibrarySetStatus
+                          design={design}
+                          library={setState}
+                          catalog={catalog}
+                          hasImage
+                          onDetails={() => setDialog('image')}
+                        />
+                      ) : null}
+                    </div>
                   )}
                   {!nativeLibrary && (
                     <div className="prototype-image-status">

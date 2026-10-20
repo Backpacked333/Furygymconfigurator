@@ -61,6 +61,15 @@
 .library-set-status {
   color: var(--text);
 }
+.native-image-status-slot {
+  flex: 0 0 56px;
+  overflow: auto;
+}
+.fury-native-library .still-layer.is-entering {
+  animation-duration: 700ms;
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity;
+}
 .library-set-status.is-summary {
   flex: none;
   padding: 0 24px 10px;
@@ -153,6 +162,29 @@
 }
 .fury-native-library .film-thumb {
   width: 64px;
+}
+.fury-native-library .film-build {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: var(--surface);
+}
+.fury-native-library .film-build .build-animation {
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.fury-native-library .film-build small {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  left: 3px;
+  overflow: hidden;
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fury-native-library .stage-frame:has(.library-set-status.is-stage):not(:fullscreen) {
   min-height: 420px;
