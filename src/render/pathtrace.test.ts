@@ -541,6 +541,34 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     return { traced, tracer, begin, trace, ...f }
   }
 
+  it("gives the stills' session (the legacy route's) the tracer settings it always had", () => {
+    // RenderEffects makes its session with no options and starts views without a scale.
+    const effects = readFileSync('src/components/RenderEffects.tsx', 'utf8')
+    expect(effects).toContain('new PathTraceSession(renderer, module, denoise)')
+    expect(effects).toContain('usable.begin(scene, camera, lookRef.current, target)')
+    const t = session()
+    expect(t.tracer).toMatchObject({
+      maxBounces: 6,
+      maxTransparentBounces: 12,
+      filterGlossyFactor: 0.5,
+      clampDirect: 0,
+      clampIndirect: 10,
+      renderScale: 1,
+    })
+    // Its clamps are the tracer's own defaults, which its setters skip as unchanged.
+    const tracer = readFileSync(
+      'node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js',
+      'utf8',
+    )
+    expect(tracer).toContain('this._clampDirect = 0;')
+    expect(tracer).toContain('this._clampIndirect = 10;')
+  })
+
+  it("passes the 360° view's depth and clamps to the tracer", () => {
+    const t = session({ maxBounces: 7, clampDirect: 2, clampIndirect: 3 })
+    expect(t.tracer).toMatchObject({ maxBounces: 7, clampDirect: 2, clampIndirect: 3 })
+  })
+
   it('traces at the scale a start names, sized before the seed so the tracer never resizes', () => {
     const t = session()
     const guides = vi.mocked(GBuffer.prototype.render)

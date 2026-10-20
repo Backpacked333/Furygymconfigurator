@@ -179,10 +179,12 @@ export function ProgressiveRenderer({
           kept = true
           await keepDecodedTextures(true)
           if (disposed) return
-          const { maxBounces, fadeMs } = liveProfile(quality)
+          const { maxBounces, clampDirect, clampIndirect, fadeMs } = liveProfile(quality)
           runtime.tracer = new PathTraceSession(renderer, modules, true, {
             multiView: true,
             maxBounces,
+            clampDirect,
+            clampIndirect,
             fadeMs,
             batchMs: 12,
             maxPasses: 8,

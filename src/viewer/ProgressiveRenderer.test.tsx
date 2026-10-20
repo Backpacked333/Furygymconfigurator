@@ -287,7 +287,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect.anything(),
       expect.anything(),
       true,
-      expect.objectContaining({ maxBounces: 4 }),
+      expect.objectContaining({ maxBounces: 4, clampDirect: 0, clampIndirect: 10 }),
     )
     expect(mocks.trace.begin).toHaveBeenCalledWith(
       expect.anything(),
@@ -297,6 +297,18 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       0.5,
     )
   })
+
+  for (const quality of ['high', 'ultra'] as const)
+    it(`traces ${quality} as deep as the gallery's Cycles images, with their clamps`, async () => {
+      await render({ quality })
+      settle()
+      expect(mocks.session).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        true,
+        expect.objectContaining({ maxBounces: 7, clampDirect: 0, clampIndirect: 10 }),
+      )
+    })
 
   it("traces High and Ultra at the canvas's resolution, up to the Cycles image's pixels", async () => {
     mocks.buffer = { w: 1500, h: 938 }

@@ -29,8 +29,11 @@ sky recipe; it is an internal module, **not yet an independently packaged, produ
 
 ## Sampling and lifecycle
 
-The live profile targets up to 1,024 samples and ten bounces; the existing adaptive sampler may
-retire settled tiles earlier. Its sample count is not a measure of newly traced rays.
+The live profile targets up to 1,024 samples on High and Ultra, traced as deep as the gallery's
+Cycles images: the tracer's `maxBounces` 7 is Cycles' `max_bounces` 6, since the tracer counts the
+camera's hit as a bounce. Its clamps are the Cycles recipe's (direct 0, indirect 10). Lite targets
+128 samples at four bounces. The stills and exports keep their own six. The existing adaptive
+sampler may retire settled tiles earlier. Its sample count is not a measure of newly traced rays.
 
 - High and Ultra trace at the canvas's drawing-buffer resolution, capped at the 1920×1200 pixels
   of the Cycles image the view opens on (`traceScale` in `liveProfile.ts`); Lite traces at half.

@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { historyCapacity } from '../render/historyCache'
+import { STRICT_REFERENCE_SETTINGS } from '../render/prototype/strictReference'
 import { REFERENCE_PIXELS, liveProfile, requestedTraceScale, traceScale } from './liveProfile'
 
 describe("the 360° view's trace scale", () => {
@@ -60,9 +62,61 @@ describe("the 360° view's trace scale", () => {
   })
 })
 
+/** The gallery's Cycles recipe, as the render server sets it up. */
+const BLENDER = readFileSync('render-server/fury_render/blender.py', 'utf8')
+const PROTOCOL = readFileSync('render-server/fury_render/protocol.py', 'utf8')
+/** The value a recipe line assigns, e.g. `c.sample_clamp_indirect = 10`. */
+const assigned = (source: string, name: string) => {
+  const found = new RegExp(`^\\s*(?:c\\.)?${name} = (\\w+)$`, 'm').exec(source)
+  if (!found) throw new Error(`${name} is not assigned`)
+  return found[1]
+}
+
 describe("the 360° view's live profile", () => {
   it('names no trace scale of its own: the canvas decides it at each start', () => {
     for (const quality of ['lite', 'high', 'ultra'] as const)
       expect(liveProfile(quality)).not.toHaveProperty('renderScale')
+  })
+
+  it("traces High and Ultra as deep as the gallery's Cycles images, one tracer vertex more", () => {
+    const bounces = Number(assigned(PROTOCOL, 'BOUNCES'))
+    expect(bounces).toBe(6)
+    // Every per-type limit is the overall one, so a single tracer counter matches all of them.
+    for (const name of ['max_bounces', 'diffuse_bounces', 'glossy_bounces', 'transmission_bounces'])
+      expect(assigned(BLENDER, name)).toBe('BOUNCES')
+    expect(assigned(BLENDER, 'volume_bounces')).toBe('0')
+    expect(STRICT_REFERENCE_SETTINGS.bounces).toMatchObject({
+      max: bounces,
+      diffuse: bounces,
+      glossy: bounces,
+      transmission: bounces,
+      volume: 0,
+    })
+    for (const quality of ['high', 'ultra'] as const)
+      expect(liveProfile(quality).maxBounces).toBe(bounces + 1)
+    // Lite keeps its budget: Cycles' 3.
+    expect(liveProfile('lite').maxBounces).toBe(4)
+  })
+
+  it("counts as the installed tracer does: the camera's hit is bounce 0", () => {
+    // A tracer upgrade that counts otherwise would make the +1 above wrong.
+    const kernel = readFileSync(
+      'node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js',
+      'utf8',
+    )
+    expect(kernel).toContain('rayQueue.elements[ rayIndex ].currentBounce = 0u;')
+    expect(kernel).toContain('let newBounce = input.currentBounce + 1u;')
+    expect(kernel).toMatch(/var isTerminated = newBounce >= maxBounces \|\|/)
+  })
+
+  it('clamps every tier as the Cycles recipe does', () => {
+    const direct = Number(assigned(BLENDER, 'sample_clamp_direct'))
+    const indirect = Number(assigned(BLENDER, 'sample_clamp_indirect'))
+    expect([direct, indirect]).toEqual([
+      STRICT_REFERENCE_SETTINGS.clamp.direct,
+      STRICT_REFERENCE_SETTINGS.clamp.indirect,
+    ])
+    for (const quality of ['lite', 'high', 'ultra'] as const)
+      expect(liveProfile(quality)).toMatchObject({ clampDirect: direct, clampIndirect: indirect })
   })
 })

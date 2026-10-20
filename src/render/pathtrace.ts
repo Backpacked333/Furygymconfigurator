@@ -565,7 +565,14 @@ export class PathTraceSession {
     denoise = true,
     private readonly options: {
       multiView?: boolean
+      /** Shaded vertices a path may have, the camera's hit included (Cycles' max_bounces + 1). */
       maxBounces?: number
+      /**
+       * Upper bounds on a directly and an indirectly lit path segment's contribution, against
+       * fireflies (0 disables). Unset, the tracer's own defaults, 0 and 10.
+       */
+      clampDirect?: number
+      clampIndirect?: number
       batchMs?: number
       maxPasses?: number
       /**
@@ -590,12 +597,16 @@ export class PathTraceSession {
     const tracer = new module.WebGPUPathTracer(renderer)
     tracer.frameBudget = FRAME_BUDGET
     // Six bounces: what a room lit through its glazing needs for its bounce light, and a third
-    // less work per sample than ten, which added nothing a denoised image shows. The cloud
-    // traces the same depth (render-server protocol.py BOUNCES), so its frame of a view and a
-    // local trace of it carry the same light.
+    // less work per sample than ten, which added nothing a denoised image shows. The tracer
+    // counts the camera's hit as a bounce and Cycles does not, so this is one indirect bounce
+    // fewer than the cloud's 6 (render-server protocol.py BOUNCES). The 360° view asks for Cycles'
+    // depth (viewer/liveProfile.ts); the stills and exports keep this one, unchanged.
     tracer.maxBounces = options.maxBounces ?? 6
     tracer.maxTransparentBounces = 12
     tracer.filterGlossyFactor = 0.5
+    // Setting the tracer's own values again is a no-op (its setters skip an unchanged clamp).
+    tracer.clampDirect = options.clampDirect ?? 0
+    tracer.clampIndirect = options.clampIndirect ?? 10
     tracer.transmissiveBackground = module.TRANSMISSIVE_BACKGROUND_ENVIRONMENT
     // The session crossfades from the raster image itself, so skip the tracer's low-res preview.
     tracer.dynamicLowRes = false

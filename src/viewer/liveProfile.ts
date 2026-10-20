@@ -4,21 +4,36 @@ import type { Quality } from '../render/quality'
 export type LiveProfile = {
   /** Samples per pixel a resting view refines toward. */
   samples: number
+  /** Shaded vertices a path may have, the camera's hit included: Cycles' max_bounces + 1. */
   maxBounces: number
+  /** Cycles' sample_clamp_direct and sample_clamp_indirect (0 disables either). */
+  clampDirect: number
+  clampIndirect: number
   /** Crossfade between successive denoised images, in milliseconds. */
   fadeMs: number
 }
 
 /**
- * Six bounces is what the stills and the Cycles worker trace: ten added nothing a denoised image
- * shows, at about half again the cost of a sample. Lite (phones, narrow windows) refines too, on a
- * budget: a quarter of the pixels (traceScale) and fewer samples, so a resting view settles in
- * seconds there.
+ * The gallery's Cycles recipe (render-server/fury_render/blender.py _setup_render): its clamps,
+ * named here rather than left to the tracer's defaults, which happen to be the same.
+ */
+const CYCLES_CLAMPS = { clampDirect: 0, clampIndirect: 10 } as const
+
+/**
+ * High and Ultra trace as deep as the gallery's Cycles images. Cycles' max_bounces of 6
+ * (render-server/fury_render/protocol.py BOUNCES, every per-type limit the same) counts bounces
+ * after the camera's hit: 0 is direct light alone. three-gpu-pathtracer counts the camera's hit as
+ * bounce 0 and stops scattering once newBounce >= maxBounces, still lighting that last vertex
+ * (node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js), so its 1 is
+ * direct light alone and Cycles' 6 is its 7. The stills keep their own 6 (pathtrace.ts).
+ *
+ * Lite (phones, narrow windows) refines too, on a budget: four bounces (Cycles' 3), a quarter of
+ * the pixels (traceScale) and fewer samples, so a resting view settles in seconds there.
  */
 export function liveProfile(quality: Quality): LiveProfile {
   return quality === 'lite'
-    ? { samples: 128, maxBounces: 4, fadeMs: 260 }
-    : { samples: 1024, maxBounces: 6, fadeMs: 260 }
+    ? { samples: 128, maxBounces: 4, ...CYCLES_CLAMPS, fadeMs: 260 }
+    : { samples: 1024, maxBounces: 7, ...CYCLES_CLAMPS, fadeMs: 260 }
 }
 
 /**
