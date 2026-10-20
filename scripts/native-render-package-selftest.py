@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,11 +18,14 @@ with tempfile.TemporaryDirectory() as location:
     root = base / "source"
     state = base / "state"
     state.mkdir()
-    subprocess.run(
-        [sys.executable, str(ROOT / "scripts/native-render-package.py"), str(root)],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
+    if len(sys.argv) == 2:
+        shutil.copytree(sys.argv[1], root, ignore=shutil.ignore_patterns('node_modules', '__pycache__'))
+    else:
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts/native-render-package.py"), str(root)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
     (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
     recipe = json.loads((root / "recipe.json").read_text())
     claim = json.loads(

@@ -51,7 +51,8 @@ remains explicit in the prepared manifests and recipe release.
 ## Lifetimes, no retries, and SDK constraint
 
 - One GPU, one render child at a time; one CPU daemon consumes sequentially.
-- DB global cap must be ≤2 active/reserved jobs, minimum warm GPUs 0, provider retries 0.
+- DB global cap is two unsettled provider claims; queued reservations do not occupy GPUs.
+  Minimum warm GPUs remain 0 and provider retries 0.
 - Preparation ≤120 s, startup ≤180 s, each image process ≤300 s, at most five views.
 - Sandbox hard timeout and idle timeout are both the remaining admitted lifetime,
   capped at 2100 s and approval/claim expiry. Idle timeout is not shorter than a render.
@@ -196,7 +197,7 @@ CPU uses quoted PostgREST RPC argument names, confirmed with the service builder
 
 | RPC                                   | JSON arguments                       |
 | ------------------------------------- | ------------------------------------ |
-| `render_library_claim_dispatch`       | `{dispatcherId}`                     |
+| `render_library_claim_dispatch`       | `{dispatcherId,lane?}`               |
 | `render_library_record_dispatch`      | `{dispatchId, claimToken, result}`   |
 | `render_library_dispatch_reservation` | `{dispatchId, claimToken}`           |
 | `render_library_reconcile_terminal`   | `{jobId, evidence, chargedMicroUsd}` |
@@ -213,14 +214,20 @@ browser still sends no scene/code/path/URL payload.
 ## Continuously available private dispatcher
 
 `render-server/deploy_dispatcher.py` hosts the existing dispatcher on Modal; it does
-not expose a public gateway or keep a GPU running. A private scheduled CPU function
-checks the durable outbox every 15 seconds and handles one admitted job at a time. A
+not expose a public gateway or keep a GPU running. Two private scheduled CPU functions
+check the durable outbox every 15 seconds. Each handles one job at a time using its own
+persistent journal: `dispatch` handles foreground requests; `dispatch_background` drains
+older work. The database caps unsettled dispatches at one per lane and two globally,
+even across deployments/restarts and uncertain provider creation. Admission is independently
+bounded by the approved budget and unchanged hourly quotas, not GPU occupancy. A
 click on **Bring your vision to life** is still required. Cache lookup, page reload,
 changing a camera and restoring a shared design never admit work. Queue pickup can
 take a schedule interval plus container startup before preparation starts; an
-already active job can extend the wait. The shorter interval increases idle CPU
+already active job in that lane can extend the wait. Queues are not GPU capacity reservations
+and cannot guarantee an immediate start. The two schedules increase idle CPU
 coordination costs, still charged to the same cumulative ledger. GPU sampling,
-image quality, immutable recipe identity and one-shot dispatch are unchanged.
+image quality and one-shot dispatch are unchanged. Worker protocol compatibility requires
+the rollout described below; do not replace an immutable registered build in place.
 
 Preview credentials are branch-scoped. Merging or opening a new PR does **not**
 copy that configuration. Before sharing a new preview, provision its exact
@@ -232,7 +239,8 @@ verify their downloaded hashes, and check an uncached design returns an honest
 miss with enabled admission. A successful build alone does not prove connection.
 
 Apply migrations `202610190004_hosted_dispatcher.sql` and
-`202610190005_dispatcher_headroom.sql` after the existing migrations. CPU cycles
+`202610190005_dispatcher_headroom.sql` after the existing migrations, then
+`202610200001_render_queue_lanes.sql` only after worker compatibility review. CPU cycles
 reserve a conservative maximum in the same cumulative approval ledger as GPU jobs,
 then settle measured elapsed time. Crashed cycles keep their maximum charge; do not
 refund them automatically. Configure `dispatcher_headroom_micro_usd=500000` on the
@@ -253,9 +261,13 @@ export FURY_NATIVE_PACKAGE=/absolute/path/to/registered-native-package
 python -m modal deploy render-server/deploy_dispatcher.py
 # ONCE, on a new empty persistent volume; never reset a recovery journal:
 python -m modal run render-server/deploy_dispatcher.py::initialize
+python -m modal run render-server/deploy_dispatcher.py::initialize_background
 ```
 
-The journal lives in `fury-render-library-dispatch-journal`, mounted at `/state`.
+The foreground journal remains in `fury-render-library-dispatch-journal`; the background
+journal uses `fury-render-library-background-journal`. Each is mounted at `/state` only
+in its own function. Both functions have `max_containers=1`, no automatic retries and
+no concurrent inputs. Never point them at the same journal or reinitialize existing state.
 Every mutation commits the Volume before proceeding. Missing journal state fails
 closed; ambiguous provider starts remain quarantined, never automatically retried.
 The GPU app can be the deployed private dispatcher app namespace. The GPU image
@@ -272,9 +284,61 @@ The approved $1,000 allowance is cumulative (`budget_micro_usd=1000000000`), not
 daily reset. Keep the approval enabled after tests. At exhausted compute capacity,
 new GPU jobs are denied and the paid dispatcher stops; Vercel/Supabase cached-image
 reads remain available. Restarting after exhaustion requires a newly authorized
-budget and redeployment, not resetting charged balances. The ledger is conservative
+budget, clearing `dispatcher_halted` under operator control, and redeployment, not resetting
+charged balances. A failed CPU reservation returns `budget-busy` while a sibling cycle can
+still be running; it must not stop that sibling's app. The transactional halt RPC fences
+new cycles before returning `budget-exhausted`. A crashed cycle retains its full charge;
+only its hosted one-hour hard timeout allows shutdown, never a GPU liability refund.
+The ledger is conservative
 application accounting, not a verified Modal invoice or an account-wide billing cap;
 unrelated Modal apps, storage, network and hosting bills must be monitored separately.
+
+### Compatible queue-worker rollout
+
+The original `fury-native-five@2` package validates
+`maxActiveJobsPerSession` as exactly 1. The queue worker permits 2. This source change is **not a
+drop-in deployment of that archived package**: the image-build preflight deliberately
+rejects a worker that cannot accept the two-job ceiling. The new schema still accepts
+old one-job claims for recovery, but the old schema cannot accept new claims.
+
+Build the execution-only upgrade from the exact registered archived source closure, not
+the current application checkout:
+
+```sh
+python scripts/native-render-package.py --queue-upgrade /path/to/verified/archive /path/to/new-package
+```
+
+The command verifies every archived file and registration hash, then makes only the audited
+TypeScript/Python limit changes. The manifest identifies `fury-native-queue-worker@1`, its
+parent build, and exact changed-file hashes. Geometry, materials, cameras, renderer code,
+assets and image keys remain unchanged. Broad bundle/renderer aggregate hashes change
+because they also cover execution validation; they must not be misrepresented as the old build.
+
+Register the new package in the additive, immutable `render_library_worker_builds` table;
+never overwrite `render_library_recipes`. Keep the approval's original `policy.recipe`
+unchanged so existing customer APIs remain compatible. Only the separate
+`active_worker_build_sha256` selects execution. The dispatcher resolves that registration;
+the worker API validates historical events using each job's stored build, even after cutover.
+
+Deploy the compatible API to an explicitly credential-scoped trusted preview. Build a new
+GPU image with the upgraded `recipe.json`; the old GPU image cannot run new-build claims.
+Apply the queue and worker-build migrations atomically, retaining all balances and evidence.
+Dispatch claims carry the worker build hash. Legacy callers without that hash can only claim
+while the original build is active; mismatched dispatchers leave queued work untouched.
+Until activation, claims retain the original one-job ceiling. Preserve the original journal,
+initialize **only** the background journal, and drain existing provider work before replacing
+the dispatcher. Select the new build to fence legacy dispatchers, then deploy both functions
+with `FURY_NATIVE_PACKAGE`, `FURY_GPU_IMAGE` and `FURY_SERVICE_ORIGIN` pinned together.
+The latter two override only those settings, retaining the existing named credentials.
+Queued admissions remain durable during this handoff. Do not stop customer admissions as test cleanup.
+
+Rollback requires draining/reconciling in-flight new-build work first, retaining the upgraded
+API's historical validation and both journals. Select the old build and redeploy its original
+dispatcher/image together; do not feed old workers two-job claims or delete queued liabilities.
+The old single-lane dispatcher cannot service all background backlog: preserve that backlog
+for the restored two-lane deployment. Keep uncertain reservations occupying their slots.
+Verify two separate GPU jobs, durable overflow, and a saved-image cache hit before claiming
+hosted readiness; a successful deployment alone proves none of these.
 
 ## Offline checks and explicit fidelity holds
 

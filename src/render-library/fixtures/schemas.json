@@ -2476,8 +2476,9 @@
                     "const": 1
                   },
                   "maxActiveJobsPerSession": {
-                    "type": "number",
-                    "const": 1
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2
                   },
                   "maxCreatesPerSessionPerHour": {
                     "type": "integer",
@@ -2941,8 +2942,9 @@
             "const": 1
           },
           "maxActiveJobsPerSession": {
-            "type": "number",
-            "const": 1
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2
           },
           "maxCreatesPerSessionPerHour": {
             "type": "integer",

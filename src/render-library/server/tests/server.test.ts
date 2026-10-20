@@ -133,6 +133,46 @@ it('loads the registered recipe for the active immutable release', async () => {
   )
   expect(await repository.registration()).toEqual(policy.recipe)
 })
+it('claims only a registered execution build without replacing the customer image recipe', async () => {
+  const upgraded = {
+    ...policy.recipe,
+    workerBuildSha256: '8'.repeat(64),
+    recipeBundleSha256: '9'.repeat(64),
+  }
+  const claim = {
+    ...workerFixture.claim,
+    workerBuildSha256: upgraded.workerBuildSha256,
+    recipeBundleSha256: upgraded.recipeBundleSha256,
+  }
+  const fetcher = vi.fn<typeof fetch>(async (url) => {
+    if (String(url).includes('/render_library_worker_builds?'))
+      return Response.json([{ registration: upgraded }])
+    if (String(url).includes('/render_library_recipes?'))
+      return Response.json([{ registration: policy.recipe }])
+    return Response.json(claim)
+  })
+  const repository = new SupabaseRepository(
+    new SupabaseTransport('https://test.supabase.co', key, fetcher),
+  )
+  expect(await repository.registration()).toEqual(policy.recipe)
+  const worker = testRuntime(fetcher).worker
+  expect(
+    (
+      await worker.claim({
+        ...workerFixture.dispatch,
+        contractVersion: 'fury.render-library@1',
+        workerBuildSha256: upgraded.workerBuildSha256,
+      })
+    ).claim,
+  ).toEqual(claim)
+  expect(
+    fetcher.mock.calls.some(([url]) =>
+      String(url).includes(`worker_build_sha256=eq.${upgraded.workerBuildSha256}`),
+    ),
+  ).toBe(true)
+  await expect(repository.registration('7'.repeat(64))).rejects.toThrow()
+  await expect(repository.registration('invalid&select=*')).rejects.toThrow()
+})
 let snapshot: SetSnapshot
 afterEach(() => vi.unstubAllGlobals())
 beforeEach(async () => {
@@ -480,77 +520,95 @@ describe('same-origin API and durable repository wiring', () => {
 })
 
 describe('independent artifact decoding and immutable storage', () => {
-  it('publishes exact worker receipt only after independent staging fetch and full pixel verification', async () => {
-    const bytes = await sharp({
-      create: { width: 1920, height: 1200, channels: 3, background: '#334455' },
-    })
-      .webp({ quality: 95 })
-      .toBuffer()
-    const event = artifactEventSchema.parse(workerFixture.uploadRequest)
-    event.receipt.bytes = bytes.length
-    event.receipt.sha256 = checksum(bytes)
-    let invalidBytes = false
-    let replay = false
-    const fetcher = vi.fn<typeof fetch>(async (url) => {
-      const path = String(url)
-      if (path.includes('/render_library_jobs?'))
-        return Response.json([
-          {
-            worker_claim: workerFixture.claim,
-            fence: 1,
-            attempt_id: workerFixture.claim.attemptId,
-          },
-        ])
-      if (path.includes('/render_library_recipes?'))
-        return Response.json([{ registration: policy.recipe }])
-      if (path.includes('/render_library_events?'))
-        return Response.json(replay ? [{ payload: event }] : [])
-      if (path.includes('/rpc/render_library_prepare_artifact'))
-        return Response.json({ accepted: true })
-      if (path.includes('/object/authenticated/render-library-staging/'))
-        return new Response(invalidBytes ? 'not-a-webp' : new Uint8Array(bytes))
-      if (path.includes('/object/render-library/')) return Response.json({ Key: 'stored' })
-      if (path.includes('/rpc/render_library_publish_asset'))
-        return Response.json({ published: true })
-      if (path.includes('/rpc/render_library_record_event'))
-        return Response.json({ accepted: true })
-      throw new Error('Unexpected provider request in explicit test double')
-    })
-    const worker = testRuntime(fetcher).worker
-    expect(await worker.recordEvent(event)).toEqual({ accepted: true })
-    const paths = fetcher.mock.calls.map(([url]) => String(url))
-    expect(paths.findIndex((path) => path.includes('/object/authenticated/'))).toBeLessThan(
-      paths.findIndex((path) => path.includes('/object/render-library/')),
-    )
-    const publication = fetcher.mock.calls.find(([url]) =>
-      String(url).includes('/rpc/render_library_publish_asset'),
-    )!
-    const artifact = JSON.parse(publication[1]!.body as string).artifact
-    expect(artifact.image.sha256).toBe(checksum(bytes))
-    expect(artifact.image.provenance.kind).toBe('native-worker')
-    expect(artifact.image.provenance.receiptSha256).toMatch(/^[a-f0-9]{64}$/)
-    fetcher.mockClear()
-    replay = true
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(workerFixture.claim.deadlineAt).getTime() + 1000)
-    try {
-      await expect(worker.prepareUpload(event)).rejects.toThrow()
+  it.each(['original', 'queue'])(
+    'publishes %s build receipts against their own immutable registration',
+    async (build) => {
+      const bytes = await sharp({
+        create: { width: 1920, height: 1200, channels: 3, background: '#334455' },
+      })
+        .webp({ quality: 95 })
+        .toBuffer()
+      const event = artifactEventSchema.parse(workerFixture.uploadRequest)
+      const claim = structuredClone(workerFixture.claim)
+      const registered =
+        build === 'original'
+          ? policy.recipe
+          : {
+              ...policy.recipe,
+              workerBuildSha256: '8'.repeat(64),
+              recipeBundleSha256: '9'.repeat(64),
+            }
+      claim.workerBuildSha256 = event.receipt.workerBuildSha256 = registered.workerBuildSha256
+      claim.recipeBundleSha256 = event.receipt.recipeBundleSha256 = registered.recipeBundleSha256
+      claim.limits.maxActiveJobsPerSession = build === 'original' ? 1 : 2
+      event.receipt.bytes = bytes.length
+      event.receipt.sha256 = checksum(bytes)
+      let invalidBytes = false
+      let replay = false
+      const fetcher = vi.fn<typeof fetch>(async (url) => {
+        const path = String(url)
+        if (path.includes('/render_library_jobs?'))
+          return Response.json([
+            {
+              worker_claim: claim,
+              fence: 1,
+              attempt_id: workerFixture.claim.attemptId,
+            },
+          ])
+        if (path.includes('/render_library_recipes?'))
+          return Response.json([{ registration: policy.recipe }])
+        if (path.includes('/render_library_worker_builds?'))
+          return Response.json([{ registration: registered }])
+        if (path.includes('/render_library_events?'))
+          return Response.json(replay ? [{ payload: event }] : [])
+        if (path.includes('/rpc/render_library_prepare_artifact'))
+          return Response.json({ accepted: true })
+        if (path.includes('/object/authenticated/render-library-staging/'))
+          return new Response(invalidBytes ? 'not-a-webp' : new Uint8Array(bytes))
+        if (path.includes('/object/render-library/')) return Response.json({ Key: 'stored' })
+        if (path.includes('/rpc/render_library_publish_asset'))
+          return Response.json({ published: true })
+        if (path.includes('/rpc/render_library_record_event'))
+          return Response.json({ accepted: true })
+        throw new Error('Unexpected provider request in explicit test double')
+      })
+      const worker = testRuntime(fetcher).worker
       expect(await worker.recordEvent(event)).toEqual({ accepted: true })
-    } finally {
-      vi.useRealTimers()
-    }
-    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/storage/'))).toBe(false)
-    replay = false
-    fetcher.mockClear()
-    invalidBytes = true
-    await expect(worker.recordEvent(event)).rejects.toThrow()
-    expect(
-      fetcher.mock.calls.some(
-        ([url]) =>
-          String(url).includes('/publish_asset') || String(url).includes('/object/render-library/'),
-      ),
-    ).toBe(false)
-  })
+      const paths = fetcher.mock.calls.map(([url]) => String(url))
+      expect(paths.findIndex((path) => path.includes('/object/authenticated/'))).toBeLessThan(
+        paths.findIndex((path) => path.includes('/object/render-library/')),
+      )
+      const publication = fetcher.mock.calls.find(([url]) =>
+        String(url).includes('/rpc/render_library_publish_asset'),
+      )!
+      const artifact = JSON.parse(publication[1]!.body as string).artifact
+      expect(artifact.image.sha256).toBe(checksum(bytes))
+      expect(artifact.image.provenance.kind).toBe('native-worker')
+      expect(artifact.image.provenance.receiptSha256).toMatch(/^[a-f0-9]{64}$/)
+      fetcher.mockClear()
+      replay = true
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(workerFixture.claim.deadlineAt).getTime() + 1000)
+      try {
+        await expect(worker.prepareUpload(event)).rejects.toThrow()
+        expect(await worker.recordEvent(event)).toEqual({ accepted: true })
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(fetcher.mock.calls.some(([url]) => String(url).includes('/storage/'))).toBe(false)
+      replay = false
+      fetcher.mockClear()
+      invalidBytes = true
+      await expect(worker.recordEvent(event)).rejects.toThrow()
+      expect(
+        fetcher.mock.calls.some(
+          ([url]) =>
+            String(url).includes('/publish_asset') ||
+            String(url).includes('/object/render-library/'),
+        ),
+      ).toBe(false)
+    },
+  )
   it('fully decodes valid WebP and rejects wrong dimensions, bytes, hash, and truncated pixel payload', async () => {
     const bytes = await sharp({
       create: { width: 1920, height: 1200, channels: 3, background: '#334455' },

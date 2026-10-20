@@ -77,7 +77,7 @@ export interface RenderLibraryRpc {
     result: AdmissionResult
   }
   render_library_claim_dispatch: {
-    args: { dispatcherId: string }
+    args: { dispatcherId: string; lane?: 'foreground' | 'background'; workerBuildSha256?: string }
     result: OutboxClaim | null
   }
   render_library_record_dispatch: {
@@ -134,6 +134,7 @@ export interface ImmutableArtifactStore {
 
 export const DATABASE_TABLES = Object.freeze({
   recipes: 'render_library_recipes',
+  workerBuilds: 'render_library_worker_builds',
   approvals: 'render_library_approvals',
   sets: 'render_library_sets',
   images: 'render_library_images',

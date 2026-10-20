@@ -421,6 +421,10 @@ class RuntimeTests(unittest.TestCase):
             ("jobSeconds", 2101),
             ("imageSeconds", 301),
             ("maxContainers", 3),
+            ("maxActiveJobsPerSession", 3),
+            ("maxActiveJobsPerSession", 0),
+            ("maxActiveJobsPerSession", True),
+            ("maxCreatesPerSessionPerHour", 4),
         ]:
             bad = copy.deepcopy(claim)
             bad["limits"][field] = value

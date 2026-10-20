@@ -132,7 +132,8 @@ export class SupabaseRepository implements RenderLibraryRepository {
       throw new ServiceError('invalid-request', 400)
     return true
   }
-  async registration(): Promise<RecipeRegistration> {
+  async registration(workerBuildSha256?: string): Promise<RecipeRegistration> {
+    if (workerBuildSha256 !== undefined) sha256Schema.parse(workerBuildSha256)
     const rows = z
       .array(z.object({ registration: registrationSchema }))
       .length(1)
@@ -141,7 +142,20 @@ export class SupabaseRepository implements RenderLibraryRepository {
           `/rest/v1/render_library_recipes?release_id=eq.${encodeURIComponent(RECIPE_RELEASE.id)}&select=registration`,
         ),
       )
-    return rows[0].registration
+    const original = rows[0].registration
+    if (workerBuildSha256 === undefined || original.workerBuildSha256 === workerBuildSha256)
+      return original
+    const builds = z
+      .array(z.object({ registration: registrationSchema }))
+      .length(1)
+      .parse(
+        await this.transport.json(
+          `/rest/v1/render_library_worker_builds?release_id=eq.${encodeURIComponent(RECIPE_RELEASE.id)}&worker_build_sha256=eq.${workerBuildSha256}&select=registration`,
+        ),
+      )
+    if (builds[0].registration.workerBuildSha256 !== workerBuildSha256)
+      throw new ServiceError('invalid-request', 400)
+    return builds[0].registration
   }
   async policy(approvalId: string): Promise<AdmissionPolicy> {
     uuidSchema.parse(approvalId)

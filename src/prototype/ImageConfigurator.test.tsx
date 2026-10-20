@@ -3,7 +3,7 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultDesign, serializeDesign, type DesignEnvelope } from '../domain/design'
+import { defaultDesign, parseDesign, serializeDesign, type DesignEnvelope } from '../domain/design'
 import { normalizeCustomerDesign } from '../render-library/views'
 import { designIdentity } from '../domain/designIdentity'
 import { PROTOTYPE_STORAGE_KEY, PROTOTYPE_RECOVERY_PREFIX } from '../domain/prototypeStorage'
@@ -303,13 +303,16 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     close()
     chooseContainer()
     expect(host.querySelector('h1')?.textContent).toContain('C-20')
-    expect(host.textContent).toContain('Layout switches to the Container 20 ft arrangement.')
+    expect(host.querySelector('dialog[open]')).toBeNull()
+    expect(host.querySelector('.toast')?.textContent).toContain('Container Gym · 20 ft selected.')
     click('40 ft Container')
-    expect(host.textContent).toContain('Layout switches to the Container 40 ft arrangement.')
+    expect(host.querySelector('dialog[open]')).toBeNull()
+    expect(host.querySelector('.toast')?.textContent).toContain('Container Gym · 40 ft selected.')
     const changed = exported()
     close()
     expect(changed.config.arrangementRef).toBe('container-40-review@1')
     click('Undo last change')
+    expect(host.querySelector('.toast')).toBeNull()
     expect(exported().config.product).toEqual({ family: 'container', lengthFt: 20 })
     close()
     click('Undo last change')
@@ -317,9 +320,147 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     close()
     click('Redo last change')
     click('Redo last change')
+    expect(host.querySelector('.toast')).toBeNull()
     expect(exported()).toEqual(changed)
     expect(localStorage.length).toBe(0)
   })
+  it.each(['studio', 'container'] as const)(
+    'switches immediately from an enriched %s, preserving shared choices and restoring the exact design',
+    (family) => {
+      const base = defaultDesign({ family, lengthFt: 40 })
+      const original = parseDesign({
+        ...base,
+        config: {
+          ...base.config,
+          structure: {
+            ...base.config.structure,
+            ...(family === 'studio'
+              ? { door: 'sliding' }
+              : { opening: 'full', infill: 'awning', integratedFinish: true }),
+            addons: ['deck', 'roof', 'stairs', family === 'studio' ? 'gazebo' : 'canopy'],
+            railing: 'cable',
+          },
+          appearance: {
+            finish: 'bronze',
+            accent: family === 'studio',
+            interior: 'timber',
+            floor: 'oak',
+            mirror: true,
+          },
+        },
+        presentation: { ...base.presentation, doorPose: 'open' },
+      })
+      window.history.replaceState(
+        null,
+        '',
+        prototypeLink(original, `${window.location.origin}/?experience=library`),
+      )
+      mount()
+      expect(exported()).toEqual(original)
+      close()
+      const target = family === 'studio' ? 'container' : 'studio'
+      click(target === 'container' ? 'Container Gym' : 'S-Series Studio')
+      expect(host.querySelector('dialog[open]')).toBeNull()
+      const toast = host.querySelector('.toast')?.textContent
+      expect(toast).toContain('Model-specific options reset. Undo available.')
+      expect(toast!.length).toBeLessThan(110)
+      expect(toast).not.toMatch(/arrangementRef|structure\.|review@|null/)
+      const switched = exported()
+      close()
+      expect(switched.config.product).toEqual({ family: target, lengthFt: 40 })
+      expect(switched.config.arrangementRef).toBe(`${target}-40-review@1`)
+      expect(switched.config.structure).toEqual({
+        ...defaultDesign({ family: target, lengthFt: 40 }).config.structure,
+        addons: ['deck', 'roof', 'stairs'],
+        railing: 'cable',
+      })
+      expect(switched.config.appearance).toEqual({ ...original.config.appearance, accent: false })
+      expect(switched.presentation).toEqual(original.presentation)
+      expect(switched.outputProfile).toEqual(original.outputProfile)
+      act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })))
+      expect(host.querySelector('.toast')).toBeNull()
+      expect(exported()).toEqual(original)
+      close()
+      act(() =>
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true }),
+        ),
+      )
+      expect(host.querySelector('.toast')).toBeNull()
+      expect(exported()).toEqual(switched)
+    },
+  )
+  it('clears switch feedback on later edits and saved loads, and never revives it on Redo', () => {
+    const saved = defaultDesign()
+    localStorage.setItem(PROTOTYPE_STORAGE_KEY, serializeDesign(saved))
+    mount()
+    chooseContainer()
+    tab('Exterior')
+    click('Bronze')
+    expect(host.querySelector('.toast')).toBeNull()
+    click('Undo last change')
+    click('Redo last change')
+    expect(host.querySelector('.toast')).toBeNull()
+    tab('Space')
+    click('40 ft Container')
+    expect(host.querySelector('.toast')).not.toBeNull()
+    library()
+    click('Load saved prototype')
+    close()
+    expect(host.querySelector('.toast')?.textContent).toContain('Saved v4 design loaded')
+    expect(host.querySelector('.toast')?.textContent).not.toContain('40 ft selected.')
+    act(() => vi.advanceTimersByTime(6000))
+    expect(host.querySelector('.toast')?.textContent).toContain('Saved v4 design loaded')
+    expect(exported()).toEqual(saved)
+  })
+  it('expires switch feedback, restarts its timer for a new change, and cancels it on dismissal', () => {
+    mount()
+    chooseContainer()
+    act(() => vi.advanceTimersByTime(5000))
+    click('40 ft Container')
+    act(() => vi.advanceTimersByTime(1000))
+    expect(host.querySelector('.toast')?.textContent).toContain('40 ft selected.')
+    act(() => vi.advanceTimersByTime(5000))
+    expect(host.querySelector('.toast')).toBeNull()
+    click('20 ft Container')
+    click('Dismiss notification')
+    expect(host.querySelector('.toast')).toBeNull()
+    act(() => vi.advanceTimersByTime(3000))
+    click('40 ft Container')
+    act(() => vi.advanceTimersByTime(3000))
+    expect(host.querySelector('.toast')?.textContent).toContain('40 ft selected.')
+    act(() => vi.advanceTimersByTime(3000))
+    expect(host.querySelector('.toast')).toBeNull()
+  })
+  it.each(['ctrlKey', 'metaKey'])(
+    'preserves feedback when %s shortcuts have no Undo/Redo entry',
+    (modifier) => {
+      mount()
+      const initialNotice = host.querySelector('.toast')?.textContent
+      for (const shiftKey of [false, true]) {
+        act(() =>
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'z', [modifier]: true, shiftKey }),
+          ),
+        )
+        expect(host.querySelector('.toast')?.textContent).toBe(initialNotice)
+      }
+      expect(exported()).toEqual(defaultDesign())
+      close()
+      chooseContainer()
+      const switchNotice = host.querySelector('.toast')?.textContent
+      act(() =>
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'z', [modifier]: true, shiftKey: true }),
+        ),
+      )
+      expect(host.querySelector('.toast')?.textContent).toBe(switchNotice)
+      act(() => vi.advanceTimersByTime(6000))
+      expect(host.querySelector('.toast')).toBeNull()
+      act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', [modifier]: true })))
+      expect(exported()).toEqual(defaultDesign())
+    },
+  )
   it('retains appearance, structure, additions, looks, cameras and output profiles in JSON while requests are pending', () => {
     mount()
     tab('Exterior')
