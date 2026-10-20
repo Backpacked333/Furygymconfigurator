@@ -29,6 +29,10 @@ export async function boundedBytes(
   maxBytes: number,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const declared = response.headers.get('content-length')
+  // Fetch decodes these responses but preserves the compressed Content-Length header.
+  const decoded =
+    response instanceof Response &&
+    /^(gzip|deflate|br)$/i.test(response.headers.get('content-encoding')?.trim() ?? '')
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes))
     throw new ServiceError('invalid-request', 400)
   if (!response.body) throw new ServiceError('invalid-request', 400)
@@ -48,7 +52,7 @@ export async function boundedBytes(
       if (length > maxBytes) throw new ServiceError('invalid-request', 400)
       chunks.push(value)
     }
-    if (expired || (declared && length !== Number(declared)))
+    if (expired || (declared && !decoded && length !== Number(declared)))
       throw new ServiceError('invalid-request', 400)
     const bytes = new Uint8Array(length)
     let position = 0
