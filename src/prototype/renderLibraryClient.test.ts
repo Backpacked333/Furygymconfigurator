@@ -2,7 +2,7 @@
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { API_PATHS, CONTRACT_VERSION, safeError } from '../render-library/contracts'
-import { defaultDesign } from '../domain/design'
+import { defaultDesign, parseDesign } from '../domain/design'
 import {
   decodeLibraryImage,
   lookupSet,
@@ -29,9 +29,11 @@ afterEach(() => {
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 it('retrieves the reported 20ft Studio Day set with images published under historical set keys', async () => {
-  const design = defaultDesign({ family: 'container', lengthFt: 20 })
-  design.presentation.lookRef = 'studio-day-draft@1'
-  design.presentation.doorPose = 'open'
+  const base = defaultDesign({ family: 'container', lengthFt: 20 })
+  const design = parseDesign({
+    ...base,
+    presentation: { ...base.presentation, lookRef: 'studio-day-draft@1', doorPose: 'open' },
+  })
   const snapshot = await snapshotFixture(design, 5)
   for (const view of snapshot.views) {
     if (view.status !== 'ready') throw new Error('Expected all saved views')
@@ -46,8 +48,11 @@ it('retrieves the reported 20ft Studio Day set with images published under histo
   expect(fetch.mock.calls[0][0]).toBe(API_PATHS.lookup)
 })
 it('accepts a shared interior across finishes without substituting the exterior views', async () => {
-  const design = defaultDesign({ family: 'studio', lengthFt: 20 })
-  design.config.appearance.finish = 'bronze'
+  const base = defaultDesign({ family: 'studio', lengthFt: 20 })
+  const design = parseDesign({
+    ...base,
+    config: { ...base.config, appearance: { ...base.config.appearance, finish: 'bronze' } },
+  })
   const snapshot = await snapshotFixture(design, 5)
   const interior = snapshot.views.find((view) => view.cameraRef === 'entry-draft@1')!
   if (interior.status !== 'ready') throw new Error('Expected saved interior')

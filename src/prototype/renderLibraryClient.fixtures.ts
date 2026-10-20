@@ -1,7 +1,6 @@
 import { defaultDesign, type DesignEnvelope } from '../domain/design'
 import {
   CONTRACT_VERSION,
-  RECIPE_RELEASE,
   IMAGE_DIMENSIONS,
   customerDesignSchema,
   type SetSnapshot,
@@ -35,7 +34,7 @@ export async function snapshotFixture(
         setKey: identity.setKey,
         imageKey,
         design: customerDesignSchema.parse(viewDesign(design, cameraRef)),
-        recipeRelease: RECIPE_RELEASE,
+        recipeRelease: identity.recipeRelease,
         url: `${storageOrigin}/render-library/${identity.setKey}/${imageKey}/${sha256}.webp`,
         sha256,
         bytes: 100,
