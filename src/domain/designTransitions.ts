@@ -90,20 +90,22 @@ export function transitionDesign(current: unknown, inputAction: unknown) {
           (id) => !structure.addons.includes(id),
         )
         if (removed.length)
-          adjustments.push(`Remove family-specific additions: ${removed.join(', ')}.`)
+          adjustments.push(
+            `Removed options that only apply to the previous model: ${removed.join(', ')}.`,
+          )
         if (previous.config.structure.kind === 'studio') {
           adjustments.push(
-            `Replace Studio ${previous.config.structure.door} door with Container roll-up opening (no infill, integrated finish off).`,
+            `The Studio's ${previous.config.structure.door} door becomes the Container's roll-up opening.`,
           )
         } else {
           adjustments.push(
-            `Replace Container ${previous.config.structure.opening}/${previous.config.structure.infill} opening and integrated finish ${previous.config.structure.integratedFinish ? 'on' : 'off'} with a single Studio and hinged door.`,
+            'The Container opening becomes a glazed Studio front with a hinged door.',
           )
         }
         candidate.config.structure = structure
         if (action.product.family === 'container' && candidate.config.appearance.accent) {
           candidate.config.appearance.accent = false
-          adjustments.push('Turn off the Studio-only accent for Container.')
+          adjustments.push('Turned off the Studio-only accent for the Container.')
         }
       }
       if (familyChanged || sizeChanged) {
@@ -113,7 +115,7 @@ export function transitionDesign(current: unknown, inputAction: unknown) {
           action.product.lengthFt,
         ).id
         adjustments.push(
-          `Replace fixed arrangement ${previous.config.arrangementRef} with ${candidate.config.arrangementRef}; access and ceiling holds remain unresolved.`,
+          `Layout switches to the ${action.product.family === 'studio' ? 'Studio' : 'Container'} ${action.product.lengthFt} ft arrangement.`,
         )
         requiresConfirmation = true
       }
