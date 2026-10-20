@@ -303,8 +303,36 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       await render({ quality })
       demandLoop(1000 / 60)
       expect(mocks.trace.begin).toHaveBeenCalledOnce()
-      expect(now).toBeGreaterThanOrEqual(150)
+      // 80 ms of rest and three raster frames: the start waits no longer than that.
+      expect(now).toBeGreaterThanOrEqual(80)
+      expect(now).toBeLessThan(80 + 2 * (1000 / 60))
     })
+
+  it('paces the live session: early first images, a quick first fade, larger batches at rest', async () => {
+    await render({ quality: 'high' })
+    settle()
+    expect(mocks.session.mock.lastCall![3]).toMatchObject({
+      earlyImages: true,
+      timeline: true,
+      fadeMs: 260,
+      firstFadeMs: 120,
+      batchMs: 12,
+      maxPasses: 8,
+      restBatch: { afterMs: 1000, batchMs: 24, maxPasses: 16 },
+    })
+  })
+
+  it('keeps Lite batches small at rest, and ?firstImage=8 restores the first image at 8 samples', async () => {
+    window.history.replaceState(null, '', '/?firstImage=8')
+    try {
+      await render({ quality: 'lite' })
+      settle()
+      expect(mocks.session.mock.lastCall![3]).toMatchObject({ earlyImages: false, batchMs: 12 })
+      expect(mocks.session.mock.lastCall![3].restBatch).toBeUndefined()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
 
   it('refines Lite on a budget: a reduced-scale trace with fewer samples and bounces', async () => {
     await render({ quality: 'lite' })
@@ -525,7 +553,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
       const capture = mocks.trace.begin.mock.invocationCallOrder[1]
       const leanFrames = mocks.lean.render.mock.invocationCallOrder.filter((at) => at < capture)
-      expect(leanFrames.length).toBeGreaterThanOrEqual(6)
+      expect(leanFrames.length).toBeGreaterThanOrEqual(3)
       mocks.pipe.render.mockClear()
       drag(40, 60)
       expect(mocks.lean.render).toHaveBeenCalled()

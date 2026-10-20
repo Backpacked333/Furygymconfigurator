@@ -11,6 +11,15 @@ export type LiveProfile = {
   clampIndirect: number
   /** Crossfade between successive denoised images, in milliseconds. */
   fadeMs: number
+  /** The first image's crossfade from the raster frame: short, so the first gain shows at once. */
+  firstFadeMs: number
+  /**
+   * GPU time per submitted batch of samples, and the most passes one may hold: `batchMs` while a
+   * view is new, `rest` once it has traced `rest.afterMs` undisturbed (null: never larger).
+   */
+  batchMs: number
+  maxPasses: number
+  rest: { afterMs: number; batchMs: number; maxPasses: number } | null
 }
 
 /**
@@ -31,9 +40,27 @@ const CYCLES_CLAMPS = { clampDirect: 0, clampIndirect: 10 } as const
  * the pixels (traceScale) and fewer samples, so a resting view settles in seconds there.
  */
 export function liveProfile(quality: Quality): LiveProfile {
+  const pacing = { fadeMs: 260, firstFadeMs: 120, batchMs: 12, maxPasses: 8 }
   return quality === 'lite'
-    ? { samples: 128, maxBounces: 4, ...CYCLES_CLAMPS, fadeMs: 260 }
-    : { samples: 1024, maxBounces: 7, ...CYCLES_CLAMPS, fadeMs: 260 }
+    ? // Phones keep their batches small throughout: a long trace there is a warm one.
+      { samples: 128, maxBounces: 4, ...CYCLES_CLAMPS, ...pacing, rest: null }
+    : {
+        samples: 1024,
+        maxBounces: 7,
+        ...CYCLES_CLAMPS,
+        ...pacing,
+        // After a second at rest the raster draws nothing, so batches may take two frames' time:
+        // a press then waits at most that one batch, about 24 ms, before the view answers.
+        rest: { afterMs: 1000, batchMs: 24, maxPasses: 16 },
+      }
+}
+
+/**
+ * `?firstImage=8` denoises a resting view's first image at 8 samples, as before early images, to
+ * compare the two on a device. Anything else keeps the early ones (pathtrace.ts EARLY_MILESTONES).
+ */
+export function earlyImages(search = window.location.search) {
+  return new URLSearchParams(search).get('firstImage') !== '8'
 }
 
 /**

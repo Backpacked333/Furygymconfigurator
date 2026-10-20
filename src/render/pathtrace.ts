@@ -482,8 +482,27 @@ const ALL_MILESTONES = [...MILESTONES, ...LONG_MILESTONES]
  * not show is new, so its first image is denoised almost at once.
  */
 const SEEDED_MILESTONES = [2, ...ALL_MILESTONES]
+/**
+ * An unseeded view's first images where asked (`earlyImages`, the 360° view's): denoised from 2
+ * samples on, guided by the rasterized albedo and normals, a clean if softer image arrives within a
+ * few frames of the view coming to rest and sharpens as the samples double.
+ */
+export const EARLY_MILESTONES = [2, 4, ...ALL_MILESTONES]
 /** Crossfade between successive images, in milliseconds. */
 const FADE_MS = 520
+
+/**
+ * Records a mark in the browser's performance timeline (User Timing), keeping only the latest of
+ * each name so a long session never grows it. Never throws: timing is a diagnostic only.
+ */
+function mark(name: string, startTime: number, detail?: unknown) {
+  try {
+    performance.clearMarks(name)
+    performance.mark(name, { startTime, detail })
+  } catch {
+    // Unrecorded.
+  }
+}
 
 type Denoiser = InstanceType<TracerModule['OIDNDenoiser']>
 /**
@@ -523,10 +542,16 @@ export class PathTraceSession {
   private running: { index: number; samples: number } | null = null
   private shownIndex = -1
   private denoiseFailed = false
-  private transition: { from: Texture | null; to: Texture | null; start: number } = {
+  private transition: {
+    from: Texture | null
+    to: Texture | null
+    start: number
+    fadeMs: number
+  } = {
     from: null,
     to: null,
     start: 0,
+    fadeMs: FADE_MS,
   }
   private signature = -1
   /** What the tracer holds: the scene parts and sky it last captured or updated. */
@@ -552,7 +577,7 @@ export class PathTraceSession {
    * When this view started tracing, when its first traced image appeared, and when it settled
    * (once: an export carrying it on past the resting target does not settle it again).
    */
-  private timing = { start: 0, first: 0, settled: 0 }
+  private timing = { start: 0, first: 0, settled: 0, milestones: [] as [number, number][] }
   private frames = 0
   private passes = 1
   private inFlight = false
@@ -584,6 +609,21 @@ export class PathTraceSession {
       maxPasses?: number
       /** Crossfade between successive images, in milliseconds. */
       fadeMs?: number
+      /** The first image's crossfade from the raster frame, in milliseconds; unset, `fadeMs`. */
+      firstFadeMs?: number
+      /** Denoise an unseeded view's first images from 2 samples on (EARLY_MILESTONES). */
+      earlyImages?: boolean
+      /**
+       * Larger batches once a view has traced this long undisturbed: the raster draws nothing then,
+       * so the GPU time it kept free goes to samples. Any input halts the view, and the next one
+       * starts at `batchMs` again.
+       */
+      restBatch?: { afterMs: number; batchMs: number; maxPasses: number }
+      /**
+       * Mark each view's first image and milestones in the performance timeline
+       * (`fury:trace-first-image`, `fury:trace-milestone-<spp>`).
+       */
+      timeline?: boolean
       /**
        * Keep the views traced so far across an edit of surfaces alone (a finish, a floor, scans
        * arriving), seeding the next view with a few of their samples (history.ts HistoryKeys).
@@ -724,14 +764,14 @@ export class PathTraceSession {
     this.running = null
     this.shownIndex = -1
     this.shownSamples = 0
-    this.transition = { from: null, to: null, start: 0 }
+    this.transition = { from: null, to: null, start: 0, fadeMs: this.fadeMs }
     this.samples = 0
     this.frames = 0
     this.passes = 1
     this.accumulating = true
     this.measuring = false
     this.state = 'tracing'
-    this.timing = { start: performance.now(), first: 0, settled: 0 }
+    this.timing = { start: performance.now(), first: 0, settled: 0, milestones: [] }
   }
 
   /** The atlas's per-texture entries, which the kernels' textureInfo array is sized from. */
@@ -812,13 +852,9 @@ export class PathTraceSession {
           if (epoch !== this.epoch) return
           // Size batches to roughly two display frames of GPU time.
           const busy = performance.now() - now
-          if (this.options.batchMs)
-            this.passes = nextTracePasses(
-              this.passes,
-              busy,
-              this.options.batchMs,
-              this.options.maxPasses ?? MAX_PASSES,
-            )
+          const budget = this.budget(now)
+          if (budget)
+            this.passes = nextTracePasses(this.passes, busy, budget.batchMs, budget.maxPasses)
           else if (busy < 28) this.passes = Math.min(MAX_PASSES, Math.ceil(this.passes * 1.5))
           else if (busy > 45) this.passes = Math.max(1, Math.floor(this.passes * 0.75))
         })
@@ -826,7 +862,10 @@ export class PathTraceSession {
         .finally(() => {
           this.inFlight = false
         })
-      if (!this.measuring && this.frames % 6 === 0) this.measure()
+      // Until the first image, read the count every batch: the earliest milestones are a frame
+      // or two apart.
+      const early = this.options.earlyImages && this.shownIndex < 0
+      if (!this.measuring && (early || this.frames % 6 === 0)) this.measure()
     }
     if (this.denoising) this.advanceDenoise(now)
     const settled = this.denoising
@@ -834,6 +873,7 @@ export class PathTraceSession {
       : !this.accumulating && this.tracer.fadeState >= 1
     if (!this.timing.first && this.view(now).t > 0) {
       this.timing.first = now
+      if (this.options.timeline) mark('fury:trace-first-image', now, { seeded: this.seeded })
       bench.mark('firstLocalTrace', now)
       bench.local({ firstMs: now - this.timing.start, settledMs: null })
     }
@@ -845,12 +885,23 @@ export class PathTraceSession {
       bench.local({ firstMs: first - start, settledMs: now - start })
       if (TRACE_STATS) {
         const { width, height } = this.tracer.target!.image as { width: number; height: number }
+        const milestones = this.timing.milestones
+          .map(([samples, ms]) => `${samples} spp ${(ms / 1000).toFixed(2)} s`)
+          .join(', ')
         console.info(
-          `[path tracing] ${width}x${height}${this.seeded ? ', seeded' : ''}: first image ${((first - start) / 1000).toFixed(1)} s, settled ${((now - start) / 1000).toFixed(1)} s`,
+          `[path tracing] ${width}x${height}${this.seeded ? ', seeded' : ''}: first image ${((first - start) / 1000).toFixed(2)} s, settled ${((now - start) / 1000).toFixed(1)} s${milestones ? ` (${milestones})` : ''}`,
         )
       }
     }
     return this.state !== 'converged'
+  }
+
+  /** The batch budget in force `now`: larger once the view has rested a while (`restBatch`). */
+  private budget(now: number) {
+    const { batchMs, maxPasses, restBatch } = this.options
+    if (!batchMs) return null
+    if (restBatch && now - this.timing.start >= restBatch.afterMs) return restBatch
+    return { batchMs, maxPasses: maxPasses ?? MAX_PASSES }
   }
 
   private measure() {
@@ -884,8 +935,16 @@ export class PathTraceSession {
             this.backend.sampleCountTarget,
             this.target,
           )
-        this.transition = { from: this.view(now).to, to: denoiser.texture, start: now }
-        if (this.shownIndex < 0) this.transition.from = null
+        const first = this.shownIndex < 0
+        this.transition = {
+          from: first ? null : this.view(now).to,
+          to: denoiser.texture,
+          start: now,
+          fadeMs: first ? (this.options.firstFadeMs ?? this.fadeMs) : this.fadeMs,
+        }
+        this.timing.milestones.push([running.samples, now - this.timing.start])
+        if (this.options.timeline)
+          mark(`fury:trace-milestone-${running.samples}`, now, { seeded: this.seeded })
         this.shownIndex = running.index
         this.shownSamples = running.samples
         this.running = null
@@ -895,9 +954,12 @@ export class PathTraceSession {
     // Wait for the previous image to finish fading in before replacing what it fades from.
     if (this.transition.to && this.view(now).t < 1) return
     const goal = this.accumulating
-      ? (this.seeded ? SEEDED_MILESTONES : ALL_MILESTONES).find(
-          (m) => m > this.shownSamples && m <= this.target,
-        )
+      ? (this.seeded
+          ? SEEDED_MILESTONES
+          : this.options.earlyImages
+            ? EARLY_MILESTONES
+            : ALL_MILESTONES
+        ).find((m) => m > this.shownSamples && m <= this.target)
       : this.samples > this.shownSamples
         ? this.samples
         : undefined
@@ -923,7 +985,7 @@ export class PathTraceSession {
       console.warn('Denoising is unavailable; showing the raw path-traced image.', error)
       this.denoiseFailed = true
       this.running = null
-      this.transition = { from: null, to: null, start: now }
+      this.transition = { from: null, to: null, start: now, fadeMs: this.fadeMs }
     })
   }
 
@@ -931,9 +993,9 @@ export class PathTraceSession {
   view(now = performance.now()): TraceView {
     const raw = this.tracer.target!
     if (!this.denoising) return { from: null, to: raw, t: this.tracer.fadeState }
-    const { from, to, start } = this.transition
+    const { from, to, start, fadeMs } = this.transition
     if (!to) return { from: null, to: raw, t: 0 }
-    const t = Math.min(1, (now - start) / this.fadeMs)
+    const t = Math.min(1, (now - start) / fadeMs)
     // Once faded in, the outgoing image may be recycled, so stop referencing it.
     return { from: t < 1 ? from : null, to, t }
   }

@@ -9,13 +9,17 @@ import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pi
 import { sceneProgress, textureProgress } from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
 import { FrameGuard } from './frameGuard'
-import { liveProfile, traceScale } from './liveProfile'
+import { earlyImages, liveProfile, traceScale } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
-const REST_MS = 150
+/**
+ * How long the view must stay still before tracing may start. Short: a trace started in a brief
+ * pause and then interrupted costs little, since what it traced is kept and seeds the next start.
+ */
+const REST_MS = 80
 /** Raster frames drawn after a change before tracing may start: the capture is a settled frame. */
-const START_FRAMES = 6
+const START_FRAMES = 3
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
 const WARM_TIMEOUT_MS = 1500
 const drawingBuffer = new Vector2()
@@ -221,15 +225,19 @@ export function ProgressiveRenderer({
           kept = true
           await keepDecodedTextures(true)
           if (disposed) return
-          const { maxBounces, clampDirect, clampIndirect, fadeMs } = liveProfile(quality)
+          const profile = liveProfile(quality)
           runtime.tracer = new PathTraceSession(renderer, modules, true, {
             multiView: true,
-            maxBounces,
-            clampDirect,
-            clampIndirect,
-            fadeMs,
-            batchMs: 12,
-            maxPasses: 8,
+            maxBounces: profile.maxBounces,
+            clampDirect: profile.clampDirect,
+            clampIndirect: profile.clampIndirect,
+            fadeMs: profile.fadeMs,
+            firstFadeMs: profile.firstFadeMs,
+            earlyImages: earlyImages(),
+            batchMs: profile.batchMs,
+            maxPasses: profile.maxPasses,
+            restBatch: profile.rest ?? undefined,
+            timeline: true,
             // An edit of a finish or a floor keeps the orbit's views, seeding a little from them.
             keepHistoryAcrossSurfaces: true,
           })

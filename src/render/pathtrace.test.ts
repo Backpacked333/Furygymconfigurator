@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
 import {
+  EARLY_MILESTONES,
   EXPORT_SAMPLES,
   LONG_MILESTONES,
   MILESTONES,
@@ -480,7 +481,17 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
   afterEach(() => vi.restoreAllMocks())
   const look = skyLook('studio', 13)
 
-  function session(options: ConstructorParameters<typeof PathTraceSession>[3] = {}) {
+  /** Denoisers that finish when told to, each with its own image. */
+  const denoisers: {
+    complete: boolean
+    texture: Texture | null
+    denoise: ReturnType<typeof vi.fn>
+  }[] = []
+  function session(
+    options: ConstructorParameters<typeof PathTraceSession>[3] = {},
+    denoise = false,
+  ) {
+    denoisers.length = 0
     vi.spyOn(GBuffer.prototype, 'render').mockImplementation(() => {})
     const tracer = {
       setScene: vi.fn(),
@@ -525,10 +536,22 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
           }
         },
         TRANSMISSIVE_BACKGROUND_ENVIRONMENT: 0,
+        OIDNDenoiser: class {
+          complete = false
+          texture: Texture | null = null
+          init = vi.fn()
+          reset = vi.fn(() => {
+            this.complete = false
+          })
+          denoise = vi.fn(() => Promise.resolve())
+          constructor() {
+            denoisers.push(this)
+          }
+        },
       },
-      initUNetFromURL: null,
+      initUNetFromURL: denoise ? () => {} : null,
     }
-    const traced = new PathTraceSession(renderer as never, modules as never, false, options)
+    const traced = new PathTraceSession(renderer as never, modules as never, denoise, options)
     const f = fixture()
     const camera = new PerspectiveCamera()
     f.scene.updateMatrixWorld(true)
@@ -745,5 +768,95 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     // Nothing changed: the same still, seeded as before.
     await t.trace()
     expect(t.traced.seeded).toBe(true)
+  })
+
+  describe('early refinement (mocked clock and denoiser)', () => {
+    let now = 0
+    let counts = 0
+    const run = async (options: ConstructorParameters<typeof PathTraceSession>[3]) => {
+      now = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => now)
+      const t = session({ batchMs: 12, maxPasses: 8, fadeMs: 260, ...options }, true)
+      t.tracer.getSampleCountsAsync = () => Promise.resolve({ min: counts })
+      t.begin()
+      /** A display frame `ms` on, with every pixel at `samples`. */
+      const frame = async (samples: number, ms = 16) => {
+        counts = samples
+        now += ms
+        t.traced.step()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      /** The running denoiser finishes, with an image of its own. */
+      const finish = () => {
+        const busy = denoisers.find((d) => d.denoise.mock.calls.length && !d.complete)!
+        busy.complete = true
+        busy.texture = new StorageTexture(1, 1)
+        return busy
+      }
+      return { ...t, frame, finish }
+    }
+
+    it('denoises an unseeded live view from 2 samples on; the stills wait for 8', async () => {
+      expect(EARLY_MILESTONES).toEqual([2, 4, ...MILESTONES, ...LONG_MILESTONES])
+      const live = await run({ earlyImages: true })
+      await live.frame(2)
+      await live.frame(2)
+      expect(denoisers.some((d) => d.denoise.mock.calls.length)).toBe(true)
+      const still = await run({})
+      await still.frame(2)
+      await still.frame(2)
+      await still.frame(4)
+      expect(denoisers.some((d) => d.denoise.mock.calls.length)).toBe(false)
+      for (let i = 0; i < 6; i++) await still.frame(8)
+      expect(denoisers.some((d) => d.denoise.mock.calls.length)).toBe(true)
+    })
+
+    it('fades the first image in quickly and the later ones as before, marking each', async () => {
+      const marks = vi.spyOn(performance, 'mark')
+      const t = await run({ earlyImages: true, firstFadeMs: 120, timeline: true })
+      await t.frame(2)
+      await t.frame(2)
+      t.finish()
+      await t.frame(3)
+      expect(t.traced.view(now + 60).t).toBeCloseTo(0.5)
+      expect(t.traced.view(now + 60).from).toBeNull()
+      // Past the first image, the count is read every sixth batch.
+      await t.frame(4, 200)
+      for (let i = 0; i < 6; i++) await t.frame(4)
+      t.finish()
+      await t.frame(5)
+      expect(t.traced.view(now + 130).t).toBeCloseTo(0.5)
+      const names = marks.mock.calls.map(([name]) => name)
+      expect(names).toContain('fury:trace-first-image')
+      expect(names).toContain('fury:trace-milestone-2')
+      expect(names).toContain('fury:trace-milestone-4')
+    })
+
+    it('marks nothing where not asked (the stills)', async () => {
+      const marks = vi.spyOn(performance, 'mark')
+      const t = await run({ earlyImages: true })
+      await t.frame(2)
+      await t.frame(2)
+      t.finish()
+      await t.frame(3)
+      expect(marks.mock.calls.map(([name]) => name)).not.toContain('fury:trace-first-image')
+    })
+
+    it('takes larger batches once a view has rested a second, and none without a rest budget', async () => {
+      const rest = { afterMs: 1000, batchMs: 24, maxPasses: 16 }
+      const t = await run({ restBatch: rest })
+      const budget = (at: number) =>
+        (t.traced as unknown as { budget: (now: number) => unknown }).budget(at)
+      expect(budget(999)).toEqual({ batchMs: 12, maxPasses: 8 })
+      expect(budget(1000)).toEqual(rest)
+      // The next view starts small again.
+      now = 5000
+      t.begin()
+      expect(budget(5500)).toEqual({ batchMs: 12, maxPasses: 8 })
+      const plain = await run({})
+      expect(
+        (plain.traced as unknown as { budget: (now: number) => unknown }).budget(60000),
+      ).toEqual({ batchMs: 12, maxPasses: 8 })
+    })
   })
 })
