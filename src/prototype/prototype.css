@@ -619,7 +619,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
-  flex-basis: 100%;
 }
 .library-saved-variants span {
   color: var(--muted);

@@ -154,6 +154,18 @@ it('offers saved sets of the same build in another format or scene without reque
         },
         readyViews: 5,
       },
+      {
+        presentation: { aspect: 'wide', doorPose: 'closed', lookRef: 'desert-day-draft@1' },
+        readyViews: 5,
+      },
+      {
+        presentation: { aspect: 'tall', doorPose: 'closed', lookRef: 'studio-day-draft@1' },
+        readyViews: 5,
+      },
+      {
+        presentation: { aspect: 'wide', doorPose: 'open', lookRef: 'studio-day-draft@1' },
+        readyViews: 3,
+      },
     ] as const,
   }
   await act(async () =>
@@ -169,9 +181,11 @@ it('offers saved sets of the same build in another format or scene without reque
   )
   const button = [...host.querySelectorAll('.library-saved-variants button')]
   expect(button.map((entry) => entry.textContent)).toEqual([
+    'Portrait · 5/5 views',
+    'Desert retreat · day · 5/5 views',
     'Portrait · Studio · night · 5/5 views',
   ])
   act(() => (button[0] as HTMLButtonElement).click())
-  expect(onUseVariant).toHaveBeenCalledWith(library.variants[0].presentation)
+  expect(onUseVariant).toHaveBeenCalledWith(library.variants[2].presentation)
   expect(library.request).not.toHaveBeenCalled()
 })

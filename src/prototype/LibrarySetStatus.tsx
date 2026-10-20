@@ -115,9 +115,19 @@ export function LibrarySetStatus({
     ]
       .filter(Boolean)
       .join(' · ')
+  // Keep the chosen scene where possible; format and door pose are cheaper differences.
+  const variantDistance = ({ presentation }: SavedVariant) =>
+    (presentation.lookRef !== current.lookRef ? 2 : 0) +
+    (presentation.aspect !== current.aspect ? 1 : 0) +
+    (presentation.doorPose !== current.doorPose ? 1 : 0)
   const savedVariants =
     onUseVariant && !working && !submitting
-      ? (library.variants ?? []).filter((variant) => variant.readyViews > count).slice(0, 3)
+      ? (library.variants ?? [])
+          .filter((variant) => variant.readyViews > count)
+          .map((variant) => ({ variant, distance: variantDistance(variant) }))
+          .sort((a, b) => b.variant.readyViews - a.variant.readyViews || a.distance - b.distance)
+          .slice(0, 3)
+          .map(({ variant }) => variant)
       : []
   const label = `${count}/5 images ready${working ? ` · ${stageNames[job!.stage]}` : ''}`
   return (
@@ -165,7 +175,7 @@ export function LibrarySetStatus({
               role="group"
               aria-label="Saved images of this build"
             >
-              <span>Saved images of this build:</span>
+              <span>Already saved:</span>
               {savedVariants.map((variant) => (
                 <button
                   key={`${variant.presentation.aspect}|${variant.presentation.lookRef}|${variant.presentation.doorPose}`}
