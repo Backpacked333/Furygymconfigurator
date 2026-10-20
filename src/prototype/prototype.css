@@ -214,6 +214,31 @@
   gap: 18px;
   margin: 22px 0;
 }
+.native-saved-image {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  background: #e8e8e4;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.native-saved-image img {
+  width: 100%;
+  height: auto;
+  max-height: 60vh;
+  object-fit: contain;
+}
+.native-saved-views,
+.native-saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.native-saved-views [aria-pressed='true'] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
 .native-library-card {
   overflow: hidden;
   padding: 0;

@@ -4,6 +4,7 @@ import { defaultDesign, parseDesign, serializeDesign } from '../domain/design'
 import { designHistory, initialNativeHistory, rememberNativeSelection } from './state'
 import { normalizeCustomerDesign } from '../render-library/views'
 import { transitionDesign } from '../domain/designTransitions'
+import { identityPayload } from '../render-library/identity'
 
 beforeEach(() => {
   localStorage.clear()
@@ -156,4 +157,43 @@ it('keeps Container doors open across family changes, opening changes, undo and 
     }).next,
   )
   expect(history.present.presentation.doorPose).toBe('open')
+})
+
+it.each([20, 40] as const)(
+  'restores the exact cached Studio %s identity after visiting Container',
+  (lengthFt) => {
+    const original = defaultDesign({ family: 'studio', lengthFt })
+    let history = { past: [], present: original, future: [] } as ReturnType<
+      typeof initialNativeHistory
+    >
+    for (const family of ['container', 'studio'] as const) {
+      const transition = transitionDesign(history.present, {
+        type: 'set-product',
+        product: { family, lengthFt },
+      })
+      history = designHistory(history, { type: 'commit', design: transition.next })
+      expect(history.present.presentation.doorPose).toBe(family === 'container' ? 'open' : 'closed')
+    }
+    expect(history.present).toEqual(original)
+    expect(identityPayload(history.present, 'set')).toBe(identityPayload(original, 'set'))
+    history = designHistory(history, { type: 'undo' })
+    expect(history.present.config.product.family).toBe('container')
+    expect(history.present.presentation.doorPose).toBe('open')
+    history = designHistory(history, { type: 'redo' })
+    expect(history.present).toEqual(original)
+  },
+)
+
+it('preserves intentionally open Studio doors across edits, size changes and saved selections', () => {
+  const open = parseDesign({
+    ...defaultDesign(),
+    presentation: { ...defaultDesign().presentation, doorPose: 'open' },
+  })
+  const resized = transitionDesign(open, {
+    type: 'set-product',
+    product: { family: 'studio', lengthFt: 40 },
+  }).next
+  expect(resized.presentation.doorPose).toBe('open')
+  rememberNativeSelection(resized)
+  expect(initialNativeHistory().present).toEqual(resized)
 })
