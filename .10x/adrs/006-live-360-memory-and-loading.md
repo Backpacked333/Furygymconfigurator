@@ -107,14 +107,11 @@ one was removed:
     pill render them, which is tested.
 - **The pill's backdrop blur.** It sat over a canvas that changes every frame, so it was redrawn
   each time. It is gone (the glass is near opaque).
-- **The GPU idled between batches.**
-  - Each frame waited for the last batch to finish before submitting the next.
-  - With 12 ms batches on a 16.7 ms frame, the GPU was busy at most ~72% of the time, and ~36% when
-    the completion landed just after a frame began.
-  - Two batches are now queued at once (`BATCHES_IN_FLIGHT`). The resting batch is 16 ms (was 24),
-    so a press waits at most about 32 ms.
-  - SwiftShader cannot show this: one sample costs it over a second at any size. Check on a GPU
-    with `?traceStats=1`.
+- **The GPU idled between batches (tried, then reverted).**
+  - Two batches queued at once kept the GPU near fully busy.
+  - On a device the view felt laggy: a press waited behind more queued work, and the browser's own
+    compositing lost its headroom.
+  - It is back to one batch at a time, 24 ms at rest. Throughput is not worth the snappiness.
 
 Sobol was timed against blue noise on the convergence harness:
 
@@ -122,3 +119,25 @@ Sobol was timed against blue noise on the convergence harness:
 - lower error at 32 and 128 samples (8.3% vs 9.0%, 4.3% vs 4.9%).
 
 It stays.
+
+## Follow-up: snappiness and the boot after the loading screen
+
+On a device, the view felt laggy and stuck, and it was slow to answer once the loading screen
+left.
+
+- **One batch on the GPU at a time again** (see above).
+- **Tracing waits 150 ms of rest, as before, not 80.**
+  - Each start draws the denoiser's guides, seeds from the kept views and queues a batch.
+  - Each stop stores the view.
+  - At 80 ms almost every hesitation in a drag paid for both, ahead of the next move's frame.
+- **The denoiser's network loads behind the loading screen** (`PathTraceSession.prepareDenoiser`).
+  - The first start waits for it beside the BVHs and sky map.
+  - Before, its weights downloaded and were repacked on the main thread at the first denoise, just
+    after the screen left.
+- **The loading screen stays until the first batch has finished on the GPU**
+  (`PathTraceSession.started`).
+  - That batch builds the tracer's kernels synchronously, and the GPU draws nothing else until they
+    are built: on some GPUs for seconds.
+  - Building them ahead with three's `compileComputeAsync` was tried on SwiftShader and fails: the
+    first sample sizes the buffers and textures they bind.
+  - The 15 s limit still holds.
