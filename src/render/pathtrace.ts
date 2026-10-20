@@ -1199,6 +1199,23 @@ export class PathTraceSession {
   }
 
   /**
+   * Loads the denoiser's network now, so the first image does not: its weights download and are
+   * repacked on the main thread, which otherwise lands just as the view first rests. Both denoisers
+   * share the one network (shareUNets), so loading it for one loads it for both. Never rejects: a
+   * network that fails to load fails again, as before, at the first denoise.
+   */
+  prepareDenoiser() {
+    const denoiser = this.denoisers[0] as unknown as
+      { _initUNet?: (aux: boolean) => Promise<unknown> } | undefined
+    if (!denoiser?._initUNet) return Promise.resolve()
+    // The tracer denoises with its guides (albedo and normal): the auxiliary network.
+    return denoiser._initUNet(true).then(
+      () => undefined,
+      () => undefined,
+    )
+  }
+
+  /**
    * Frees what a view that has stopped tracing can do without, keeping what is slow to make again:
    * the views traced so far (history), the denoiser's network and images, the snapshot and the
    * guides go; the tracer, its captured scene (BVH, atlas) and its compiled kernels stay, so the

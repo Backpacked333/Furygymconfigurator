@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
     step: vi.fn(),
     view: vi.fn(),
     progress: vi.fn(() => ({ shown: 0, target: 1024 })),
+    prepareDenoiser: vi.fn(() => Promise.resolve()),
     invalidate: vi.fn(),
     texturesChanged: vi.fn(),
     trim: vi.fn(),
@@ -430,20 +431,28 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     expect(traceProgress.get()).toEqual({ phase: 'idle' })
   })
 
-  it('holds the first start until workers have built the BVHs and sky map, never later ones', async () => {
+  it('holds the first start until the BVHs, sky map and denoiser network are ready, never later ones', async () => {
     let built!: (n: number) => void
     let sky!: () => void
+    let network!: () => void
     mocks.warm.mockImplementationOnce(() => new Promise((resolve) => (built = resolve)))
     mocks.sky.mockImplementationOnce(() => new Promise<void>((resolve) => (sky = resolve)))
+    mocks.trace.prepareDenoiser.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (network = resolve)),
+    )
     await render()
     expect(mocks.warm).toHaveBeenCalledWith(mocks.state.scene)
     expect(mocks.sky).toHaveBeenCalledWith(look)
+    expect(mocks.trace.prepareDenoiser).toHaveBeenCalledOnce()
     settle()
     expect(mocks.trace.begin).not.toHaveBeenCalled()
     await act(async () => built(3))
     settle()
     expect(mocks.trace.begin).not.toHaveBeenCalled()
     await act(async () => sky())
+    settle()
+    expect(mocks.trace.begin).not.toHaveBeenCalled()
+    await act(async () => network())
     settle()
     expect(mocks.trace.begin).toHaveBeenCalledOnce()
     // Later starts never wait on it.

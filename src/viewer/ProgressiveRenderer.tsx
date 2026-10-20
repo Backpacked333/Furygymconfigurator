@@ -385,6 +385,8 @@ export function ProgressiveRenderer({
                 ),
               ),
               prepareEnvironment(props.current.look),
+              // The denoiser's network too, behind the loading screen rather than after it.
+              runtime.tracer.prepareDenoiser(),
             ]),
             new Promise((resolve) => setTimeout(resolve, WARM_TRACER_MS)),
           ]).finally(() => {

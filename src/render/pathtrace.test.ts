@@ -572,6 +572,20 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     return { traced, tracer, begin, trace, unet, ...f }
   }
 
+  it('loads the shared denoiser network ahead of the first image, and never rejects', async () => {
+    const t = session({ multiView: true }, true)
+    const load = vi.fn(() => Promise.resolve('network'))
+    ;(denoisers[0] as unknown as { _initUNet: typeof load })._initUNet = load
+    await expect(t.traced.prepareDenoiser()).resolves.toBeUndefined()
+    expect(load).toHaveBeenCalledWith(true)
+    load.mockImplementationOnce(() => Promise.reject(new Error('offline')))
+    await expect(t.traced.prepareDenoiser()).resolves.toBeUndefined()
+    // The tracer's own loader is still the one this calls (OIDNDenoiser.js).
+    expect(
+      readFileSync('node_modules/three-gpu-pathtracer/src/webgpu/denoise/OIDNDenoiser.js', 'utf8'),
+    ).toContain('_initUNet( aux ) {')
+  })
+
   it('frees a stopped view’s history, denoisers, snapshot and guides, keeping its capture', async () => {
     const t = session({ multiView: true, keepHistoryAcrossSurfaces: true }, true)
     const clear = vi.spyOn(MultiViewHistory.prototype, 'clear')
