@@ -498,6 +498,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       fadeState: 1,
       target: { image: { width: 64, height: 32 } },
       material: { turquinTexture: { image: { width: 1, height: 1, depth: 1 } } },
+      textureAtlas: { textureInfo: [{}, {}, {}] as unknown[] },
       _pathTracer: {
         setSize: vi.fn(),
         outputTarget: new StorageTexture(64, 32),
@@ -627,6 +628,30 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     // A re-capture asked for is one.
     t.traced.invalidate()
     t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+  })
+
+  it('compiles new kernels when an in-place update packs more textures than they index', () => {
+    const t = session()
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    // A floor swapped in on the meshes it has, while the old floor's scans stay in use elsewhere:
+    // the atlas grows past the textureInfo array the kernels were compiled with.
+    t.tracer.updateMaterials.mockImplementation(() => t.tracer.textureAtlas.textureInfo.push({}))
+    t.stone.material = new MeshStandardNodeMaterial()
+    t.begin()
+    expect(t.tracer.updateMaterials).toHaveBeenCalledOnce()
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+    // As many textures as the new kernels index, or fewer, update in place again.
+    t.tracer.updateMaterials.mockImplementation(() => t.tracer.textureAtlas.textureInfo.pop())
+    t.stone.material = new MeshStandardNodeMaterial()
+    t.begin()
+    expect(t.tracer.updateMaterials).toHaveBeenCalledTimes(2)
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+    t.tracer.updateMaterials.mockImplementation(() => t.tracer.textureAtlas.textureInfo.push({}))
+    t.traced.texturesChanged()
+    t.begin()
+    // Back to the four the kernels were compiled for: still in place.
     expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
   })
 

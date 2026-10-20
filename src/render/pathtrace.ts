@@ -533,6 +533,12 @@ export class PathTraceSession {
   /** Scans arrived since the tracer last read the materials (`texturesChanged`). */
   private materialsStale = false
   /**
+   * Atlas entries the compiled kernels were built for. Their `textureInfo` uniform array is sized
+   * once, when setScene compiles them; an in-place updateMaterials repacks the atlas but cannot
+   * grow it, so a texture past this count would read another texture's tile.
+   */
+  private textureSlots = 0
+  /**
    * Bumped whenever scans arrive: a view traced before had other surfaces, though no fingerprint
    * shows it (the maps are swapped in place).
    */
@@ -651,7 +657,7 @@ export class PathTraceSession {
     this.state = 'preparing'
     const last = this.captured
     const stale = this.materialsStale
-    if (!last || last.parts.structure !== parts.structure) {
+    const capture = () => {
       // New or reshaped meshes: build the BVH and kernels again.
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
@@ -659,21 +665,32 @@ export class PathTraceSession {
       } finally {
         restore()
       }
+      this.textureSlots = this.textureCount()
+    }
+    if (!last || last.parts.structure !== parts.structure) {
+      capture()
     } else if (signature !== this.signature || stale) {
       // Same meshes: update in place only what changed, keeping the BVH and compiled kernels.
       // Scans that arrived changed the materials' maps, which no fingerprint reads.
       const moved = last.parts.transforms !== parts.transforms
       const sky = last.look !== key
+      let grown = false
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
         if (moved) this.tracer.updateTransforms()
-        if (stale || last.parts.materials !== parts.materials) this.tracer.updateMaterials()
+        if (stale || last.parts.materials !== parts.materials) {
+          this.tracer.updateMaterials()
+          // More textures than the kernels were compiled for (a floor swapped in while the old
+          // one's scans stay in use elsewhere, or scans arriving): those need new kernels.
+          grown = this.textureCount() > this.textureSlots
+        }
         if (sky) this.tracer.updateEnvironment()
         if (sky || moved || last.parts.lights !== parts.lights) this.tracer.updateLights()
       } finally {
         restore()
       }
-      this.tracer.updateCamera()
+      if (grown) capture()
+      else this.tracer.updateCamera()
     } else {
       this.tracer.updateCamera()
     }
@@ -715,6 +732,12 @@ export class PathTraceSession {
     this.measuring = false
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0 }
+  }
+
+  /** Textures packed into the tracer's atlas, as its kernels index them. */
+  private textureCount() {
+    const tracer = this.tracer as unknown as { textureAtlas?: { textureInfo?: unknown[] } }
+    return tracer.textureAtlas?.textureInfo?.length ?? 0
   }
 
   /** The tracer's accumulation targets. */
