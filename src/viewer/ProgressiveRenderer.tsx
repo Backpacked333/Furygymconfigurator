@@ -168,7 +168,12 @@ export function ProgressiveRenderer({
     // raster frame on screen but never restart a trace or rebuild its scene.
     const materials = onMaterialsChanged((change) => {
       if (change === 'textures') texturesArrived()
-      else if (!runtime.tracing && props.current.active) invalidate()
+      else if (!runtime.tracing && props.current.active) {
+        // Settle the temporal passes on the new light again, as after any change, but keep the
+        // rest window: a probe is no move.
+        runtime.drawn = 0
+        invalidate()
+      }
     })
     // Compile the pipeline's shaders asynchronously before its first frame, so opening the view
     // does not stall on synchronous compilation.
@@ -271,11 +276,13 @@ export function ProgressiveRenderer({
     // A pipeline compiled in the background (the frame guard's lean one) runs TRAA's first update
     // outside a pipeline render, leaving its jitter, and the aspect of a target not sized yet, on
     // this camera. The live camera never carries an offset of its own (TRAA sets and clears one
-    // within each render), so the view is put back before it is compared: else a still view would
-    // read as moved, and its trace stop.
+    // within each render), so the view is put back as each render leaves it, at the drawing
+    // buffer's aspect, before it is compared: else a still view would read as moved, and its trace
+    // stop.
     const lens = camera as PerspectiveCamera
     if (lens.view?.enabled) {
-      lens.aspect = size.width / size.height
+      renderer.getDrawingBufferSize(drawingBuffer)
+      lens.aspect = drawingBuffer.x / drawingBuffer.y
       lens.clearViewOffset()
     }
     camera.updateMatrixWorld()

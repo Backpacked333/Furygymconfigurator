@@ -118,6 +118,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       (args[4] as { gi?: boolean } | undefined)?.gi === false ? mocks.lean : mocks.pipe,
     )
     mocks.lean.warm.mockReset()
+    mocks.pipe.render.mockReset()
     mocks.backend = 'webgpu'
     mocks.signature = 1
     mocks.buffer = { w: 1000, h: 625 }
@@ -403,6 +404,19 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     root = createRoot(host)
   })
 
+  it('settles its temporal passes again on a probe’s new light while not tracing', async () => {
+    // WebGL: raster only, so the view is never tracing and draws until its passes have settled.
+    mocks.backend = 'webgl2'
+    await render()
+    demandLoop(1000 / 60)
+    mocks.pipe.render.mockClear()
+    invalidate.mockClear()
+    act(() => mocks.materialListeners.forEach((listener) => listener('probe')))
+    expect(invalidate).toHaveBeenCalled()
+    demandLoop(1000 / 60)
+    expect(mocks.pipe.render.mock.calls.length).toBeGreaterThanOrEqual(mocks.pipe.settleFrames)
+  })
+
   it('never restarts a trace for probe captures, only for streamed textures', async () => {
     await render()
     settle()
@@ -588,6 +602,14 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     })
 
     it('keeps tracing through a view offset a background compile leaves on the camera', async () => {
+      // A fractional pixel ratio: the drawing buffer's aspect is not quite the canvas's. TRAA
+      // leaves the camera at the drawing buffer's after each render (setViewOffset sets the
+      // aspect; clearViewOffset keeps it), so that is the aspect a still view holds.
+      mocks.buffer = { w: 1500, h: 937 }
+      mocks.pipe.render.mockImplementation(() => {
+        camera.setViewOffset(1500, 937, 0.3, -0.2, 1500, 937)
+        camera.clearViewOffset()
+      })
       camera.aspect = 1000 / 625
       camera.updateProjectionMatrix()
       await render({ quality: 'ultra' })
@@ -602,7 +624,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect(mocks.trace.halt).not.toHaveBeenCalled()
       expect(mocks.trace.begin).toHaveBeenCalledOnce()
       expect(camera.view?.enabled ?? false).toBe(false)
-      expect(camera.aspect).toBeCloseTo(1000 / 625)
+      expect(camera.aspect).toBeCloseTo(1500 / 937, 10)
     })
 
     it('disposes a lean pipeline still compiling when the view closes', async () => {
