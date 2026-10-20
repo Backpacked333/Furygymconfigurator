@@ -128,11 +128,15 @@ const releasable = new Set<Texture>()
  * so while one exists they are kept: a released map would trace black (the ground, the brick),
  * and the exposure match would then brighten the whole view to make up for it.
  */
-let keepDecoded = false
+/** How many local tracers currently read the decoded scans. */
+let decodedKeepers = 0
 
-/** Keeps scans decoded (and decodes the released ones again) while a local tracer needs them. */
+/**
+ * Keeps scans decoded (and decodes the released ones again) while a local tracer needs them.
+ * Counted: each `true` is balanced by one `false`, so one tracer closing never frees another's.
+ */
 export function keepDecodedTextures(keep: boolean) {
-  keepDecoded = keep
+  decodedKeepers = Math.max(0, decodedKeepers + (keep ? 1 : -1))
   return keep ? restoreTextures() : Promise.resolve([])
 }
 
@@ -145,7 +149,7 @@ async function fetchBitmapTexture(url: string) {
   texture.userData.scan = blob
   // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map).
   texture.onUpdate = () => {
-    if (!keepDecoded) (texture.image as ImageBitmap).close()
+    if (!decodedKeepers) (texture.image as ImageBitmap).close()
   }
   return texture
 }

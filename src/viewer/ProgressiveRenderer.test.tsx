@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   state: {} as Record<string, unknown>,
   backend: 'webgpu',
   load: vi.fn(),
+  keepDecoded: vi.fn(),
   signature: 1,
   beginFrame: vi.fn(),
   pipe: { render: vi.fn(), dispose: vi.fn(), setPlace: vi.fn(), settleFrames: 10 },
@@ -28,7 +29,10 @@ vi.mock('@react-three/fiber', () => ({
   useThree: () => mocks.state,
   useFrame: (callback: () => void, priority = 0) => mocks.frames.set(priority, callback),
 }))
-vi.mock('../render/materials', () => ({ onMaterialsChanged: () => () => {} }))
+vi.mock('../render/materials', () => ({
+  onMaterialsChanged: () => () => {},
+  keepDecodedTextures: mocks.keepDecoded,
+}))
 vi.mock('../render/pipeline', () => ({ createPipeline: () => mocks.pipe }))
 vi.mock('../render/renderer', () => ({
   backendOf: () => mocks.backend,
@@ -74,6 +78,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.backend = 'webgpu'
     mocks.signature = 1
     mocks.load.mockResolvedValue({})
+    mocks.keepDecoded.mockResolvedValue([])
     mocks.trace.step.mockReturnValue(true)
     mocks.trace.view.mockReturnValue({ from: null, to: {}, t: 1 })
     now = 0
@@ -122,6 +127,23 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     frame()
     expect(mocks.trace.halt).toHaveBeenCalled()
     expect(status).toHaveBeenLastCalledWith('interactive')
+  })
+
+  it('keeps scans decoded for the tracer before tracing and releases them on unmount', async () => {
+    let restored!: () => void
+    mocks.keepDecoded.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (restored = resolve)),
+    )
+    await render()
+    expect(mocks.keepDecoded).toHaveBeenCalledWith(true)
+    settle()
+    expect(mocks.trace.begin).not.toHaveBeenCalled()
+    await act(async () => restored())
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledOnce()
+    act(() => root.unmount())
+    expect(mocks.keepDecoded).toHaveBeenLastCalledWith(false)
+    root = createRoot(host)
   })
 
   it('does not start a trace while a pointer is held; release starts a fresh rest window', async () => {
