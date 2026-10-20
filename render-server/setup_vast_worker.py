@@ -9,11 +9,19 @@ import os
 from pathlib import Path
 import pwd
 import subprocess
+import sys
+
+
+def verify_interpreter():
+    pinned = Path("/usr/local/bin/python")
+    if not pinned.is_file() or not os.access(pinned, os.X_OK) or pinned.resolve() != Path(sys.executable).resolve():
+        raise RuntimeError("pinned-python-required")
 
 
 def setup(root, instance):
     if os.getuid() != 0 or instance <= 0:
         raise RuntimeError("root-and-instance-required")
+    verify_interpreter()
     manifest = json.loads((root / "native-build.json").read_text())
     recipe = manifest["recipe"]
     canonical = json.dumps(manifest["files"], sort_keys=True, separators=(",", ":")).encode()

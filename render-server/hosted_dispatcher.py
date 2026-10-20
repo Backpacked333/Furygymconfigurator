@@ -190,7 +190,9 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
             else:
                 outcome = 'recovery-pending'
         # Best-effort terminal acknowledgements never consume the active-job slot.
-        settled = [row for row in journal.jobs() if row['phase'] == 'settled' and journal.pending(row['dispatch']['dispatchId'])]
+        settled = [row for row in journal.jobs() if row['phase'] == 'settled' and (
+            journal.pending(row['dispatch']['dispatchId']) or
+            (policy.get('providerKind') == 'vast-warm' and row.get('provider') and not row.get('providerInputReleased')))]
         if settled:
             worker.recover(settled[uuid.UUID(cycle).int % len(settled)])
         return {'status': outcome, 'cycleId': cycle, 'lane': lane}

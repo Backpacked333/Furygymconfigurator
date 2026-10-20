@@ -34,11 +34,13 @@ An fsynced creation record precedes process launch. Recovery never resends a par
 transferred package. Reconciling an absent creation writes a tombstone under the same
 lock, preventing a delayed creation from starting afterward. PID start-time checks
 prevent accidentally terminating a reused PID.
+Missing PID identities are fenced as failed startup, never treated as live supervision.
 
 The root supervisor supplies an immutable, hash-verified source release and drops the
 renderer to dedicated UID 10001 or 10002. Slot homes are private. Renderer processes
 inherit a fail-closed seccomp filter denying IPv4/IPv6 sockets and io_uring, but allowing
-local CUDA IPC. No application/provider credentials enter the render environment.
+local CUDA IPC. Existing Internet sockets are closed before installing the filter.
+No application/provider credentials enter the render environment.
 The watchdog bounds startup and execution; termination kills the job's process tree
 and confirms the slot is no longer running before publishing terminal evidence.
 The **rented host remains running** after success, failure, reconciliation and idle time.
@@ -60,8 +62,9 @@ Receipts must match the immutable registration's GPU; historical L40S receipts s
 3. Install the package at `/opt/fury/releases/WORKER_BUILD_SHA256`, retaining old releases
    needed by unsettled jobs. Install the package's hash-locked GPU requirements and the
    headless Blender libraries, including `libseccomp2`. Run
-   `python setup_vast_worker.py /opt/fury/releases/WORKER_BUILD_SHA256 INSTANCE_ID` as root.
-   This verifies every source hash and hardware identity and prepares the two private slots.
+   `/usr/local/bin/python setup_vast_worker.py /opt/fury/releases/WORKER_BUILD_SHA256 INSTANCE_ID`
+   as root. Setup rejects a missing or different interpreter before changing host state,
+   verifies every source hash and hardware identity, and prepares the two private slots.
 4. Prove real full-quality rendering through `VastProvider`, not just `nvidia-smi`.
    Check samples, OptiX, image bytes, concurrent slot isolation and terminal reconciliation.
 5. Deploy compatible worker API routes, apply the warm-profile/backlog migrations, and
@@ -80,6 +83,10 @@ Receipts must match the immutable registration's GPU; historical L40S receipts s
    survival after editing or leaving the page before declaring the cutover complete.
 
 ## Operating costs and recovery
+
+After durable terminal reconciliation, release removes transferred input and the
+base64 artifact stream. Compact terminal records remain for idempotency and fencing;
+unsettled streams remain replayable. Cleanup failures are retried on later CPU cycles.
 
 Warm-instance hourly rent continues while idle and is **separate from the per-job
 admission ledger**. The ledger conservatively reserves/charges job liability ceilings;
