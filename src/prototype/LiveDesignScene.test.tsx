@@ -120,6 +120,23 @@ describe('reporting the view’s load and refinement to the gallery', () => {
     expect(last(onProgress).refine).toEqual({ phase: 'refining', fill: 0.4, stage: 'reflections' })
     act(() => traceProgress.set({ phase: 'idle' }))
   })
+
+  it('never re-renders the 3D scene for them: a refining view reports several times a second', () => {
+    act(() => liveLoading.set('ready'))
+    act(() => traceProgress.set({ phase: 'idle' }))
+    const onProgress = vi.fn()
+    act(() => root.render(<LiveDesignScene {...liveProps()} onProgress={onProgress} />))
+    const renders = seen.surfaces.length
+    const reports = onProgress.mock.calls.length
+    for (let fill = 0.1; fill <= 1; fill += 0.1)
+      act(() => traceProgress.set({ phase: 'refining', fill, stage: 'light' }))
+    act(() => textureProgress.update(2, 2))
+    act(() => sceneProgress.set('ready'))
+    expect(seen.surfaces.length).toBe(renders)
+    expect(onProgress.mock.calls.length).toBeGreaterThan(reports + 5)
+    expect(last(onProgress).refine).toMatchObject({ phase: 'refining', stage: 'light' })
+    act(() => traceProgress.set({ phase: 'idle' }))
+  })
 })
 
 describe('fetching the tracer as the module loads, on intent', () => {
