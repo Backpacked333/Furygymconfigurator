@@ -4,6 +4,7 @@ import {
   CONTRACT_VERSION,
   lookupResponseSchema,
   sessionResponseSchema,
+  variantsResponseSchema,
   type ImageDescriptor,
   type SetSnapshot,
 } from '../render-library/contracts'
@@ -106,6 +107,15 @@ export async function lookupSet(design: DesignEnvelope, signal: AbortSignal) {
     await json(API_PATHS.lookup, signal, { contractVersion: CONTRACT_VERSION, design }),
     design,
   )
+}
+/** Read-only discovery of saved sets for the same build in another format, door pose or scene. */
+export async function lookupVariants(design: DesignEnvelope, signal: AbortSignal) {
+  const result = variantsResponseSchema.parse(
+    await json(API_PATHS.variants, signal, { contractVersion: CONTRACT_VERSION, design }),
+  )
+  if (result.status === 'error')
+    throw new LibraryRequestError(result.error.code, result.error.message)
+  return result.variants
 }
 export async function readJob(jobId: string, design: DesignEnvelope, signal: AbortSignal) {
   return verifySnapshot(

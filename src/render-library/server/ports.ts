@@ -102,6 +102,9 @@ export interface RenderLibraryRpc {
 export interface RenderLibraryRepository {
   lookup(design: DesignEnvelope, identity: SetIdentity): Promise<SetSnapshot>
   getJob(jobId: string): Promise<SetSnapshot | null>
+  savedSets?(
+    design: DesignEnvelope,
+  ): Promise<readonly { setKey: string; design: unknown; imageKeys: readonly string[] }[]>
   rpc<K extends keyof RenderLibraryRpc>(
     name: K,
     args: RenderLibraryRpc[K]['args'],

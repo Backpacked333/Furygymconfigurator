@@ -26,6 +26,7 @@ import { defaultDesign, projectDesignToConfig, type DesignEnvelope } from '../do
 import { resolveCamera, resolveLook, type CameraRef } from '../domain/presentation'
 import { CUSTOMER_CAMERAS, normalizeCustomerDesign } from '../render-library/views'
 import { BuildAnimation } from '../components/LoadingExperience'
+import type { SavedVariant } from '../render-library/contracts'
 import { LibrarySetStatus } from './LibrarySetStatus'
 import { LibraryThumbnail } from './LibraryThumbnail'
 import { SceneLookControls } from './SceneLookControls'
@@ -278,6 +279,9 @@ function ImageConfiguratorContents({
     lastCameras.current[resolveCamera(cameraRef).group] = cameraRef
     setPlan(false)
     action({ type: 'update-presentation', patch: { cameraRef } })
+  }
+  function showSavedVariant(patch: SavedVariant['presentation']) {
+    action({ type: 'update-presentation', patch })
   }
   function pickView(next: StageView) {
     if (next === 'plan') {
@@ -689,6 +693,7 @@ function ImageConfiguratorContents({
                               imageError={progress.state === 'error' ? progress.message : undefined}
                               onRetryImage={image.retry}
                               onDetails={() => setDialog('image')}
+                              onUseVariant={showSavedVariant}
                             />
                           ) : (
                             <div className="prototype-image-empty">
@@ -827,6 +832,7 @@ function ImageConfiguratorContents({
                           catalog={catalog}
                           hasImage
                           onDetails={() => setDialog('image')}
+                          onUseVariant={showSavedVariant}
                         />
                       ) : null}
                     </div>

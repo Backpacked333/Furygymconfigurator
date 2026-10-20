@@ -707,3 +707,68 @@ describe('independent artifact decoding and immutable storage', () => {
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('/storage/'))).toBe(false)
   })
 })
+it('discovers verified saved sets of the same build under another format, door or scene', async () => {
+  const variant = (presentation: Partial<typeof design.presentation>, config = design.config) =>
+    customerDesignSchema.parse({
+      ...design,
+      config,
+      presentation: { ...design.presentation, ...presentation },
+    })
+  const tall = variant({ aspect: 'tall' })
+  const night = variant({ lookRef: 'studio-night-draft@1' })
+  const otherBuild = variant(
+    { aspect: 'tall' },
+    { ...design.config, appearance: { ...design.config.appearance, mirror: true } },
+  )
+  const [own, tallId, nightId, otherId] = await Promise.all(
+    [design, tall, night, otherBuild].map(computeSetIdentity),
+  )
+  const sets = [
+    { set_key: own.setKey, design },
+    { set_key: tallId.setKey, design: tall },
+    { set_key: nightId.setKey, design: night },
+    { set_key: otherId.setKey, design: otherBuild },
+    { set_key: `set_${'a'.repeat(64)}`, design: tall },
+  ]
+  const images = [
+    ...Object.values(tallId.imageKeys).map((key) => ({ set_key: tallId.setKey, image_key: key })),
+    { set_key: nightId.setKey, image_key: nightId.imageKeys['front-left-draft@1'] },
+    { set_key: nightId.setKey, image_key: `img_${'b'.repeat(64)}` },
+    ...Object.values(otherId.imageKeys).map((key) => ({ set_key: otherId.setKey, image_key: key })),
+  ]
+  const fetcher = vi.fn<typeof fetch>(async (url) => {
+    const path = decodeURIComponent(String(url))
+    if (path.includes('/render_library_sets?')) {
+      expect(path).toContain(
+        `design->config->appearance->>finish=eq.${design.config.appearance.finish}`,
+      )
+      return Response.json(sets)
+    }
+    if (path.includes('/render_library_images?')) return Response.json(images)
+    throw new Error(`Unexpected request ${path}`)
+  })
+  const repository = new SupabaseRepository(
+    new SupabaseTransport('https://test.supabase.co', key, fetcher),
+  )
+  const service = new LibraryService(repository, seeds, async () => policy, [])
+  const response = await service.variants({ contractVersion: 'fury.render-library@1', design })
+  expect(response).toEqual({
+    contractVersion: 'fury.render-library@1',
+    status: 'ok',
+    variants: [
+      {
+        presentation: { aspect: 'tall', doorPose: 'closed', lookRef: design.presentation.lookRef },
+        readyViews: 5,
+      },
+      {
+        presentation: {
+          aspect: design.presentation.aspect,
+          doorPose: 'closed',
+          lookRef: 'studio-night-draft@1',
+        },
+        readyViews: 1,
+      },
+    ],
+  })
+  expect(seeds.images).not.toHaveBeenCalled()
+})

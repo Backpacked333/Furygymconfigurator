@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { DesignEnvelope } from '../../domain/design.js'
+import { serializeDesign, type DesignEnvelope } from '../../domain/design.js'
 import { CUSTOMER_CAMERA_REFS } from '../../domain/presentation.js'
 import {
   CONTRACT_VERSION,
@@ -14,6 +14,10 @@ import {
   type RetryJobRequest,
   type SetIdentity,
   type SetSnapshot,
+  customerDesignSchema,
+  MAX_SAVED_VARIANTS,
+  type SavedVariant,
+  type VariantsResponse,
 } from '../contracts.js'
 import { canonicalJson, computeSetIdentity, verifyImageDescriptor } from '../identity.js'
 import {
@@ -140,6 +144,33 @@ export class LibraryService implements RenderLibraryService {
       job: snapshot.job && { ...snapshot.job, completedImages: count },
     }
     return this.checked(snapshot, identity)
+  }
+  async variants(request: LookupRequest): Promise<VariantsResponse> {
+    const wanted = request.design
+    const ok = (variants: SavedVariant[]): VariantsResponse => ({
+      contractVersion: CONTRACT_VERSION,
+      status: 'ok',
+      variants,
+    })
+    if (!this.repository?.savedSets) return ok([])
+    const config = canonicalJson(JSON.parse(serializeDesign(wanted)).config)
+    const own = (await computeSetIdentity(wanted)).setKey
+    const variants: SavedVariant[] = []
+    for (const candidate of await this.repository.savedSets(wanted)) {
+      const parsed = customerDesignSchema.safeParse(candidate.design)
+      if (!parsed.success || candidate.setKey === own) continue
+      const design = parsed.data
+      if (canonicalJson(JSON.parse(serializeDesign(design)).config) !== config) continue
+      const identity = await computeSetIdentity(design)
+      if (identity.setKey !== candidate.setKey) continue
+      const keys = new Set(Object.values(identity.imageKeys))
+      const readyViews = new Set(candidate.imageKeys.filter((key) => keys.has(key))).size
+      if (!readyViews) continue
+      const { aspect, doorPose, lookRef } = design.presentation
+      variants.push({ presentation: { aspect, doorPose, lookRef }, readyViews })
+    }
+    variants.sort((a, b) => b.readyViews - a.readyViews)
+    return ok(variants.slice(0, MAX_SAVED_VARIANTS))
   }
   async create(request: CreateJobRequest, context: AdmissionContext): Promise<LibraryResponse> {
     if (!this.repository) throw new ServiceError('rendering-disabled', 503)

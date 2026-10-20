@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { parseDesign, type DesignEnvelope } from '../domain/design'
 import { identityPayload, computeSetIdentity } from '../render-library/identity'
-import { uuidSchema, type SetSnapshot } from '../render-library/contracts'
-import { LibraryRequestError, lookupSet, readJob, submitSet } from './renderLibraryClient'
+import { uuidSchema, type SavedVariant, type SetSnapshot } from '../render-library/contracts'
+import {
+  LibraryRequestError,
+  lookupSet,
+  lookupVariants,
+  readJob,
+  submitSet,
+} from './renderLibraryClient'
 
 type Pointer = { jobId?: string; joined?: true; uncertain?: string }
 const POINTER_KEY = 'fury-render-library-pointers-v1'
@@ -71,10 +77,12 @@ export type LibrarySetState = {
   message: string | null
   paused: boolean
   uncertain: boolean
+  variants: readonly SavedVariant[]
 }
 const empty = (signature: string): LibrarySetState => ({
   signature,
   snapshot: null,
+  variants: [],
   checking: true,
   message: null,
   paused: false,
@@ -174,6 +182,11 @@ export function useLibrarySet(design: DesignEnvelope) {
         update({ snapshot: next, checking: false, message: null, uncertain })
       }
       apply(snapshot)
+      if (snapshot.coverage !== 'complete')
+        void lookupVariants(requestDesign, controller.signal).then(
+          (variants) => update({ variants }),
+          () => undefined,
+        )
       let failures = 0
       for (let attempt = 0; activeJob(snapshot) && attempt < 1200; attempt++) {
         await pause(failures ? Math.min(30_000, 2_000 * 2 ** failures) : 2_000, controller.signal)
@@ -258,6 +271,7 @@ export function useLibrarySet(design: DesignEnvelope) {
           message: null,
           paused: false,
           uncertain: false,
+          variants: [],
         })
         refresh((value) => value + 1)
       }
