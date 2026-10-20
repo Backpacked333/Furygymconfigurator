@@ -103,6 +103,21 @@ describe('built next-batch boundaries (no browser or dev server)', () => {
       true,
     )
     expect(modules.some((id) => id.endsWith('/src/prototype/LiveDesignScene.tsx'))).toBe(false)
+    // The early download of the design's scans, also on intent alone, with its scan table.
+    for (const lazy of [
+      '/src/prototype/liveWarmup.ts',
+      '/src/lib/designTextures.ts',
+      '/src/render/scanFiles.ts',
+    ]) {
+      expect(
+        [...graph.modules].some((id) => id.endsWith(lazy)),
+        lazy,
+      ).toBe(true)
+      expect(
+        modules.some((id) => id.endsWith(lazy)),
+        lazy,
+      ).toBe(false)
+    }
     expect(modules.some((id) => id.endsWith('/src/prototype/ImageConfigurator.tsx'))).toBe(true)
     expect(modules.some((id) => id.endsWith('/src/image-service/protocol.ts'))).toBe(true)
     expect(modules.some((id) => id.endsWith('/src/image-service/localRenderProtocol.ts'))).toBe(

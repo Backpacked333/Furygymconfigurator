@@ -26,6 +26,7 @@ import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type Node } from 't
 import { float, normalView, pmremTexture, positionViewDirection, select, uniform } from 'three/tsl'
 import { parallaxProbe } from './parallax'
 import { textureProgress } from './progress'
+import { decodeOffThread, scanFiles, takePrefetched } from './scanFiles'
 
 /**
  * Physical sizes (feet per tile) of the bundled CC0 Poly Haven scans plus three baked
@@ -83,7 +84,6 @@ export function setMaxAnisotropy(value: number) {
 export { textureProgress }
 
 const loader = new TextureLoader()
-const base = `${import.meta.env.BASE_URL}textures/`
 const sets = new Map<TextureSet, Promise<Maps>>()
 const ready = new Map<TextureSet, Maps>()
 
@@ -95,20 +95,6 @@ function configure(texture: Texture, size: number, color: boolean) {
   texture.needsUpdate = true
   return texture
 }
-
-/**
- * Scans decode off the main thread where createImageBitmap takes its options (Safari 17+, Firefox
- * 98+, the gate three's GLTFLoader uses). An <img> would instead be decoded synchronously by the
- * first GPU upload, stalling a frame for every arriving map.
- */
-const decodeOffThread = (() => {
-  if (typeof createImageBitmap === 'undefined' || typeof navigator === 'undefined') return false
-  const ua = navigator.userAgent
-  const safari = /^((?!chrome|android).)*safari/i.test(ua)
-  const safariVersion = Number(ua.match(/Version\/(\d+)/)?.[1] ?? -1)
-  const firefoxVersion = Number(ua.match(/Firefox\/(\d+)\./)?.[1] ?? -1)
-  return !(safari && safariVersion < 17) && !(ua.includes('Firefox') && firefoxVersion < 98)
-})()
 
 /**
  * Decoded already upright, so the texture keeps flipY false (as three's in-shader flip for bitmaps
@@ -136,10 +122,20 @@ export function keepDecodedTextures(keep: boolean) {
   return keep ? restoreTextures() : Promise.resolve([])
 }
 
-async function fetchBitmapTexture(url: string) {
+/** A scan's file, asked for without options: the private display and capture realms refuse any. */
+async function download(url: string) {
   const response = await fetch(url)
   if (!response.ok) throw new Error(`${response.status} for ${url}`)
-  const blob = await response.blob()
+  return response.blob()
+}
+/**
+ * A scan's encoded bytes: those an early download for the 360° view has, or has on the way
+ * (scanFiles.ts), so no file is downloaded twice; else, or if that download failed, its own.
+ */
+const scanBlob = (url: string) => takePrefetched(url)?.catch(() => download(url)) ?? download(url)
+
+async function fetchBitmapTexture(url: string) {
+  const blob = await scanBlob(url)
   const texture = new Texture(await decode(blob))
   texture.flipY = false
   texture.userData.scan = blob
@@ -273,13 +269,18 @@ function load(set: TextureSet, shown = quiet === 0): Promise<Maps> {
     if (shown) counted(set)
     return pending
   }
-  const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
-  const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
-  if (shown) textureProgress.update(names.length, 0)
-  else unseenSets.set(set, { outstanding: names.length })
+  const info = TEXTURE_SETS[set] as { size: number }
+  const files = scanFiles(set)
+  if (shown) {
+    // A quiet round that failed with nothing waiting leaves its entry behind (all of its maps
+    // settled, none outstanding). Left there, it would swallow this round's arrivals, and the
+    // progress, which the live view waits on before it traces, would never complete.
+    unseenSets.delete(set)
+    textureProgress.update(files.length, 0)
+  } else unseenSets.set(set, { outstanding: files.length })
   pending = Promise.allSettled(
-    names.map((name) =>
-      fetchTexture(`${base}${set}/${name}.webp`)
+    files.map(({ name, url }) =>
+      fetchTexture(url)
         // A map that never arrives still counts as settled, so the progress bar always finishes.
         .finally(() => arrived(set))
         .then((texture) => [name, configure(texture, info.size, name === 'albedo')] as const),

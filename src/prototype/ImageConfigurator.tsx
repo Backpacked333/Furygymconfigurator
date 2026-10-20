@@ -700,7 +700,7 @@ function ImageConfiguratorContents({
                       liveLabel={live ? 'Close the 360° View' : 'Explore in 360°'}
                       liveDisabledReason={nativeLibrary ? undefined : unavailable}
                       onToggleLive={toggleLive}
-                      onLiveIntent={nativeLibrary ? prefetchLiveView : undefined}
+                      onLiveIntent={nativeLibrary ? () => prefetchLiveView(design) : undefined}
                       dimensions={dimensions}
                       onDimensions={() => setDimensions(!dimensions)}
                       autoRotate={autoRotate}
