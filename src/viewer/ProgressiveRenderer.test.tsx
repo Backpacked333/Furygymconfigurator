@@ -13,7 +13,16 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(),
   signature: 1,
   beginFrame: vi.fn(),
-  pipe: { render: vi.fn(), dispose: vi.fn(), setPlace: vi.fn(), settleFrames: 10 },
+  pipe: {
+    render: vi.fn(),
+    warm: vi.fn(() => Promise.resolve()),
+    dispose: vi.fn(),
+    setPlace: vi.fn(),
+    settleFrames: 10,
+  },
+  materialListeners: new Set<(change: 'textures' | 'probe') => void>(),
+  keepDecoded: vi.fn((keep: boolean) => Promise.resolve(keep ? [] : [])),
+  session: vi.fn(),
   present: { capture: vi.fn(), render: vi.fn(), dispose: vi.fn() },
   trace: {
     begin: vi.fn(),
@@ -28,7 +37,13 @@ vi.mock('@react-three/fiber', () => ({
   useThree: () => mocks.state,
   useFrame: (callback: () => void, priority = 0) => mocks.frames.set(priority, callback),
 }))
-vi.mock('../render/materials', () => ({ onMaterialsChanged: () => () => {} }))
+vi.mock('../render/materials', () => ({
+  keepDecodedTextures: mocks.keepDecoded,
+  onMaterialsChanged: (listener: (change: 'textures' | 'probe') => void) => {
+    mocks.materialListeners.add(listener)
+    return () => mocks.materialListeners.delete(listener)
+  },
+}))
 vi.mock('../render/pipeline', () => ({ createPipeline: () => mocks.pipe }))
 vi.mock('../render/renderer', () => ({
   backendOf: () => mocks.backend,
@@ -41,7 +56,8 @@ vi.mock('../render/pathtrace', () => ({
   sceneSignature: () => mocks.signature,
   lookKey: () => 'look',
   PathTraceSession: class {
-    constructor() {
+    constructor(...args: unknown[]) {
+      mocks.session(...args)
       return mocks.trace
     }
   },
@@ -71,6 +87,8 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
     vi.clearAllMocks()
     mocks.frames.clear()
+    mocks.materialListeners.clear()
+    mocks.pipe.settleFrames = 10
     mocks.backend = 'webgpu'
     mocks.signature = 1
     mocks.load.mockResolvedValue({})
@@ -201,5 +219,89 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     expect(status).toHaveBeenLastCalledWith('raster-only')
     expect(mocks.pipe.render).toHaveBeenCalled()
     expect(mocks.present.render).not.toHaveBeenCalled()
+  })
+  /** R3F's demand loop: a frame runs only when something asked for one since the last. */
+  const demandLoop = (intervalMs: number, limit = 200) => {
+    let frames = 0
+    while (frames < limit && invalidate.mock.calls.length > 0) {
+      invalidate.mockClear()
+      act(() => {
+        now += intervalMs
+        for (const [, callback] of [...mocks.frames].sort(([a], [b]) => a - b)) callback()
+      })
+      frames++
+      if (mocks.trace.begin.mock.calls.length) break
+    }
+    return frames
+  }
+
+  for (const [quality, settleFrames] of [
+    ['lite', 1],
+    ['high', 28],
+    ['ultra', 40],
+  ] as const)
+    it(`starts refining a resting view under the demand loop at 60 Hz (${quality})`, async () => {
+      mocks.pipe.settleFrames = settleFrames
+      await render({ quality })
+      demandLoop(1000 / 60)
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(now).toBeGreaterThanOrEqual(150)
+    })
+
+  it('refines Lite on a budget: a reduced-scale trace with fewer samples and bounces', async () => {
+    await render({ quality: 'lite' })
+    settle()
+    expect(mocks.session).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      true,
+      expect.objectContaining({ renderScale: 0.5, maxBounces: 4 }),
+    )
+    expect(mocks.trace.begin).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      128,
+    )
+  })
+
+  it('keeps decoded scans while its tracer lives, and releases them when it goes', async () => {
+    await render()
+    settle()
+    expect(mocks.keepDecoded).toHaveBeenCalledWith(true)
+    expect(mocks.keepDecoded.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.session.mock.invocationCallOrder[0],
+    )
+    act(() => root.unmount())
+    expect(mocks.keepDecoded).toHaveBeenLastCalledWith(false)
+    root = createRoot(host)
+  })
+
+  it('never restarts a trace for probe captures, only for streamed textures', async () => {
+    await render()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledOnce()
+    mocks.trace.halt.mockClear()
+    act(() => mocks.materialListeners.forEach((listener) => listener('probe')))
+    frame()
+    expect(mocks.trace.halt).not.toHaveBeenCalled()
+    expect(mocks.trace.invalidate).not.toHaveBeenCalled()
+    act(() => mocks.materialListeners.forEach((listener) => listener('textures')))
+    expect(mocks.trace.invalidate).toHaveBeenCalledOnce()
+    frame()
+    expect(mocks.trace.halt).toHaveBeenCalled()
+  })
+
+  it('compiles shaders before its first frame', async () => {
+    let warmed!: () => void
+    mocks.pipe.warm.mockImplementationOnce(() => new Promise<void>((resolve) => (warmed = resolve)))
+    await render()
+    frame()
+    expect(mocks.pipe.render).not.toHaveBeenCalled()
+    expect(ready).not.toHaveBeenCalled()
+    await act(async () => warmed())
+    frame()
+    expect(mocks.pipe.render).toHaveBeenCalled()
+    expect(ready).toHaveBeenCalledOnce()
   })
 })

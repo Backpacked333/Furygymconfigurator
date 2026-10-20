@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import {
   EXPORT_SAMPLES,
+  LONG_MILESTONES,
   MILESTONES,
   REST_SAMPLES,
   preparePathTraceScene,
@@ -60,6 +61,13 @@ describe("the local tracer's targets", () => {
     expect(MILESTONES).toEqual([8, 16, 32, 64, 128, 256])
     expect(MILESTONES[MILESTONES.length - 1]).toBe(REST_SAMPLES)
     for (let i = 1; i < MILESTONES.length; i++) expect(MILESTONES[i]).toBe(2 * MILESTONES[i - 1])
+  })
+
+  it('keeps doubling past the rest for longer live targets, never inside an export', () => {
+    expect(LONG_MILESTONES).toEqual([512, 1024])
+    expect(LONG_MILESTONES[0]).toBe(2 * REST_SAMPLES)
+    // No milestone lies between the resting target and an export's: the export denoises once.
+    expect(LONG_MILESTONES.every((m) => m > EXPORT_SAMPLES)).toBe(true)
   })
 })
 

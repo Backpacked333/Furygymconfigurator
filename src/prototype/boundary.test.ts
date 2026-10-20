@@ -27,7 +27,8 @@ function imports(file: string) {
       node.expression.kind === ts.SyntaxKind.ImportKeyword &&
       ts.isStringLiteral(node.arguments[0]) &&
       !(
-        file === resolve(root, 'prototype/LiveViewport.tsx') &&
+        (file === resolve(root, 'prototype/LiveViewport.tsx') ||
+          file === resolve(root, 'prototype/liveIntent.ts')) &&
         node.arguments[0].text === './LiveDesignScene'
       )
     )
@@ -152,6 +153,10 @@ describe('prototype runtime source dependency boundary', () => {
     const source = readFileSync(resolve(root, 'prototype/LiveViewport.tsx'), 'utf8')
     expect(source).toContain("lazy(() => import('./LiveDesignScene'))")
     expect(source).not.toMatch(/import\s.*from ['"]\.\/LiveDesignScene/)
+    // Intent prefetch (pointer, focus, touch on the 360° button) reaches it dynamically too.
+    const intent = readFileSync(resolve(root, 'prototype/liveIntent.ts'), 'utf8')
+    expect(intent).toContain("import('./LiveDesignScene')")
+    expect(intent).not.toMatch(/^import\s/m)
   })
   it('has no eager path to Three, renderers, workers, provider SDKs, review entry, textures or PDF', () => {
     // These exact browser-safe cloud wire modules are additive, not provider implementations.

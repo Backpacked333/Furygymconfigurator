@@ -4,10 +4,16 @@ import { resolveCamera } from '../domain/presentation'
 import type { Unit } from '../lib/config'
 import { skyLook } from '../lib/visuals'
 import { useStagedScene } from '../lib/useStagedScene'
+import { loadTracerModule } from '../render/pathtrace'
 import { defaultQuality } from '../render/quality'
 import { resolveNativeCamera } from '../render/nativeCamera'
 import { SceneSurface } from '../components/SceneSurface'
 import { ProgressiveRenderer, type ViewerStatus } from '../viewer/ProgressiveRenderer'
+
+// This module loads only once the visitor shows intent to open the 360° view (LiveViewport): start
+// fetching the tracer and denoiser then too, on browsers that can run them, so a resting view can
+// refine as soon as it is open. ProgressiveRenderer awaits the same cached load.
+if (typeof navigator !== 'undefined' && 'gpu' in navigator) void loadTracerModule().catch(() => {})
 
 export default memo(function LiveDesignScene({
   design,

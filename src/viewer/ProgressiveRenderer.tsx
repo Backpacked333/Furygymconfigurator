@@ -2,17 +2,21 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Matrix4, type WebGPURenderer } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
-import { onMaterialsChanged } from '../render/materials'
+import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
 import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
 import { createPipeline, type Pipeline } from '../render/pipeline'
 import { sceneProgress, textureProgress } from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
+import { liveProfile } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
-export const LIVE_SAMPLES = 1024
 const REST_MS = 150
+/** Raster frames drawn after a change before tracing may start: the capture is a settled frame. */
+const START_FRAMES = 6
+/** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
+const WARM_TIMEOUT_MS = 1500
 
 /** Local-only rendering controller. Product geometry and configuration stay in the adapter. */
 export function ProgressiveRenderer({
@@ -43,8 +47,10 @@ export function ProgressiveRenderer({
     ready: boolean
     tracing: boolean
     interacting: boolean
+    warming: boolean
     restAt: number
-    remaining: number
+    /** Raster frames drawn since the last change. */
+    drawn: number
     view: Matrix4
     projection: Matrix4
     status: ViewerStatus
@@ -86,8 +92,9 @@ export function ProgressiveRenderer({
       ready: false,
       tracing: false,
       interacting: false,
+      warming: true,
       restAt: 0,
-      remaining: 0,
+      drawn: 0,
       view: new Matrix4(),
       projection: new Matrix4(),
       status: 'loading' as ViewerStatus,
@@ -100,7 +107,21 @@ export function ProgressiveRenderer({
       runtime.tracer?.invalidate()
       if (props.current.active) invalidate()
     }
-    const materials = onMaterialsChanged(dirty)
+    // Probe captures relight only the raster (the tracer lights the scene itself), so they redraw a
+    // raster frame on screen but never restart a trace or rebuild its scene.
+    const materials = onMaterialsChanged((change) => {
+      if (change === 'textures') dirty()
+      else if (!runtime.tracing && props.current.active) invalidate()
+    })
+    // Compile the pipeline's shaders asynchronously before its first frame, so opening the view
+    // does not stall on synchronous compilation; a compile that never resolves does not hold it.
+    void Promise.race([
+      runtime.pipe.warm(),
+      new Promise((resolve) => setTimeout(resolve, WARM_TIMEOUT_MS)),
+    ]).finally(() => {
+      runtime.warming = false
+      if (!disposed && props.current.active) invalidate()
+    })
     const textures = textureProgress.subscribe(dirty)
     const interrupt = () => {
       runtime.tracer?.halt()
@@ -131,13 +152,22 @@ export function ProgressiveRenderer({
       if (!document.hidden && props.current.active) invalidate()
     }
     document.addEventListener('visibilitychange', visibility)
+    let kept = false
     if (!runtime.failed)
       void loadTracerModule()
-        .then((modules) => {
+        .then(async (modules) => {
           if (disposed) return
+          // The tracer packs the scans from their decoded pixels, which are otherwise freed after
+          // upload: a released map would trace black.
+          kept = true
+          await keepDecodedTextures(true)
+          if (disposed) return
+          const { maxBounces, renderScale, fadeMs } = liveProfile(quality)
           runtime.tracer = new PathTraceSession(renderer, modules, true, {
             multiView: true,
-            maxBounces: 10,
+            maxBounces,
+            renderScale,
+            fadeMs,
             batchMs: 12,
             maxPasses: 8,
           })
@@ -162,6 +192,7 @@ export function ProgressiveRenderer({
       window.removeEventListener('blur', up)
       document.removeEventListener('visibilitychange', visibility)
       runtime.tracer?.dispose()
+      if (kept) void keepDecodedTextures(false)
       runtime.present.dispose()
       runtime.pipe.dispose()
     }
@@ -197,9 +228,10 @@ export function ProgressiveRenderer({
       current.view.copy(camera.matrixWorld)
       current.projection.copy(camera.projectionMatrix)
       current.restAt = now + REST_MS
-      current.remaining = Math.max(6, pipe.settleFrames)
+      current.drawn = 0
     }
     pipe.setPlace(props.current.place)
+    if (current.warming) return
     if (!current.tracing) {
       pipe.render()
       sceneProgress.drawn()
@@ -208,19 +240,19 @@ export function ProgressiveRenderer({
         props.current.onReady()
       }
       report(current.failed ? 'raster-only' : 'interactive')
-      current.remaining--
+      current.drawn++
       const textures = textureProgress.get()
       if (
         tracer &&
         !current.failed &&
         !current.interacting &&
         now >= current.restAt &&
-        current.remaining <= pipe.settleFrames - 6 &&
+        current.drawn >= START_FRAMES &&
         textures.loaded >= textures.requested
       ) {
         try {
           current.present.capture(() => pipe.render())
-          tracer.begin(scene, camera, props.current.look, LIVE_SAMPLES)
+          tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples)
           current.tracing = true
         } catch {
           tracer.halt()
@@ -228,7 +260,15 @@ export function ProgressiveRenderer({
           report('raster-only')
         }
       }
-      if (current.remaining > 0 || (!current.failed && now < current.restAt)) invalidate()
+      // Keep drawing until the temporal passes have settled and, where tracing can follow, until the
+      // start has been decided: the demand loop draws only frames that are asked for, so stopping
+      // early (a pipeline that settles in one frame, on Lite) would never reach the start.
+      if (
+        !current.tracing &&
+        (current.drawn < Math.max(START_FRAMES, pipe.settleFrames) ||
+          (!current.failed && now < current.restAt))
+      )
+        invalidate()
     }
     if (current.tracing && tracer) {
       try {

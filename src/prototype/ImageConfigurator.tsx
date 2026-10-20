@@ -41,6 +41,7 @@ import { useNativeLibraryImage, useNativeCatalog } from './useNativeLibraryImage
 import { findNativeImage, nativeThumbUrl } from './nativeLibrary'
 import { NativeLibraryGallery } from './NativeLibraryGallery'
 import { LiveViewport } from './LiveViewport'
+import { prefetchLiveView } from './liveIntent'
 import { CLOUD_DISPLAY_LABEL, isCloudDisplaySelection } from './cloudDisplayClient'
 import {
   DISPLAY_LABEL,
@@ -657,6 +658,7 @@ function ImageConfiguratorContents({
                       liveLabel={live ? 'Close the 360° View' : 'Explore in 360°'}
                       liveDisabledReason={nativeLibrary ? undefined : unavailable}
                       onToggleLive={toggleLive}
+                      onLiveIntent={nativeLibrary ? prefetchLiveView : undefined}
                       dimensions={dimensions}
                       onDimensions={() => setDimensions(!dimensions)}
                       autoRotate={autoRotate}

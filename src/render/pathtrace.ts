@@ -413,10 +413,18 @@ function zeroFill(renderer: WebGPURenderer, texture: Texture) {
  */
 export const MILESTONES = [8, 16, 32, 64, 128, REST_SAMPLES]
 /**
+ * Milestones beyond the resting target, for views refined further (the 360° view's live profile):
+ * without them nothing past REST_SAMPLES would be denoised and shown, and the adaptive sampler,
+ * which compares successive images, would stop retiring settled regions. A target below one of
+ * them never reaches it, so the stills and exports are unaffected.
+ */
+export const LONG_MILESTONES = [512, 1024]
+const ALL_MILESTONES = [...MILESTONES, ...LONG_MILESTONES]
+/**
  * A view seeded from the previous one is mostly converged from the start; only what that view did
  * not show is new, so its first image is denoised almost at once.
  */
-const SEEDED_MILESTONES = [2, ...MILESTONES]
+const SEEDED_MILESTONES = [2, ...ALL_MILESTONES]
 /** Crossfade between successive images, in milliseconds. */
 const FADE_MS = 520
 
@@ -484,6 +492,7 @@ export class PathTraceSession {
   shownSamples = 0
   target = REST_SAMPLES
   state: TraceState = 'off'
+  private readonly fadeMs: number
 
   constructor(
     renderer: WebGPURenderer,
@@ -494,6 +503,10 @@ export class PathTraceSession {
       maxBounces?: number
       batchMs?: number
       maxPasses?: number
+      /** Traced resolution relative to the drawing buffer. */
+      renderScale?: number
+      /** Crossfade between successive images, in milliseconds. */
+      fadeMs?: number
     } = {},
   ) {
     this.renderer = renderer
@@ -513,7 +526,9 @@ export class PathTraceSession {
     tracer.dynamicLowRes = false
     tracer.renderDelay = 0
     tracer.minSamples = 4
-    tracer.fadeDuration = FADE_MS
+    this.fadeMs = options.fadeMs ?? FADE_MS
+    tracer.fadeDuration = this.fadeMs
+    if (options.renderScale) tracer.renderScale = options.renderScale
     tracer.maxSamples = REST_SAMPLES
     // The GGX energy table is a 3D storage texture sampled without mipmaps. Keep three from
     // regenerating mipmaps after each compute write, and fill it once up front so the GPU never
@@ -542,7 +557,7 @@ export class PathTraceSession {
   begin(scene: Scene, camera: Camera, look: SkyLook, target = REST_SAMPLES) {
     const key = lookKey(look)
     const parts = sceneParts(scene)
-    const signature = sceneSignature(scene, key)
+    const signature = partsSignature(parts, key)
     this.state = 'preparing'
     const last = this.captured
     if (!last || last.parts.structure !== parts.structure) {
@@ -749,7 +764,7 @@ export class PathTraceSession {
     // Wait for the previous image to finish fading in before replacing what it fades from.
     if (this.transition.to && this.view(now).t < 1) return
     const goal = this.accumulating
-      ? (this.seeded ? SEEDED_MILESTONES : MILESTONES).find(
+      ? (this.seeded ? SEEDED_MILESTONES : ALL_MILESTONES).find(
           (m) => m > this.shownSamples && m <= this.target,
         )
       : this.samples > this.shownSamples
@@ -787,7 +802,7 @@ export class PathTraceSession {
     if (!this.denoising) return { from: null, to: raw, t: this.tracer.fadeState }
     const { from, to, start } = this.transition
     if (!to) return { from: null, to: raw, t: 0 }
-    const t = Math.min(1, (now - start) / FADE_MS)
+    const t = Math.min(1, (now - start) / this.fadeMs)
     // Once faded in, the outgoing image may be recycled, so stop referencing it.
     return { from: t < 1 ? from : null, to, t }
   }
