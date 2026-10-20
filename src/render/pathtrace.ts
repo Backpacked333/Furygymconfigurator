@@ -555,6 +555,49 @@ function mark(name: string, startTime: number, detail?: unknown) {
 }
 
 type Denoiser = InstanceType<TracerModule['OIDNDenoiser']>
+
+/** oidn-web's network loader, as OIDNDenoiser calls it. */
+type InitUNet = (url: string, device: unknown, options: object) => Promise<{ dispose(): void }>
+
+/**
+ * A loader handing out one network per weights and options to every caller, each with a handle
+ * whose `dispose` releases only its own share: the network is disposed with the last one. A
+ * network holds its weights and its working buffers on the GPU (oidn-web), so a second copy for a
+ * second denoiser that never runs alongside the first is memory for nothing.
+ */
+export function shareUNets(init: InitUNet): InitUNet {
+  const networks = new Map<string, { network: ReturnType<InitUNet>; users: number }>()
+  return (url, device, options) => {
+    const key = `${url}|${JSON.stringify(options)}`
+    let entry = networks.get(key)
+    if (!entry) {
+      entry = { network: init(url, device, options), users: 0 }
+      networks.set(key, entry)
+      // A failed load is not kept: the next caller tries again.
+      entry.network.catch(() => networks.delete(key))
+    }
+    const shared = entry
+    shared.users++
+    let released = false
+    return shared.network.then(
+      (network) =>
+        new Proxy(network, {
+          get(target, property) {
+            if (property === 'dispose')
+              return () => {
+                if (released) return
+                released = true
+                if (--shared.users > 0) return
+                networks.delete(key)
+                target.dispose()
+              }
+            const value = Reflect.get(target, property, target)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        }),
+    )
+  }
+}
 /**
  * What to put on screen: `from` (null for the frozen raster frame) blending into `to`. The traced
  * light is shown as it is, at the camera's exposure, as the cloud's stills are (stills.ts
@@ -725,11 +768,16 @@ export class PathTraceSession {
     table.mipmapsAutoUpdate = false
     zeroFill(renderer, table)
     this.tracer = tracer
+    // The two denoisers alternate (one image is on screen while the next is denoised) but never run
+    // at once, so they share one network and one download of its weights.
+    const initUNetFromURL = modules.initUNetFromURL
+      ? shareUNets(modules.initUNetFromURL as InitUNet)
+      : null
     this.denoisers =
-      denoise && modules.initUNetFromURL
+      denoise && initUNetFromURL
         ? [0, 1].map(() => {
             const denoiser = new module.OIDNDenoiser({
-              initUNetFromURL: modules.initUNetFromURL as never,
+              initUNetFromURL: initUNetFromURL as never,
               auxWeightsUrl: DENOISER_WEIGHTS,
             })
             denoiser.init(renderer)

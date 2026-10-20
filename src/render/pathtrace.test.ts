@@ -28,6 +28,7 @@ import {
   REST_SAMPLES,
   environmentTexture,
   prepareEnvironment,
+  shareUNets,
   historySignature,
   preparePathTraceScene,
   sceneParts,
@@ -488,12 +489,14 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     complete: boolean
     texture: Texture | null
     denoise: ReturnType<typeof vi.fn>
+    options: { initUNetFromURL: unknown }
   }[] = []
   function session(
     options: ConstructorParameters<typeof PathTraceSession>[3] = {},
     denoise = false,
   ) {
     denoisers.length = 0
+    const unet = vi.fn(async () => ({ dispose: vi.fn() }))
     vi.spyOn(GBuffer.prototype, 'render').mockImplementation(() => {})
     const tracer = {
       setScene: vi.fn(),
@@ -548,12 +551,12 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
             this.complete = false
           })
           denoise = vi.fn(() => Promise.resolve())
-          constructor() {
+          constructor(readonly options: { initUNetFromURL: unknown }) {
             denoisers.push(this)
           }
         },
       },
-      initUNetFromURL: denoise ? () => {} : null,
+      initUNetFromURL: denoise ? unet : null,
     }
     const traced = new PathTraceSession(renderer as never, modules as never, denoise, options)
     const f = fixture()
@@ -566,8 +569,20 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       traced.step()
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
-    return { traced, tracer, begin, trace, ...f }
+    return { traced, tracer, begin, trace, unet, ...f }
   }
+
+  it('gives both denoisers one network: loaded once, for both', async () => {
+    const t = session({}, true)
+    expect(denoisers).toHaveLength(2)
+    type Load = (url: string, device: unknown, options: object) => Promise<unknown>
+    const [a, b] = (denoisers as unknown as { options: { initUNetFromURL: Load } }[]).map(
+      (d) => d.options.initUNetFromURL,
+    )
+    // As each OIDNDenoiser asks for its network on its first denoise.
+    await Promise.all([a('weights', {}, { aux: true }), b('weights', {}, { aux: true })])
+    expect(t.unet).toHaveBeenCalledOnce()
+  })
 
   it("gives the stills' session (the legacy route's) the tracer settings it always had", () => {
     // RenderEffects makes its session with no options and starts views without a scale.
@@ -946,4 +961,54 @@ describe('the sky map built off the main thread', () => {
     const own = equirectRadiance(1024, 512, (d) => environmentRadiance(d, look))
     expect(same((environmentTexture(look).image as { data: Float32Array }).data, own)).toBe(true)
   }, 30000)
+})
+
+describe('one denoiser network for both denoisers', () => {
+  const network = () => ({
+    id: Math.random(),
+    dispose: vi.fn(),
+    tileExecute: vi.fn(function (this: unknown) {
+      return this
+    }),
+  })
+
+  it('loads it once, binds its methods, and disposes it with its last user', async () => {
+    const made: ReturnType<typeof network>[] = []
+    const init = vi.fn(async () => {
+      const n = network()
+      made.push(n)
+      return n
+    })
+    const load = shareUNets(init)
+    const options = { aux: true, hdr: true }
+    const [a, b] = await Promise.all([
+      load('weights.tza', {}, options),
+      load('weights.tza', {}, { ...options }),
+    ])
+    expect(init).toHaveBeenCalledOnce()
+    // Its own methods run on the network itself.
+    expect((a as unknown as ReturnType<typeof network>).tileExecute()).toBe(made[0])
+    a.dispose()
+    a.dispose()
+    expect(made[0].dispose).not.toHaveBeenCalled()
+    b.dispose()
+    expect(made[0].dispose).toHaveBeenCalledOnce()
+    // Disposed: the next user loads it again.
+    await load('weights.tza', {}, options)
+    expect(init).toHaveBeenCalledTimes(2)
+    // Other weights or options are another network.
+    await load('weights.tza', {}, { aux: false, hdr: true })
+    expect(init).toHaveBeenCalledTimes(3)
+  })
+
+  it('tries a failed load again for the next user', async () => {
+    const init = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementation(async () => network())
+    const load = shareUNets(init)
+    await expect(load('w', {}, {})).rejects.toThrow('offline')
+    await expect(load('w', {}, {})).resolves.toBeDefined()
+    expect(init).toHaveBeenCalledTimes(2)
+  })
 })
