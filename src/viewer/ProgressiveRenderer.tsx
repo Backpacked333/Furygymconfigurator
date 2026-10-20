@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Matrix4, Vector2, type WebGPURenderer } from 'three/webgpu'
+import { Matrix4, Vector2, type PerspectiveCamera, type WebGPURenderer } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
@@ -268,6 +268,16 @@ export function ProgressiveRenderer({
       props.current.onStatus(status)
     }
     const now = performance.now()
+    // A pipeline compiled in the background (the frame guard's lean one) runs TRAA's first update
+    // outside a pipeline render, leaving its jitter, and the aspect of a target not sized yet, on
+    // this camera. The live camera never carries an offset of its own (TRAA sets and clears one
+    // within each render), so the view is put back before it is compared: else a still view would
+    // read as moved, and its trace stop.
+    const lens = camera as PerspectiveCamera
+    if (lens.view?.enabled) {
+      lens.aspect = size.width / size.height
+      lens.clearViewOffset()
+    }
     camera.updateMatrixWorld()
     scene.updateMatrixWorld()
     const signature = sceneSignature(scene, lookKey(props.current.look))

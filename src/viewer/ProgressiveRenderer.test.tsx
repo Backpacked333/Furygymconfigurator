@@ -587,6 +587,24 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect(mocks.create).toHaveBeenCalledOnce()
     })
 
+    it('keeps tracing through a view offset a background compile leaves on the camera', async () => {
+      camera.aspect = 1000 / 625
+      camera.updateProjectionMatrix()
+      await render({ quality: 'ultra' })
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      mocks.trace.halt.mockClear()
+      // TRAA's jitter, with the aspect of a target not sized yet, as its first update leaves them
+      // when it runs outside a pipeline render.
+      camera.setViewOffset(1, 1, -0.19, 0.28, 1, 1)
+      frame()
+      frame()
+      expect(mocks.trace.halt).not.toHaveBeenCalled()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(camera.view?.enabled ?? false).toBe(false)
+      expect(camera.aspect).toBeCloseTo(1000 / 625)
+    })
+
     it('disposes a lean pipeline still compiling when the view closes', async () => {
       const compiled = holdCompile()
       await render({ quality: 'ultra' })
