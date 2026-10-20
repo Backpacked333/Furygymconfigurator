@@ -25,7 +25,8 @@ and all 4 floors keep the same batch partition, keyed by content (`batchKey`).
 ## Decision
 
 1. **Persistent merged geometry, live viewer only.**
-   - `parts.ts` gains `acquireBatches(parts)` and `releaseBatches(keys)`, a reference-counted cache
+   - `parts.ts` gains `cachedBatches(parts)` (render), and `acquireBatches(batches)` and
+     `releaseBatches(batches)` (effects), a reference-counted cache
      keyed by `batchKey`. `batch()` stays pure: tests and Equipment's per-SKU cache rely on that.
    - Entries with no references are evicted on a macrotask, never a microtask, because React
      passive effects can run after the next task.

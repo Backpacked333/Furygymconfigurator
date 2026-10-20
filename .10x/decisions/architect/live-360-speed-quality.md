@@ -1,13 +1,14 @@
 # Live 360° speed and quality: design
 
-See ADR-001 and `specs/2026-10-20-live-360-speed-quality-design.md`.
+See ADR-001 to ADR-004 and `specs/2026-10-20-live-360-speed-quality-design.md`.
 
 ## Components
 
 - **`src/viewer/liveProfile.ts`** (new, pure): `liveProfile(quality)` returns `{ samples, maxBounces,
 renderScale, fadeMs }`.
 - **`PathTraceSession`** gains options:
-  - `renderScale` and `fadeMs`;
+  - `fadeMs`, `clampDirect`, `clampIndirect` and `keepHistoryAcrossSurfaces`, with the scale passed per
+    `begin()`;
   - `MILESTONES` extended to 1024;
   - `begin()` walks the scene once.
 - **`ProgressiveRenderer`** changes:

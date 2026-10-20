@@ -1,5 +1,13 @@
 # Faster, sharper 360° view — plan
 
+> **As shipped (PR #38, one PR):** ADR-002 to ADR-004 supersede parts of this plan.
+>
+> - Phase 2 items 1–4: a content-keyed geometry cache replaced material slots; sibling precompile
+>   was dropped; the arc moved to `src/viewer/arc.ts` as `?arc=N`.
+> - Phase 1 profile values: High and Ultra trace 7 bounces, and the trace scale comes from
+>   `traceScale()`.
+> - Phase 3 was cut as recorded in ADR-004.
+
 ## Context
 
 You asked for a 360° view (library route, `?experience=library`) with more quality and realism, without

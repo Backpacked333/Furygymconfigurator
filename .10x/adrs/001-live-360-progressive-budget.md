@@ -1,6 +1,7 @@
 # ADR-001: Live 360° refinement budget, triggers and history retention
 
-**Status:** Accepted
+**Status:** Accepted; amended by ADR-004. High and Ultra trace `maxBounces` 7 (Cycles' 6) with
+explicit clamps 0/10. The trace scale comes from `traceScale()` at each start, not from the profile.
 **Date:** 2026-10-20
 **Feature:** live-360-speed-quality
 **Author:** 10x-Team (Architect + Staff Engineer)

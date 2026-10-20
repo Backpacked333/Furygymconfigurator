@@ -33,10 +33,14 @@
 | 06c919e                            | Persistent geometry, `texturesChanged`, history kept across surface edits, restyled reprojection               |
 | cec7c38                            | `?arc=N` orbit window                                                                                          |
 | 089ddab                            | Scan prefetch on intent, quiet-load counter fix, Studio skips hardscape                                        |
-| 6aa870a, 8d264c7, 7977f07, 6c6e1c8 | Guard tests, trace-scale cap, Cycles bounce and clamp parity, Ultra frame guard                                |
+| 7023e89, eec4f11, 0cf69fb, 75c7279 | Guard tests, trace-scale cap, Cycles bounce and clamp parity, Ultra frame guard                                |
 | 1f255f5, 4314143, 6a5739d          | Fixes from the merged-changes reviews: atlas growth, reopen drift, background-compile jitter                   |
 
 ## Deviations
+
+- **Profile values superseded (ADR-004).** The Phase 1 table above records 6 bounces and a scale in
+  `liveProfile`. The shipped code traces High and Ultra at 7 bounces with clamps 0/10, and the scale
+  comes from `traceScale()` passed to `begin()`. The constructor's `renderScale` option was removed.
 
 - **Material slots became a content-keyed geometry cache.** It keeps the same mesh identity with far
   less code (ADR-002).
