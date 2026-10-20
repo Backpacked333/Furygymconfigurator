@@ -199,10 +199,12 @@ function ImageConfiguratorContents({
   }, [])
   const changeHistory = useCallback(
     (action: HistoryAction) => {
+      if (action.type === 'undo' && !history.past.length) return
+      if (action.type === 'redo' && !history.future.length) return
       notify('')
       dispatch(action)
     },
-    [notify],
+    [history.past.length, history.future.length, notify],
   )
   const load = useCallback(
     (next: DesignEnvelope) => {

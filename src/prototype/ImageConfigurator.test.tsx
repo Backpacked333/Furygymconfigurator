@@ -431,6 +431,35 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     act(() => vi.advanceTimersByTime(3000))
     expect(host.querySelector('.toast')).toBeNull()
   })
+  it.each(['ctrlKey', 'metaKey'])(
+    'preserves feedback when %s shortcuts have no Undo/Redo entry',
+    (modifier) => {
+      mount()
+      const initialNotice = host.querySelector('.toast')?.textContent
+      for (const shiftKey of [false, true]) {
+        act(() =>
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'z', [modifier]: true, shiftKey }),
+          ),
+        )
+        expect(host.querySelector('.toast')?.textContent).toBe(initialNotice)
+      }
+      expect(exported()).toEqual(defaultDesign())
+      close()
+      chooseContainer()
+      const switchNotice = host.querySelector('.toast')?.textContent
+      act(() =>
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'z', [modifier]: true, shiftKey: true }),
+        ),
+      )
+      expect(host.querySelector('.toast')?.textContent).toBe(switchNotice)
+      act(() => vi.advanceTimersByTime(6000))
+      expect(host.querySelector('.toast')).toBeNull()
+      act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', [modifier]: true })))
+      expect(exported()).toEqual(defaultDesign())
+    },
+  )
   it('retains appearance, structure, additions, looks, cameras and output profiles in JSON while requests are pending', () => {
     mount()
     tab('Exterior')
