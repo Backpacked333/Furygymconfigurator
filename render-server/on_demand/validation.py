@@ -40,10 +40,6 @@ def timestamp(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-INTERIOR_CAMERA = "entry-draft@1"
-INTERIOR_KEYING = "interior-visible@1"
-
-
 def identity(design, kind, release):
     design = copy.deepcopy(design)
     design["config"]["structure"]["addons"].sort()
@@ -55,21 +51,7 @@ def identity(design, kind, release):
         "design": design,
         "recipeRelease": release,
     }
-    if kind == "set":
-        body["viewKeying"] = INTERIOR_KEYING
     return ("set_" if kind == "set" else "img_") + digest(canonical(body).encode())
-
-
-def view_design(design, camera):
-    """The design a camera's image shows; the interior view collapses exterior-only choices."""
-    design = copy.deepcopy(design)
-    design["presentation"]["cameraRef"] = camera
-    if camera == INTERIOR_CAMERA:
-        design["config"]["structure"]["addons"] = []
-        design["config"]["structure"]["railing"] = "glass"
-        design["config"]["appearance"]["finish"] = "obsidian"
-        design["config"]["appearance"]["accent"] = False
-    return design
 
 
 def validate_claim(claim, recipe):
@@ -98,7 +80,8 @@ def validate_claim(claim, recipe):
     if set(claim["identity"]["imageKeys"]) != set(CAMERAS):
         raise ValueError("camera-set-mismatch")
     for camera in CAMERAS:
-        design = view_design(claim["design"], camera)
+        design = copy.deepcopy(claim["design"])
+        design["presentation"]["cameraRef"] = camera
         if identity(design, "image", release) != claim["identity"]["imageKeys"][camera]:
             raise ValueError("image-mismatch")
     seen = set()
@@ -163,7 +146,8 @@ def verify_receipt(receipt, claim, view, device="NVIDIA L40S"):
     for field in ("jobId", "attemptId", "workerBuildSha256", "recipeBundleSha256"):
         if receipt[field] != claim[field]:
             raise ValueError("receipt-claim-mismatch")
-    design = view_design(claim["design"], view["cameraRef"])
+    design = copy.deepcopy(claim["design"])
+    design["presentation"]["cameraRef"] = view["cameraRef"]
     if receipt["design"] != design or receipt["imageKey"] != view["imageKey"]:
         raise ValueError("receipt-design-mismatch")
     for field in ("sceneManifestSha256", "cameraBindingSha256"):

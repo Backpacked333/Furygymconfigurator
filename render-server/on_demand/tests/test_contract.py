@@ -15,27 +15,13 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
-def view_design(design, camera):
-    design = copy.deepcopy(design)
-    design["presentation"]["cameraRef"] = camera
-    if camera == "entry-draft@1":
-        design["config"]["structure"]["addons"] = []
-        design["config"]["structure"]["railing"] = "glass"
-        design["config"]["appearance"]["finish"] = "obsidian"
-        design["config"]["appearance"]["accent"] = False
-    return design
-
-
 def identity(design, kind):
     design = copy.deepcopy(design)
     design["config"]["structure"]["addons"].sort()
     if kind == "set":
         del design["presentation"]["cameraRef"]
-    body = {"contractVersion": HTTP["contractVersion"], "kind": kind,
-            "design": design, "recipeRelease": HTTP["identity"]["recipeRelease"]}
-    if kind == "set":
-        body["viewKeying"] = "interior-visible@1"
-    payload = canonical(body)
+    payload = canonical({"contractVersion": HTTP["contractVersion"], "kind": kind,
+                         "design": design, "recipeRelease": HTTP["identity"]["recipeRelease"]})
     return ("set_" if kind == "set" else "img_") + hashlib.sha256(payload.encode("utf-8")).hexdigest(), payload
 
 
@@ -45,10 +31,10 @@ class WorkerProtocolTests(unittest.TestCase):
         self.assertEqual(key, HTTP["identity"]["setKey"])
         self.assertEqual(payload, HTTP["canonicalSet"])
         for camera, key in HTTP["identity"]["imageKeys"].items():
-            design = view_design(HTTP["design"], camera)
+            design = copy.deepcopy(HTTP["design"])
+            design["presentation"]["cameraRef"] = camera
             self.assertEqual(identity(design, "image")[0], key)
-            if camera != "entry-draft@1":
-                self.assertEqual(identity(design, "set")[0], HTTP["identity"]["setKey"])
+            self.assertEqual(identity(design, "set")[0], HTTP["identity"]["setKey"])
         self.assertEqual(identity(HTTP["design"], "image")[1], HTTP["canonicalImage"])
 
     def test_adapter_binding(self):
