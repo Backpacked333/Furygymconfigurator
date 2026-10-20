@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Matrix4, type WebGPURenderer } from 'three/webgpu'
+import { Matrix4, Vector2, type WebGPURenderer } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
@@ -8,7 +8,7 @@ import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../
 import { createPipeline, type Pipeline } from '../render/pipeline'
 import { sceneProgress, textureProgress } from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
-import { liveProfile } from './liveProfile'
+import { liveProfile, traceScale } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
@@ -17,6 +17,20 @@ const REST_MS = 150
 const START_FRAMES = 6
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
 const WARM_TIMEOUT_MS = 1500
+const drawingBuffer = new Vector2()
+
+/**
+ * Records `name` in the browser's performance timeline (User Timing), from `start` to now, where the
+ * Performance panel and `performance.getEntriesByName` show it. Never throws: where User Timing is
+ * missing or refuses the entry, the view goes on untimed.
+ */
+function measure(name: string, start: number) {
+  try {
+    performance.measure(name, { start, end: performance.now() })
+  } catch {
+    // Timing is a diagnostic only.
+  }
+}
 
 /** Local-only rendering controller. Product geometry and configuration stay in the adapter. */
 export function ProgressiveRenderer({
@@ -165,11 +179,10 @@ export function ProgressiveRenderer({
           kept = true
           await keepDecodedTextures(true)
           if (disposed) return
-          const { maxBounces, renderScale, fadeMs } = liveProfile(quality)
+          const { maxBounces, fadeMs } = liveProfile(quality)
           runtime.tracer = new PathTraceSession(renderer, modules, true, {
             multiView: true,
             maxBounces,
-            renderScale,
             fadeMs,
             batchMs: 12,
             maxPasses: 8,
@@ -257,7 +270,13 @@ export function ProgressiveRenderer({
       ) {
         try {
           current.present.capture(() => pipe.render())
-          tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples)
+          // A resize marks the view changed, so each start reads the canvas's size again.
+          renderer.getDrawingBufferSize(drawingBuffer)
+          const scale = traceScale(quality, drawingBuffer.x, drawingBuffer.y)
+          // Its first start builds the tracer's BVH, the view's longest main-thread stall.
+          const began = performance.now()
+          tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples, scale)
+          measure('fury:trace-begin', began)
           current.tracing = true
         } catch {
           tracer.halt()

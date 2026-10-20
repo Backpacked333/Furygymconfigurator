@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { PerspectiveCamera, Scene, Vector3 } from 'three/webgpu'
+import { PerspectiveCamera, Scene, Vector3, type Vector2 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import { textureProgress } from '../render/progress'
@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   backend: 'webgpu',
   load: vi.fn(),
   signature: 1,
+  /** The canvas's drawing buffer, in device pixels. */
+  buffer: { w: 1000, h: 625 },
   beginFrame: vi.fn(),
   pipe: {
     render: vi.fn(),
@@ -93,6 +95,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.pipe.settleFrames = 10
     mocks.backend = 'webgpu'
     mocks.signature = 1
+    mocks.buffer = { w: 1000, h: 625 }
     mocks.load.mockResolvedValue({})
     mocks.trace.step.mockReturnValue(true)
     mocks.trace.view.mockReturnValue({ from: null, to: {}, t: 1 })
@@ -102,7 +105,10 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     canvas = document.createElement('canvas')
     camera = new PerspectiveCamera()
     mocks.state = {
-      gl: { domElement: canvas },
+      gl: {
+        domElement: canvas,
+        getDrawingBufferSize: (target: Vector2) => target.set(mocks.buffer.w, mocks.buffer.h),
+      },
       scene: new Scene(),
       camera,
       invalidate,
@@ -281,14 +287,71 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect.anything(),
       expect.anything(),
       true,
-      expect.objectContaining({ renderScale: 0.5, maxBounces: 4 }),
+      expect.objectContaining({ maxBounces: 4 }),
     )
     expect(mocks.trace.begin).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
       128,
+      0.5,
     )
+  })
+
+  it("traces High and Ultra at the canvas's resolution, up to the Cycles image's pixels", async () => {
+    mocks.buffer = { w: 1500, h: 938 }
+    await render({ quality: 'ultra' })
+    settle()
+    // The scale is named at each start, never fixed when the session is made.
+    expect(mocks.session.mock.lastCall![3]).not.toHaveProperty('renderScale')
+    expect(mocks.trace.begin).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      1024,
+      1,
+    )
+    // A larger canvas (a 5K display): capped at 1920×1200's pixels, read again after the resize.
+    mocks.buffer = { w: 2976, h: 1860 }
+    mocks.state.size = { width: 1984, height: 1240 }
+    await render()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+    expect(mocks.trace.begin.mock.lastCall![4]).toBeCloseTo(
+      Math.sqrt((1920 * 1200) / (2976 * 1860)),
+      6,
+    )
+  })
+
+  it('takes ?traceScale= as the trace scale on Ultra, for comparing on a device', async () => {
+    window.history.replaceState(null, '', '?traceScale=0.75')
+    try {
+      await render({ quality: 'ultra' })
+      settle()
+      expect(mocks.trace.begin.mock.lastCall![4]).toBe(0.75)
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
+  it('times each start in the performance timeline, and never fails a trace over it', async () => {
+    const timed = vi.spyOn(performance, 'measure')
+    await render()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledOnce()
+    expect(timed).toHaveBeenCalledWith(
+      'fury:trace-begin',
+      expect.objectContaining({ start: expect.any(Number) }),
+    )
+    timed.mockImplementation(() => {
+      throw new TypeError('User Timing is unavailable')
+    })
+    camera.position.x = 1
+    frame()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+    expect(status).toHaveBeenLastCalledWith('refining')
+    expect(status).not.toHaveBeenCalledWith('raster-only')
   })
 
   it('keeps decoded scans while its tracer lives, and releases them when it goes', async () => {

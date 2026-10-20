@@ -568,7 +568,10 @@ export class PathTraceSession {
       maxBounces?: number
       batchMs?: number
       maxPasses?: number
-      /** Traced resolution relative to the drawing buffer. */
+      /**
+       * Traced resolution relative to the drawing buffer, until a start names another (`begin`).
+       * Unset, the tracer's own 1: the stills trace at full resolution.
+       */
       renderScale?: number
       /** Crossfade between successive images, in milliseconds. */
       fadeMs?: number
@@ -625,8 +628,12 @@ export class PathTraceSession {
         : []
   }
 
-  /** Starts refining the current view, re-capturing the scene only if it changed. */
-  begin(scene: Scene, camera: Camera, look: SkyLook, target = REST_SAMPLES) {
+  /**
+   * Starts refining the current view, re-capturing the scene only if it changed. `renderScale`, if
+   * given, is the traced resolution relative to the drawing buffer from this view on (the 360°
+   * view's traceScale, which follows the canvas's size).
+   */
+  begin(scene: Scene, camera: Camera, look: SkyLook, target = REST_SAMPLES, renderScale?: number) {
     const key = lookKey(look)
     const parts = sceneParts(scene)
     const signature = partsSignature(parts, key)
@@ -676,7 +683,10 @@ export class PathTraceSession {
     this.camera = camera
     this.target = target
     this.tracer.maxSamples = target
-    // Size the accumulation now rather than on the first sample, which would clear the seed.
+    // Size the accumulation now rather than on the first sample, which would clear the seed. The
+    // scale is set first: the tracer sizes itself from it on every sample (renderSample), with the
+    // same rounding as syncSize, so a scale set afterwards would resize and reset it there.
+    if (renderScale !== undefined) this.tracer.renderScale = renderScale
     const { width, height } = this.syncSize()
     this.tracer.reset()
     this.gbuffer.render(this.renderer, scene, camera as PerspectiveCamera, width, height)

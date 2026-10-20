@@ -32,6 +32,10 @@ sky recipe; it is an internal module, **not yet an independently packaged, produ
 The live profile targets up to 1,024 samples and ten bounces; the existing adaptive sampler may
 retire settled tiles earlier. Its sample count is not a measure of newly traced rays.
 
+- High and Ultra trace at the canvas's drawing-buffer resolution, capped at the 1920×1200 pixels
+  of the Cycles image the view opens on (`traceScale` in `liveProfile.ts`); Lite traces at half.
+  The presentation filters the trace back up. `?traceScale=0.5`–`1` pins the High/Ultra scale for
+  on-device comparisons. Each start is timed as `fury:trace-begin` in the performance timeline.
 - At most three compatible views are retained, bounded to 128 MiB of history textures. High-DPI
   views retain fewer or none rather than exceeding that budget. This excludes the tracer's other buffers.
 - One best-matching view seeds the next accumulation. Existing world-position, normal, visibility,

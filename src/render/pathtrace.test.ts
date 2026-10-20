@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
 import {
   BoxGeometry,
   Color,
@@ -539,6 +540,41 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     }
     return { traced, tracer, begin, trace, ...f }
   }
+
+  it('traces at the scale a start names, sized before the seed so the tracer never resizes', () => {
+    const t = session()
+    const guides = vi.mocked(GBuffer.prototype.render)
+    // What the tracer held when it was sized: the scale must already be the new one.
+    const scaleAtSize: number[] = []
+    t.tracer.setSize.mockImplementation(() => scaleAtSize.push(t.tracer.renderScale))
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 1024, 0.75)
+    expect(t.tracer.renderScale).toBe(0.75)
+    expect(scaleAtSize).toEqual([0.75])
+    // The 64×32 drawing buffer at 0.75, floored as the tracer's renderSample sizes itself.
+    expect(t.tracer.setSize).toHaveBeenLastCalledWith(48, 24)
+    expect(t.tracer._pathTracer.setSize).toHaveBeenLastCalledWith(48, 24)
+    // The denoiser's guides follow the trace's resolution.
+    expect(guides.mock.lastCall!.slice(3)).toEqual([48, 24])
+    // A start that names none (the stills, the legacy route) keeps the scale the tracer has.
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 1024)
+    expect(t.tracer.renderScale).toBe(0.75)
+    expect(t.tracer.setSize).toHaveBeenLastCalledWith(48, 24)
+  })
+
+  it('sizes from the scale as the installed tracer does, so its first sample never resets the seed', () => {
+    // WebGPUPathTracer.renderSample re-derives its size from renderScale on every sample and
+    // resets on any change; syncSize must agree with it exactly.
+    const source = readFileSync(
+      'node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js',
+      'utf8',
+    )
+    expect(source).toContain('const w = Math.floor( renderScale * _resolution.x );')
+    expect(source).toContain('const h = Math.floor( renderScale * _resolution.y );')
+    const t = session()
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 1024)
+    expect(t.tracer.renderScale).toBe(1)
+    expect(t.tracer.setSize).toHaveBeenLastCalledWith(64, 32)
+  })
 
   it('reads the materials again for scans that arrived, keeping the captured meshes', () => {
     const t = session()
