@@ -1,3 +1,57 @@
+.prototype-hero[hidden],
+.live-viewport[hidden] {
+  display: none;
+}
+
+.live-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.live-viewport:not(.is-ready) canvas {
+  visibility: hidden;
+}
+
+.live-viewport-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+  background: #ecebe7bd;
+}
+
+.live-viewport-loading span {
+  max-width: 340px;
+  color: #5c5d58;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.live-viewport-status,
+.live-viewport-disclaimer {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  border: 1px solid #ffffff88;
+  border-radius: 20px;
+  padding: 7px 12px;
+  background: #ffffffd9;
+  color: #353732;
+  font-size: 11px;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+}
+
+.live-viewport-disclaimer {
+  top: auto;
+  bottom: 80px;
+}
 .native-browse {
   display: inline-flex;
   align-items: center;
@@ -235,6 +289,7 @@
 .fury-prototype .prototype-hero {
   position: absolute;
   inset: 0;
+  z-index: 0;
   margin: 0;
 }
 .fury-prototype .prototype-image-label {

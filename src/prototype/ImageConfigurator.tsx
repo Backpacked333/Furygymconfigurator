@@ -39,6 +39,7 @@ import { useCloudDisplayImage } from './useCloudDisplayImage'
 import { useNativeLibraryImage, useNativeCatalog } from './useNativeLibraryImage'
 import { findNativeImage, nativeThumbUrl } from './nativeLibrary'
 import { NativeLibraryGallery } from './NativeLibraryGallery'
+import { LiveViewport } from './LiveViewport'
 import { CLOUD_DISPLAY_LABEL, isCloudDisplaySelection } from './cloudDisplayClient'
 import {
   DISPLAY_LABEL,
@@ -162,6 +163,12 @@ function ImageConfiguratorContents({
   const [referenceFailed, setReferenceFailed] = useState(false)
   const [dialog, setDialog] = useState<'specification' | 'help' | 'image' | null>(null)
   const [plan, setPlan] = useState(false)
+  const [live, setLive] = useState(false)
+  const [viewerStarted, setViewerStarted] = useState(false)
+  const [viewerReady, setViewerReady] = useState(false)
+  const [dimensions, setDimensions] = useState(false)
+  const [autoRotate, setAutoRotate] = useState(false)
+  const [resetView, setResetView] = useState(0)
   const [mobilePanel, setMobilePanel] = useState(true)
   const [step, setStep] = useState(0)
   const frame = useRef<HTMLDivElement>(null)
@@ -177,7 +184,7 @@ function ImageConfiguratorContents({
   const image = useImage(design)
   const setState = 'library' in image ? image.library : undefined
   const unavailable = nativeLibrary
-    ? 'Live 360° and strict exports are not available. New images require an explicit render request and operator approval.'
+    ? 'Strict exports are not available. New saved images require an explicit render request and operator approval.'
     : privateDisplay
       ? DISPLAY_UNAVAILABLE
       : localReal
@@ -215,6 +222,7 @@ function ImageConfiguratorContents({
     }
   }
   function pickCamera(cameraRef: CameraRef) {
+    setAutoRotate(false)
     lastCameras.current[selectedCamera.group] = selectedCamera.ref
     lastCameras.current[resolveCamera(cameraRef).group] = cameraRef
     setPlan(false)
@@ -226,6 +234,11 @@ function ImageConfiguratorContents({
       setStep(2)
     } else
       pickCamera(next === selectedCamera.group ? selectedCamera.ref : lastCameras.current[next])
+  }
+  function toggleLive() {
+    setViewerStarted(true)
+    setLive(!live)
+    setAutoRotate(false)
   }
   function moreSettings() {
     setStep(3)
@@ -473,7 +486,7 @@ function ImageConfiguratorContents({
       workspace={
         <>
           <section
-            className={`stage is-gallery${plan ? ' is-plan' : ''}`}
+            className={`stage ${live && viewerReady ? 'is-live' : 'is-gallery'}${plan ? ' is-plan' : ''}`}
             aria-label="Gym visualization"
           >
             <StageHeader
@@ -520,11 +533,23 @@ function ImageConfiguratorContents({
               <StageFrame
                 frameRef={frame}
                 aspect={aspect}
-                box={nativeLibrary && !layers.length && !plan ? undefined : box}
+                box={nativeLibrary && !layers.length && !plan && !live ? undefined : box}
               >
+                {viewerStarted && nativeLibrary && (
+                  <LiveViewport
+                    design={design}
+                    active={live && !plan}
+                    unit={unit}
+                    dimensions={dimensions}
+                    autoRotate={autoRotate}
+                    reset={resetView}
+                    onReadyChange={setViewerReady}
+                  />
+                )}
                 {!plan && (
                   <>
                     <figure
+                      hidden={live && viewerReady}
                       className="prototype-hero"
                       data-image-state={
                         nativeLibrary
@@ -592,10 +617,16 @@ function ImageConfiguratorContents({
                       </figcaption>
                     </figure>
                     <StageToolbarView
-                      live={false}
+                      live={live}
                       interior={selectedCamera.group === 'interior'}
-                      liveLabel="Explore in 360°"
-                      liveDisabledReason={unavailable}
+                      liveLabel={live ? 'Close the 360° View' : 'Explore in 360°'}
+                      liveDisabledReason={nativeLibrary ? undefined : unavailable}
+                      onToggleLive={toggleLive}
+                      dimensions={dimensions}
+                      onDimensions={() => setDimensions(!dimensions)}
+                      autoRotate={autoRotate}
+                      onAutoRotate={() => setAutoRotate(!autoRotate)}
+                      onReset={() => setResetView((value) => value + 1)}
                       downloadLabel={
                         privateDisplay
                           ? 'Display candidate export unavailable'
@@ -688,7 +719,7 @@ function ImageConfiguratorContents({
                       })(),
                     }))}
                   />
-                  {setState && image.current && (
+                  {setState && image.current && !live && (
                     <LibrarySetStatus
                       design={design}
                       library={setState}

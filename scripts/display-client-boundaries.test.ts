@@ -7,6 +7,8 @@ import { build } from 'vite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { isDisplaySelection } from '../src/display/contract'
 import { isLocalRenderSelection } from '../src/image-service/localRenderProtocol'
+import type { OutputChunk } from 'rollup'
+import { eagerChunks } from './client-chunks'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const cacheDir = mkdtempSync(join(tmpdir(), 'fury-display-client-cache-'))
@@ -14,7 +16,7 @@ afterAll(() => rmSync(cacheDir, { recursive: true, force: true }))
 // In-memory client compilation only. No dev server/browser/private preparation or shared artifacts.
 describe('private display public-module boundary', () => {
   it.each(['displayClient.ts', 'useDisplayImage.ts', 'ImageConfigurator.tsx'])(
-    'compiles %s without private/server/renderer modules',
+    'compiles %s without eager renderer or any private/server modules',
     async (entry) => {
       const result = await build({
         root,
@@ -35,15 +37,23 @@ describe('private display public-module boundary', () => {
       if ('on' in result) throw new Error('Unexpected watcher')
       const modules: string[] = [],
         code: string[] = []
+      const chunks: OutputChunk[] = []
       for (const bundle of Array.isArray(result) ? result : [result])
         for (const output of bundle.output) {
           if (output.type !== 'chunk') continue
-          modules.push(...Object.keys(output.modules))
-          code.push(output.code)
-          expect([...output.imports, ...output.dynamicImports].join('\n')).not.toMatch(
-            /node:|three|sqlite|jspdf|__vite-browser-external/,
-          )
+          chunks.push(output)
+          for (const name of Object.keys(output.modules))
+            expect(name).not.toMatch(
+              /\/src\/render\/(?:cloud|spin|prototype\/)|\/src\/display\/(?:session|readiness|operator)\.|node:|__vite-browser-external/,
+            )
         }
+      for (const output of eagerChunks(chunks)) {
+        modules.push(...Object.keys(output.modules))
+        code.push(output.code)
+        expect(output.imports.join('\n')).not.toMatch(
+          /node:|three|sqlite|jspdf|__vite-browser-external/,
+        )
+      }
       expect(modules.some((name) => name.endsWith('/src/prototype/displayClient.ts'))).toBe(true)
       expect(modules.some((name) => name.endsWith('/src/display/contract.ts'))).toBe(true)
       for (const name of modules) {
@@ -128,9 +138,11 @@ describe('private display public-module boundary', () => {
     if ('on' in result) throw new Error('Unexpected watcher')
     const modules: string[] = [],
       code: string[] = []
+    const chunks: OutputChunk[] = []
     for (const bundle of Array.isArray(result) ? result : [result])
       for (const output of bundle.output) {
         if (output.type === 'chunk') {
+          chunks.push(output)
           modules.push(...Object.keys(output.modules))
           code.push(output.code)
         }
@@ -139,11 +151,20 @@ describe('private display public-module boundary', () => {
     expect(modules.some((name) => name.endsWith('/src/prototype/ImageConfigurator.tsx'))).toBe(true)
     expect(modules.some((name) => name.endsWith('/src/prototype/nativeLibrary.ts'))).toBe(true)
     for (const name of modules) {
-      expect(name).not.toMatch(/\/src\/render\//)
+      expect(name).not.toMatch(/\/src\/render\/(?:cloud|spin|prototype\/)/)
       expect(name).not.toMatch(/\/src\/display\/(?:session|readiness|operator)\./)
       if (name.includes('/src/image-service/'))
         expect(name).toMatch(/\/(?:protocol|localRenderProtocol)\.ts$/)
     }
+    const gallery = chunks.filter((chunk) =>
+      Object.keys(chunk.modules).some((id) => id.endsWith('/src/prototype/ImageConfigurator.tsx')),
+    )
+    expect(gallery).toHaveLength(1)
+    for (const chunk of eagerChunks(chunks, gallery))
+      for (const name of Object.keys(chunk.modules))
+        expect(name).not.toMatch(
+          /\/src\/(?:render|viewer)\/|\/node_modules\/(?:three|@react-three)\//,
+        )
     expect(code.join('\n')).not.toMatch(
       /createPrivateDisplayBackend|modal\.run|private-display-service|\/__fury-(?:local|display)\/v1\//,
     )

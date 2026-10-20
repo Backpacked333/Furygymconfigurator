@@ -25,7 +25,11 @@ function imports(file: string) {
     if (
       ts.isCallExpression(node) &&
       node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      ts.isStringLiteral(node.arguments[0])
+      ts.isStringLiteral(node.arguments[0]) &&
+      !(
+        file === resolve(root, 'prototype/LiveViewport.tsx') &&
+        node.arguments[0].text === './LiveDesignScene'
+      )
     )
       imports.push(node.arguments[0].text)
     ts.forEachChild(node, visit)
@@ -144,7 +148,12 @@ describe('shared-source reuse matrix', () => {
 })
 
 describe('prototype runtime source dependency boundary', () => {
-  it('has no path to Three, renderers, workers, provider SDKs, review entry, textures or PDF', () => {
+  it('loads the live adapter only through an explicit lazy boundary', () => {
+    const source = readFileSync(resolve(root, 'prototype/LiveViewport.tsx'), 'utf8')
+    expect(source).toContain("lazy(() => import('./LiveDesignScene'))")
+    expect(source).not.toMatch(/import\s.*from ['"]\.\/LiveDesignScene/)
+  })
+  it('has no eager path to Three, renderers, workers, provider SDKs, review entry, textures or PDF', () => {
     // These exact browser-safe cloud wire modules are additive, not provider implementations.
     // Continue recursively inspecting their complete graph; never exempt a directory or suffix.
     const publicCloudModules = new Set([
@@ -180,6 +189,8 @@ describe('prototype runtime source dependency boundary', () => {
       }
     }
     inspect(resolve(root, 'prototype/ImageConfigurator.tsx'))
+    expect(seen.has(resolve(root, 'prototype/LiveViewport.tsx'))).toBe(true)
+    expect(seen.has(resolve(root, 'prototype/LiveDesignScene.tsx'))).toBe(false)
     expect(seen.has(resolve(root, 'image-service/protocol.ts'))).toBe(true)
     expect(seen.has(resolve(root, 'components/Elevation.tsx'))).toBe(true)
     for (const component of [

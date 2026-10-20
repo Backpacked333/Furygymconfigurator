@@ -172,7 +172,7 @@ export function DesignPanel({
           )}
           <p className="muted small">
             {renderedLibrary
-              ? 'Native masters: 1920 × 1200 landscape or 1200 × 1500 portrait. Changing options never starts a render. Live 360° and strict reference exports are unavailable.'
+              ? 'Native masters: 1920 × 1200 landscape or 1200 × 1500 portrait. Changing options never starts a paid render. Explore in 360° opens a local live preview; strict reference exports remain unavailable.'
               : 'Mock diagnostic only. Render quality, path tracing, live 360° and strict image/PDF exports are unavailable here.'}
           </p>
         </>

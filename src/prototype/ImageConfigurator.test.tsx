@@ -22,10 +22,37 @@ import {
 } from '../display/contract'
 import { fakeResponse, localFixture } from './localRenderClient.fixtures'
 import { downloadPrototypeFile, prototypeLink, readPrototypeShare } from './state'
+import * as renderLibraryClient from './renderLibraryClient'
+import { snapshotFixture } from './renderLibraryClient.fixtures'
+import { RENDER_CTA } from '../render-library/contracts'
 
 vi.mock('./state', async (original) => ({
   ...(await original<typeof import('./state')>()),
   downloadPrototypeFile: vi.fn(),
+}))
+vi.mock('./LiveDesignScene', () => ({
+  default: ({
+    design,
+    active,
+    dimensions,
+    reset,
+    onReady,
+  }: {
+    design: DesignEnvelope
+    active: boolean
+    dimensions: boolean
+    reset: number
+    onReady: () => void
+  }) => (
+    <div
+      data-live-design={JSON.stringify(design)}
+      data-active={active}
+      data-dimensions={dimensions}
+      data-reset={reset}
+    >
+      <button onClick={onReady}>Scene ready</button>
+    </div>
+  ),
 }))
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 const id = 'browser_interest_1234567890ABCDE'
@@ -153,6 +180,77 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     expect(host.querySelectorAll('[aria-label="Rendered camera views"] button')).toHaveLength(5)
     click('Image details')
     expect(host.querySelector('dialog[open]')?.textContent).toContain('Art direction')
+  })
+  it('opens the current native design on demand, edits live and returns to an unchanged gallery selection', async () => {
+    window.history.replaceState(null, '', '/?experience=library')
+    mount()
+    expect(host.querySelector('[data-live-design]')).toBeNull()
+    expect(button('Explore in 360°').disabled).toBe(false)
+    tab('Exterior')
+    click('Bronze')
+    click('Interior entry DRAFT · interior')
+    await act(async () => button('Explore in 360°').click())
+    const rendered = () => host.querySelector<HTMLElement>('[data-live-design]')!
+    expect(JSON.parse(rendered().dataset.liveDesign!)).toMatchObject({
+      config: { appearance: { finish: 'bronze' } },
+      presentation: { cameraRef: 'entry-draft@1' },
+    })
+    expect(rendered().dataset.active).toBe('true')
+    click('Scene ready')
+    expect(host.textContent).toContain('Live concept preview')
+    click('Obsidian')
+    expect(JSON.parse(rendered().dataset.liveDesign!).config.appearance.finish).toBe('obsidian')
+    click('Show dimensions')
+    expect(rendered().dataset.dimensions).toBe('true')
+    click('Reset view')
+    expect(rendered().dataset.reset).toBe('1')
+    click('Floor plan')
+    expect(rendered().dataset.active).toBe('false')
+    click('Interior')
+    expect(rendered().dataset.active).toBe('true')
+    click('Close the 360° View')
+    expect(rendered().dataset.active).toBe('false')
+    expect(host.querySelector<HTMLElement>('.prototype-hero')!.hidden).toBe(false)
+    expect(button('Interior entry DRAFT · interior').getAttribute('aria-pressed')).toBe('true')
+    expect(exported().config.appearance.finish).toBe('obsidian')
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.every(
+          ([url, init]) =>
+            !init?.method || init.method === 'GET' || String(url).endsWith('/lookup'),
+        ),
+    ).toBe(true)
+  })
+
+  it('preserves explicit missing-design rendering across opening and closing the optional 360 view', async () => {
+    vi.useRealTimers()
+    window.history.replaceState(null, '', '/?experience=library')
+    const lookup = vi
+      .spyOn(renderLibraryClient, 'lookupSet')
+      .mockResolvedValue(await snapshotFixture())
+    const submit = vi
+      .spyOn(renderLibraryClient, 'submitSet')
+      .mockImplementation(() => new Promise(() => {}))
+    mount()
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(lookup.mock.calls.some(([, signal]) => !signal.aborted)).toBe(true),
+      )
+    })
+    expect(button(RENDER_CTA).disabled).toBe(false)
+    expect(host.querySelector('[data-live-design]')).toBeNull()
+    expect(host.querySelector<HTMLElement>('.prototype-hero')!.hidden).toBe(false)
+    expect(submit).not.toHaveBeenCalled()
+    await act(async () => button('Explore in 360°').click())
+    click('Scene ready')
+    click('Close the 360° View')
+    expect(host.querySelector<HTMLElement>('.prototype-hero')!.hidden).toBe(false)
+    expect(button(RENDER_CTA).disabled).toBe(false)
+    expect(submit).not.toHaveBeenCalled()
+    await act(async () => button(RENDER_CTA).click())
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0][0]).toEqual(defaultDesign())
   })
 
   it('keeps the Fury shell, four tabs, reference stage and all controls usable without renderer imports', () => {

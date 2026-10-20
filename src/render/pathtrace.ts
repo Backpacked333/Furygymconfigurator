@@ -32,7 +32,8 @@ import {
 } from '../lib/visuals'
 import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
 import { bench } from './bench'
-import { GBuffer, ViewHistory } from './history'
+import { GBuffer, MultiViewHistory, ViewHistory } from './history'
+import { nextTracePasses } from './traceBudget'
 import { stillInstances } from './instances'
 import type { TraceState } from './traceStatus'
 
@@ -447,7 +448,7 @@ export class PathTraceSession {
   /** The current view's rasterized albedo, normals, and positions (denoiser guides, reuse). */
   private readonly gbuffer = new GBuffer()
   /** The last traced view, reprojected into the next one so it never starts from nothing. */
-  private readonly history = new ViewHistory()
+  private readonly history: ViewHistory | MultiViewHistory
   /** Whether the current view started from the previous view's samples. */
   seeded = false
   /** Retires regions whose denoised image has settled, so samples go where it still changes. */
@@ -484,8 +485,19 @@ export class PathTraceSession {
   target = REST_SAMPLES
   state: TraceState = 'off'
 
-  constructor(renderer: WebGPURenderer, modules: Modules, denoise = true) {
+  constructor(
+    renderer: WebGPURenderer,
+    modules: Modules,
+    denoise = true,
+    private readonly options: {
+      multiView?: boolean
+      maxBounces?: number
+      batchMs?: number
+      maxPasses?: number
+    } = {},
+  ) {
     this.renderer = renderer
+    this.history = options.multiView ? new MultiViewHistory() : new ViewHistory()
     const module = modules.tracer
     const tracer = new module.WebGPUPathTracer(renderer)
     tracer.frameBudget = FRAME_BUDGET
@@ -493,7 +505,7 @@ export class PathTraceSession {
     // less work per sample than ten, which added nothing a denoised image shows. The cloud
     // traces the same depth (render-server protocol.py BOUNCES), so its frame of a view and a
     // local trace of it carry the same light.
-    tracer.maxBounces = 6
+    tracer.maxBounces = options.maxBounces ?? 6
     tracer.maxTransparentBounces = 12
     tracer.filterGlossyFactor = 0.5
     tracer.transmissiveBackground = module.TRANSMISSIVE_BACKGROUND_ENVIRONMENT
@@ -631,14 +643,18 @@ export class PathTraceSession {
     const fading = !this.denoising && this.tracer.fadeState < 1
     if ((this.accumulating || fading) && !this.inFlight) {
       const previous = this.renderer.getRenderTarget()
-      this.renderer.setRenderTarget(this.sink)
-      this.tracer.renderSample()
-      const backend = (this.tracer as unknown as { _pathTracer: { update: () => void } })
-        ._pathTracer
-      for (let i = 1; i < this.passes; i++) backend.update()
-      this.renderer.setRenderTarget(previous)
+      try {
+        this.renderer.setRenderTarget(this.sink)
+        this.tracer.renderSample()
+        const backend = (this.tracer as unknown as { _pathTracer: { update: () => void } })
+          ._pathTracer
+        for (let i = 1; i < this.passes; i++) backend.update()
+      } finally {
+        this.renderer.setRenderTarget(previous)
+      }
       this.frames++
       this.inFlight = true
+      const epoch = this.epoch
       const device = (
         this.renderer.backend as unknown as {
           device: { queue: { onSubmittedWorkDone: () => Promise<void> } }
@@ -647,9 +663,17 @@ export class PathTraceSession {
       device.queue
         .onSubmittedWorkDone()
         .then(() => {
+          if (epoch !== this.epoch) return
           // Size batches to roughly two display frames of GPU time.
           const busy = performance.now() - now
-          if (busy < 28) this.passes = Math.min(MAX_PASSES, Math.ceil(this.passes * 1.5))
+          if (this.options.batchMs)
+            this.passes = nextTracePasses(
+              this.passes,
+              busy,
+              this.options.batchMs,
+              this.options.maxPasses ?? MAX_PASSES,
+            )
+          else if (busy < 28) this.passes = Math.min(MAX_PASSES, Math.ceil(this.passes * 1.5))
           else if (busy > 45) this.passes = Math.max(1, Math.floor(this.passes * 0.75))
         })
         .catch(() => {})
@@ -794,6 +818,9 @@ export class PathTraceSession {
     // Keep what this view accumulated for the next one. Queued after any batch still in flight.
     if (this.frames > 0 && (this.state === 'tracing' || this.state === 'converged'))
       this.history.store(this.renderer, this.backend, this.gbuffer, this.signature)
+    this.epoch++
+    this.measuring = false
+    this.passes = 1
     this.state = 'off'
     this.samples = 0
     this.running = null
@@ -807,6 +834,8 @@ export class PathTraceSession {
   }
 
   dispose() {
+    this.epoch++
+    this.state = 'off'
     this.tracer.dispose()
     this.sink.dispose()
     this.snapshot?.dispose()

@@ -7,9 +7,17 @@ import {
   MeshPhysicalNodeMaterial,
   MeshStandardNodeMaterial,
   Scene,
+  StorageTexture,
+  type WebGPURenderer,
 } from 'three/webgpu'
-import { describe, expect, it } from 'vitest'
-import { historyWeights, materialHistoryWeight } from './history'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  GBuffer,
+  MultiViewHistory,
+  ViewHistory,
+  historyWeights,
+  materialHistoryWeight,
+} from './history'
 
 const standard = (roughness: number, metalness = 0) => {
   const m = new MeshStandardNodeMaterial()
@@ -64,5 +72,71 @@ describe('history weights', () => {
     expect(weights.get(wall)).toBe(1)
     // A mesh with any glass in it is reused nowhere.
     expect(weights.get(framed)).toBe(0)
+  })
+})
+
+describe('multi-view retention (GPU copies mocked)', () => {
+  afterEach(() => vi.restoreAllMocks())
+  function fixture(width = 1000, height = 600) {
+    const store = vi.spyOn(ViewHistory.prototype, 'store').mockImplementation(() => {})
+    const seed = vi.spyOn(ViewHistory.prototype, 'seed').mockReturnValue(true)
+    const dispose = vi.spyOn(ViewHistory.prototype, 'dispose').mockImplementation(() => {})
+    const history = new MultiViewHistory()
+    const gbuffer = new GBuffer()
+    const renderer = {} as WebGPURenderer
+    const targets = {
+      outputTarget: new StorageTexture(width, height),
+      sampleCountTarget: new StorageTexture(width, height),
+    }
+    const save = (x: number, z: number, signature = 1) => {
+      gbuffer.position.set(x, 0, z)
+      history.store(renderer, targets, gbuffer, signature)
+    }
+    const reuse = (x: number, z: number, signature = 1) => {
+      gbuffer.position.set(x, 0, z)
+      return history.seed(renderer, targets, gbuffer, signature, 1024)
+    }
+    return { history, store, seed, dispose, save, reuse, targets }
+  }
+  it('revisits an older matching angle instead of the most recently stored one', () => {
+    const f = fixture()
+    f.save(0, 20)
+    f.save(20, 0)
+    f.save(0, -20)
+    expect(f.reuse(0, 20)).toBe(true)
+    expect(f.seed.mock.instances[0]).toBe(f.store.mock.instances[0])
+    f.history.dispose()
+    expect(f.dispose).toHaveBeenCalledTimes(3)
+  })
+  it('evicts the least recently used view and replaces nearby views rather than growing', () => {
+    const f = fixture()
+    f.save(0, 20)
+    f.save(20, 0)
+    f.save(0, -20)
+    f.reuse(0, 20)
+    f.save(-20, 0)
+    expect(f.store.mock.instances[3]).toBe(f.store.mock.instances[1])
+    f.save(-20.01, 0)
+    expect(f.store.mock.instances[4]).toBe(f.store.mock.instances[3])
+    f.history.dispose()
+    expect(f.dispose).toHaveBeenCalledTimes(3)
+  })
+  it('rejects old lighting/geometry signatures and releases incompatible-size storage', () => {
+    const f = fixture()
+    f.save(0, 20)
+    expect(f.reuse(0, 20, 2)).toBe(false)
+    f.save(0, 20, 2)
+    expect(f.dispose).toHaveBeenCalledTimes(1)
+    f.targets.outputTarget.setSize(900, 600, 1)
+    f.save(0, 20, 2)
+    expect(f.dispose).toHaveBeenCalledTimes(2)
+    f.history.clear()
+    expect(f.reuse(0, 20, 2)).toBe(false)
+  })
+  it('does not allocate history beyond the memory ceiling', () => {
+    const f = fixture(3840, 2160)
+    f.save(0, 20)
+    expect(f.store).not.toHaveBeenCalled()
+    expect(f.reuse(0, 20)).toBe(false)
   })
 })

@@ -37,6 +37,7 @@ import {
 import { wgslTagFn } from 'three-mesh-bvh/src/webgpu/nodes/WGSLTagFnNode.js'
 import { ComputeKernel } from 'three-gpu-pathtracer/src/webgpu/compute/ComputeKernel.js'
 import { smoothstep as smooth } from '../lib/visuals'
+import { historyCapacity, historyDistance, type HistoryPose } from './historyCache'
 
 /**
  * Sample reuse between camera positions.
@@ -474,5 +475,69 @@ export class ViewHistory {
   dispose() {
     for (const t of this.textures) t.dispose()
     this.kernel?.dispose()
+  }
+}
+
+/** Bounded orbit memory. One best view seeds each frame, never sums correlated histories. */
+export class MultiViewHistory {
+  private entries: { history: ViewHistory; pose: HistoryPose; used: number }[] = []
+  private clock = 0
+  private signature = -1
+  private size = ''
+
+  private pose(gbuffer: GBuffer): HistoryPose {
+    return {
+      position: gbuffer.position.toArray(),
+      direction: gbuffer.viewToWorld.elements.slice(6, 9),
+    }
+  }
+
+  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, signature: number) {
+    const { width, height } = tracer.outputTarget.image as { width: number; height: number }
+    const size = `${width}:${height}`
+    if (this.signature !== signature || this.size !== size) this.clear()
+    this.signature = signature
+    this.size = size
+    const capacity = historyCapacity(width, height)
+    if (!capacity) return
+    const pose = this.pose(gbuffer)
+    let entry = this.entries.find((entry) => historyDistance(entry.pose, pose) < 0.025)
+    if (!entry && this.entries.length >= capacity)
+      entry = this.entries.reduce((oldest, item) => (item.used < oldest.used ? item : oldest))
+    if (!entry) {
+      entry = { history: new ViewHistory(), pose, used: 0 }
+      this.entries.push(entry)
+    }
+    entry.history.store(renderer, tracer, gbuffer, signature)
+    entry.pose = pose
+    entry.used = ++this.clock
+  }
+
+  seed(
+    renderer: WebGPURenderer,
+    tracer: TracerTargets,
+    gbuffer: GBuffer,
+    signature: number,
+    target: number,
+  ) {
+    if (signature !== this.signature || !this.entries.length) return false
+    const pose = this.pose(gbuffer)
+    const entry = this.entries.reduce((best, item) =>
+      historyDistance(item.pose, pose) < historyDistance(best.pose, pose) ? item : best,
+    )
+    const seeded = entry.history.seed(renderer, tracer, gbuffer, signature, target)
+    if (seeded) entry.used = ++this.clock
+    return seeded
+  }
+
+  clear() {
+    for (const entry of this.entries) entry.history.dispose()
+    this.entries = []
+    this.signature = -1
+    this.size = ''
+  }
+
+  dispose() {
+    this.clear()
   }
 }

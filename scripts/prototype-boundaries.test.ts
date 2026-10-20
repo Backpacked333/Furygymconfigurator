@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 import { build, type Plugin } from 'vite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import configuration from '../vite.config'
+import type { OutputChunk } from 'rollup'
+import { eagerChunks } from './client-chunks'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const pluginName = 'fury-local-mock-image-prototype'
@@ -30,18 +32,20 @@ function receipt() {
   const modules = new Set<string>()
   const imports = new Set<string>()
   const chunks: string[] = []
+  const outputs: OutputChunk[] = []
   const plugin: Plugin = {
     name: 'prototype-test-module-receipt',
     generateBundle(_options, bundle) {
       for (const output of Object.values(bundle)) {
         if (output.type !== 'chunk') continue
+        outputs.push(output)
         for (const id of Object.keys(output.modules)) modules.add(id.replaceAll('\\', '/'))
         for (const id of [...output.imports, ...output.dynamicImports]) imports.add(id)
         chunks.push(output.code)
       }
     },
   }
-  return { modules, imports, chunks, plugin }
+  return { modules, imports, chunks, outputs, plugin }
 }
 
 describe('built next-batch boundaries (no browser or dev server)', () => {
@@ -74,7 +78,7 @@ describe('built next-batch boundaries (no browser or dev server)', () => {
     )
   })
 
-  it('builds the prototype-client runtime graph without Three/render/cloud/PDF/Node/server modules', async () => {
+  it('keeps initial gallery JS renderer-free and the lazy live graph free of cloud/server dependencies', async () => {
     const graph = receipt()
     await build({
       root,
@@ -93,7 +97,12 @@ describe('built next-batch boundaries (no browser or dev server)', () => {
         },
       },
     })
-    const modules = [...graph.modules]
+    const initial = eagerChunks(graph.outputs)
+    const modules = initial.flatMap((chunk) => Object.keys(chunk.modules))
+    expect([...graph.modules].some((id) => id.endsWith('/src/prototype/LiveDesignScene.tsx'))).toBe(
+      true,
+    )
+    expect(modules.some((id) => id.endsWith('/src/prototype/LiveDesignScene.tsx'))).toBe(false)
     expect(modules.some((id) => id.endsWith('/src/prototype/ImageConfigurator.tsx'))).toBe(true)
     expect(modules.some((id) => id.endsWith('/src/image-service/protocol.ts'))).toBe(true)
     expect(modules.some((id) => id.endsWith('/src/image-service/localRenderProtocol.ts'))).toBe(
@@ -113,8 +122,12 @@ describe('built next-batch boundaries (no browser or dev server)', () => {
       if (id.includes('/src/image-service/'))
         expect(id).toMatch(/\/(?:protocol|localRenderProtocol)\.ts$/)
     }
-    for (const id of graph.imports)
+    for (const id of initial.flatMap((chunk) => chunk.imports))
       expect(id).not.toMatch(/node:|sqlite|three|jspdf|__vite-browser-external/)
+    for (const id of graph.modules)
+      expect(id).not.toMatch(
+        /\/src\/render\/(?:cloud|spin|prototype\/)|\/src\/render-library\/server\/|\/render-server\/|node:|__vite-browser-external/,
+      )
     expect(graph.chunks.join('\n')).not.toMatch(
       /node:sqlite|DatabaseSync|\/(?:warm|render)(?=[/"'?\s]|$)|modal\.run/,
     )
