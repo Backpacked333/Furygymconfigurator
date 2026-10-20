@@ -770,6 +770,32 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     expect(t.traced.seeded).toBe(true)
   })
 
+  it('keeps a Cycles image as a view the first start seeds from, at the size it will trace', async () => {
+    const t = session({ multiView: true, keepHistoryAcrossSurfaces: true })
+    const kept = vi.spyOn(MultiViewHistory.prototype, 'storeImage').mockImplementation(() => {})
+    const seed = vi.spyOn(MultiViewHistory.prototype, 'seed').mockReturnValue(true)
+    const clear = vi.spyOn(MultiViewHistory.prototype, 'clear')
+    const guides = vi.mocked(GBuffer.prototype.render)
+    const lens = new PerspectiveCamera(50, 1.6)
+    const image = { image: environment, table: environment, count: 16, ceiling: 0.94 }
+    expect(t.traced.storeImage(t.scene, lens, look, image, 0.75)).toBe(true)
+    // Rendered from the image's camera, at the 64×32 buffer at 0.75, as the start will be.
+    expect(guides.mock.lastCall![2]).toBe(lens)
+    expect(guides.mock.lastCall!.slice(3)).toEqual([48, 24])
+    const [, given, , keys, width, height] = kept.mock.lastCall!
+    expect(given).toBe(image)
+    expect([width, height]).toEqual([48, 24])
+    clear.mockClear()
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 1024, 0.75)
+    // The start keeps it (the same scene) and seeds from it, under the keys it was kept with.
+    expect(clear).not.toHaveBeenCalled()
+    expect(seed.mock.lastCall![3]).toEqual(keys)
+    expect(t.traced.seeded).toBe(true)
+    // Never while a view is tracing: that view's own samples are what the next one takes.
+    expect(t.traced.storeImage(t.scene, lens, look, image, 0.75)).toBe(false)
+    expect(kept).toHaveBeenCalledOnce()
+  })
+
   describe('early refinement (mocked clock and denoiser)', () => {
     let now = 0
     let counts = 0

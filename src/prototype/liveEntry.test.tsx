@@ -44,12 +44,14 @@ vi.mock('./LiveDesignScene', () => ({
     active,
     onReady,
     onLeaveEntry,
+    entryImage,
   }: {
     active: boolean
     onReady: () => void
     onLeaveEntry: () => void
+    entryImage?: string
   }) => (
-    <div data-live-scene data-active={active}>
+    <div data-live-scene data-active={active} data-entry-image={entryImage}>
       <canvas />
       <button onClick={onReady}>Scene ready</button>
       <button onClick={onLeaveEntry}>Camera moved</button>
@@ -152,6 +154,26 @@ describe('entering the 360° view on the rendered image (jsdom, scene mocked)', 
     click('Reset view')
     advance(1000)
     expect(figure().hidden).toBe(true)
+  })
+
+  it('hands the scene the image its first trace starts from, only while it is the design’s own', async () => {
+    const entryImage = () =>
+      host.querySelector<HTMLElement>('[data-live-scene]')!.dataset.entryImage
+    await openCovered()
+    expect(entryImage()).toMatch(/^blob:/)
+    tab('Exterior')
+    click('Bronze')
+    expect(entryImage()).toBeUndefined()
+    // The edited design's own image, at the same camera, once it arrives.
+    await imageCurrent()
+    expect(entryImage()).toMatch(/^blob:/)
+  })
+
+  it('opens without an image to start from while there is none of the design', async () => {
+    native.hold = true
+    await mount()
+    await open()
+    expect(host.querySelector<HTMLElement>('[data-live-scene]')!.dataset.entryImage).toBeUndefined()
   })
 
   it('lifts it as soon as an edit makes it a different design’s image', async () => {

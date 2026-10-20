@@ -73,10 +73,25 @@ it('watches the camera leave the saved image’s own pose beside the progressive
     onLeave: onLeaveEntry,
   })
   expect(Object.keys(seen.renderer!).sort()).toEqual(
-    ['active', 'look', 'onReady', 'onStatus', 'place', 'quality', 'revision'].sort(),
+    ['active', 'entry', 'look', 'onReady', 'onStatus', 'place', 'quality', 'revision'].sort(),
   )
+  // No image of this design on the stage: the first trace starts from nothing.
+  expect(seen.renderer!.entry).toBeUndefined()
   act(() => root.render(<LiveDesignScene {...props} active={false} />))
   expect(seen.watch).toMatchObject({ active: false, onLeave: undefined })
+})
+
+it('hands the renderer the design’s own image with the camera it was rendered from', () => {
+  const props = liveProps()
+  act(() => root.render(<LiveDesignScene {...props} entryImage="/native-library/a.webp" />))
+  expect(seen.renderer!.entry).toEqual({
+    pose: resolveNativeCamera(props.design),
+    image: '/native-library/a.webp',
+  })
+  const first = seen.renderer!.entry
+  // The same image again: the same entry, so the renderer does not prepare it twice.
+  act(() => root.render(<LiveDesignScene {...props} entryImage="/native-library/a.webp" />))
+  expect(seen.renderer!.entry).toBe(first)
 })
 
 describe('fetching the tracer as the module loads, on intent', () => {

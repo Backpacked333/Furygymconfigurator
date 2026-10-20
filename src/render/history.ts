@@ -1,4 +1,5 @@
 import {
+  DataTexture,
   FloatType,
   HalfFloatType,
   Matrix3,
@@ -9,6 +10,7 @@ import {
   RedIntegerFormat,
   RenderTarget,
   StorageTexture,
+  Texture as ImageTexture,
   UnsignedByteType,
   UnsignedIntType,
   Vector3,
@@ -37,6 +39,7 @@ import {
 import { wgslTagFn } from 'three-mesh-bvh/src/webgpu/nodes/WGSLTagFnNode.js'
 import { ComputeKernel } from 'three-gpu-pathtracer/src/webgpu/compute/ComputeKernel.js'
 import { smoothstep as smooth } from '../lib/visuals'
+import { AGX_INVERSE_SHAPER, AGX_INVERSE_SIZE } from './agxInverse'
 import { historyCapacity, historyDistance, type HistoryPose } from './historyCache'
 
 /**
@@ -424,6 +427,106 @@ class ReprojectKernel extends ComputeKernel {
   }
 }
 
+/**
+ * Writes a stored view's accumulation from a Cycles image of it (the library's, which the 360° view
+ * opens on): each pixel's light read back through Blender's AgX view (agxInverse.ts), as `count`
+ * samples. Pixels the image shows at or above `ceiling` (a code value), where 8 bits hold too
+ * little of the light, get none.
+ *
+ * Image rows run top down, as the stored colour's do; the stored counts are the tracer's, rows
+ * bottom up. Where the image is larger than the view, each pixel averages the image's pixels it
+ * covers (up to 4×4), so a reduced trace starts from the image's light, not from a sparse pick.
+ */
+class ImageSeedKernel extends ComputeKernel {
+  declare color: Texture
+  declare counts: Texture
+  declare image: Texture
+  declare table: Texture
+  declare count: number
+  declare ceiling: number
+
+  constructor() {
+    const placeholder = new DataTexture(new Uint16Array(4), 1, 1, RGBAFormat, HalfFloatType)
+    const params = {
+      globalId,
+      color: textureStore(storageTexture(RGBAFormat, FloatType)).toWriteOnly(),
+      counts: textureStore(storageTexture(RedIntegerFormat, UnsignedIntType)).toWriteOnly(),
+      image: texture(new ImageTexture()),
+      table: texture(placeholder),
+      count: uniform(0, 'uint'),
+      ceiling: uniform(1),
+    }
+
+    const n = AGX_INVERSE_SIZE
+    // Tetrahedral interpolation (agxInverse.ts invertAgx): from the cell's first corner to its
+    // last along the axes in order of their fractions, largest first.
+    const fn = wgslTagFn /* wgsl */ `
+      fn compute( globalId: vec3u, count: u32, ceiling: f32 ) -> void {
+
+        let size = textureDimensions( ${params.color} );
+        if ( globalId.x >= size.x || globalId.y >= size.y ) {
+          return;
+        }
+        let imageSize = vec2i( textureDimensions( ${params.image}, 0 ) );
+        let scale = vec2f( imageSize ) / vec2f( size );
+        let taps = vec2i( clamp( ceil( scale ), vec2f( 1.0 ), vec2f( 4.0 ) ) );
+        var code = vec3f( 0.0 );
+        var brightest = 0.0;
+        for ( var j = 0; j < taps.y; j ++ ) {
+          for ( var i = 0; i < taps.x; i ++ ) {
+            let at = ( vec2f( globalId.xy ) + ( vec2f( f32( i ), f32( j ) ) + 0.5 ) / vec2f( taps ) ) * scale;
+            let pixel = clamp( vec2i( floor( at ) ), vec2i( 0 ), imageSize - 1 );
+            let tap = textureLoad( ${params.image}, pixel, 0 ).rgb;
+            code += tap;
+            brightest = max( brightest, max( tap.r, max( tap.g, tap.b ) ) );
+          }
+        }
+        code /= f32( taps.x * taps.y );
+
+        let shaped = pow( clamp( code, vec3f( 0.0 ), vec3f( 1.0 ) ), vec3f( ${AGX_INVERSE_SHAPER} ) );
+        let u = acos( clamp( 1.0 - 2.0 * shaped, vec3f( -1.0 ), vec3f( 1.0 ) ) ) / 3.141592653589793 * ${n - 1}.0;
+        let base = min( vec3i( floor( u ) ), vec3i( ${n - 2} ) );
+        let f = u - vec3f( base );
+        var first = vec3i( 0 );
+        var second = vec3i( 0 );
+        var w = vec4f( 0.0 );
+        if ( f.x >= f.y ) {
+          if ( f.y >= f.z ) {
+            first = vec3i( 1, 0, 0 ); second = vec3i( 1, 1, 0 ); w = vec4f( 1.0 - f.x, f.x - f.y, f.y - f.z, f.z );
+          } else if ( f.x >= f.z ) {
+            first = vec3i( 1, 0, 0 ); second = vec3i( 1, 0, 1 ); w = vec4f( 1.0 - f.x, f.x - f.z, f.z - f.y, f.y );
+          } else {
+            first = vec3i( 0, 0, 1 ); second = vec3i( 1, 0, 1 ); w = vec4f( 1.0 - f.z, f.z - f.x, f.x - f.y, f.y );
+          }
+        } else {
+          if ( f.z > f.y ) {
+            first = vec3i( 0, 0, 1 ); second = vec3i( 0, 1, 1 ); w = vec4f( 1.0 - f.z, f.z - f.y, f.y - f.x, f.x );
+          } else if ( f.z > f.x ) {
+            first = vec3i( 0, 1, 0 ); second = vec3i( 0, 1, 1 ); w = vec4f( 1.0 - f.y, f.y - f.z, f.z - f.x, f.x );
+          } else {
+            first = vec3i( 0, 1, 0 ); second = vec3i( 1, 1, 0 ); w = vec4f( 1.0 - f.y, f.y - f.x, f.x - f.z, f.z );
+          }
+        }
+        // entry ( r, g, b ) of the table lies at ( r, g + SIZE b ) (agxInverse.ts loadAgxInverse)
+        let row = vec3i( 0, 1, ${n} );
+        let level =
+          w.x * textureLoad( ${params.table}, vec2i( base.x, dot( base, row ) ), 0 ).rgb +
+          w.y * textureLoad( ${params.table}, vec2i( base.x + first.x, dot( base + first, row ) ), 0 ).rgb +
+          w.z * textureLoad( ${params.table}, vec2i( base.x + second.x, dot( base + second, row ) ), 0 ).rgb +
+          w.w * textureLoad( ${params.table}, vec2i( base.x + 1, dot( base + vec3i( 1 ), row ) ), 0 ).rgb;
+
+        textureStore( ${params.color}, globalId.xy, vec4f( exp2( level ), 1.0 ) );
+        let samples = select( count, 0u, brightest >= ceiling );
+        textureStore( ${params.counts}, vec2u( globalId.x, size.y - 1u - globalId.y ), vec4u( samples ) );
+
+      }
+    `
+
+    super(fn(params))
+    this.defineUniformAccessors(params)
+  }
+}
+
 type TracerTargets = {
   outputTarget: StorageTexture
   sampleCountTarget: StorageTexture
@@ -447,6 +550,7 @@ export class ViewHistory {
   }
   private readonly textures = [this.color, this.counts, this.geometry, this.normal, this.albedo]
   private kernel: ReprojectKernel | null = null
+  private imageKernel: ImageSeedKernel | null = null
   /** What the stored view was traced of; null when there is none. */
   keys: HistoryKeys | null = null
 
@@ -459,6 +563,44 @@ export class ViewHistory {
     }
     renderer.copyTextureToTexture(tracer.outputTarget, this.color)
     renderer.copyTextureToTexture(tracer.sampleCountTarget, this.counts)
+    renderer.copyTextureToTexture(gbuffer.history, this.geometry)
+    renderer.copyTextureToTexture(gbuffer.normal, this.normal)
+    renderer.copyTextureToTexture(gbuffer.albedo, this.albedo)
+    this.view.position.copy(gbuffer.position)
+    this.view.viewProjection.copy(gbuffer.viewProjection)
+    this.view.viewToWorld.copy(gbuffer.viewToWorld)
+    this.view.pixelAngle = gbuffer.pixelAngle
+    this.keys = { ...keys }
+  }
+
+  /**
+   * Keeps a view no tracer traced: `image`, a Cycles render seen from `gbuffer`'s camera, through
+   * `table` (agxInverse.ts), as `count` samples a pixel, at `width` × `height`.
+   */
+  storeImage(
+    renderer: WebGPURenderer,
+    seed: { image: Texture; table: Texture; count: number; ceiling: number },
+    gbuffer: GBuffer,
+    keys: HistoryKeys,
+    width: number,
+    height: number,
+  ) {
+    for (const t of this.textures) {
+      const size = t.image as { width: number; height: number }
+      if (size.width !== width || size.height !== height) t.setSize(width, height, 1)
+    }
+    const k = (this.imageKernel ??= new ImageSeedKernel().setWorkgroupSize(
+      8,
+      8,
+      1,
+    ) as ImageSeedKernel)
+    k.color = this.color
+    k.counts = this.counts
+    k.image = seed.image
+    k.table = seed.table
+    k.count = seed.count
+    k.ceiling = seed.ceiling
+    renderer.compute(k.kernel, k.getDispatchSize(width, height, 1))
     renderer.copyTextureToTexture(gbuffer.history, this.geometry)
     renderer.copyTextureToTexture(gbuffer.normal, this.normal)
     renderer.copyTextureToTexture(gbuffer.albedo, this.albedo)
@@ -519,6 +661,7 @@ export class ViewHistory {
   dispose() {
     for (const t of this.textures) t.dispose()
     this.kernel?.dispose()
+    this.imageKernel?.dispose()
   }
 }
 
@@ -543,14 +686,14 @@ export class MultiViewHistory {
     }
   }
 
-  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, keys: HistoryKeys) {
-    const { width, height } = tracer.outputTarget.image as { width: number; height: number }
+  /** The entry a view at `gbuffer`'s pose is kept in: its own, else a new or the oldest one. */
+  private slot(gbuffer: GBuffer, keys: HistoryKeys, width: number, height: number) {
     const size = `${width}:${height}`
     if (this.scene !== keys.scene || this.size !== size) this.clear()
     this.scene = keys.scene
     this.size = size
     const capacity = historyCapacity(width, height)
-    if (!capacity) return
+    if (!capacity) return null
     const pose = this.pose(gbuffer)
     let entry = this.entries.find((entry) => historyDistance(entry.pose, pose) < 0.025)
     if (!entry && this.entries.length >= capacity)
@@ -559,10 +702,34 @@ export class MultiViewHistory {
       entry = { history: new ViewHistory(), pose, used: 0, surfaces: keys.surfaces }
       this.entries.push(entry)
     }
-    entry.history.store(renderer, tracer, gbuffer, keys)
     entry.pose = pose
     entry.surfaces = keys.surfaces
     entry.used = ++this.clock
+    return entry
+  }
+
+  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, keys: HistoryKeys) {
+    const { width, height } = tracer.outputTarget.image as { width: number; height: number }
+    this.slot(gbuffer, keys, width, height)?.history.store(renderer, tracer, gbuffer, keys)
+  }
+
+  /** Keeps a view from a Cycles image (ViewHistory.storeImage). */
+  storeImage(
+    renderer: WebGPURenderer,
+    seed: { image: Texture; table: Texture; count: number; ceiling: number },
+    gbuffer: GBuffer,
+    keys: HistoryKeys,
+    width: number,
+    height: number,
+  ) {
+    this.slot(gbuffer, keys, width, height)?.history.storeImage(
+      renderer,
+      seed,
+      gbuffer,
+      keys,
+      width,
+      height,
+    )
   }
 
   seed(

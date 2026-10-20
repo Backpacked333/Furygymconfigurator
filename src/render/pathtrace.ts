@@ -735,13 +735,7 @@ export class PathTraceSession {
       this.tracer.updateCamera()
     }
     this.materialsStale = false
-    // Samples of a different design, time of day, or texture set describe a different image. Kept
-    // across surface edits only where asked: there a view of other surfaces seeds just a little.
-    const surfaces = Math.imul(signature ^ this.scans, 16777619) >>> 0
-    const keys: HistoryKeys = {
-      scene: this.options.keepHistoryAcrossSurfaces ? historySignature(scene, key) : surfaces,
-      surfaces,
-    }
+    const keys = this.historyKeys(scene, key, signature)
     if (this.traced?.scene !== keys.scene) this.history.clear()
     this.traced = keys
     this.signature = signature
@@ -772,6 +766,52 @@ export class PathTraceSession {
     this.measuring = false
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0, milestones: [] }
+  }
+
+  /**
+   * What a view of `scene` is kept under. Samples of a different design, time of day, or texture
+   * set describe a different image. Kept across surface edits only where asked: there a view of
+   * other surfaces seeds just a little.
+   */
+  private historyKeys(scene: Scene, key: string, signature: number): HistoryKeys {
+    const surfaces = Math.imul(signature ^ this.scans, 16777619) >>> 0
+    return {
+      scene: this.options.keepHistoryAcrossSurfaces ? historySignature(scene, key) : surfaces,
+      surfaces,
+    }
+  }
+
+  /**
+   * Keeps a Cycles render of `scene` as a view already traced (the library image the 360° view
+   * opens on, seen from its own `camera`): the next view that starts near it is seeded from its
+   * light, as from any view traced before, through the same checks (history.ts). Call while no
+   * view is tracing, before the first `begin`, with the scale that `begin` will be given.
+   */
+  storeImage(
+    scene: Scene,
+    camera: PerspectiveCamera,
+    look: SkyLook,
+    seed: { image: Texture; table: Texture; count: number; ceiling: number },
+    renderScale = this.tracer.renderScale,
+  ) {
+    if (this.state !== 'off') return false
+    const key = lookKey(look)
+    const keys = this.historyKeys(scene, key, partsSignature(sceneParts(scene), key))
+    if (this.traced?.scene !== keys.scene) this.history.clear()
+    this.traced = keys
+    const size = this.renderer.getDrawingBufferSize(new Vector2())
+    // Sized as syncSize sizes the trace, so the stored view matches the first one begun.
+    const width = Math.max(1, Math.floor(renderScale * size.x))
+    const height = Math.max(1, Math.floor(renderScale * size.y))
+    const gbuffer = new GBuffer()
+    try {
+      gbuffer.render(this.renderer, scene, camera, width, height)
+      this.history.storeImage(this.renderer, seed, gbuffer, keys, width, height)
+    } finally {
+      // The copies are submitted: the guides may go.
+      gbuffer.dispose()
+    }
+    return true
   }
 
   /** The atlas's per-texture entries, which the kernels' textureInfo array is sized from. */

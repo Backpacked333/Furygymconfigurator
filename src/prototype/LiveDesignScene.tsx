@@ -28,6 +28,7 @@ export default memo(function LiveDesignScene({
   onStatus,
   onUnavailable,
   onLeaveEntry,
+  entryImage,
 }: {
   design: DesignEnvelope
   active: boolean
@@ -40,12 +41,18 @@ export default memo(function LiveDesignScene({
   onUnavailable: () => void
   /** Once per opening: the camera has left `pose`, the gallery image's own camera. */
   onLeaveEntry?: () => void
+  /** The design's own Cycles image, seen from `pose`: the first trace there starts from it. */
+  entryImage?: string
 }) {
   const config = useMemo(() => projectDesignToConfig(design), [design])
   const [quality] = useState(defaultQuality)
   const staged = useStagedScene(config, quality)
   const camera = resolveCamera(design.presentation.cameraRef)
   const pose = useMemo(() => resolveNativeCamera(design), [design])
+  const entry = useMemo(
+    () => (entryImage ? { pose, image: entryImage } : undefined),
+    [pose, entryImage],
+  )
   // Experimental `?arc=N` (ADR-003): the exterior orbit kept to a window around this design's
   // cameras. Read once; the window follows the design, but a finish edit (a new design object for
   // the same cameras) hands CameraRig the same window.
@@ -92,6 +99,7 @@ export default memo(function LiveDesignScene({
               place={camera.group}
               onReady={onReady}
               onStatus={onStatus}
+              entry={entry}
             />
             <EntryWatch active={active} pose={pose} onLeave={onLeaveEntry} />
           </>

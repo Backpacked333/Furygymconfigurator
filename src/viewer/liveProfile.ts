@@ -20,6 +20,12 @@ export type LiveProfile = {
   batchMs: number
   maxPasses: number
   rest: { afterMs: number; batchMs: number; maxPasses: number } | null
+  /**
+   * Samples a pixel of the design's own Cycles image stands for, where the view opens on it
+   * (ProgressiveRenderer `entry`). Few: real samples outweigh them within a second, so whatever
+   * the image and the trace disagree on fades instead of persisting.
+   */
+  cyclesSeedSamples: number
 }
 
 /**
@@ -43,7 +49,7 @@ export function liveProfile(quality: Quality): LiveProfile {
   const pacing = { fadeMs: 260, firstFadeMs: 120, batchMs: 12, maxPasses: 8 }
   return quality === 'lite'
     ? // Phones keep their batches small throughout: a long trace there is a warm one.
-      { samples: 128, maxBounces: 4, ...CYCLES_CLAMPS, ...pacing, rest: null }
+      { samples: 128, maxBounces: 4, ...CYCLES_CLAMPS, ...pacing, rest: null, cyclesSeedSamples: 8 }
     : {
         samples: 1024,
         maxBounces: 7,
@@ -52,6 +58,7 @@ export function liveProfile(quality: Quality): LiveProfile {
         // After a second at rest the raster draws nothing, so batches may take two frames' time:
         // a press then waits at most that one batch, about 24 ms, before the view answers.
         rest: { afterMs: 1000, batchMs: 24, maxPasses: 16 },
+        cyclesSeedSamples: 16,
       }
 }
 
@@ -61,6 +68,11 @@ export function liveProfile(quality: Quality): LiveProfile {
  */
 export function earlyImages(search = window.location.search) {
   return new URLSearchParams(search).get('firstImage') !== '8'
+}
+
+/** `?cyclesSeed=0` starts the first trace without the design's Cycles image, to compare. */
+export function cyclesSeed(search = window.location.search) {
+  return new URLSearchParams(search).get('cyclesSeed') !== '0'
 }
 
 /**

@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { PerspectiveCamera, Scene, Vector3, type Vector2 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
+import type { GalleryCamera } from '../render/gallery'
 import { textureProgress } from '../render/progress'
 import { ProgressiveRenderer } from './ProgressiveRenderer'
 
@@ -36,7 +37,10 @@ const mocks = vi.hoisted(() => ({
   keepDecoded: vi.fn((keep: boolean) => Promise.resolve(keep ? [] : [])),
   session: vi.fn(),
   present: { capture: vi.fn(), render: vi.fn(), dispose: vi.fn() },
+  /** The inverse-AgX table's load. */
+  table: vi.fn(),
   trace: {
+    storeImage: vi.fn<(...args: unknown[]) => boolean>(() => true),
     begin: vi.fn(),
     halt: vi.fn(),
     step: vi.fn(),
@@ -66,6 +70,7 @@ vi.mock('../render/renderer', () => ({
   FRAME_BEGIN: -1000,
 }))
 vi.mock('./presentation', () => ({ createProgressivePresentation: () => mocks.present }))
+vi.mock('../render/agxInverse', () => ({ loadAgxInverse: mocks.table }))
 vi.mock('../render/pathtrace', () => ({
   loadTracerModule: mocks.load,
   sceneSignature: () => mocks.signature,
@@ -266,6 +271,137 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     expect(mocks.load).not.toHaveBeenCalled()
     expect(mocks.pipe.render).toHaveBeenCalled()
     expect(status).toHaveBeenCalledWith('raster-only')
+  })
+
+  describe('the first trace at the entry pose, from the design’s Cycles image', () => {
+    // The test camera's own pose: at the origin, looking down -z, at its default field of view.
+    const entry = {
+      pose: { position: [0, 0, 0], target: [0, 0, -5], fov: 50 } as GalleryCamera,
+      image: 'blob:entry',
+    }
+    let decoded: (() => void) | null
+    beforeEach(() => {
+      decoded = null
+      mocks.table.mockResolvedValue({ isTexture: true })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(new Blob(['webp'])))),
+      )
+      vi.stubGlobal(
+        'createImageBitmap',
+        vi.fn(
+          () =>
+            new Promise((resolve) => {
+              decoded = () => resolve({ width: 1920, height: 1200, close: vi.fn() })
+            }),
+        ),
+      )
+    })
+    /** Lets the fetch and the table settle, leaving the decode to `decoded`. */
+    const flush = () => act(async () => {})
+
+    it('waits for the image to decode, then keeps it as a traced view before the first start', async () => {
+      await render({ entry })
+      await flush()
+      settle()
+      expect(mocks.trace.begin).not.toHaveBeenCalled()
+      decoded!()
+      await flush()
+      settle()
+      expect(mocks.trace.storeImage).toHaveBeenCalledOnce()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(mocks.trace.storeImage.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.trace.begin.mock.invocationCallOrder[0],
+      )
+      const [, lens, , seed, scale] = mocks.trace.storeImage.mock.lastCall! as unknown as [
+        unknown,
+        PerspectiveCamera,
+        unknown,
+        { count: number; ceiling: number; image: { flipY: boolean; colorSpace: string } },
+        number,
+      ]
+      // The image's own camera, at its own aspect, and the scale the start traces at.
+      expect(lens.fov).toBe(50)
+      expect(lens.aspect).toBeCloseTo(1920 / 1200)
+      expect(lens.position.toArray()).toEqual([0, 0, 0])
+      expect(seed).toMatchObject({ count: 16, ceiling: 0.94 })
+      expect(seed.image).toMatchObject({ flipY: false, colorSpace: '' })
+      expect(scale).toBe(mocks.trace.begin.mock.lastCall![4])
+      // Once: later starts at the pose begin from what the view traced since.
+      camera.position.x = 1
+      frame()
+      camera.position.x = 0
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+      expect(mocks.trace.storeImage).toHaveBeenCalledOnce()
+    })
+
+    it('starts unseeded rather than wait more than 800 ms for it', async () => {
+      await render({ entry })
+      await flush()
+      for (let i = 0; i < 40 && !mocks.trace.begin.mock.calls.length; i++) frame()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(now).toBeGreaterThanOrEqual(800)
+      expect(now).toBeLessThan(800 + 3 * 32)
+      decoded!()
+      await flush()
+      settle()
+      expect(mocks.trace.storeImage).not.toHaveBeenCalled()
+    })
+
+    it('uses Lite’s smaller share of samples for it', async () => {
+      await render({ entry, quality: 'lite' })
+      await flush()
+      decoded!()
+      await flush()
+      settle()
+      expect(mocks.trace.storeImage.mock.lastCall![3]).toMatchObject({ count: 8 })
+    })
+
+    it('never seeds a start away from the pose, or without an image, or under ?cyclesSeed=0', async () => {
+      camera.position.x = 2
+      await render({ entry })
+      await flush()
+      decoded!()
+      await flush()
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(mocks.trace.storeImage).not.toHaveBeenCalled()
+      act(() => root.unmount())
+      root = createRoot(host)
+      camera.position.x = 0
+      vi.clearAllMocks()
+      await render({ entry: undefined })
+      settle()
+      expect(fetch).not.toHaveBeenCalled()
+      expect(mocks.trace.storeImage).not.toHaveBeenCalled()
+      act(() => root.unmount())
+      root = createRoot(host)
+      window.history.replaceState(null, '', '/?cyclesSeed=0')
+      try {
+        await render({ entry })
+        await flush()
+        settle()
+        expect(fetch).not.toHaveBeenCalled()
+        expect(mocks.trace.storeImage).not.toHaveBeenCalled()
+        expect(mocks.trace.begin).toHaveBeenCalled()
+      } finally {
+        window.history.replaceState(null, '', '/')
+      }
+    })
+
+    it('starts unseeded when the image cannot be read', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
+      )
+      await render({ entry })
+      await flush()
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(now).toBeLessThan(800)
+      expect(mocks.trace.storeImage).not.toHaveBeenCalled()
+    })
   })
 
   it('returns to raster rendering if refinement fails', async () => {

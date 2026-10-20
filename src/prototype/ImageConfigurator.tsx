@@ -306,6 +306,8 @@ function ImageConfiguratorContents({
   // This design's own rendered image is on the stage (not the previous one, kept while it loads):
   // the live view opens at its exact camera, so it can stand for the view until the view moves.
   const entryImage = nativeLibrary && image.current && !!nativeShown
+  // Its pixels, which the live view's first trace starts from (ProgressiveRenderer `entry`).
+  const entrySrc = entryImage && image.shown && 'src' in image.shown ? image.shown.src : undefined
   // It stops standing for it with an edit, dimensions (labels in the scene) or auto-rotation. A
   // view that has not drawn yet has nothing to fade in.
   if (curtain === 'still' && (!entryImage || dimensions || autoRotate))
@@ -618,6 +620,7 @@ function ImageConfiguratorContents({
                     dimensions={dimensions}
                     autoRotate={autoRotate}
                     reset={resetView}
+                    entryImage={entrySrc}
                     curtain={curtain}
                     leaving={leaving}
                     onReadyChange={setViewerReady}

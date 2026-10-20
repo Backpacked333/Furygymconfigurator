@@ -47,6 +47,8 @@ export function LiveViewport(props: {
   dimensions: boolean
   autoRotate: boolean
   reset: number
+  /** The design's own Cycles image, on the stage at the camera the view opens at; none otherwise. */
+  entryImage?: string
   curtain: LiveCurtain
   /** Closing: the inactive view stays up, holding its last frame, to fade off the gallery image. */
   leaving: boolean

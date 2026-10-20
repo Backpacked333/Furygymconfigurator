@@ -1,7 +1,17 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Matrix4, Vector2, type PerspectiveCamera, type WebGPURenderer } from 'three/webgpu'
+import {
+  Matrix4,
+  NearestFilter,
+  NoColorSpace,
+  PerspectiveCamera,
+  Texture,
+  Vector2,
+  type WebGPURenderer,
+} from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
+import { loadAgxInverse } from '../render/agxInverse'
+import type { GalleryCamera } from '../render/gallery'
 import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
 import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
@@ -9,7 +19,9 @@ import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pi
 import { sceneProgress, textureProgress } from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
 import { FrameGuard } from './frameGuard'
-import { earlyImages, liveProfile, traceScale } from './liveProfile'
+import { pixelsFromPose } from './entryPose'
+import { ENTRY_TOLERANCE_PX } from './EntryWatch'
+import { cyclesSeed, earlyImages, liveProfile, traceScale } from './liveProfile'
 import { createProgressivePresentation } from './presentation'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
@@ -20,6 +32,13 @@ export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 
 const REST_MS = 80
 /** Raster frames drawn after a change before tracing may start: the capture is a settled frame. */
 const START_FRAMES = 3
+/**
+ * Code values at or above which a pixel of the Cycles image seeds nothing: near white, a level of
+ * an 8-bit image spans a large step of light (agxInverse.ts), past about 3.3× middle grey here.
+ */
+const SEED_CEILING = 0.94
+/** Longest the first start at the entry pose waits for its Cycles image to decode. */
+const SEED_WAIT_MS = 800
 /** Longest the first frame waits for shaders to compile asynchronously before drawing anyway. */
 const WARM_TIMEOUT_MS = 1500
 const drawingBuffer = new Vector2()
@@ -56,6 +75,7 @@ export function ProgressiveRenderer({
   place,
   onReady,
   onStatus,
+  entry,
 }: {
   active: boolean
   revision: string
@@ -64,6 +84,12 @@ export function ProgressiveRenderer({
   place: 'exterior' | 'interior'
   onReady: () => void
   onStatus: (status: ViewerStatus) => void
+  /**
+   * The design's own Cycles image (`image`) and the camera it was rendered from (`pose`), where
+   * the view opens on it: the first trace started there begins from that image's light, as from a
+   * view already traced (PathTraceSession storeImage), rather than from nothing.
+   */
+  entry?: { pose: GalleryCamera; image: string }
 }) {
   const { gl, scene, camera, invalidate, size, viewport } = useThree()
   const renderer = gl as unknown as WebGPURenderer
@@ -92,10 +118,14 @@ export function ProgressiveRenderer({
     shed: () => void
     /** The lean pipeline, compiled and waiting for a rest to take over. */
     lean: Pipeline | null
+    /** The entry's Cycles image, decoding or decoded, until the first start at its pose. */
+    seed: EntrySeed | null
+    prepareSeed: () => void
   } | null>(null)
-  const props = useRef({ active, look, place, onReady, onStatus })
+  const props = useRef({ active, look, place, onReady, onStatus, entry })
   useLayoutEffect(() => {
-    props.current = { active, look, place, onReady, onStatus }
+    props.current = { active, look, place, onReady, onStatus, entry }
+    state.current?.prepareSeed()
     if (state.current) {
       state.current.dirty = true
       if (!active) {
@@ -115,6 +145,7 @@ export function ProgressiveRenderer({
     size.width,
     size.height,
     viewport.dpr,
+    entry,
   ])
 
   useEffect(() => {
@@ -141,8 +172,23 @@ export function ProgressiveRenderer({
       shedDue: false,
       shed: () => {},
       lean: null as Pipeline | null,
+      seed: null as EntrySeed | null,
+      prepareSeed: () => {},
     }
     state.current = runtime
+    // The entry's image is on the stage already, so fetching it again reads the browser's cache;
+    // it decodes off the main thread. Once per image: a reopened view whose history holds it
+    // already, or a camera that left the pose first, has no use for it.
+    runtime.prepareSeed = () => {
+      const entry = props.current.entry
+      if (!runtime.tracer || !entry || runtime.seed?.image === entry.image || !cyclesSeed()) return
+      runtime.seed?.dispose()
+      const seed = entrySeed(entry.image, performance.now() + SEED_WAIT_MS)
+      runtime.seed = seed
+      void seed.loaded.then(() => {
+        if (!disposed && props.current.active) invalidate()
+      })
+    }
     // Building the lean graph is synchronous CPU work, so it starts at rest; the current pipeline
     // keeps drawing while the new one compiles, and the swap waits for a rest too.
     runtime.shed = () => {
@@ -242,6 +288,7 @@ export function ProgressiveRenderer({
             keepHistoryAcrossSurfaces: true,
           })
           runtime.dirty = true
+          runtime.prepareSeed()
           if (props.current.active) invalidate()
         })
         .catch(() => {
@@ -262,6 +309,7 @@ export function ProgressiveRenderer({
       window.removeEventListener('blur', up)
       document.removeEventListener('visibilitychange', visibility)
       runtime.tracer?.dispose()
+      runtime.seed?.dispose()
       if (kept) void keepDecodedTextures(false)
       runtime.present.dispose()
       runtime.pipe.dispose()
@@ -342,19 +390,51 @@ export function ProgressiveRenderer({
       report(current.failed ? 'raster-only' : 'interactive')
       current.drawn++
       const textures = textureProgress.get()
+      // The first start at the entry's pose begins from its Cycles image: wait a little for it to
+      // decode, never longer than SEED_WAIT_MS.
+      const entry = props.current.entry
+      const seed = current.seed
+      const atEntry =
+        !!entry &&
+        !!seed &&
+        seed.image === entry.image &&
+        !seed.used &&
+        seed.state !== 'failed' &&
+        pixelsFromPose(
+          camera as PerspectiveCamera,
+          entry.pose,
+          // The stage's height in CSS pixels, as EntryWatch measures it.
+          renderer.domElement.clientHeight || renderer.getDrawingBufferSize(drawingBuffer).y,
+        ) <= ENTRY_TOLERANCE_PX
+      const awaitingSeed = atEntry && seed!.state === 'loading' && now < seed!.until
       if (
         tracer &&
         !current.failed &&
         !current.interacting &&
         now >= current.restAt &&
         current.drawn >= START_FRAMES &&
-        textures.loaded >= textures.requested
+        textures.loaded >= textures.requested &&
+        !awaitingSeed
       ) {
         try {
           current.present.capture(() => pipe.render())
           // A resize marks the view changed, so each start reads the canvas's size again.
           renderer.getDrawingBufferSize(drawingBuffer)
           const scale = traceScale(quality, drawingBuffer.x, drawingBuffer.y)
+          if (atEntry && seed!.state === 'ready') {
+            seed!.used = true
+            try {
+              const stored = seed!.store(tracer, scene, entry!.pose, props.current.look, {
+                count: liveProfile(quality).cyclesSeedSamples,
+                ceiling: SEED_CEILING,
+                scale,
+              })
+              if (stored) timeline(() => performance.mark('fury:trace-cycles-seed'))
+            } catch {
+              // The view starts unseeded, as without an image.
+            }
+            seed!.dispose()
+          }
           // Its first start builds the tracer's BVH, the view's longest main-thread stall.
           const began = performance.now()
           tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples, scale)
@@ -374,7 +454,8 @@ export function ProgressiveRenderer({
       if (
         !current.tracing &&
         (current.drawn < Math.max(START_FRAMES, pipe.settleFrames) ||
-          (!current.failed && now < current.restAt))
+          (!current.failed && now < current.restAt) ||
+          awaitingSeed)
       )
         invalidate()
     }
@@ -396,4 +477,84 @@ export function ProgressiveRenderer({
     }
   }, 1)
   return null
+}
+
+type EntrySeed = ReturnType<typeof entrySeed>
+
+/**
+ * The entry's Cycles image, fetched (from the browser's cache: it is on the stage) and decoded off
+ * the main thread, with the inverse of its view transform (agxInverse.ts). Its code values are read
+ * as they are: no colour conversion, no flip (rows top down, as the seed kernel reads them).
+ */
+function entrySeed(image: string, until: number) {
+  let texture: Texture | null = null
+  let table: Texture | null = null
+  let bitmap: ImageBitmap | null = null
+  let disposed = false
+  const seed = {
+    image,
+    until,
+    state: 'loading' as 'loading' | 'ready' | 'failed',
+    used: false,
+    loaded: Promise.resolve(),
+    /** Keeps the image as a traced view of `scene` from `pose`; false if it is not ready. */
+    store(
+      tracer: PathTraceSession,
+      scene: Parameters<PathTraceSession['storeImage']>[0],
+      pose: GalleryCamera,
+      look: SkyLook,
+      options: { count: number; ceiling: number; scale: number },
+    ) {
+      if (!texture || !table || !bitmap) return false
+      const lens = new PerspectiveCamera(pose.fov, bitmap.width / bitmap.height, 0.1, 2000)
+      lens.position.set(...pose.position)
+      lens.lookAt(...pose.target)
+      lens.updateMatrixWorld()
+      return tracer.storeImage(
+        scene,
+        lens,
+        look,
+        { image: texture, table, count: options.count, ceiling: options.ceiling },
+        options.scale,
+      )
+    },
+    dispose() {
+      disposed = true
+      texture?.dispose()
+      bitmap?.close()
+      texture = null
+      bitmap = null
+    },
+  }
+  seed.loaded = Promise.all([
+    loadAgxInverse(),
+    fetch(image)
+      .then((response) => {
+        if (!response.ok) throw new Error(`entry image: ${response.status}`)
+        return response.blob()
+      })
+      .then((blob) =>
+        createImageBitmap(blob, {
+          colorSpaceConversion: 'none',
+          premultiplyAlpha: 'none',
+          imageOrientation: 'none',
+        }),
+      ),
+  ])
+    .then(([lut, decoded]) => {
+      if (disposed) return decoded.close()
+      bitmap = decoded
+      table = lut
+      texture = new Texture(decoded)
+      texture.flipY = false
+      texture.colorSpace = NoColorSpace
+      texture.generateMipmaps = false
+      texture.minFilter = texture.magFilter = NearestFilter
+      texture.needsUpdate = true
+      seed.state = 'ready'
+    })
+    .catch(() => {
+      seed.state = 'failed'
+    })
+  return seed
 }
