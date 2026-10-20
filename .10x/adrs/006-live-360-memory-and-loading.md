@@ -171,3 +171,38 @@ The GPU was mostly idle.
   - A first visit starts over once at the fitted resolution if it is far below.
 - **The BVHs build in a pool** of up to `min(4, cores − 1)` workers, largest first.
 - **The timeline logs** pacing at each image, and the measured rate and settle target.
+
+## Follow-up: tiers by measured cost
+
+### What the second timeline showed
+
+On the user's Mac, after the pacing fix:
+
+- The cost is about 1061 ms per megapixel-sample at 7 bounces, even at half resolution: the GPU itself is the limit.
+- 2 samples arrived at +2.7 s, 16 at +14 s, and the view settled at 64 after 37 s.
+- The user chose light budget mode for slow GPUs, and higher final quality on good or decent ones.
+
+### Tiers
+
+A device's tier comes from its full-depth cost (`deviceTier`). Costs are kept per depth (`traceRate.ts`), so the light mode's own cost never changes the tier.
+
+| Tier    | Clean 16-sample image at the Cycles cap | How it traces                                                                               |
+| ------- | --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| fast    | ≤ 2.5 s                                 | As before. After settling, refines on to what 45 s more buys (`upgradeTarget`), up to 1024. |
+| decent  | ≤ 20 s                                  | Resolution fitted. Upgrades after settling, as fast does.                                   |
+| slow    | slower                                  | `LIGHT` (details below).                                                                    |
+| unknown | first visit                             | Fitted after its first complete sample, starting over once, light if slow.                  |
+
+The slow tier's `LIGHT` settings:
+
+- 4 bounces;
+- down to 0.35 of the canvas across;
+- settles at what 12 s buys, from 16 samples;
+- the lean raster from the start, with no frame guard (so no mid-session rebuild);
+- no upgrade.
+
+### Other changes
+
+- History keys mix in the depth, so a light view never seeds a full one. The Cycles entry seed is stored at the depth its start traces to.
+- The upgrade refines at the view's own resolution. A full-resolution second trace would need the presentation to crossfade from the shown trace image rather than its raster capture. That is not done.
+- `?bootStats=1` names each long task by the step before it.

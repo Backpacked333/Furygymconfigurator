@@ -158,9 +158,16 @@ export function createBootStats(enabled: boolean, doc: Document | null = null) {
       observe('longtask', (entry) => {
         if (entry.startTime < (origin ?? 0)) return
         add(longTasks, entry.duration)
-        if (entry.duration >= 200)
-          record(`main thread blocked ${millis(entry.duration)}`, entry.startTime)
-        else changed()
+        if (entry.duration >= 200) {
+          // Named by the step before it: what the view was doing when the thread froze.
+          const before = rows
+            .filter((row) => row.at <= entry.startTime && !row.text.startsWith('main thread'))
+            .reduce<Row | null>((last, row) => (!last || row.at >= last.at ? row : last), null)
+          record(
+            `main thread blocked ${millis(entry.duration)}${before ? ` (after: ${before.text})` : ''}`,
+            entry.startTime,
+          )
+        } else changed()
       })
       watchFrames()
       mount()
