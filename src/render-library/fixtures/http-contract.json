@@ -34,7 +34,7 @@
     "outputProfile": "web-hero"
   },
   "identity": {
-    "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+    "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
     "recipeRelease": {
       "id": "fury-native-five@2",
       "geometry": "fury-fixed-arrangement-geometry@1",
@@ -53,7 +53,7 @@
       "entry-draft@1": "img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9"
     }
   },
-  "canonicalSet": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"set\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@2\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
+  "canonicalSet": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"set\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@2\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"},\"viewKeying\":\"interior-visible@1\"}",
   "canonicalImage": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"studio-20-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"studio\",\"lengthFt\":20},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"door\":\"hinged\",\"kind\":\"studio\",\"layout\":\"single\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"cameraRef\":\"front-left-draft@1\",\"doorPose\":\"closed\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"image\",\"recipeRelease\":{\"cameras\":\"fury-native-five-cameras@2\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
   "lookup": {
     "contractVersion": "fury.render-library@1",
@@ -131,7 +131,7 @@
     "contractVersion": "fury.render-library@1",
     "status": "ok",
     "identity": {
-      "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+      "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
       "recipeRelease": {
         "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
@@ -158,7 +158,7 @@
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
           "imageKey": "img_bdc6bd791b563307ca14610bcab6b97d4160bf8bb48369842197aeae4f34b686",
           "design": {
             "config": {
@@ -234,7 +234,7 @@
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
           "imageKey": "img_30c9f32c96e36f8e529286d1429cab9abbf936f04361fcaef0a3d6a90791579b",
           "design": {
             "config": {
@@ -310,7 +310,7 @@
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
           "imageKey": "img_3090970b1e397ce999de1d833cc833fdc4867fa7140e341f0e9fefe9f5e97e93",
           "design": {
             "config": {
@@ -386,7 +386,7 @@
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
           "imageKey": "img_6557133a5a0a8fb3ee635cc6f207622ae1308d86e8694ec17e455c89f1b4dc65",
           "design": {
             "config": {
@@ -462,7 +462,7 @@
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7",
+          "setKey": "set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e",
           "imageKey": "img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9",
           "design": {
             "config": {
@@ -506,7 +506,7 @@
             "environments": "fury-selected-landscape-day-night@1",
             "encoding": "webp-q95-1920x1200-1200x1500@1"
           },
-          "url": "https://storage.example/storage/v1/object/public/render-library/set_1c1fa99f47575cddfe0a0b0193cd24365f93ab2bf925b26b41fe17175c85d9d7/img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9/0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245.webp",
+          "url": "https://storage.example/storage/v1/object/public/render-library/set_e740bd10a43fef9407c84fe5b3a908623c662ce230df4720f5b29abcb216360e/img_754f1f53fb51b080002bcc53891dd9b2893c94dabd7daab30713076c9cbe78a9/0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245.webp",
           "sha256": "0c788399c5f4e2410ed1168148ebe8c7af297cb3ad7cefc727bd74cdf59c9245",
           "bytes": 60776,
           "width": 1920,
@@ -544,7 +544,7 @@
     "contractVersion": "fury.render-library@1",
     "status": "ok",
     "identity": {
-      "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+      "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
       "recipeRelease": {
         "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
@@ -571,7 +571,7 @@
         "status": "ready",
         "image": {
           "contractVersion": "fury.render-library@1",
-          "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+          "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
           "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
           "design": {
             "config": {
@@ -676,7 +676,7 @@
     "contractVersion": "fury.render-library@1",
     "status": "ok",
     "identity": {
-      "setKey": "set_43c2924b2c1a7505e3f987d7c8eab4a88c637a02cb664d9f699d456c2b2263d2",
+      "setKey": "set_175252bb238f5286840ed8acf12b93802bd2b335ad26f803c5fedd53b81d6e63",
       "recipeRelease": {
         "id": "fury-native-five@2",
         "geometry": "fury-fixed-arrangement-geometry@1",
@@ -738,7 +738,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -765,7 +765,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -883,7 +883,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -910,7 +910,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -1028,7 +1028,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -1055,7 +1055,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -1173,7 +1173,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -1200,7 +1200,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -1318,7 +1318,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -1345,7 +1345,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -1463,7 +1463,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -1490,7 +1490,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -1632,7 +1632,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -1659,7 +1659,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {
@@ -1801,7 +1801,7 @@
       "contractVersion": "fury.render-library@1",
       "status": "ok",
       "identity": {
-        "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+        "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
         "recipeRelease": {
           "id": "fury-native-five@2",
           "geometry": "fury-fixed-arrangement-geometry@1",
@@ -1828,7 +1828,7 @@
           "status": "ready",
           "image": {
             "contractVersion": "fury.render-library@1",
-            "setKey": "set_8fc642b9460a18c6b3081e155b5f773dd4a9351b655e3ded12edbed4228fd90b",
+            "setKey": "set_beed62d5af6c1a2bb4bf25b3e09efd2b213a8e0e1bfe48423da5b0746fd02af9",
             "imageKey": "img_34b24ac80021a4c9d82d16b80e56e311c93df543678e66228d66515c961cd953",
             "design": {
               "config": {

@@ -13,6 +13,7 @@ import {
   type SetIdentity,
 } from '../../contracts'
 import { canonicalJson, computeSetIdentity } from '../../identity'
+import { FINISHES } from '../../../lib/config'
 import { workerClaimSchema } from '../../workerProtocol'
 import type { ReserveCommand } from '../ports'
 import { checksum } from '../artifacts'
@@ -157,6 +158,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610200003_work_conserving_dispatch.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200004_warm_worker_profile.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200005_warm_build_backlog.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200006_shared_interior_views.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -446,6 +448,42 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
       expect(ledger().reserved_micro_usd).toBe(0)
     },
   )
+  it('reuses an interior published by another set when only exterior choices change', async () => {
+    const interior = imageDescriptorSchema.parse(
+      contract.complete.views.find((view) => view.cameraRef === 'entry-draft@1')!.image,
+    )
+    const identity = await computeSetIdentity(command.request.design)
+    expect(interior.imageKey).toBe(identity.imageKeys['entry-draft@1'])
+    run(`insert into public.render_library_sets(set_key,design,identity,release_id)
+      values(${quote(identity.setKey)},${encoded(command.request.design)},${encoded(identity)},'fury-native-five@2');`)
+    run(`insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
+      values(${quote(interior.imageKey)},${quote(identity.setKey)},'entry-draft@1',${encoded(interior)},${encoded(interior.provenance)});`)
+    const next = structuredClone(command)
+    next.request.idempotencyKey = randomUUID()
+    next.request.design.config.appearance.finish = FINISHES.map((entry) => entry.id).find(
+      (id) => id !== command.request.design.config.appearance.finish,
+    )!
+    const exterior = {
+      ...next,
+      seedImages: [],
+      identity: await computeSetIdentity(next.request.design),
+    }
+    expect(exterior.identity.setKey).not.toBe(identity.setKey)
+    expect(exterior.identity.imageKeys['entry-draft@1']).toBe(interior.imageKey)
+    const result = reserve(exterior)
+    expect(result.status).toBe('admitted')
+    const ready = result.snapshot.views.filter(
+      (view: { status: string }) => view.status === 'ready',
+    )
+    expect(ready.map((view: { cameraRef: string }) => view.cameraRef)).toEqual(['entry-draft@1'])
+    expect(ready[0].image.setKey).toBe(identity.setKey)
+    expect(snapshot(exterior.identity).coverage).toBe('partial')
+    const work = workerClaim(dispatch().dispatch)
+    expect(work.views.map((view: { cameraRef: string }) => view.cameraRef)).not.toContain(
+      'entry-draft@1',
+    )
+    expect(work.views).toHaveLength(4)
+  })
   it('imports unchanged exteriors without jobs or budget and reserves only the new interior', async () => {
     const bytes = readFileSync('public/native-library/manifest.json')
     const design = customerDesignSchema.parse(verifySeedManifest(bytes).entries[0].design)
