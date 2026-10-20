@@ -55,9 +55,12 @@ export function liveProfile(quality: Quality): LiveProfile {
         maxBounces: 7,
         ...CYCLES_CLAMPS,
         ...pacing,
+        // A pass is one bounce of up to 262144 paths: a fast GPU does many in a frame's time, and
+        // the batch's time, not its passes, is what keeps a press answered.
+        maxPasses: 32,
         // After a second at rest the raster draws nothing, so batches may take two frames' time:
         // a press then waits at most that one batch, about 24 ms, before the view answers.
-        rest: { afterMs: 1000, batchMs: 24, maxPasses: 16 },
+        rest: { afterMs: 1000, batchMs: 24, maxPasses: 64 },
         cyclesSeedSamples: 16,
       }
 }

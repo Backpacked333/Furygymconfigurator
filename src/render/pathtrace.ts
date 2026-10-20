@@ -34,7 +34,7 @@ import {
 import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
 import { bench } from './bench'
 import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
-import { nextTracePasses } from './traceBudget'
+import { nextTracePassesOverLatency } from './traceBudget'
 import { stillInstances } from './instances'
 import type { TraceState } from './traceStatus'
 
@@ -684,6 +684,11 @@ export class PathTraceSession {
   private frames = 0
   private passes = 1
   private inFlight = false
+  /**
+   * The fastest a one-pass batch has completed in this session: the completion latency plus one
+   * pass. Batches are sized on the time beyond it (nextTracePassesOverLatency).
+   */
+  private latencyFloor = Infinity
   /** A batch of this view has finished on the GPU: its kernels are built and running. */
   private batchDone = false
   private measuring = false
@@ -1009,6 +1014,7 @@ export class PathTraceSession {
       this.frames++
       this.inFlight = true
       const epoch = this.epoch
+      const submitted = this.passes
       const device = (
         this.renderer.backend as unknown as {
           device: { queue: { onSubmittedWorkDone: () => Promise<void> } }
@@ -1021,9 +1027,18 @@ export class PathTraceSession {
           this.batchDone = true
           // Size batches to roughly two display frames of GPU time.
           const busy = performance.now() - now
+          // The first batch after a capture builds the kernels: no measure of the latency.
+          if (submitted === 1 && this.frames > 1)
+            this.latencyFloor = Math.min(this.latencyFloor, busy)
           const budget = this.budget(now)
           if (budget)
-            this.passes = nextTracePasses(this.passes, busy, budget.batchMs, budget.maxPasses)
+            this.passes = nextTracePassesOverLatency(
+              submitted,
+              busy,
+              this.latencyFloor,
+              budget.batchMs,
+              budget.maxPasses,
+            )
           else if (busy < 28) this.passes = Math.min(MAX_PASSES, Math.ceil(this.passes * 1.5))
           else if (busy > 45) this.passes = Math.max(1, Math.floor(this.passes * 0.75))
         })
