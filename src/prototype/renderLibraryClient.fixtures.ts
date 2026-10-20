@@ -8,7 +8,7 @@ import {
   type ImageDescriptor,
 } from '../render-library/contracts'
 import { computeSetIdentity } from '../render-library/identity'
-import { CUSTOMER_CAMERA_REFS } from '../render-library/views'
+import { CUSTOMER_CAMERA_REFS, viewDesign } from '../render-library/views'
 
 export const jobId = '11111111-1111-4111-8111-111111111111'
 export const storageOrigin = 'https://storage.example.test'
@@ -34,10 +34,7 @@ export async function snapshotFixture(
         contractVersion: CONTRACT_VERSION,
         setKey: identity.setKey,
         imageKey,
-        design: customerDesignSchema.parse({
-          ...design,
-          presentation: { ...design.presentation, cameraRef },
-        }),
+        design: customerDesignSchema.parse(viewDesign(design, cameraRef)),
         recipeRelease: RECIPE_RELEASE,
         url: `${storageOrigin}/render-library/${identity.setKey}/${imageKey}/${sha256}.webp`,
         sha256,

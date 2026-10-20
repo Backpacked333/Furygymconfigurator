@@ -2,6 +2,7 @@
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { API_PATHS, CONTRACT_VERSION, safeError } from '../render-library/contracts'
+import { defaultDesign } from '../domain/design'
 import {
   decodeLibraryImage,
   lookupSet,
@@ -27,6 +28,38 @@ afterEach(() => {
 })
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+it('retrieves the reported 20ft Studio Day set with images published under historical set keys', async () => {
+  const design = defaultDesign({ family: 'container', lengthFt: 20 })
+  design.presentation.lookRef = 'studio-day-draft@1'
+  design.presentation.doorPose = 'open'
+  const snapshot = await snapshotFixture(design, 5)
+  for (const view of snapshot.views) {
+    if (view.status !== 'ready') throw new Error('Expected all saved views')
+    const publishingSet = `set_${'b'.repeat(64)}`
+    view.image.url = view.image.url.replace(view.image.setKey, publishingSet)
+    view.image.setKey = publishingSet
+  }
+  const fetch = vi.fn().mockResolvedValue(response(snapshot))
+  vi.stubGlobal('fetch', fetch)
+  expect((await lookupSet(design, new AbortController().signal)).coverage).toBe('complete')
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.calls[0][0]).toBe(API_PATHS.lookup)
+})
+it('accepts a shared interior across finishes without substituting the exterior views', async () => {
+  const design = defaultDesign({ family: 'studio', lengthFt: 20 })
+  design.config.appearance.finish = 'bronze'
+  const snapshot = await snapshotFixture(design, 5)
+  const interior = snapshot.views.find((view) => view.cameraRef === 'entry-draft@1')!
+  if (interior.status !== 'ready') throw new Error('Expected saved interior')
+  expect(interior.image.design.config.appearance.finish).toBe('obsidian')
+  interior.image.url = interior.image.url.replace(interior.image.setKey, `set_${'b'.repeat(64)}`)
+  interior.image.setKey = `set_${'b'.repeat(64)}`
+  expect(await verifySnapshot(snapshot, design)).toEqual(snapshot)
+  const exterior = snapshot.views[0]
+  if (exterior.status !== 'ready') throw new Error('Expected saved exterior')
+  exterior.image.design.config.appearance.finish = 'obsidian'
+  await expect(verifySnapshot(snapshot, design)).rejects.toThrow('Wrong image design')
+})
 it('looks up exact sets read-only and reads job status without a session or job POST', async () => {
   const design = designFixture(),
     snapshot = await snapshotFixture(design)
