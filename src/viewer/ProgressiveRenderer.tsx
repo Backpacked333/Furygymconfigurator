@@ -41,10 +41,11 @@ import { createProgressivePresentation } from './presentation'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
 /**
- * How long the view must stay still before tracing may start. Short: a trace started in a brief
- * pause and then interrupted costs little, since what it traced is kept and seeds the next start.
+ * How long the view must stay still before tracing may start. Not shorter: each start draws the
+ * denoiser's guides, seeds from the views kept and queues a batch, and each stop stores the view,
+ * so a start in every brief pause of a drag leaves the next move waiting on that work.
  */
-const REST_MS = 80
+export const REST_MS = 150
 /** Raster frames drawn after a change before tracing may start: the capture is a settled frame. */
 const START_FRAMES = 3
 /**

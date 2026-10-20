@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import type { GalleryCamera } from '../render/gallery'
 import { liveLoading, textureProgress, traceProgress } from '../render/progress'
-import { ProgressiveRenderer, TRIM_AFTER_MS } from './ProgressiveRenderer'
+import { ProgressiveRenderer, REST_MS, TRIM_AFTER_MS } from './ProgressiveRenderer'
 
 const mocks = vi.hoisted(() => ({
   frames: new Map<number, () => void>(),
@@ -564,9 +564,10 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       await render({ quality })
       demandLoop(1000 / 60)
       expect(mocks.trace.begin).toHaveBeenCalledOnce()
-      // 80 ms of rest and three raster frames: the start waits no longer than that.
-      expect(now).toBeGreaterThanOrEqual(80)
-      expect(now).toBeLessThan(80 + 2 * (1000 / 60))
+      // The rest window and three raster frames: the start waits no longer than that.
+      expect(REST_MS).toBe(150)
+      expect(now).toBeGreaterThanOrEqual(REST_MS)
+      expect(now).toBeLessThan(REST_MS + 2 * (1000 / 60))
     })
 
   it('paces the live session: early first images, a quick first fade, larger batches at rest', async () => {
