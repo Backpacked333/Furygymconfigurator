@@ -114,6 +114,13 @@ export function DesignPanel({
       unavailableDoorNotice={
         <p className="muted small">Door pose unavailable: this open side has no operable door.</p>
       }
+      fixedDoorNotice={
+        product.family === 'container' ? (
+          <p className="muted small">
+            Container openings are shown open. The interior view looks in from outside.
+          </p>
+        ) : undefined
+      }
       sceneLabel="Landscape"
       sceneDetail="Four settings · Day or Night"
       sceneChoices={SCENE_LANDSCAPES.map((landscape) => ({

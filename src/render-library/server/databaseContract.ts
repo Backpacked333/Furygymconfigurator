@@ -25,11 +25,34 @@ export const DATABASE_CONTRACT = {
         reserved_micro_usd: 'bigint not null default 0',
         charged_micro_usd: 'bigint not null default 0',
         policy: 'jsonb not null',
+        dispatcher_halted: 'boolean not null default false',
+        active_worker_build_sha256:
+          'text references render_library_worker_builds(worker_build_sha256)',
       },
       invariants: [
         'One shared global ledger, locked by admission transaction.',
         'Nonnegative integer currency; reserved + charged <= budget.',
         'No default budget, activation or reconciliation of prior experiments.',
+        'App shutdown is fenced against CPU cycle starts; another live lane must finish first.',
+        'Changing the active execution build never rewrites the customer policy recipe or image keys.',
+      ],
+    },
+    [DATABASE_TABLES.workerBuilds]: {
+      columns: {
+        worker_build_sha256: 'text primary key',
+        release_id: 'text not null references render_library_recipes(release_id)',
+        revision: 'text not null unique',
+        registration: 'jsonb not null',
+        max_active_jobs_per_session: 'smallint not null',
+        parent_worker_build_sha256: 'text',
+        compatibility_evidence: 'jsonb not null',
+        created_at: 'timestamptz not null',
+      },
+      invariants: [
+        'Execution registrations are immutable, append-only and service-role-only.',
+        'A compatibility parent must belong to the same immutable image release.',
+        'Original builds allow one active job per session; the queue build allows two.',
+        'Claims and receipts bind to their own build, not whichever build is now active.',
       ],
     },
     [DATABASE_TABLES.sets]: {
@@ -125,6 +148,7 @@ export const DATABASE_CONTRACT = {
         result: 'jsonb',
         claimed_at: 'timestamptz',
         worker_claimed_at: 'timestamptz',
+        lane: "text not null default 'foreground'",
       },
       unique: ['job_id'],
       invariants: [
@@ -132,6 +156,7 @@ export const DATABASE_CONTRACT = {
         'Never lease-expire/re-send dispatching or uncertain messages.',
         'Worker claim is atomic at most once even if the provider delivers a duplicate.',
         'Crash between claim and spawn requires reconciliation, not automatic retry.',
+        'Claimed unsettled jobs occupy at most one slot per lane and two globally; pending jobs do not occupy GPU slots.',
       ],
     },
     [DATABASE_TABLES.events]: {
@@ -158,10 +183,13 @@ export const DATABASE_CONTRACT = {
         expires_at: 'timestamptz not null',
         window_start: 'timestamptz not null',
         admitted_count: 'integer not null default 0',
+        foreground_job_id: 'uuid references render_library_jobs(id)',
+        foreground_requested_at: 'timestamptz',
       },
       invariants: [
         'Server-issued signed HttpOnly Secure SameSite session cookie.',
-        'Global, session and network rate/concurrency checks share the admission transaction.',
+        'Global, session and network rate checks share the admission transaction; GPU capacity is checked at dispatch.',
+        'The latest explicit request is foreground; a later request never cancels older work.',
         'Request Origin plus CSRF required for create/retry; cross-site cookie minting denied.',
       ],
     },

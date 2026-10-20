@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { defaultDesign, parseDesign, serializeDesign } from '../domain/design'
-import { initialNativeHistory, rememberNativeSelection } from './state'
+import { designHistory, initialNativeHistory, rememberNativeSelection } from './state'
+import { normalizeCustomerDesign } from '../render-library/views'
+import { transitionDesign } from '../domain/designTransitions'
 
 beforeEach(() => {
   localStorage.clear()
@@ -88,13 +90,70 @@ it('preserves an incoming shared design during edits until it has been imported'
   })
   managedHash = rememberNativeSelection(edited, managedHash)
   expect(window.location.hash).toBe(incomingHash)
-  expect(initialNativeHistory().present).toEqual(incoming)
+  expect(initialNativeHistory().present).toEqual(normalizeCustomerDesign(incoming))
   managedHash = rememberNativeSelection(incoming, managedHash)
-  expect(managedHash).toBe(incomingHash)
+  expect(readURIComponentHash(managedHash)).toEqual(normalizeCustomerDesign(incoming))
   const importedEdit = parseDesign({
     ...incoming,
     presentation: { ...incoming.presentation, cameraRef: 'entry-draft@1' },
   })
   rememberNativeSelection(importedEdit, managedHash)
-  expect(initialNativeHistory().present).toEqual(importedEdit)
+  expect(initialNativeHistory().present).toEqual(normalizeCustomerDesign(importedEdit))
+})
+
+function readURIComponentHash(hash: string) {
+  return JSON.parse(decodeURIComponent(hash.slice('#fury-v4='.length)))
+}
+
+it.each([20, 40] as const)(
+  'opens saved and shared %s ft Container doors without rewriting source data',
+  (lengthFt) => {
+    const closed = defaultDesign({ family: 'container', lengthFt })
+    const source = serializeDesign(closed)
+    localStorage.setItem('fury-native-selected-v1', source)
+    expect(initialNativeHistory().present.presentation.doorPose).toBe('open')
+    expect(localStorage.getItem('fury-native-selected-v1')).toBe(source)
+    window.location.hash = '#fury-v4=' + encodeURIComponent(source)
+    expect(initialNativeHistory().present.presentation.doorPose).toBe('open')
+    expect(serializeDesign(closed)).toBe(source)
+  },
+)
+
+it('keeps Container doors open across family changes, opening changes, undo and redo', () => {
+  let history = initialNativeHistory()
+  const commit = (design: ReturnType<typeof defaultDesign>) => {
+    history = designHistory(history, { type: 'commit', design })
+  }
+  commit(
+    transitionDesign(history.present, {
+      type: 'set-product',
+      product: { family: 'container', lengthFt: 40 },
+    }).next,
+  )
+  expect(history.present.presentation.doorPose).toBe('open')
+  commit(
+    transitionDesign(history.present, {
+      type: 'update-structure',
+      patch: { kind: 'container', opening: 'full', infill: 'none' },
+    }).next,
+  )
+  expect(history.present.presentation.doorPose).toBe('closed') // Neutral pose: no physical door.
+  commit(
+    transitionDesign(history.present, {
+      type: 'update-structure',
+      patch: { kind: 'container', infill: 'awning' },
+    }).next,
+  )
+  expect(history.present.presentation.doorPose).toBe('open')
+  history = designHistory(history, { type: 'undo' })
+  expect(history.present.config.structure).toMatchObject({ infill: 'none' })
+  history = designHistory(history, { type: 'redo' })
+  expect(history.present.presentation.doorPose).toBe('open')
+  commit(
+    transitionDesign(history.present, {
+      type: 'update-presentation',
+      patch: { doorPose: 'closed' },
+    }).next,
+  )
+  expect(history.present.presentation.doorPose).toBe('open')
 })

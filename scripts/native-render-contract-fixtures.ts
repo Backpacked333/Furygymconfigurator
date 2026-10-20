@@ -17,6 +17,7 @@ import {
   safeError,
 } from '../src/render-library/contracts'
 import { computeSetIdentity, identityPayload } from '../src/render-library/identity'
+import { normalizeCustomerDesign } from '../src/render-library/views'
 import {
   EXECUTION_LIMITS,
   artifactReceiptSchema,
@@ -37,6 +38,7 @@ import { seedImagesForSet } from '../src/render-library/server/seedCache'
 /** Deterministic TEST vectors only; never prepares scenes, calls providers, or writes image bytes. */
 export async function contractFixtures(root: string) {
   const design = defaultDesign()
+  const container = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 }))
   const identity = await computeSetIdentity(design)
   const jobId = '00000000-0000-4000-8000-000000000001'
   const dispatchId = '00000000-0000-4000-8000-000000000002'
@@ -263,6 +265,13 @@ export async function contractFixtures(root: string) {
     uploadTicketSchema,
   }
   return {
+    'container-camera.json': {
+      testOnly: true,
+      design: container,
+      identity: await computeSetIdentity(container),
+      canonicalSet: identityPayload(container, 'set'),
+      canonicalImage: identityPayload(container, 'image'),
+    },
     'http-contract.json': {
       contractVersion: CONTRACT_VERSION,
       canonicalization:

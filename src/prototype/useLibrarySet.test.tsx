@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { defaultDesign, parseDesign, type DesignEnvelope } from '../domain/design'
 import { safeError, type SetSnapshot } from '../render-library/contracts'
+import { normalizeCustomerDesign } from '../render-library/views'
 import { useLibrarySet } from './useLibrarySet'
 import { LibraryRequestError } from './renderLibraryClient'
 import { jobId, queued, snapshotFixture } from './renderLibraryClient.fixtures'
@@ -54,7 +55,7 @@ it('only looks up on mount, option changes and status refresh; camera switches s
     parseDesign({ ...a, presentation: { ...a.presentation, cameraRef: 'entry-draft@1' } }),
   )
   expect(api.lookup).toHaveBeenCalledTimes(1)
-  await mount(defaultDesign({ family: 'container', lengthFt: 40 }))
+  await mount(normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 })))
   expect(api.lookup).toHaveBeenCalledTimes(2)
   await act(async () => latest.refresh())
   await flush()
@@ -103,6 +104,42 @@ it('persists only a pointer and resumes server-authoritative status after remoun
   expect(api.read).toHaveBeenCalledTimes(1)
   expect(latest.snapshot?.job?.completedImages).toBe(2)
   expect(api.submit).toHaveBeenCalledTimes(1)
+})
+it('allows an explicit second variation without cancelling or automatically repeating the first', async () => {
+  const first = defaultDesign()
+  const second = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 }))
+  const firstJob = queued(await snapshotFixture(first))
+  const secondJob = queued(await snapshotFixture(second))
+  secondJob.job = { ...secondJob.job!, id: '00000000-0000-4000-8000-000000000099' }
+  api.lookup.mockImplementation((design: DesignEnvelope) => snapshotFixture(design))
+  api.read.mockImplementation((id: string) => Promise.resolve(id === jobId ? firstJob : secondJob))
+  let finishFirst!: (snapshot: SetSnapshot) => void
+  api.submit
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishFirst = resolve
+        }),
+    )
+    .mockResolvedValueOnce(secondJob)
+  await mount(first)
+  act(() => {
+    void latest.request()
+  })
+  const firstSignal = api.submit.mock.calls[0][2] as AbortSignal
+  await mount(second)
+  expect(api.submit).toHaveBeenCalledTimes(1)
+  expect(firstSignal.aborted).toBe(false)
+  await act(async () => latest.request())
+  await flush()
+  expect(api.submit).toHaveBeenCalledTimes(2)
+  expect(latest.snapshot?.job?.id).toBe(secondJob.job.id)
+  await act(async () => finishFirst(firstJob))
+  await flush()
+  expect(latest.snapshot?.job?.id).toBe(secondJob.job.id)
+  await mount(first)
+  expect(latest.snapshot?.job?.id).toBe(firstJob.job!.id)
+  expect(api.submit).toHaveBeenCalledTimes(2)
 })
 it('retrieves completed views on a fresh visit without local pointers or another request', async () => {
   const complete = await snapshotFixture(defaultDesign(), 5)
@@ -169,7 +206,7 @@ it('fences A→B→A lookup completion and does not cancel useful shared jobs on
   const pending: ((value: SetSnapshot) => void)[] = []
   api.lookup.mockImplementation(() => new Promise((resolve) => pending.push(resolve)))
   const a = defaultDesign(),
-    b = defaultDesign({ family: 'container', lengthFt: 40 })
+    b = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 }))
   for (const design of [a, b, a]) await mount(design)
   const old = await snapshotFixture(a, 1),
     other = await snapshotFixture(b),

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { designEnvelopeSchema } from '../domain/design.js'
+import { designEnvelopeSchema, hasOperableDoor, type DesignEnvelope } from '../domain/design.js'
 import { CUSTOMER_CAMERA_REFS, LOOK_REFS, presentationSchema } from '../domain/presentation.js'
 
 export const CONTRACT_VERSION = 'fury.render-library@1' as const
@@ -38,12 +38,20 @@ export const RECIPE_RELEASE = Object.freeze({
   environments: 'fury-selected-landscape-day-night@1',
   encoding: 'webp-q95-1920x1200-1200x1500@1',
 })
+/** Same pinned pipeline, distinct camera recipe. Studio's existing cache keys stay unchanged. */
+export const CONTAINER_RECIPE_RELEASE = Object.freeze({
+  ...RECIPE_RELEASE,
+  cameras: 'fury-container-open-exterior-entry-cameras@1',
+})
+export function recipeForDesign(design: DesignEnvelope) {
+  return design.config.product.family === 'container' ? CONTAINER_RECIPE_RELEASE : RECIPE_RELEASE
+}
 export const recipeReleaseSchema = z
   .object({
     id: z.literal(RECIPE_RELEASE.id),
     geometry: z.literal(RECIPE_RELEASE.geometry),
     materials: z.literal(RECIPE_RELEASE.materials),
-    cameras: z.literal(RECIPE_RELEASE.cameras),
+    cameras: z.enum([RECIPE_RELEASE.cameras, CONTAINER_RECIPE_RELEASE.cameras]),
     renderer: z.literal(RECIPE_RELEASE.renderer),
     studio: z.literal(RECIPE_RELEASE.studio),
     environments: z.literal(RECIPE_RELEASE.environments),
@@ -52,13 +60,26 @@ export const recipeReleaseSchema = z
   .strict()
 export type RecipeRelease = z.infer<typeof recipeReleaseSchema>
 
-export const customerDesignSchema = designEnvelopeSchema.safeExtend({
-  presentation: presentationSchema.extend({
-    cameraRef: cameraRefSchema,
-    lookRef: customerLookSchema,
-  }),
-  outputProfile: z.literal('web-hero'),
-})
+export const customerDesignSchema = designEnvelopeSchema
+  .safeExtend({
+    presentation: presentationSchema.extend({
+      cameraRef: cameraRefSchema,
+      lookRef: customerLookSchema,
+    }),
+    outputProfile: z.literal('web-hero'),
+  })
+  .superRefine((design, context) => {
+    if (
+      design.config.product.family === 'container' &&
+      hasOperableDoor(design.config.structure) &&
+      design.presentation.doorPose !== 'open'
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['presentation', 'doorPose'],
+        message: 'Container doors must be shown open.',
+      })
+  })
 
 /** Lookup is read-only even though POST avoids putting a complete design into a URL. */
 export const lookupRequestSchema = z

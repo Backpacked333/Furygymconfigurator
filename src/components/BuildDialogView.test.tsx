@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG, shareUrl, writeSaved } from '../lib/config'
 import { downloadFile } from '../lib/export'
 import { defaultDesign, serializeDesign } from '../domain/design'
+import { normalizeCustomerDesign } from '../render-library/views'
 import { PROTOTYPE_RECOVERY_PREFIX, PROTOTYPE_STORAGE_KEY } from '../domain/prototypeStorage'
 import { DesignLibrary } from '../prototype/DesignLibrary'
 import { downloadPrototypeFile, readPrototypeShare } from '../prototype/state'
@@ -148,7 +149,10 @@ describe('shared build dialog adapters (jsdom, not visual verification)', () => 
     await act(async () => button('Copy local prototype link').click())
     expect(feedback()).toContain('Clipboard unavailable')
     const url = host.querySelector('textarea')!.value
-    expect(readPrototypeShare(new URL(url).hash)).toMatchObject({ status: 'ready', design })
+    expect(readPrototypeShare(new URL(url).hash)).toMatchObject({
+      status: 'ready',
+      design: normalizeCustomerDesign(design),
+    })
     click('Export design JSON')
     expect(vi.mocked(downloadPrototypeFile).mock.calls.at(-1)?.[1]).toBe(serializeDesign(design))
     expect(localStorage.length).toBe(0)
@@ -166,12 +170,14 @@ describe('shared build dialog adapters (jsdom, not visual verification)', () => 
     expect(host.querySelector('.empty-library')).not.toBeNull()
     expect(host.querySelector('.modal-header h2')?.textContent).toBe('Keep the possibilities open.')
     await act(async () => button('Save design locally').click())
-    expect(localStorage.getItem(PROTOTYPE_STORAGE_KEY)).toBe(serializeDesign(design))
+    expect(localStorage.getItem(PROTOTYPE_STORAGE_KEY)).toBe(
+      serializeDesign(normalizeCustomerDesign(design)),
+    )
     expect(localStorage.getItem('fury-builds-v1')).toBe('legacy sentinel')
     expect(host.querySelector('.saved-card .mini-studio')).not.toBeNull()
     expect(feedback()).toContain('Saved the selected v4 snapshot')
     click('Load saved prototype')
-    expect(load).toHaveBeenCalledWith(design)
+    expect(load).toHaveBeenCalledWith(normalizeCustomerDesign(design))
     expect(feedback()).toContain('one Undo step')
   })
 

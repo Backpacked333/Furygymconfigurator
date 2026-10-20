@@ -59,6 +59,7 @@ import {
   initialHistory,
   initialNativeHistory,
   rememberNativeSelection,
+  type HistoryAction,
 } from './state'
 import './prototype.css'
 
@@ -159,6 +160,13 @@ function ImageConfiguratorContents({
       ? ''
       : 'Local DEV prototype. Your edits are kept in memory; save explicitly in My builds.',
   )
+  const noticeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (noticeTimeout.current !== null) clearTimeout(noticeTimeout.current)
+    },
+    [],
+  )
   const [display, setDisplay] = useState<'reference' | 'mock'>('reference')
   const [referenceFailed, setReferenceFailed] = useState(false)
   const [dialog, setDialog] = useState<'specification' | 'help' | 'image' | null>(null)
@@ -190,10 +198,27 @@ function ImageConfiguratorContents({
       : localReal
         ? LOCAL_UNAVAILABLE
         : UNAVAILABLE
-  const notify = useCallback((message: string) => setNotice(message), [])
-  const load = useCallback((next: DesignEnvelope) => {
-    dispatch({ type: 'commit', design: normalizeCustomerDesign(next) })
+  const notify = useCallback((message: string, duration?: number) => {
+    if (noticeTimeout.current !== null) clearTimeout(noticeTimeout.current)
+    noticeTimeout.current = null
+    setNotice(message)
+    if (duration) noticeTimeout.current = setTimeout(() => setNotice(''), duration)
   }, [])
+  const changeHistory = useCallback(
+    (action: HistoryAction) => {
+      if (action.type === 'undo' && !history.past.length) return
+      if (action.type === 'redo' && !history.future.length) return
+      notify('')
+      dispatch(action)
+    },
+    [history.past.length, history.future.length, notify],
+  )
+  const load = useCallback(
+    (next: DesignEnvelope) => {
+      changeHistory({ type: 'commit', design: normalizeCustomerDesign(next) })
+    },
+    [changeHistory],
+  )
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (
@@ -204,19 +229,28 @@ function ImageConfiguratorContents({
         return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault()
-        dispatch({ type: event.shiftKey ? 'redo' : 'undo' })
+        changeHistory({ type: event.shiftKey ? 'redo' : 'undo' })
       }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [])
+  }, [changeHistory])
   function action(action: DesignAction) {
     try {
       const next = transitionDesign(design, action)
       if (!next.changed) return
-      dispatch({ type: 'commit', design: applyDesignCommand(design, next.command, true) })
-      if (next.adjustments.length)
-        notify(`${next.adjustments.join(' ')} Undo restores your previous design.`)
+      changeHistory({ type: 'commit', design: applyDesignCommand(design, next.command, true) })
+      if (action.type === 'set-product') {
+        const { family, lengthFt } = next.next.config.product
+        const reset =
+          family !== design.config.product.family ? ' Model-specific options reset.' : ''
+        notify(
+          `${family === 'studio' ? 'Studio' : 'Container Gym'} · ${lengthFt} ft selected.${reset} Undo available.`,
+          6000,
+        )
+      } else if (next.adjustments.length) {
+        notify('Door options adjusted to match your selection. Undo available.', 6000)
+      }
     } catch {
       notify('That option is not supported by the draft catalog. Your design is unchanged.')
     }
@@ -516,8 +550,8 @@ function ImageConfiguratorContents({
               onView={pickView}
               canUndo={history.past.length > 0}
               canRedo={history.future.length > 0}
-              onUndo={() => dispatch({ type: 'undo' })}
-              onRedo={() => dispatch({ type: 'redo' })}
+              onUndo={() => changeHistory({ type: 'undo' })}
+              onRedo={() => changeHistory({ type: 'redo' })}
               status={
                 !nativeLibrary && (
                   <div className="scene-status">
@@ -868,7 +902,7 @@ function ImageConfiguratorContents({
           </button>
         }
       />
-      <ConfiguratorNotification message={notice} onDismiss={() => setNotice('')} />
+      <ConfiguratorNotification message={notice} onDismiss={() => notify('')} />
       {dialog === 'specification' && (
         <Modal
           title="Design specification"
@@ -1190,7 +1224,7 @@ function ImageConfiguratorContents({
                 )
               )
                 return
-              dispatch({ type: 'commit', design: defaultDesign() })
+              changeHistory({ type: 'commit', design: defaultDesign() })
               setPlan(false)
               setDialog(null)
               notify('Your draft is reset. Undo restores the complete previous design.')

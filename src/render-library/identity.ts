@@ -2,7 +2,7 @@ import { parseDesign, serializeDesign } from '../domain/design.js'
 import { CUSTOMER_CAMERA_REFS } from '../domain/presentation.js'
 import {
   CONTRACT_VERSION,
-  RECIPE_RELEASE,
+  recipeForDesign,
   customerDesignSchema,
   imageDescriptorSchema,
   identitySchema,
@@ -34,7 +34,7 @@ export function identityPayload(input: unknown, kind: 'set' | 'image'): string {
     contractVersion: CONTRACT_VERSION,
     kind,
     design,
-    recipeRelease: RECIPE_RELEASE,
+    recipeRelease: recipeForDesign(design),
   })
 }
 export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
@@ -50,7 +50,7 @@ export async function computeSetIdentity(input: unknown): Promise<SetIdentity> {
   ])
   return identitySchema.parse({
     setKey: `set_${setDigest}`,
-    recipeRelease: RECIPE_RELEASE,
+    recipeRelease: recipeForDesign(design),
     imageKeys: Object.fromEntries(
       CUSTOMER_CAMERA_REFS.map((ref, index) => [ref, `img_${imageDigests[index]}`]),
     ),
@@ -70,6 +70,7 @@ export async function verifyImageDescriptor(
   const identity = await computeSetIdentity(design)
   if (
     image.setKey !== identity.setKey ||
+    canonicalJson(image.recipeRelease) !== canonicalJson(identity.recipeRelease) ||
     image.imageKey !==
       identity.imageKeys[image.design.presentation.cameraRef as keyof SetIdentity['imageKeys']]
   )
