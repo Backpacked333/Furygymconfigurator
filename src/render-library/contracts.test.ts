@@ -8,6 +8,7 @@ import {
   CONTRACT_VERSION,
   MAX_IMAGE_BYTES,
   RECIPE_RELEASE,
+  CONTAINER_RECIPE_RELEASE,
   SEED_MANIFEST_SHA256,
   createJobRequestSchema,
   imageDescriptorSchema,
@@ -58,6 +59,45 @@ const registration = {
 }
 
 describe('five-view customer loading and canonical identity', () => {
+  it('requires open Container doors and isolates the exterior-entry recipe without changing Studio keys', async () => {
+    const closed = defaultDesign({ family: 'container', lengthFt: 40 })
+    expect(
+      lookupRequestSchema.safeParse({ contractVersion: CONTRACT_VERSION, design: closed }).success,
+    ).toBe(false)
+    const open = normalizeCustomerDesign(closed)
+    const identity = await computeSetIdentity(open)
+    expect(identity.recipeRelease).toEqual(CONTAINER_RECIPE_RELEASE)
+    const oldPayload = JSON.parse(identityPayload(open, 'set'))
+    oldPayload.recipeRelease = RECIPE_RELEASE
+    const oldKey = 'set_' + createHash('sha256').update(canonicalJson(oldPayload)).digest('hex')
+    expect(identity.setKey).not.toBe(oldKey)
+    expect(await computeSetIdentity(design)).toEqual(http.identity)
+    const containerClaim = {
+      ...claim,
+      design: open,
+      identity,
+      views: CUSTOMER_CAMERA_REFS.map((cameraRef) => ({
+        cameraRef,
+        imageKey: identity.imageKeys[cameraRef],
+      })),
+    }
+    await expect(verifyWorkerClaim(containerClaim, registration)).resolves.toMatchObject({
+      identity,
+    })
+    await expect(
+      verifyWorkerClaim(
+        {
+          ...containerClaim,
+          identity: {
+            ...identity,
+            recipeRelease: RECIPE_RELEASE,
+          },
+        },
+        registration,
+      ),
+    ).rejects.toThrow('identity mismatch')
+  })
+
   it('defaults only new designs to Studio Day and preserves all historical parsers', () => {
     expect(design.presentation.lookRef).toBe('studio-day-draft@1')
     expect(CUSTOMER_CAMERA_REFS).toHaveLength(5)
@@ -246,15 +286,33 @@ describe('native manifest compatibility and immutable descriptors', () => {
       expect(await verifyImageDescriptor(image, image.design, [])).toEqual(image)
     }
   })
-  it('preserves four Day exteriors and one Night hero without reusing old interior pixels', async () => {
+  it('preserves exact open-door exteriors but never closed Container or old interior pixels', async () => {
     const manifest = verifySeedManifest(manifestBytes)
     const heroes = manifest.entries.filter(
       (entry) => entry.design.presentation.cameraRef === 'front-left-draft@1',
     )
     expect(heroes).toHaveLength(100)
     for (const hero of heroes) {
-      const images = await seedImagesForSet(manifestBytes, hero.design)
-      expect(images).toHaveLength(hero.design.presentation.lookRef === 'studio-day-draft@1' ? 4 : 1)
+      const selected = normalizeCustomerDesign(hero.design)
+      const images = await seedImagesForSet(manifestBytes, selected)
+      const expected = manifest.entries.filter(
+        (entry) =>
+          CUSTOMER_CAMERA_REFS.includes(
+            entry.design.presentation.cameraRef as (typeof CUSTOMER_CAMERA_REFS)[number],
+          ) &&
+          entry.design.presentation.cameraRef !== 'entry-draft@1' &&
+          serializeDesign(entry.design) ===
+            serializeDesign({
+              ...selected,
+              presentation: {
+                ...selected.presentation,
+                cameraRef: entry.design.presentation.cameraRef,
+              },
+            }),
+      )
+      expect(images.map((image) => image.sha256)).toEqual(
+        expected.map((entry) => entry.imageSha256),
+      )
       expect(images.some((image) => image.design.presentation.cameraRef === 'entry-draft@1')).toBe(
         false,
       )

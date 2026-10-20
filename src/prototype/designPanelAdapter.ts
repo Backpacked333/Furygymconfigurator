@@ -70,6 +70,8 @@ export function designPanelAction(design: DesignEnvelope, change: ConfigPanelCha
       break
     case 'doorsOpen':
       if (!hasOperableDoor(structure)) throw new Error('This open side has no operable door.')
+      if (product.family === 'container' && !change.value)
+        throw new Error('Container doors are always shown open.')
       if (typeof change.value !== 'boolean') throw new Error('Door pose requires a boolean intent.')
       action = {
         type: 'update-presentation',

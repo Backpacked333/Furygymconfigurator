@@ -110,6 +110,7 @@ export type ConfigPanelViewProps = {
   renderSettings?: ReactNode
   notices?: ReactNode
   unavailableDoorNotice?: ReactNode
+  fixedDoorNotice?: ReactNode
   conceptDescription?: ReactNode
 }
 
@@ -186,6 +187,7 @@ export function ConfigPanelView({
   renderSettings,
   notices,
   unavailableDoorNotice,
+  fixedDoorNotice,
   conceptDescription = 'All models are procedural interpretations, not manufacturer CAD. Structural suitability, roof occupancy, stair design, equipment clearances, accessibility, permits, HVAC, and site services require professional review. No AR, zoning checks, or engineering certification is implied.',
 }: ConfigPanelViewProps) {
   const product = productFamily(c.family)
@@ -461,16 +463,17 @@ export function ConfigPanelView({
                 </div>
               </>
             )}
-            {operable ? (
-              <ConfigPanelToggle
-                label={operableLabel}
-                detail="Visualization only. Shows how the door or glazing operates."
-                checked={c.doorsOpen}
-                onChange={() => onFieldChange({ field: 'doorsOpen', value: !c.doorsOpen })}
-              />
-            ) : (
-              unavailableDoorNotice
-            )}
+            {fixedDoorNotice ??
+              (operable ? (
+                <ConfigPanelToggle
+                  label={operableLabel}
+                  detail="Visualization only. Shows how the door or glazing operates."
+                  checked={c.doorsOpen}
+                  onChange={() => onFieldChange({ field: 'doorsOpen', value: !c.doorsOpen })}
+                />
+              ) : (
+                unavailableDoorNotice
+              ))}
             <div className="section-label">
               Concept color study <span>{FINISHES.find((f) => f.id === c.finish)!.name}</span>
             </div>

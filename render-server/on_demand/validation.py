@@ -63,6 +63,18 @@ def validate_claim(claim, recipe):
     release = claim["identity"]["recipeRelease"]
     if release["id"] != recipe["releaseId"] or release["id"] != "fury-native-five@2":
         raise ValueError("recipe-mismatch")
+    container = claim["design"]["config"]["product"]["family"] == "container"
+    cameras = (
+        "fury-container-open-exterior-entry-cameras@1"
+        if container else "fury-native-five-cameras@2"
+    )
+    if release["cameras"] != cameras:
+        raise ValueError("camera-recipe-mismatch")
+    structure = claim["design"]["config"]["structure"]
+    if container:
+        operable = structure["opening"] == "roll-up" or structure["infill"] != "none"
+        if claim["design"]["presentation"]["doorPose"] != ("open" if operable else "closed"):
+            raise ValueError("container-door-pose")
     if identity(claim["design"], "set", release) != claim["identity"]["setKey"]:
         raise ValueError("set-mismatch")
     if set(claim["identity"]["imageKeys"]) != set(CAMERAS):

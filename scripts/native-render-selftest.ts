@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { prepareNativeClaim } from './native-render-prepare'
 import { computeSetIdentity } from '../src/render-library/identity'
-import { parseDesign } from '../src/domain/design'
+import { defaultDesign, parseDesign } from '../src/domain/design'
+import { normalizeCustomerDesign } from '../src/render-library/views'
+import { resolveNativeCamera } from '../src/render/prototype/privateScene'
 import { equirectRadiance } from '../src/lib/visuals'
 
 const fixture = JSON.parse(readFileSync('src/render-library/fixtures/worker-adapter.json', 'utf8'))
@@ -137,6 +139,40 @@ try {
     assert.equal(scene.height, 1500)
     assert.equal(scene.design.presentation.cameraRef, view.cameraRef)
   }
+  for (const lengthFt of [20, 40] as const)
+    for (const aspect of ['wide', 'tall'] as const) {
+      const baseDesign = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt }))
+      const design = parseDesign({
+        ...baseDesign,
+        presentation: {
+          ...baseDesign.presentation,
+          aspect,
+          cameraRef: 'entry-draft@1',
+        },
+      })
+      const identity = await computeSetIdentity(design)
+      const output = join(base, `container-${lengthFt}-${aspect}`)
+      const result = await prepareNativeClaim(
+        {
+          ...fixture.claim,
+          design,
+          identity,
+          views: [{ cameraRef: 'entry-draft@1', imageKey: identity.imageKeys['entry-draft@1'] }],
+        },
+        recipe,
+        output,
+      )
+      const scene = JSON.parse(
+        readFileSync(join(output, result.views[0].imageKey + '.json'), 'utf8'),
+      )
+      assert.equal(scene.design.presentation.doorPose, 'open')
+      assert.equal(scene.design.config.product.family, 'container')
+      assert.equal(
+        result.views[0].cameraBindingSha256,
+        createHash('sha256').update(JSON.stringify(scene.camera)).digest('hex'),
+      )
+      assert.ok(resolveNativeCamera(design).position[2] > 4)
+    }
   // Blender environment u=1/2-atan2(y,x)/2pi,v=1/2+asin(z)/pi.
   // Existing native mapping rotates +pi/2 around X: (x,y,z)->(x,-z,y).
   // Thus Three's azimuth and north/south are retained, with rows bottom-up.

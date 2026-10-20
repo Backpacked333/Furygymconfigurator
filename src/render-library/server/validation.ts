@@ -39,6 +39,7 @@ export async function verifyArtifactReceipt(
   }
   if (
     !requested ||
+    canonicalJson(receipt.recipeRelease) !== canonicalJson(claim.identity.recipeRelease) ||
     requested.imageKey !== receipt.imageKey ||
     receipt.jobId !== claim.jobId ||
     receipt.attemptId !== claim.attemptId ||
