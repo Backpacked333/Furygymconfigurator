@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { PerspectiveCamera, Scene } from 'three/webgpu'
+import { PerspectiveCamera, Scene, Vector3 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import { textureProgress } from '../render/progress'
@@ -142,6 +142,30 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     frame()
     expect(mocks.trace.halt).toHaveBeenCalled()
     expect(status).toHaveBeenLastCalledWith('interactive')
+  })
+
+  it('never starts or shows a trace while the camera keeps orbiting slowly (auto-rotate)', async () => {
+    // A trace is pinned to the pose it started from, so one shown while the view turns would drift
+    // out of register with the scene; it waits for the camera to stop, however slowly it turns.
+    camera.position.set(0, 6, 20)
+    camera.lookAt(0, 0, 0)
+    await render()
+    // three-stdlib's auto-rotate turns 2π/3600 × speed a frame, at CameraRig's speed of 0.45.
+    const perFrame = ((2 * Math.PI) / 3600) * 0.45
+    const up = new Vector3(0, 1, 0)
+    for (let i = 0; i < 300; i++) {
+      camera.position.applyAxisAngle(up, perFrame)
+      camera.lookAt(0, 0, 0)
+      frame()
+    }
+    expect(mocks.trace.begin).not.toHaveBeenCalled()
+    expect(mocks.present.capture).not.toHaveBeenCalled()
+    expect(mocks.present.render).not.toHaveBeenCalled()
+    // Every one of those frames was drawn by the raster pipeline.
+    expect(mocks.pipe.render).toHaveBeenCalledTimes(300)
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledOnce()
+    expect(mocks.present.render).toHaveBeenCalled()
   })
 
   it('does not start a trace while a pointer is held; release starts a fresh rest window', async () => {
