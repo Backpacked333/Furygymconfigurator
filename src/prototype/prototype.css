@@ -340,15 +340,13 @@
   font-size: 12px;
   line-height: 1.6;
 }
-.fury-prototype .prototype-share-notice button,
-.fury-prototype .prototype-confirm button {
+.fury-prototype .prototype-share-notice button {
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 7px;
   font-size: 12px;
 }
-.fury-prototype .prototype-library,
-.fury-prototype .prototype-confirm {
+.fury-prototype .prototype-library {
   font-size: 13px;
   line-height: 1.8;
 }
@@ -370,20 +368,15 @@
   padding: 0;
   border: 0;
 }
-.fury-prototype .prototype-library button,
-.fury-prototype .prototype-confirm button {
+.fury-prototype .prototype-library button {
   margin: 5px 6px 5px 0;
 }
-.fury-prototype .prototype-library code,
-.fury-prototype .prototype-confirm li {
+.fury-prototype .prototype-library code {
   overflow-wrap: anywhere;
 }
 .fury-prototype .prototype-library textarea {
   min-height: 90px;
   overflow-wrap: anywhere;
-}
-.fury-prototype .prototype-confirm li {
-  margin-bottom: 6px;
 }
 .fury-prototype .prototype-spec {
   font-size: 13px;

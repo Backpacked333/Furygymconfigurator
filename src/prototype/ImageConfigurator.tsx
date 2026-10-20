@@ -21,7 +21,6 @@ import {
   applyDesignCommand,
   transitionDesign,
   type DesignAction,
-  type DesignTransition,
 } from '../domain/designTransitions'
 import { defaultDesign, type DesignEnvelope } from '../domain/design'
 import { resolveCamera, resolveLook, type CameraRef } from '../domain/presentation'
@@ -154,7 +153,6 @@ function ImageConfiguratorContents({
       selectionHash.current = rememberNativeSelection(design, selectionHash.current)
   }, [nativeLibrary, design])
   const [unit, setUnit] = useState<Unit>('ft')
-  const [proposal, setProposal] = useState<DesignTransition | null>(null)
   const [notice, setNotice] = useState(
     nativeLibrary
       ? ''
@@ -188,12 +186,10 @@ function ImageConfiguratorContents({
   const notify = useCallback((message: string) => setNotice(message), [])
   const load = useCallback((next: DesignEnvelope) => {
     dispatch({ type: 'commit', design: normalizeCustomerDesign(next) })
-    setProposal(null)
   }, [])
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (
-        proposal ||
         document.querySelector('dialog[open]') ||
         (event.target instanceof HTMLElement &&
           event.target.closest('input,textarea,select,[contenteditable="true"]'))
@@ -206,30 +202,17 @@ function ImageConfiguratorContents({
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [proposal])
+  }, [])
   function action(action: DesignAction) {
     try {
       const next = transitionDesign(design, action)
       if (!next.changed) return
-      if (next.requiresConfirmation) setProposal(next)
-      else dispatch({ type: 'commit', design: applyDesignCommand(design, next.command) })
+      dispatch({ type: 'commit', design: applyDesignCommand(design, next.command, true) })
+      if (next.adjustments.length)
+        notify(`${next.adjustments.join(' ')} Undo restores your previous design.`)
     } catch {
       notify('That option is not supported by the draft catalog. Your design is unchanged.')
     }
-  }
-  function confirm() {
-    if (!proposal) return
-    try {
-      dispatch({ type: 'commit', design: applyDesignCommand(design, proposal.command, true) })
-      notify(
-        'Applied as one Undo step. Ceiling, door, access and engineering holds remain unresolved.',
-      )
-    } catch {
-      notify(
-        'The design changed while confirmation was open. Review the option again; nothing was applied.',
-      )
-    }
-    setProposal(null)
   }
   function pickCamera(cameraRef: CameraRef) {
     lastCameras.current[selectedCamera.group] = selectedCamera.ref
@@ -1115,7 +1098,7 @@ function ImageConfiguratorContents({
               <span>01</span>
               <strong>Shape your space</strong>
               <p>
-                Choose footprint, finishes and structure. Required adjustments are confirmed as one
+                Choose footprint, finishes and structure. Required adjustments apply together as one
                 Undo step.
               </p>
             </div>
@@ -1158,40 +1141,6 @@ function ImageConfiguratorContents({
             <RotateCcw size={16} />
             Start fresh
           </button>
-        </Modal>
-      )}
-      {proposal && (
-        <Modal
-          title="Review this design change"
-          subtitle="One provisional revision. Confirmation is not product or engineering approval."
-          onClose={() => setProposal(null)}
-        >
-          <div className="prototype-confirm">
-            <ul>
-              {proposal.changes.map((change) => (
-                <li key={change.path}>
-                  <strong>{change.path.replace('config.', '').replace('presentation.', '')}</strong>
-                  : {JSON.stringify(change.before)} → {JSON.stringify(change.after)}
-                </li>
-              ))}
-            </ul>
-            {proposal.adjustments.length > 0 && (
-              <>
-                <h3>Necessary adjustments</h3>
-                <ul>
-                  {proposal.adjustments.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <p className="prototype-warning">
-              Fixed arrangement, door sweeps, ceiling and access remain unapproved. Undo restores
-              the complete previous design.
-            </p>
-            <button onClick={confirm}>Apply draft changes</button>
-            <button onClick={() => setProposal(null)}>Keep current design</button>
-          </div>
         </Modal>
       )}
     </ConfiguratorShell>

@@ -136,7 +136,6 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
   }
   const chooseContainer = () => {
     click('Container Gym')
-    click('Apply draft changes')
   }
   async function flushToDecode(count = 1) {
     await act(async () => {
@@ -303,9 +302,9 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     close()
     chooseContainer()
     expect(host.querySelector('h1')?.textContent).toContain('C-20')
+    expect(host.textContent).toContain('Layout switches to the Container 20 ft arrangement.')
     click('40 ft Container')
-    expect(host.querySelector('dialog')?.textContent).toContain('Replace fixed arrangement')
-    click('Apply draft changes')
+    expect(host.textContent).toContain('Layout switches to the Container 40 ft arrangement.')
     const changed = exported()
     close()
     expect(changed.config.arrangementRef).toBe('container-40-review@1')
@@ -326,7 +325,6 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     click('Cloud')
     click('Concept timber accentVisual study only. Material and availability unconfirmed.')
     click('Front deckOutdoor space for your Studio. Dimensions by inquiry.Quote required')
-    click('Apply draft changes')
     tab('Interior')
     click('Warm cedarCedar-lined walls and ceiling with recessed downlights.')
     click('Oak look')
@@ -810,7 +808,6 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     tab('Space')
     chooseContainer()
     click('40 ft Container')
-    click('Apply draft changes')
     await act(async () => vi.advanceTimersByTimeAsync(120))
     tab('Setting')
     click('Desert retreat')
