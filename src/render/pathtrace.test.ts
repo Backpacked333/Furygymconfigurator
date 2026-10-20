@@ -512,6 +512,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       dispose: vi.fn(),
       getSampleCountsAsync: () => Promise.resolve({ min: 0 }),
       renderScale: 1,
+      maxBounces: 0,
       fadeState: 1,
       target: { image: { width: 64, height: 32 } },
       material: { turquinTexture: { image: { width: 1, height: 1, depth: 1 } } },
@@ -595,7 +596,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     expect(t.traced.started).toBe(false)
   })
 
-  it('measures samples per second from when every pixel holds two, and settles at an image', async () => {
+  it('measures samples per second from the first complete sample, then from more, and settles at an image', async () => {
     const t = session({ multiView: true })
     let min = 0
     t.tracer.getSampleCountsAsync = () => Promise.resolve({ min })
@@ -613,15 +614,18 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
           await flush()
         }
       }
-      await sample(1, 1100)
+      // The first batch finishes at 1000 (its kernels built); no pixel holds a sample yet.
+      await sample(0, 1000)
       expect(t.traced.samplesPerSecond).toBeNull()
-      await sample(2, 1200)
-      await sample(4, 1600)
-      // Too few since the start of the measure.
-      expect(t.traced.samplesPerSecond).toBeNull()
-      await sample(10, 2200)
-      expect(t.traced.samplesPerSecond).toBeCloseTo(8)
+      // Every pixel holds one 500 ms later: about two a second, known after one sample.
+      await sample(1, 1500)
+      expect(t.traced.samplesPerSecond).toBeCloseTo(2)
+      // Two more since then: measured from them.
+      await sample(3, 1900)
+      expect(t.traced.samplesPerSecond).toBeCloseTo(5)
       // Settles at the last image at or under the target, never below what it holds.
+      min = 10
+      await sample(10, 2500)
       t.traced.settleAt(100)
       expect(t.traced.progress().target).toBe(64)
       t.traced.settleAt(5)
@@ -636,6 +640,20 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     } finally {
       now.mockRestore()
     }
+  })
+
+  it('traces each start to the depth it asks for, and keeps its views apart by depth', () => {
+    const t = session({ multiView: true, maxBounces: 7 })
+    const keys = () =>
+      (t.traced as unknown as { traced: { scene: number; surfaces: number } }).traced
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 64, 1, 4)
+    expect(t.tracer.maxBounces).toBe(4)
+    const light = { ...keys() }
+    t.traced.halt()
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 64, 1)
+    expect(t.tracer.maxBounces).toBe(7)
+    expect(keys().scene).not.toBe(light.scene)
+    expect(keys().surfaces).not.toBe(light.surfaces)
   })
 
   it('loads the shared denoiser network ahead of the first image, and never rejects', async () => {

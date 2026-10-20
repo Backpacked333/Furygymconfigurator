@@ -689,8 +689,13 @@ export class PathTraceSession {
    * pass. Batches are sized on the time beyond it (nextTracePassesOverLatency).
    */
   private latencyFloor = Infinity
-  /** When every pixel first held two samples, and how many it holds since (samplesPerSecond). */
-  private rate = { at: 0, samples: 0 }
+  /**
+   * The measure of samplesPerSecond: when this view's first batch finished (its kernels built),
+   * and when every pixel first held one sample.
+   */
+  private rate = { started: 0, at: 0, samples: 0 }
+  /** The depth a start traces to unless it asks for another (begin). */
+  private readonly maxBounces: number
   /** A batch of this view has finished on the GPU: its kernels are built and running. */
   private batchDone = false
   private measuring = false
@@ -763,6 +768,7 @@ export class PathTraceSession {
     // fewer than the cloud's 6 (render-server protocol.py BOUNCES). The 360° view asks for Cycles'
     // depth (viewer/liveProfile.ts); the stills and exports keep this one, unchanged.
     tracer.maxBounces = options.maxBounces ?? 6
+    this.maxBounces = tracer.maxBounces
     tracer.maxTransparentBounces = 12
     tracer.filterGlossyFactor = 0.5
     // Setting the tracer's own values again is a no-op (its setters skip an unchanged clamp).
@@ -810,7 +816,17 @@ export class PathTraceSession {
    * given, is the traced resolution relative to the drawing buffer from this view on (the 360°
    * view's traceScale, which follows the canvas's size).
    */
-  begin(scene: Scene, camera: Camera, look: SkyLook, target = REST_SAMPLES, renderScale?: number) {
+  begin(
+    scene: Scene,
+    camera: Camera,
+    look: SkyLook,
+    target = REST_SAMPLES,
+    renderScale?: number,
+    maxBounces = this.maxBounces,
+  ) {
+    // Depth per start: the light budget mode traces shallower (liveProfile.ts LIGHT). A uniform,
+    // so no kernels are built again for it.
+    if (this.tracer.maxBounces !== maxBounces) this.tracer.maxBounces = maxBounces
     const key = lookKey(look)
     const parts = sceneParts(scene)
     const signature = partsSignature(parts, key)
@@ -892,18 +908,21 @@ export class PathTraceSession {
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0, milestones: [] }
     this.batchDone = false
-    this.rate = { at: 0, samples: 0 }
+    this.rate = { started: 0, at: 0, samples: 0 }
   }
 
   /**
-   * Samples per pixel per second this view is gaining, measured from when every pixel held two
-   * (past the first batch's kernel build); null until a few more have come in.
+   * Samples per pixel per second this view is gaining: once two more have come in since every
+   * pixel held one, from then; before that, from its first complete sample, timed from its first
+   * finished batch (past the kernels' build). Null until every pixel holds one.
    */
   get samplesPerSecond() {
-    const { at, samples } = this.rate
-    const elapsed = performance.now() - at
-    if (!at || this.samples < samples + 4 || elapsed <= 0) return null
-    return ((this.samples - samples) * 1000) / elapsed
+    const { started, at, samples } = this.rate
+    if (!at) return null
+    const now = performance.now()
+    if (this.samples >= samples + 2 && now > at)
+      return ((this.samples - samples) * 1000) / (now - at)
+    return started && at > started ? (samples * 1000) / (at - started) : null
   }
 
   /**
@@ -936,9 +955,13 @@ export class PathTraceSession {
    * other surfaces seeds just a little.
    */
   private historyKeys(scene: Scene, key: string, signature: number): HistoryKeys {
-    const surfaces = Math.imul(signature ^ this.scans, 16777619) >>> 0
+    // Samples traced to another depth carry other light: a light view never seeds a full one.
+    const depth = (value: number) => Math.imul(value ^ this.tracer.maxBounces, 16777619) >>> 0
+    const surfaces = depth(Math.imul(signature ^ this.scans, 16777619) >>> 0)
     return {
-      scene: this.options.keepHistoryAcrossSurfaces ? historySignature(scene, key) : surfaces,
+      scene: this.options.keepHistoryAcrossSurfaces
+        ? depth(historySignature(scene, key))
+        : surfaces,
       surfaces,
     }
   }
@@ -955,8 +978,11 @@ export class PathTraceSession {
     look: SkyLook,
     seed: { image: Texture; table: Texture; count: number; ceiling: number },
     renderScale = this.tracer.renderScale,
+    maxBounces = this.maxBounces,
   ) {
     if (this.state !== 'off') return false
+    // Kept under the depth the start it seeds will trace to (begin, historyKeys).
+    if (this.tracer.maxBounces !== maxBounces) this.tracer.maxBounces = maxBounces
     const key = lookKey(look)
     const keys = this.historyKeys(scene, key, partsSignature(sceneParts(scene), key))
     if (this.traced?.scene !== keys.scene) this.history.clear()
@@ -1053,6 +1079,7 @@ export class PathTraceSession {
         .onSubmittedWorkDone()
         .then(() => {
           if (epoch !== this.epoch) return
+          if (!this.batchDone) this.rate.started = performance.now()
           this.batchDone = true
           // Size batches to roughly two display frames of GPU time.
           const busy = performance.now() - now
@@ -1125,8 +1152,8 @@ export class PathTraceSession {
       .then((counts) => {
         if (epoch !== this.epoch || this.state !== 'tracing') return
         this.samples = counts.min
-        if (!this.rate.at && counts.min >= 2)
-          this.rate = { at: performance.now(), samples: counts.min }
+        if (!this.rate.at && counts.min >= 1)
+          this.rate = { ...this.rate, at: performance.now(), samples: counts.min }
         if (counts.min >= this.target) this.accumulating = false
       })
       .catch(() => {})
