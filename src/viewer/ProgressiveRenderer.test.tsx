@@ -5,7 +5,7 @@ import { PerspectiveCamera, Scene, Vector3, type Vector2 } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
 import type { GalleryCamera } from '../render/gallery'
-import { liveLoading, textureProgress } from '../render/progress'
+import { liveLoading, textureProgress, traceProgress } from '../render/progress'
 import { ProgressiveRenderer } from './ProgressiveRenderer'
 
 const mocks = vi.hoisted(() => ({
@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
     halt: vi.fn(),
     step: vi.fn(),
     view: vi.fn(),
+    progress: vi.fn(() => ({ shown: 0, target: 1024 })),
     invalidate: vi.fn(),
     texturesChanged: vi.fn(),
     dispose: vi.fn(),
@@ -403,6 +404,22 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect(now).toBeLessThan(800)
       expect(mocks.trace.storeImage).not.toHaveBeenCalled()
     })
+  })
+
+  it('publishes a resting view’s refinement, and idles it on a move', async () => {
+    mocks.trace.progress.mockReturnValue({ shown: 32, target: 1024 })
+    await render()
+    settle()
+    expect(traceProgress.get()).toMatchObject({ phase: 'refining', stage: 'reflections' })
+    mocks.trace.step.mockReturnValue(false)
+    frame()
+    expect(traceProgress.get()).toMatchObject({ phase: 'done', fill: 1 })
+    camera.position.x = 1
+    frame()
+    expect(traceProgress.get()).toEqual({ phase: 'idle' })
+    settle()
+    await render({ active: false })
+    expect(traceProgress.get()).toEqual({ phase: 'idle' })
   })
 
   describe('the loading screen’s steps', () => {

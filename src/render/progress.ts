@@ -88,6 +88,57 @@ export const liveLoading = {
 }
 
 /**
+ * A resting live view refining (ProgressiveRenderer): `idle` while nothing is being refined (the
+ * camera moving, the view hidden), else how far the image on screen has come. `fill` is 0–1 on a
+ * log scale of its samples to the view's target, as sharpness grows with each doubling; `stage`
+ * names what is resolving at that point.
+ */
+export type RefineStage = 'light' | 'reflections' | 'detail'
+export type Refining = { phase: 'refining' | 'done'; fill: number; stage: RefineStage }
+export type TraceProgress = { phase: 'idle' } | Refining
+
+/** Samples behind the image on screen up to which each stage is named (then 'detail'). */
+export const REFINE_STAGES: [RefineStage, number][] = [
+  ['light', 16],
+  ['reflections', 128],
+]
+
+export function refineProgress(shown: number, target: number, done: boolean): Refining {
+  const fill = done
+    ? 1
+    : target > 1
+      ? Math.min(1, Math.max(0, Math.log2(1 + shown) / Math.log2(1 + target)))
+      : 0
+  const stage = REFINE_STAGES.find(([, below]) => shown < below)?.[0] ?? 'detail'
+  return { phase: done ? 'done' : 'refining', fill, stage }
+}
+
+const traceListeners = new Set<Listener>()
+let trace: TraceProgress = { phase: 'idle' }
+
+export const traceProgress = {
+  subscribe(listener: Listener) {
+    traceListeners.add(listener)
+    return () => {
+      traceListeners.delete(listener)
+    }
+  },
+  get: () => trace,
+  /** Publishes `next` if it differs visibly from what is shown (a stage, or 2% of the ring). */
+  set(next: TraceProgress) {
+    const same =
+      next.phase === trace.phase &&
+      (next.phase === 'idle' ||
+        (trace.phase !== 'idle' &&
+          next.stage === trace.stage &&
+          Math.abs(next.fill - trace.fill) < 0.02))
+    if (same) return
+    trace = next
+    traceListeners.forEach((listener) => listener())
+  },
+}
+
+/**
  * Render-cost estimates for scheduling. The visible status uses observed request stages and
  * measured local samples instead: elapsed time is not evidence of cloud render completion.
  */

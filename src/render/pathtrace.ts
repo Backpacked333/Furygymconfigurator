@@ -1064,6 +1064,11 @@ export class PathTraceSession {
     this.state = 'tracing'
   }
 
+  /** How far the image on screen has come: the samples behind it, of the view's target. */
+  progress() {
+    return { shown: this.denoising ? this.shownSamples : this.samples, target: this.target }
+  }
+
   /** True once the image on screen holds at least `samples` and has fully faded in. */
   ready(samples: number) {
     const shown = this.denoising ? this.shownSamples : this.samples

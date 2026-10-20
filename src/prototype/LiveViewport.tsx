@@ -15,7 +15,9 @@ import {
   liveLoading,
   sceneProgress,
   textureProgress,
+  traceProgress,
   type LiveStep,
+  type RefineStage,
 } from '../render/progress'
 import type { ViewerStatus } from '../viewer/ProgressiveRenderer'
 
@@ -56,6 +58,70 @@ const stepLabels: Record<Exclude<LiveStep, 'ready'>, string> = {
   tracer: 'Starting the path tracer',
 }
 const STEPS = LIVE_STEPS.filter((step): step is Exclude<LiveStep, 'ready'> => step !== 'ready')
+
+/** What a resting view is resolving as it refines (render/progress.ts REFINE_STAGES). */
+const refineLabels: Record<RefineStage, string> = {
+  light: 'Light',
+  reflections: 'Reflections',
+  detail: 'Fine detail',
+}
+/** How long "Fully refined" stays up before the pill fades away. */
+export const REFINED_SHOWN_MS = 2000
+/** The ring's circumference: radius 8 in its 20-unit box. */
+const RING = 2 * Math.PI * 8
+
+/**
+ * A resting view sharpening: a frosted pill with a ring filling as the samples double, naming what
+ * is resolving (light, then reflections, then fine detail), then "Fully refined" for a moment. It
+ * leaves at once when the camera moves, and comes back at the next rest.
+ */
+function RefinePill({ hidden }: { hidden: boolean }) {
+  const progress = useSyncExternalStore(traceProgress.subscribe, traceProgress.get)
+  const done = progress.phase === 'done'
+  const [expired, setExpired] = useState(false)
+  const [wasDone, setWasDone] = useState(done)
+  if (wasDone !== done) {
+    setWasDone(done)
+    setExpired(false)
+  }
+  useEffect(() => {
+    if (!done) return
+    const timer = setTimeout(() => setExpired(true), REFINED_SHOWN_MS)
+    return () => clearTimeout(timer)
+  }, [done])
+  const shown = !hidden && progress.phase !== 'idle' && !(done && expired)
+  const fill = progress.phase === 'idle' ? 0 : progress.fill
+  const label =
+    progress.phase === 'idle'
+      ? ''
+      : done
+        ? 'Fully refined'
+        : `Refining · ${refineLabels[progress.stage]}`
+  return (
+    <div
+      className={`live-refine${shown ? ' is-shown' : ''}${done ? ' is-done' : ''}`}
+      role="progressbar"
+      aria-label="Refining the view"
+      aria-hidden={!shown}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(fill * 100)}
+      aria-valuetext={label}
+    >
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="10" cy="10" r="8" />
+        <circle
+          cx="10"
+          cy="10"
+          r="8"
+          style={{ strokeDasharray: RING, strokeDashoffset: RING * (1 - fill) }}
+        />
+        <path d="M6.5 10.2l2.4 2.3 4.6-4.9" />
+      </svg>
+      <span>{label}</span>
+    </div>
+  )
+}
 
 /**
  * Where the view is on its way to being explorable: the renderer's own phases move it to "scene"
@@ -218,6 +284,8 @@ export function LiveViewport(props: {
       {!photo && (
         <span className="live-viewport-disclaimer">Live concept preview · Not a saved render</span>
       )}
+      {/* Refinement is invisible under the rendered image, and the loading screen covers it. */}
+      <RefinePill hidden={failed || loading || photo || !props.active} />
     </div>
   )
 }

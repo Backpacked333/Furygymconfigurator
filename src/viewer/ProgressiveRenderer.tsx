@@ -16,7 +16,13 @@ import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
 import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
 import { createPipeline, type Pipeline, type PipelineExtras } from '../render/pipeline'
-import { liveLoading, sceneProgress, textureProgress } from '../render/progress'
+import {
+  liveLoading,
+  refineProgress,
+  sceneProgress,
+  textureProgress,
+  traceProgress,
+} from '../render/progress'
 import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/renderer'
 import { FrameGuard } from './frameGuard'
 import { pixelsFromPose } from './entryPose'
@@ -138,6 +144,7 @@ export function ProgressiveRenderer({
       if (!active) {
         state.current.tracer?.halt()
         state.current.tracing = false
+        traceProgress.set({ phase: 'idle' })
       }
     }
     invalidate()
@@ -312,6 +319,7 @@ export function ProgressiveRenderer({
     return () => {
       disposed = true
       clearTimeout(loadingLimit)
+      traceProgress.set({ phase: 'idle' })
       state.current = null
       materials()
       textures()
@@ -390,6 +398,7 @@ export function ProgressiveRenderer({
     pipe.setPlace(props.current.place)
     if (current.warming) return
     if (!current.tracing) {
+      traceProgress.set({ phase: 'idle' })
       pipe.render()
       if (current.guard?.frame(now, steady)) {
         current.guard = null
@@ -487,6 +496,8 @@ export function ProgressiveRenderer({
         const developing = tracer.step()
         const view = tracer.view(now)
         if (view.t > 0) current.present.render(view)
+        const { shown, target } = tracer.progress()
+        traceProgress.set(refineProgress(shown, target, !developing))
         report(developing ? 'refining' : 'settled')
         if (developing) invalidate()
       } catch {

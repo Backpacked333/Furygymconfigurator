@@ -4,9 +4,15 @@ import { readFileSync } from 'node:fs'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultDesign } from '../domain/design'
-import { liveLoading, sceneProgress, textureProgress } from '../render/progress'
+import {
+  liveLoading,
+  refineProgress,
+  sceneProgress,
+  textureProgress,
+  traceProgress,
+} from '../render/progress'
 import type { ViewerStatus } from '../viewer/ProgressiveRenderer'
-import { LIVE_FADE_MS, LiveViewport } from './LiveViewport'
+import { LIVE_FADE_MS, LiveViewport, REFINED_SHOWN_MS } from './LiveViewport'
 
 const scene = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }))
 vi.mock('./LiveDesignScene', () => ({
@@ -61,6 +67,7 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
     vi.useFakeTimers()
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
     sceneProgress.set('engine')
+    traceProgress.set({ phase: 'idle' })
     scene.props = null
     props = {
       design: defaultDesign(),
@@ -135,6 +142,49 @@ describe('live viewport over the gallery image (jsdom, scene mocked)', () => {
     act(() => vi.advanceTimersByTime(LIVE_FADE_MS))
     expect(host.querySelector('.live-loading')).toBeNull()
     expect(status()).toBe('Showing the rendered image · Drag to explore')
+  })
+
+  it('shows a resting view refining in a pill, naming what is resolving, then fades it', async () => {
+    const pill = () => host.querySelector<HTMLElement>('.live-refine')!
+    const shown = () => pill().classList.contains('is-shown')
+    await render()
+    opened()
+    expect(shown()).toBe(false)
+    act(() => traceProgress.set(refineProgress(4, 1024, false)))
+    expect(shown()).toBe(true)
+    expect(pill().textContent).toBe('Refining · Light')
+    expect(pill().getAttribute('aria-valuenow')).toBe(
+      String(Math.round((Math.log2(5) / Math.log2(1025)) * 100)),
+    )
+    act(() => traceProgress.set(refineProgress(32, 1024, false)))
+    expect(pill().textContent).toBe('Refining · Reflections')
+    act(() => traceProgress.set(refineProgress(256, 1024, false)))
+    expect(pill().textContent).toBe('Refining · Fine detail')
+    // The camera moves: gone at once.
+    act(() => traceProgress.set({ phase: 'idle' }))
+    expect(shown()).toBe(false)
+    act(() => traceProgress.set(refineProgress(1024, 1024, true)))
+    expect(shown()).toBe(true)
+    expect(pill().className).toContain('is-done')
+    expect(pill().textContent).toBe('Fully refined')
+    expect(pill().getAttribute('aria-valuenow')).toBe('100')
+    act(() => vi.advanceTimersByTime(REFINED_SHOWN_MS - 1))
+    expect(shown()).toBe(true)
+    act(() => vi.advanceTimersByTime(1))
+    expect(shown()).toBe(false)
+    // The next rest shows it again.
+    act(() => traceProgress.set(refineProgress(2, 1024, false)))
+    expect(shown()).toBe(true)
+  })
+
+  it('never shows the pill over the rendered image or the loading screen', async () => {
+    await render({ curtain: 'still' })
+    act(() => traceProgress.set(refineProgress(8, 1024, false)))
+    expect(host.querySelector('.live-refine')!.classList).not.toContain('is-shown')
+    opened()
+    expect(host.querySelector('.live-refine')!.classList).not.toContain('is-shown')
+    await render({ curtain: null })
+    expect(host.querySelector('.live-refine')!.classList).toContain('is-shown')
   })
 
   it('starts the steps over for a new view', async () => {
