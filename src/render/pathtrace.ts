@@ -684,6 +684,8 @@ export class PathTraceSession {
   private frames = 0
   private passes = 1
   private inFlight = false
+  /** A batch of this view has finished on the GPU: its kernels are built and running. */
+  private batchDone = false
   private measuring = false
   private accumulating = false
   /** Samples per pixel reached by every pixel. */
@@ -882,6 +884,16 @@ export class PathTraceSession {
     this.measuring = false
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0, milestones: [] }
+    this.batchDone = false
+  }
+
+  /**
+   * A batch of the current view has finished on the GPU. The first sample after a capture builds
+   * the tracer's kernels, synchronously (they cannot be built before it, which sizes what they
+   * bind), and the GPU draws nothing else meanwhile: on some GPUs for seconds.
+   */
+  get started() {
+    return this.batchDone
   }
 
   /**
@@ -1006,6 +1018,7 @@ export class PathTraceSession {
         .onSubmittedWorkDone()
         .then(() => {
           if (epoch !== this.epoch) return
+          this.batchDone = true
           // Size batches to roughly two display frames of GPU time.
           const busy = performance.now() - now
           const budget = this.budget(now)

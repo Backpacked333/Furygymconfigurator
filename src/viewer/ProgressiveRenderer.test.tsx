@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
     view: vi.fn(),
     progress: vi.fn(() => ({ shown: 0, target: 1024 })),
     prepareDenoiser: vi.fn(() => Promise.resolve()),
+    started: true,
     invalidate: vi.fn(),
     texturesChanged: vi.fn(),
     trim: vi.fn(),
@@ -140,6 +141,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.buffer = { w: 1000, h: 625 }
     mocks.load.mockResolvedValue({})
     mocks.trace.step.mockReturnValue(true)
+    mocks.trace.started = true
     mocks.trace.view.mockReturnValue({ from: null, to: {}, t: 1 })
     now = 0
     vi.spyOn(performance, 'now').mockImplementation(() => now)
@@ -511,6 +513,19 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       stop()
       expect(announcedIn).toBeGreaterThan(0)
       expect(begunIn).toBeGreaterThan(announcedIn)
+      expect(liveLoading.get()).toBe('ready')
+    })
+
+    it('stays up until the first batch has finished, which builds the tracer’s kernels', async () => {
+      mocks.trace.started = false
+      await render()
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledOnce()
+      expect(liveLoading.get()).toBe('tracer')
+      frame()
+      expect(liveLoading.get()).toBe('tracer')
+      mocks.trace.started = true
+      frame()
       expect(liveLoading.get()).toBe('ready')
     })
 

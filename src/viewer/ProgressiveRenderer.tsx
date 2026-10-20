@@ -561,7 +561,6 @@ export function ProgressiveRenderer({
           )
           current.tracing = true
           current.begun = true
-          liveLoading.set('ready')
           setTimeout(() => logMemory(renderer, '5 s into the first trace'), 5000)
         } catch {
           tracer.halt()
@@ -581,6 +580,9 @@ export function ProgressiveRenderer({
         invalidate()
     }
     if (current.tracing && tracer) {
+      // The loading screen leaves once the first batch has finished on the GPU, not at the start:
+      // that batch builds the tracer's kernels, and the view stalls until it is done.
+      if (tracer.started) liveLoading.set('ready')
       try {
         const developing = tracer.step()
         const view = tracer.view(now)

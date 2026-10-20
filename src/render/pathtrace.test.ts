@@ -572,6 +572,28 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     return { traced, tracer, begin, trace, unet, ...f }
   }
 
+  it('reports a view started once a batch of it has finished on the GPU, from each start', async () => {
+    const t = session({ multiView: true })
+    const queue = (
+      t.traced as unknown as {
+        renderer: { backend: { device: { queue: { onSubmittedWorkDone: () => Promise<void> } } } }
+      }
+    ).renderer.backend.device.queue
+    let finish!: () => void
+    queue.onSubmittedWorkDone = () => new Promise<void>((resolve) => (finish = resolve))
+    t.begin()
+    expect(t.traced.started).toBe(false)
+    t.traced.step()
+    expect(t.traced.started).toBe(false)
+    finish()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(t.traced.started).toBe(true)
+    // A new start waits for its own first batch.
+    t.traced.halt()
+    t.begin()
+    expect(t.traced.started).toBe(false)
+  })
+
   it('loads the shared denoiser network ahead of the first image, and never rejects', async () => {
     const t = session({ multiView: true }, true)
     const load = vi.fn(() => Promise.resolve('network'))
