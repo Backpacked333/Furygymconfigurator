@@ -37,13 +37,19 @@ import { FrameGuard } from './frameGuard'
 import { pixelsFromPose } from './entryPose'
 import { ENTRY_TOLERANCE_PX } from './EntryWatch'
 import {
+  LIGHT,
+  MIN_BUDGET_SCALE,
+  UPGRADE_REST_MS,
   cyclesSeed,
+  deviceTier,
   earlyImages,
   liveProfile,
   liveSampler,
   requestedTraceScale,
   settleSamples,
   traceScale,
+  upgradeTarget,
+  type DeviceTier,
 } from './liveProfile'
 import { recordTraceCost, traceCost } from './traceRate'
 import { createProgressivePresentation } from './presentation'
@@ -206,8 +212,20 @@ export function ProgressiveRenderer({
     prepareSeed: () => void
     /** The first trace has started: the loading screen is done. */
     begun: boolean
-    /** This device's trace cost is stored under (traceRate.ts): its GPU and the quality tier. */
+    /**
+     * This device's trace cost is stored under (traceRate.ts): its GPU and the quality tier, with
+     * the depth traced appended.
+     */
     costKey: string
+    /** How the current view traces: its device's tier and the depth it traces to. */
+    tier: DeviceTier
+    bounces: number
+    /** Starts so far: a pending upgrade belongs to the one it was planned for. */
+    starts: number
+    /** The current view's measured samples per second, and whether it has been upgraded. */
+    rate: number | null
+    upgraded: boolean
+    upgradeTimer: ReturnType<typeof setTimeout> | null
     /** Megapixels the current view traces. */
     traceMegapixels: number
     /** The current view's rate has been measured and its settle target set. */
@@ -264,8 +282,21 @@ export function ProgressiveRenderer({
 
   useEffect(() => {
     let disposed = false
+    // A device known to be slow (traceRate.ts) traces light and draws the lean raster from the
+    // start: the frame guard would shed to it anyway, rebuilding it mid-session (a ~1 s freeze).
+    const costKey = `${gpuName(renderer)}|${quality}`
+    const knownTier: DeviceTier =
+      quality === 'lite'
+        ? 'unknown'
+        : deviceTier(traceCost(`${costKey}|${liveProfile(quality).maxBounces}`))
     const runtime = {
-      pipe: createPipeline(renderer, scene, camera, quality),
+      pipe: createPipeline(
+        renderer,
+        scene,
+        camera,
+        quality,
+        ...(knownTier === 'slow' ? [LEAN_RASTER] : []),
+      ),
       present: createProgressivePresentation(renderer),
       tracer: null as PathTraceSession | null,
       failed: backendOf(renderer) !== 'webgpu',
@@ -283,14 +314,20 @@ export function ProgressiveRenderer({
       shutter: new MotionShutter(),
       signature: null as number | null,
       // Only Ultra carries passes it can do without; once per session, never touching `quality`.
-      guard: quality === 'ultra' ? new FrameGuard() : null,
+      guard: quality === 'ultra' && knownTier !== 'slow' ? new FrameGuard() : null,
       shedDue: false,
       shed: () => {},
       lean: null as Pipeline | null,
       seed: null as EntrySeed | null,
       prepareSeed: () => {},
       begun: false,
-      costKey: `${gpuName(renderer)}|${quality}`,
+      costKey,
+      tier: knownTier,
+      bounces: liveProfile(quality).maxBounces,
+      starts: 0,
+      rate: null as number | null,
+      upgraded: false,
+      upgradeTimer: null as ReturnType<typeof setTimeout> | null,
       traceMegapixels: 0,
       fitted: false,
       refitted: false,
@@ -478,6 +515,7 @@ export function ProgressiveRenderer({
       disposed = true
       clearTimeout(loadingLimit)
       if (runtime.trimTimer) clearTimeout(runtime.trimTimer)
+      if (runtime.upgradeTimer) clearTimeout(runtime.upgradeTimer)
       traceProgress.set({ phase: 'idle' })
       state.current = null
       materials()
@@ -617,18 +655,37 @@ export function ProgressiveRenderer({
           current.present.capture(() => pipe.render())
           // A resize marks the view changed, so each start reads the canvas's size again.
           renderer.getDrawingBufferSize(drawingBuffer)
-          const cost = traceCost(current.costKey)
+          // The device's tier, from its full-depth cost: a slow one traces light (LIGHT).
+          const fullDepth = liveProfile(quality).maxBounces
+          const fullCost = traceCost(`${current.costKey}|${fullDepth}`)
+          const tier: DeviceTier = quality === 'lite' ? 'unknown' : deviceTier(fullCost)
+          const light = tier === 'slow'
+          const bounces = light ? LIGHT.maxBounces : fullDepth
+          // What a sample costs at that depth; at first for a light view, the full depth's (more).
+          const cost = traceCost(`${current.costKey}|${bounces}`) ?? fullCost
           const scale = traceScale(
             quality,
             drawingBuffer.x,
             drawingBuffer.y,
             requestedTraceScale(),
             cost,
+            light ? LIGHT.floor : MIN_BUDGET_SCALE,
           )
+          current.tier = tier
+          current.bounces = bounces
+          current.starts++
+          current.rate = null
+          current.upgraded = false
+          if (current.upgradeTimer) clearTimeout(current.upgradeTimer)
+          current.upgradeTimer = null
           current.traceMegapixels =
             (Math.floor(drawingBuffer.x * scale) * Math.floor(drawingBuffer.y * scale)) / 1e6
           current.fitted = false
           current.reportedShown = 0
+          bootStats.context(
+            'trace',
+            light ? `${tier}: light, ${bounces} bounces` : `${tier}: ${bounces} bounces`,
+          )
           bootStats.context(
             'trace size',
             `${Math.round(drawingBuffer.x * scale)}×${Math.round(drawingBuffer.y * scale)} of a ${drawingBuffer.x}×${drawingBuffer.y} canvas`,
@@ -640,6 +697,7 @@ export function ProgressiveRenderer({
                 count: liveProfile(quality).cyclesSeedSamples,
                 ceiling: SEED_CEILING,
                 scale,
+                bounces,
               })
               if (stored) timeline(() => performance.mark('fury:trace-cycles-seed'))
             } catch {
@@ -649,11 +707,23 @@ export function ProgressiveRenderer({
           }
           // Its first start builds the tracer's BVH, the view's longest main-thread stall.
           const began = performance.now()
-          tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples, scale)
+          tracer.begin(
+            scene,
+            camera,
+            props.current.look,
+            liveProfile(quality).samples,
+            scale,
+            bounces,
+          )
           // A known cost settles the view at what SETTLE_MS buys from the start; a measured rate
           // refines it (below).
           if (cost !== null && quality !== 'lite')
-            tracer.settleAt(settleSamples(1000 / (cost * current.traceMegapixels)))
+            tracer.settleAt(
+              settleSamples(
+                1000 / (cost * current.traceMegapixels),
+                light ? LIGHT.leastSettle : undefined,
+              ),
+            )
           timeline(() =>
             performance.measure('fury:trace-begin', { start: began, end: performance.now() }),
           )
@@ -684,33 +754,48 @@ export function ProgressiveRenderer({
         if (liveLoading.get() !== 'ready') bootStats.step('first batch finished on the GPU')
         liveLoading.set('ready')
       }
-      // Once this view's rate is measured: keep its cost, settle at what SETTLE_MS buys, and on a
-      // first visit, start over once at the resolution that cost fits, if far below this one.
+      // Once this view's rate is measured: keep its cost (under the depth it traces), settle at
+      // what SETTLE_MS buys, and on a first visit start over once fitted to this GPU: at the
+      // resolution its cost allows, and light if it is slow.
       const rate = current.fitted ? null : tracer.samplesPerSecond
       if (rate !== null && current.traceMegapixels > 0) {
         current.fitted = true
+        current.rate = rate
         const cost = 1000 / rate / current.traceMegapixels
-        const known = traceCost(current.costKey) !== null
-        recordTraceCost(current.costKey, cost)
-        if (quality !== 'lite') tracer.settleAt(settleSamples(rate))
+        recordTraceCost(`${current.costKey}|${current.bounces}`, cost)
+        const light = current.tier === 'slow'
+        if (quality !== 'lite')
+          tracer.settleAt(settleSamples(rate, light ? LIGHT.leastSettle : undefined))
         bootStats.step(
-          `measured ${rate.toFixed(1)} samples/s at ${current.traceMegapixels.toFixed(2)} MP (${Math.round(cost)} ms per MP-sample); settling at ${tracer.progress().target}`,
+          `measured ${rate.toFixed(1)} samples/s at ${current.traceMegapixels.toFixed(2)} MP, ${current.bounces} bounces (${Math.round(cost)} ms per MP-sample); settling at ${tracer.progress().target}`,
         )
-        renderer.getDrawingBufferSize(drawingBuffer)
-        const fitted = traceScale(
-          quality,
-          drawingBuffer.x,
-          drawingBuffer.y,
-          requestedTraceScale(),
-          cost,
-        )
-        const fittedMegapixels =
-          (Math.floor(drawingBuffer.x * fitted) * Math.floor(drawingBuffer.y * fitted)) / 1e6
-        if (!known && !current.refitted && fittedMegapixels < 0.8 * current.traceMegapixels) {
-          current.refitted = true
-          current.dirty = true
-          current.dirtyReason = 'resolution fitted to this GPU'
-          bootStats.step(`starting over at ${fittedMegapixels.toFixed(2)} MP to fit this GPU`)
+        if (current.tier === 'unknown' && !current.refitted && quality !== 'lite') {
+          const tier = deviceTier(cost)
+          const slow = tier === 'slow'
+          renderer.getDrawingBufferSize(drawingBuffer)
+          const fitted = traceScale(
+            quality,
+            drawingBuffer.x,
+            drawingBuffer.y,
+            requestedTraceScale(),
+            cost,
+            slow ? LIGHT.floor : MIN_BUDGET_SCALE,
+          )
+          const fittedMegapixels =
+            (Math.floor(drawingBuffer.x * fitted) * Math.floor(drawingBuffer.y * fitted)) / 1e6
+          if (slow || fittedMegapixels < 0.8 * current.traceMegapixels) {
+            current.refitted = true
+            current.dirty = true
+            current.dirtyReason = 'fitted to this GPU'
+            if (slow && current.guard) {
+              // The lean raster too, once, at the next rest.
+              current.guard = null
+              current.shedDue = true
+            }
+            bootStats.step(
+              `this GPU is ${tier}: starting over${slow ? ' light' : ''} at ${fittedMegapixels.toFixed(2)} MP`,
+            )
+          }
         }
       }
       try {
@@ -727,6 +812,26 @@ export function ProgressiveRenderer({
         }
         traceProgress.set(refineProgress(shown, target, !developing))
         report(developing ? 'refining' : 'settled')
+        // Settled on a decent or fast GPU: after a short rest more, refine on (liveProfile.ts
+        // upgradeTarget), once per view.
+        if (!developing && !current.upgraded && !current.upgradeTimer) {
+          const tier = deviceTier(
+            traceCost(`${current.costKey}|${liveProfile(quality).maxBounces}`),
+          )
+          const more = quality === 'lite' ? null : upgradeTarget(tier, current.rate, target)
+          if (more !== null) {
+            const start = current.starts
+            current.upgradeTimer = setTimeout(() => {
+              current.upgradeTimer = null
+              if (state.current !== current || current.starts !== start || !current.tracing) return
+              if (!props.current.active || current.upgraded) return
+              current.upgraded = true
+              tracer.retarget(more)
+              bootStats.step(`upgrading: refining on to ${more} samples`)
+              invalidate()
+            }, UPGRADE_REST_MS)
+          }
+        }
         if (developing) invalidate()
       } catch {
         tracer.halt()
@@ -765,7 +870,7 @@ function entrySeed(image: string, until: number) {
       scene: Parameters<PathTraceSession['storeImage']>[0],
       pose: GalleryCamera,
       look: SkyLook,
-      options: { count: number; ceiling: number; scale: number },
+      options: { count: number; ceiling: number; scale: number; bounces: number },
     ) {
       if (!texture || !table || !bitmap) return false
       const lens = new PerspectiveCamera(pose.fov, bitmap.width / bitmap.height, 0.1, 2000)
@@ -778,6 +883,7 @@ function entrySeed(image: string, until: number) {
         look,
         { image: texture, table, count: options.count, ceiling: options.ceiling },
         options.scale,
+        options.bounces,
       )
     },
     dispose() {

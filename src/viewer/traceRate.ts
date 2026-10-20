@@ -34,3 +34,14 @@ export function recordTraceCost(key: string, msPerMegapixelSample: number) {
     // Unavailable: this page only.
   }
 }
+
+/** Forgets every cost kept, in memory and stored (tests, and a reset on request). */
+export function forgetTraceCosts() {
+  memory.clear()
+  try {
+    for (const key of Object.keys(window.localStorage))
+      if (key.startsWith(PREFIX)) window.localStorage.removeItem(key)
+  } catch {
+    // Unavailable: nothing stored.
+  }
+}

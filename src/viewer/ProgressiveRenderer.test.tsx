@@ -8,6 +8,7 @@ import type { GalleryCamera } from '../render/gallery'
 import { liveLoading, textureProgress, traceProgress } from '../render/progress'
 import { ProgressiveRenderer, REST_MS, TRIM_AFTER_MS } from './ProgressiveRenderer'
 import { bootStats } from './bootStats'
+import { forgetTraceCosts, recordTraceCost } from './traceRate'
 
 const mocks = vi.hoisted(() => ({
   frames: new Map<number, () => void>(),
@@ -56,6 +57,7 @@ const mocks = vi.hoisted(() => ({
     started: true,
     samplesPerSecond: null as number | null,
     settleAt: vi.fn(),
+    retarget: vi.fn(),
     invalidate: vi.fn(),
     texturesChanged: vi.fn(),
     trim: vi.fn(),
@@ -147,11 +149,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     mocks.trace.step.mockReturnValue(true)
     mocks.trace.started = true
     mocks.trace.samplesPerSecond = null
-    try {
-      window.localStorage.clear()
-    } catch {
-      // No storage in this environment.
-    }
+    forgetTraceCosts()
     mocks.trace.view.mockReturnValue({ from: null, to: {}, t: 1 })
     now = 0
     vi.spyOn(performance, 'now').mockImplementation(() => now)
@@ -469,6 +467,91 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
   })
 
+  describe('device tiers (traceRate.ts costs, under this GPU, tier and depth)', () => {
+    const FULL = '?|high|7'
+
+    it('traces a known slow GPU light from its first start, on the lean raster', async () => {
+      recordTraceCost(FULL, 1061)
+      mocks.buffer = { w: 2329, h: 1456 }
+      await render()
+      expect(mocks.create.mock.calls[0][4]).toEqual({ reflections: false, gi: false })
+      settle()
+      const call = mocks.trace.begin.mock.lastCall!
+      expect(call[5]).toBe(4)
+      expect(call[4]).toBeCloseTo(0.35, 2)
+      // Settles at what 12 s buys at its cost (about 27 samples here), from 16 up.
+      const settleTarget = mocks.trace.settleAt.mock.lastCall![0] as number
+      expect(settleTarget).toBeGreaterThanOrEqual(16)
+      expect(settleTarget).toBeLessThan(64)
+    })
+
+    it('refines a settled view on a decent GPU after a rest, and a move cancels it', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        recordTraceCost(FULL, 300)
+        await render()
+        settle()
+        expect(mocks.trace.begin.mock.lastCall![5]).toBe(7)
+        mocks.trace.samplesPerSecond = 5
+        mocks.trace.progress.mockReturnValue({ shown: 64, target: 64 })
+        mocks.trace.step.mockReturnValue(false)
+        frame()
+        act(() => vi.advanceTimersByTime(999))
+        expect(mocks.trace.retarget).not.toHaveBeenCalled()
+        act(() => vi.advanceTimersByTime(1))
+        expect(mocks.trace.retarget).toHaveBeenCalledWith(64 + 225)
+        // Once per view.
+        frame()
+        act(() => vi.advanceTimersByTime(2000))
+        expect(mocks.trace.retarget).toHaveBeenCalledOnce()
+        // A new view that moves before its rest is over is never upgraded.
+        camera.position.x = 1
+        settle()
+        frame()
+        camera.position.x = 2
+        frame()
+        act(() => vi.advanceTimersByTime(2000))
+        expect(mocks.trace.retarget).toHaveBeenCalledOnce()
+      } finally {
+        mocks.trace.progress.mockReturnValue({ shown: 0, target: 1024 })
+        mocks.trace.step.mockReturnValue(true)
+        vi.useRealTimers()
+      }
+    })
+
+    it('never upgrades a slow GPU', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        recordTraceCost(FULL, 1061)
+        await render()
+        settle()
+        mocks.trace.samplesPerSecond = 2
+        mocks.trace.progress.mockReturnValue({ shown: 16, target: 16 })
+        mocks.trace.step.mockReturnValue(false)
+        frame()
+        act(() => vi.advanceTimersByTime(5000))
+        expect(mocks.trace.retarget).not.toHaveBeenCalled()
+      } finally {
+        mocks.trace.progress.mockReturnValue({ shown: 0, target: 1024 })
+        mocks.trace.step.mockReturnValue(true)
+        vi.useRealTimers()
+      }
+    })
+
+    it('starts a first visit over light once it measures the GPU slow', async () => {
+      mocks.buffer = { w: 2329, h: 1456 }
+      await render()
+      settle()
+      expect(mocks.trace.begin.mock.lastCall![5]).toBe(7)
+      // 0.4 samples a second at ~2.3 MP: over 1000 ms per megapixel-sample.
+      mocks.trace.samplesPerSecond = 0.4
+      frame()
+      settle()
+      expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+      expect(mocks.trace.begin.mock.lastCall![5]).toBe(4)
+    })
+  })
+
   it('tells ?bootStats=1 why each trace stopped', async () => {
     const restart = vi.spyOn(bootStats, 'restart').mockImplementation(() => {})
     await render()
@@ -696,6 +779,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect.anything(),
       128,
       0.5,
+      4,
     )
   })
 
@@ -723,6 +807,7 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
       expect.anything(),
       1024,
       1,
+      7,
     )
     // A larger canvas (a 5K display): capped at 1920×1200's pixels, read again after the resize.
     mocks.buffer = { w: 2976, h: 1860 }
