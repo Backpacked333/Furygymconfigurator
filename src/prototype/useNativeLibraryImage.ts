@@ -53,6 +53,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
   )
   const dynamic = view?.status === 'ready' ? view.image : undefined
   const lookupPending = library.checking && !library.snapshot
+  const lookupUnknown = !library.snapshot || library.paused
   const dynamicRef = useRef(dynamic)
   dynamicRef.current = dynamic
   const key = serializeDesign(design)
@@ -177,9 +178,11 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
       if (!entry) {
         if (lookupPending) return
         update({
-          state: 'unavailable',
-          retryable: false,
-          message: 'No verified image is available for this selected view. No substitute is shown.',
+          state: lookupUnknown ? 'error' : 'unavailable',
+          retryable: !!lookupUnknown,
+          message: lookupUnknown
+            ? 'Could not check the image library. This does not mean your image is missing. Retry to reconnect; no render will be started.'
+            : 'No verified image is available for this selected view. No substitute is shown.',
         })
         return
       }
@@ -210,7 +213,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
       active.current = token + 1
       controller.abort()
     }
-  }, [key, generation, attempt, dynamic?.sha256, lookupPending, finishTransition])
+  }, [key, generation, attempt, dynamic?.sha256, lookupPending, lookupUnknown, finishTransition])
   const progress: NativeProgress =
     snapshot.generation === generation && selection.key === key
       ? snapshot.progress
@@ -221,7 +224,10 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     previous: snapshot.previous,
     finishTransition,
     current: snapshot.shown?.key === key && progress.state === 'ready',
-    retry: () => retry((value) => value + 1),
+    retry: () => {
+      if (lookupUnknown) library.refresh()
+      retry((value) => value + 1)
+    },
     library,
   }
 }

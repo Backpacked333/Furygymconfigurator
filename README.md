@@ -22,7 +22,7 @@ These are draft design previews, **not** strict reference exports, engineering a
 
 ### Run and verify
 
-Use Node 24 from `.nvmrc`, then `npm ci` and `npm run dev`. Open `/?experience=library`. No Modal credentials, GPU, Blender installation or backend are needed to browse the completed static library. Vite alone does not serve `/api/render-library/*`; see the service guide for the separate Node API configuration and deployment prerequisites.
+Use Node 24 from `.nvmrc`, then `npm ci` and `npm run dev`. Open `/?experience=library`. No GPU credentials, Blender installation or backend are needed to browse the completed static library. Vite alone does not serve `/api/render-library/*`; see the service guide for the separate Node API configuration and deployment prerequisites.
 
 ```sh
 npx vitest run src/render-library src/prototype

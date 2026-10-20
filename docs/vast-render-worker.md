@@ -24,10 +24,12 @@ the page does not cancel admitted work or request another render.
 
 ## Provider boundary
 
-The existing scheduled **Modal CPU dispatcher** and its durable lane journals remain;
-**no Modal GPU is created** for the warm Vast profile. The CPU dispatcher connects over
-SSH to an operator-provisioned instance. It has no rental-creation or rental-deletion path.
-The Vast API key is not needed by the dispatcher or sent to the GPU.
+The dispatcher runs **on the Vast host itself**: two supervised lanes
+(`render-server/vast-dispatcher.sh`) run `hosted_dispatcher.py` as root, with durable
+journals under `/var/lib/fury-dispatch/<lane>/`, and invoke the warm-worker runtime
+locally through `vast_host.LocalVastProvider`. No other compute provider is involved.
+It has no rental-creation or rental-deletion path. The Vast API key is not needed by
+the dispatcher or sent to the GPU.
 
 Each job has a deterministic provider identity containing the instance and dispatch ID.
 An fsynced creation record precedes process launch. Recovery never resends a partially
@@ -70,13 +72,12 @@ Receipts must match the immutable registration's GPU; historical L40S receipts s
 5. Deploy compatible worker API routes, apply the warm-profile/backlog migrations, and
    register the immutable worker build. Retain the original recipe registration and
    approval recipe: provider changes must not invalidate existing cached image identities.
-6. Store `FURY_PROVIDER=vast-warm`, `FURY_VAST_HOST`, `FURY_VAST_PORT`,
-   `FURY_VAST_INSTANCE`, `FURY_VAST_SSH_KEY` and `FURY_VAST_KNOWN_HOSTS` in the private
-   `fury-render-library-vast-worker` Modal secret. Never commit these credentials.
-7. Deploy `render-server/deploy_dispatcher.py` with `FURY_PROVIDER=vast-warm`,
-   `FURY_NATIVE_PACKAGE`, and the paired `FURY_SERVICE_ORIGIN` / `FURY_GPU_IMAGE`
-   overrides. For Vast the latter is a descriptive pinned host identity, not a Modal image.
-   Keep deployment-protection credentials restricted to the worker API origin.
+6. Install the dispatcher on the same host as described in
+   [the on-demand README](../render-server/on_demand/README.md#continuously-available-private-dispatcher):
+   `/opt/fury-dispatch/<build>` with `npm ci`, `/opt/host/{hosted_dispatcher.py,vast_host.py,vast-dispatcher.sh}`,
+   and the root-only `/etc/fury/dispatcher.env`. Never commit these credentials.
+7. Start both lanes and register them in `/root/onstart.sh`. Keep deployment-protection
+   credentials restricted to the worker API origin.
 8. Fence the approval to the registered build only after old jobs are reconciled.
    Do not initialize over existing journals or reset accumulated charges/reservations.
    Verify the real product CTA, all five saved views, exact lookup reuse and backlog
