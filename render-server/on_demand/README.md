@@ -6,7 +6,19 @@ Release 2 replaces the interior close-up with an end-corner room overview. Relea
 and its stored objects remain immutable. The four unchanged exterior seed cameras
 remain compatible; historical interior pixels are deliberately excluded from both
 server imports and browser fallback. New interior images require an explicit render.
-**Not deployed, pixel-qualified, registered or authorized to spend.** Importing these
+The Container camera variant `fury-container-open-exterior-entry-cameras@1` keeps
+operable doors open and places Interior Entry outside the selected opening. Doorless
+openings retain the neutral `closed` metadata pose; no door exists to close. The
+pipeline ID remains `fury-native-five@2`, but the full camera recipe participates in
+every set/image hash. Studio identities and cameras are unchanged. Exact open-door
+exterior seeds may be reused; closed-door seeds and historical interiors may not.
+
+**This Container variant is not yet deployed or pixel-qualified.** Roll it out with
+the matching pinned API/dispatcher/worker package and recipe registration, not the
+frontend alone. Check and settle existing admitted work before switching package
+pins; do not disable the always-on service or reset its cumulative budget. Existing
+Studio cached images remain readable. A fresh Container render is still required
+for visual acceptance. Importing these
 modules, packaging source and running the tests do not invoke Modal, Blender or Supabase.
 The retired gateway and `render-server/modal_app.py` remain disabled.
 

@@ -507,7 +507,10 @@
                   },
                   "cameras": {
                     "type": "string",
-                    "const": "fury-native-five-cameras@2"
+                    "enum": [
+                      "fury-native-five-cameras@2",
+                      "fury-container-open-exterior-entry-cameras@1"
+                    ]
                   },
                   "renderer": {
                     "type": "string",
@@ -900,7 +903,10 @@
                             },
                             "cameras": {
                               "type": "string",
-                              "const": "fury-native-five-cameras@2"
+                              "enum": [
+                                "fury-native-five-cameras@2",
+                                "fury-container-open-exterior-entry-cameras@1"
+                              ]
                             },
                             "renderer": {
                               "type": "string",
@@ -1669,7 +1675,7 @@
           },
           "cameras": {
             "type": "string",
-            "const": "fury-native-five-cameras@2"
+            "enum": ["fury-native-five-cameras@2", "fury-container-open-exterior-entry-cameras@1"]
           },
           "renderer": {
             "type": "string",
@@ -2328,7 +2334,10 @@
                       },
                       "cameras": {
                         "type": "string",
-                        "const": "fury-native-five-cameras@2"
+                        "enum": [
+                          "fury-native-five-cameras@2",
+                          "fury-container-open-exterior-entry-cameras@1"
+                        ]
                       },
                       "renderer": {
                         "type": "string",
@@ -2791,7 +2800,10 @@
               },
               "cameras": {
                 "type": "string",
-                "const": "fury-native-five-cameras@2"
+                "enum": [
+                  "fury-native-five-cameras@2",
+                  "fury-container-open-exterior-entry-cameras@1"
+                ]
               },
               "renderer": {
                 "type": "string",
@@ -3334,7 +3346,10 @@
                   },
                   "cameras": {
                     "type": "string",
-                    "const": "fury-native-five-cameras@2"
+                    "enum": [
+                      "fury-native-five-cameras@2",
+                      "fury-container-open-exterior-entry-cameras@1"
+                    ]
                   },
                   "renderer": {
                     "type": "string",
@@ -3835,7 +3850,7 @@
           },
           "cameras": {
             "type": "string",
-            "const": "fury-native-five-cameras@2"
+            "enum": ["fury-native-five-cameras@2", "fury-container-open-exterior-entry-cameras@1"]
           },
           "renderer": {
             "type": "string",
@@ -4259,7 +4274,10 @@
               },
               "cameras": {
                 "type": "string",
-                "const": "fury-native-five-cameras@2"
+                "enum": [
+                  "fury-native-five-cameras@2",
+                  "fury-container-open-exterior-entry-cameras@1"
+                ]
               },
               "renderer": {
                 "type": "string",

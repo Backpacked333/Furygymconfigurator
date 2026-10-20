@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { defaultDesign, parseDesign, type DesignEnvelope } from '../domain/design'
 import { safeError, type SetSnapshot } from '../render-library/contracts'
+import { normalizeCustomerDesign } from '../render-library/views'
 import { useLibrarySet } from './useLibrarySet'
 import { LibraryRequestError } from './renderLibraryClient'
 import { jobId, queued, snapshotFixture } from './renderLibraryClient.fixtures'
@@ -54,7 +55,7 @@ it('only looks up on mount, option changes and status refresh; camera switches s
     parseDesign({ ...a, presentation: { ...a.presentation, cameraRef: 'entry-draft@1' } }),
   )
   expect(api.lookup).toHaveBeenCalledTimes(1)
-  await mount(defaultDesign({ family: 'container', lengthFt: 40 }))
+  await mount(normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 })))
   expect(api.lookup).toHaveBeenCalledTimes(2)
   await act(async () => latest.refresh())
   await flush()
@@ -106,7 +107,7 @@ it('persists only a pointer and resumes server-authoritative status after remoun
 })
 it('allows an explicit second variation without cancelling or automatically repeating the first', async () => {
   const first = defaultDesign()
-  const second = defaultDesign({ family: 'container', lengthFt: 40 })
+  const second = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 }))
   const firstJob = queued(await snapshotFixture(first))
   const secondJob = queued(await snapshotFixture(second))
   secondJob.job = { ...secondJob.job!, id: '00000000-0000-4000-8000-000000000099' }
@@ -205,7 +206,7 @@ it('fences A→B→A lookup completion and does not cancel useful shared jobs on
   const pending: ((value: SetSnapshot) => void)[] = []
   api.lookup.mockImplementation(() => new Promise((resolve) => pending.push(resolve)))
   const a = defaultDesign(),
-    b = defaultDesign({ family: 'container', lengthFt: 40 })
+    b = normalizeCustomerDesign(defaultDesign({ family: 'container', lengthFt: 40 }))
   for (const design of [a, b, a]) await mount(design)
   const old = await snapshotFixture(a, 1),
     other = await snapshotFixture(b),

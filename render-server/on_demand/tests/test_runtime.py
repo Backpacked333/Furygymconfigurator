@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from on_demand.dispatcher import Dispatcher, kill_tree
 from on_demand.journal import Journal
 from on_demand.sandbox_runner import extract, clean_env, ensure_non_root
-from on_demand.validation import validate_claim, verify_receipt, verify_webp, digest
+from on_demand.validation import validate_claim, verify_receipt, verify_webp, digest, identity
 from on_demand.transport import Service
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -126,6 +126,30 @@ class ProviderDouble:
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_container_camera_fixture_and_open_door_fence(self):
+        vector = json.loads((ROOT / "src/render-library/fixtures/container-camera.json").read_text())
+        claim = copy.deepcopy(FIXTURE["claim"])
+        claim.update(design=vector["design"], identity=vector["identity"])
+        claim["views"] = [
+            {"cameraRef": camera, "imageKey": key}
+            for camera, key in claim["identity"]["imageKeys"].items()
+        ]
+        release = claim["identity"]["recipeRelease"]
+        self.assertEqual(identity(claim["design"], "set", release), claim["identity"]["setKey"])
+        for view in claim["views"]:
+            design = copy.deepcopy(claim["design"])
+            design["presentation"]["cameraRef"] = view["cameraRef"]
+            self.assertEqual(identity(design, "image", release), view["imageKey"])
+        self.assertEqual(validate_claim(claim, self.recipe), claim)
+        closed = copy.deepcopy(claim)
+        closed["design"]["presentation"]["doorPose"] = "closed"
+        with self.assertRaisesRegex(ValueError, "container-door-pose"):
+            validate_claim(closed, self.recipe)
+        old_camera = copy.deepcopy(claim)
+        old_camera["identity"]["recipeRelease"]["cameras"] = "fury-native-five-cameras@2"
+        with self.assertRaisesRegex(ValueError, "camera-recipe-mismatch"):
+            validate_claim(old_camera, self.recipe)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)

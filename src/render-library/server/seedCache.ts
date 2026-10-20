@@ -3,7 +3,6 @@ import { serializeDesign, type DesignEnvelope } from '../../domain/design.js'
 import { nativeLibrarySchema, type NativeLibrary } from '../seedManifest.js'
 import {
   CONTRACT_VERSION,
-  RECIPE_RELEASE,
   SEED_MANIFEST_REVISION,
   SEED_MANIFEST_SHA256,
   cameraRefSchema,
@@ -51,7 +50,7 @@ export async function seedImagesForSet(
         setKey: identity.setKey,
         imageKey: identity.imageKeys[camera.data],
         design: entry.design,
-        recipeRelease: RECIPE_RELEASE,
+        recipeRelease: identity.recipeRelease,
         url: `/native-library/${entry.imageSha256}.webp`,
         sha256: entry.imageSha256,
         bytes: entry.imageBytes,

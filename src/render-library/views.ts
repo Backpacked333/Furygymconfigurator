@@ -1,4 +1,4 @@
-import { parseDesign, type DesignEnvelope } from '../domain/design.js'
+import { hasOperableDoor, parseDesign, type DesignEnvelope } from '../domain/design.js'
 import {
   CUSTOMER_CAMERA_REFS,
   type CameraRef,
@@ -17,13 +17,17 @@ export function customerCamera(ref: CameraRef): CustomerCameraRef {
   return ref
 }
 
-/** Explicit load-time adaptation only; parsers and saved source bytes remain unchanged. */
+/** Customer presentation policy; historical parsers and saved source bytes remain unchanged. */
 export function normalizeCustomerDesign(input: unknown): DesignEnvelope {
   const design = parseDesign(input)
   return parseDesign({
     ...design,
     presentation: {
       ...design.presentation,
+      doorPose:
+        design.config.product.family === 'container' && hasOperableDoor(design.config.structure)
+          ? 'open'
+          : design.presentation.doorPose,
       cameraRef: customerCamera(design.presentation.cameraRef),
       lookRef:
         design.presentation.lookRef === 'studio-neutral-draft@1'

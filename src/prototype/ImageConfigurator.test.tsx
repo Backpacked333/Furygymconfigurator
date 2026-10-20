@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultDesign, parseDesign, serializeDesign, type DesignEnvelope } from '../domain/design'
+import { normalizeCustomerDesign } from '../render-library/views'
 import { designIdentity } from '../domain/designIdentity'
 import { PROTOTYPE_STORAGE_KEY, PROTOTYPE_RECOVERY_PREFIX } from '../domain/prototypeStorage'
 import { createMockArtifact, imageReplyBase, type ImageReadyReply } from '../image-service/protocol'
@@ -539,7 +540,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     expect(exported()).toEqual(defaultDesign())
     expect(write).not.toHaveBeenCalled()
     click('Load saved prototype')
-    expect(exported()).toEqual(saved)
+    expect(exported()).toEqual(normalizeCustomerDesign(saved))
     close()
     click('Undo last change')
     library()
@@ -681,7 +682,7 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
     mount()
     expect(exported()).toEqual(defaultDesign())
     click('Open shared design')
-    expect(exported()).toEqual(design)
+    expect(exported()).toEqual(normalizeCustomerDesign(design))
     close()
     click('Undo last change')
     expect(exported()).toEqual(defaultDesign())

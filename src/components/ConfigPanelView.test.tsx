@@ -453,17 +453,14 @@ describe('shared Fury ConfigPanel presentation and its two adapters', () => {
       type: 'update-structure',
       patch: { kind: 'container', addons: ['canopy'] },
     })
-    click('Show the sashes propped open')
-    expect(onAction).toHaveBeenLastCalledWith({
-      type: 'update-presentation',
-      patch: { doorPose: 'closed' },
-    })
+    expect(host.textContent).toContain('Container openings are shown open')
+    expect(host.textContent).not.toContain('Show the sashes propped open')
     const openSide = transitionDesign(design, {
       type: 'update-structure',
       patch: { kind: 'container', infill: 'none' },
     }).next
     draft(1, openSide)
-    expect(host.textContent).toContain('Door pose unavailable')
+    expect(host.textContent).toContain('Container openings are shown open')
     expect(
       [...host.querySelectorAll('[role=switch]')].some((item) =>
         item.textContent?.includes('Show the'),
