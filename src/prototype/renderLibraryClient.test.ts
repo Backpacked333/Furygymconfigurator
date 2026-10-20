@@ -63,12 +63,40 @@ it('enqueues only with a same-origin session and CSRF token, preserving selected
   expect(fetch.mock.calls[1][0]).toBe(API_PATHS.jobs)
   expect(fetch.mock.calls[1][1].headers['X-CSRF-Token']).toBe('c'.repeat(32))
   expect(fetch.mock.calls[1][1].credentials).toBe('same-origin')
+  expect(fetch.mock.calls[1][1].keepalive).toBe(true)
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
     contractVersion: CONTRACT_VERSION,
     design,
     intent: 'render-missing',
     idempotencyKey: jobId,
   })
+})
+it('freezes the clicked build before waiting for session admission', async () => {
+  const design = structuredClone(designFixture())
+  const clicked = structuredClone(design)
+  const snapshot = await snapshotFixture(clicked)
+  let sessionReady!: (value: Response) => void
+  const fetch = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          sessionReady = resolve
+        }),
+    )
+    .mockResolvedValueOnce(response(snapshot))
+  vi.stubGlobal('fetch', fetch)
+  const pending = submitSet(design, jobId, new AbortController().signal)
+  Object.assign(design.presentation, { aspect: 'tall' })
+  sessionReady(
+    response({
+      contractVersion: CONTRACT_VERSION,
+      csrfToken: 'c'.repeat(32),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+  )
+  await expect(pending).resolves.toEqual(snapshot)
+  expect(JSON.parse(fetch.mock.calls[1][1].body).design).toEqual(clicked)
 })
 it('distinguishes lookup errors from confirmed cache misses', async () => {
   vi.stubGlobal(

@@ -269,6 +269,7 @@ class Dispatcher:
                 "name": "fury-" + row["dispatch"]["dispatchId"],
                 "timeout": lifetime,
                 "package": str(package),
+                "workerBuildSha256": self.policy["recipe"]["workerBuildSha256"],
             }
         except Exception:
             row["phase"] = "never-submitted"
@@ -285,7 +286,7 @@ class Dispatcher:
             provider = self.provider.call(
                 "create", row["control"], timeout=claim["limits"]["startupSeconds"]
             )
-            if not provider.get("id", "").startswith("sb-"):
+            if not self.valid_provider_id(provider.get("id"), row["control"]):
                 raise RuntimeError("provider-id")
             row["provider"] = provider["id"]
             row["control"]["id"] = provider["id"]
@@ -380,7 +381,7 @@ class Dispatcher:
                     view = next(
                         v for v in row["prepared"]["views"] if v["imageKey"] == receipt["imageKey"]
                     )
-                    verify_receipt(receipt, row["claim"], view)
+                    verify_receipt(receipt, row["claim"], view, self.policy["recipe"].get("gpuDevice", "NVIDIA L40S"))
                     if receipt["imageKey"] in completed:
                         raise RuntimeError("duplicate-artifact")
                     path = directory / (receipt["imageKey"] + ".part")
@@ -446,6 +447,7 @@ class Dispatcher:
     def recover(self, row):
         if row.get("phase") == "settled":
             self.flush(row, best_effort=True, acknowledgement_only=True)
+            self.release_provider_input(row)
             return
         if row["phase"] == "claimed":
             row["phase"] = "never-submitted"
@@ -465,6 +467,8 @@ class Dispatcher:
             found = self.provider.call("find", row["control"])
             if not found["id"]:
                 return  # Not found is NOT proof of no spend / termination.
+            if not self.valid_provider_id(found["id"], row["control"]):
+                raise RuntimeError("provider-id")
             row["provider"] = found["id"]
             row["control"]["id"] = found["id"]
             row["phase"] = "accepted"
@@ -550,6 +554,21 @@ class Dispatcher:
         )
         row["phase"] = "settled"
         self.journal.save(row)
+        self.release_provider_input(row)
+
+    def release_provider_input(self, row):
+        if self.policy.get("providerKind") == "vast-warm" and row.get("provider") and not row.get("providerInputReleased"):
+            try:
+                self.provider.call("release", row["control"])
+                row["providerInputReleased"] = True
+                self.journal.save(row)
+            except Exception:
+                pass
+
+    def valid_provider_id(self, value, control):
+        if self.policy.get("providerKind") == "vast-warm":
+            return value == f"vast:{self.policy['instanceId']}:{control['name']}"
+        return isinstance(value, str) and value.startswith("sb-")
 
 
 def main():

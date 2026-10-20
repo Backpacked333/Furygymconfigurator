@@ -27,8 +27,10 @@ def render(root, image_key):
         .stdout.strip()
         .splitlines()
     )
-    if native != ["NVIDIA L40S"]:
-        raise RuntimeError("one-L40S-required")
+    recipe = json.loads((Path(__file__).resolve().parents[2] / "recipe.json").read_text())
+    expected_device = recipe.get("gpuDevice", "NVIDIA L40S")
+    if expected_device not in ("NVIDIA L40S", "NVIDIA GeForce RTX 5090") or native != [expected_device]:
+        raise RuntimeError("registered-GPU-required")
     import bpy
     from PIL import Image
     from mathutils import Vector
@@ -147,7 +149,7 @@ def render(root, image_key):
             "completedSamples": 1024,
             "adaptiveSampling": False,
             "quality": 95,
-            "device": "NVIDIA L40S",
+            "device": native[0],
             "engine": "CYCLES",
             "backend": "OPTIX",
             "blenderVersion": "4.5.0",

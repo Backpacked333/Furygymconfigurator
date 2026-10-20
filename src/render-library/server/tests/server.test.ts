@@ -520,7 +520,7 @@ describe('same-origin API and durable repository wiring', () => {
 })
 
 describe('independent artifact decoding and immutable storage', () => {
-  it.each(['original', 'queue'])(
+  it.each(['original', 'queue', 'vast'])(
     'publishes %s build receipts against their own immutable registration',
     async (build) => {
       const bytes = await sharp({
@@ -537,10 +537,19 @@ describe('independent artifact decoding and immutable storage', () => {
               ...policy.recipe,
               workerBuildSha256: '8'.repeat(64),
               recipeBundleSha256: '9'.repeat(64),
+              ...(build === 'vast' ? { gpuDevice: 'NVIDIA GeForce RTX 5090' as const } : {}),
             }
       claim.workerBuildSha256 = event.receipt.workerBuildSha256 = registered.workerBuildSha256
       claim.recipeBundleSha256 = event.receipt.recipeBundleSha256 = registered.recipeBundleSha256
       claim.limits.maxActiveJobsPerSession = build === 'original' ? 1 : 2
+      if (build === 'vast') {
+        Object.assign(claim.limits, {
+          maxContainers: 1,
+          concurrencyPerContainer: 2,
+          minContainers: 1,
+        })
+        event.receipt.device = 'NVIDIA GeForce RTX 5090'
+      }
       event.receipt.bytes = bytes.length
       event.receipt.sha256 = checksum(bytes)
       let invalidBytes = false
@@ -585,6 +594,19 @@ describe('independent artifact decoding and immutable storage', () => {
       expect(artifact.image.sha256).toBe(checksum(bytes))
       expect(artifact.image.provenance.kind).toBe('native-worker')
       expect(artifact.image.provenance.receiptSha256).toMatch(/^[a-f0-9]{64}$/)
+      await expect(
+        worker.prepareUpload({
+          ...event,
+          receipt: {
+            ...event.receipt,
+            device: build === 'vast' ? 'NVIDIA L40S' : 'NVIDIA GeForce RTX 5090',
+          },
+        }),
+      ).rejects.toThrow('Artifact does not match the claimed work')
+      const originalMinimum = claim.limits.minContainers
+      claim.limits.minContainers = build === 'vast' ? 0 : 1
+      await expect(worker.prepareUpload(event)).rejects.toThrow('Worker execution profile mismatch')
+      claim.limits.minContainers = originalMinimum
       fetcher.mockClear()
       replay = true
       vi.useFakeTimers()

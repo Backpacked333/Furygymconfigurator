@@ -22,6 +22,14 @@ export async function verifyWorkerClaim(
     claim.recipeBundleSha256 !== recipe.recipeBundleSha256
   )
     throw new Error('Worker claim release mismatch.')
+  const warm = recipe.gpuDevice === 'NVIDIA GeForce RTX 5090'
+  if (
+    claim.limits.concurrencyPerContainer !== (warm ? 2 : 1) ||
+    claim.limits.minContainers !== (warm ? 1 : 0) ||
+    claim.limits.maxCreatesPerSessionPerHour > (warm ? 60 : 3) ||
+    (warm && claim.limits.maxContainers !== 1)
+  )
+    throw new Error('Worker execution profile mismatch.')
   return claim
 }
 
@@ -29,6 +37,7 @@ export async function verifyWorkerClaim(
 export async function verifyArtifactReceipt(
   input: unknown,
   claim: WorkerClaim,
+  recipe?: RecipeRegistration,
 ): Promise<ArtifactReceipt> {
   const receipt = artifactReceiptSchema.parse(input)
   const camera = receipt.design.presentation.cameraRef
@@ -46,6 +55,7 @@ export async function verifyArtifactReceipt(
     serializeDesign(receipt.design) !== serializeDesign(expectedDesign) ||
     receipt.workerBuildSha256 !== claim.workerBuildSha256 ||
     receipt.recipeBundleSha256 !== claim.recipeBundleSha256 ||
+    receipt.device !== (recipe?.gpuDevice ?? 'NVIDIA L40S') ||
     receipt.renderSeconds > claim.limits.imageSeconds
   )
     throw new Error('Artifact does not match the claimed work.')

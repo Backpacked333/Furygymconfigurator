@@ -35,6 +35,7 @@ export type RecipeRegistration = Readonly<{
   materialsSha256: string
   camerasSha256: string
   rendererSha256: string
+  gpuDevice?: 'NVIDIA GeForce RTX 5090'
 }>
 export type AdmissionPolicy = Readonly<{
   enabled: true

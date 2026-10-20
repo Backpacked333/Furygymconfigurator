@@ -102,18 +102,20 @@ def validate_claim(claim, recipe):
         ("jobSeconds", 2100),
         ("maxContainers", 2),
         ("maxActiveJobsPerSession", 2),
-        ("maxCreatesPerSessionPerHour", 3),
+        ("maxCreatesPerSessionPerHour", 60 if recipe.get("gpuDevice") else 3),
     ):
         if type(limits[key]) is not int or not 0 < limits[key] <= ceiling:
             raise ValueError("invalid-limit")
     for key, value in (
         ("providerRetries", 0),
-        ("minContainers", 0),
-        ("concurrencyPerContainer", 1),
+        ("minContainers", 1 if recipe.get("gpuDevice") else 0),
+        ("concurrencyPerContainer", 2 if recipe.get("gpuDevice") else 1),
         ("imagesPerJob", 5),
     ):
         if limits[key] != value:
             raise ValueError("invalid-limit")
+    if recipe.get("gpuDevice") and (recipe["gpuDevice"] != "NVIDIA GeForce RTX 5090" or limits["maxContainers"] != 1):
+        raise ValueError("invalid-warm-profile")
     return claim
 
 
@@ -138,7 +140,9 @@ def verify_webp(path, receipt):
         image.load()
 
 
-def verify_receipt(receipt, claim, view):
+def verify_receipt(receipt, claim, view, device="NVIDIA L40S"):
+    if device not in ("NVIDIA L40S", "NVIDIA GeForce RTX 5090"):
+        raise ValueError("unsupported-device")
     for field in ("jobId", "attemptId", "workerBuildSha256", "recipeBundleSha256"):
         if receipt[field] != claim[field]:
             raise ValueError("receipt-claim-mismatch")
@@ -156,7 +160,7 @@ def verify_receipt(receipt, claim, view):
         "completedSamples": 1024,
         "adaptiveSampling": False,
         "quality": 95,
-        "device": "NVIDIA L40S",
+        "device": device,
         "engine": "CYCLES",
         "backend": "OPTIX",
         "blenderVersion": "4.5.0",

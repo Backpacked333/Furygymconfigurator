@@ -36,6 +36,8 @@ with tempfile.TemporaryDirectory() as location:
         recipeBundleSha256=recipe["recipeBundleSha256"],
         deadlineAt="2030-01-01T00:00:00Z",
     )
+    if recipe.get('gpuDevice'):
+        claim['limits'].update(maxContainers=1, concurrencyPerContainer=2, minContainers=1)
     Journal.initialize(state / "test.db")
     journal = Journal(state / "test.db")
     worker = Dispatcher(None, None, journal, {"recipe": recipe}, root, state)

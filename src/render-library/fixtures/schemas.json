@@ -2472,8 +2472,9 @@
                     "maximum": 2
                   },
                   "concurrencyPerContainer": {
-                    "type": "number",
-                    "const": 1
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2
                   },
                   "maxActiveJobsPerSession": {
                     "type": "integer",
@@ -2483,11 +2484,12 @@
                   "maxCreatesPerSessionPerHour": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
-                    "maximum": 3
+                    "maximum": 60
                   },
                   "minContainers": {
-                    "type": "number",
-                    "const": 0
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1
                   },
                   "providerRetries": {
                     "type": "number",
@@ -2938,8 +2940,9 @@
             "maximum": 2
           },
           "concurrencyPerContainer": {
-            "type": "number",
-            "const": 1
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2
           },
           "maxActiveJobsPerSession": {
             "type": "integer",
@@ -2949,11 +2952,12 @@
           "maxCreatesPerSessionPerHour": {
             "type": "integer",
             "exclusiveMinimum": 0,
-            "maximum": 3
+            "maximum": 60
           },
           "minContainers": {
-            "type": "number",
-            "const": 0
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
           },
           "providerRetries": {
             "type": "number",
@@ -3437,7 +3441,7 @@
               },
               "device": {
                 "type": "string",
-                "const": "NVIDIA L40S"
+                "enum": ["NVIDIA L40S", "NVIDIA GeForce RTX 5090"]
               },
               "engine": {
                 "type": "string",
@@ -3938,7 +3942,7 @@
       },
       "device": {
         "type": "string",
-        "const": "NVIDIA L40S"
+        "enum": ["NVIDIA L40S", "NVIDIA GeForce RTX 5090"]
       },
       "engine": {
         "type": "string",
@@ -4365,7 +4369,7 @@
           },
           "device": {
             "type": "string",
-            "const": "NVIDIA L40S"
+            "enum": ["NVIDIA L40S", "NVIDIA GeForce RTX 5090"]
           },
           "engine": {
             "type": "string",

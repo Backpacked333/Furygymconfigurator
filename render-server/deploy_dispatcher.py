@@ -12,13 +12,15 @@ if runtime_overrides and len(runtime_overrides) != 2:
     raise RuntimeError('service-origin-and-gpu-image-must-be-pinned-together')
 runtime_secrets = [modal.Secret.from_name('fury-render-library-dispatcher'),
                    modal.Secret.from_dict(runtime_overrides)]
+if os.environ.get('FURY_PROVIDER') == 'vast-warm':
+    runtime_secrets.append(modal.Secret.from_name('fury-render-library-vast-worker'))
 volume = modal.Volume.from_name('fury-render-library-dispatch-journal', create_if_missing=True)
 background_volume = modal.Volume.from_name('fury-render-library-background-journal', create_if_missing=True)
 package = Path(os.environ['FURY_NATIVE_PACKAGE']).resolve()
 source = Path(__file__).resolve().parent
 image = (
     modal.Image.from_registry('node:24.22.0-bookworm-slim', add_python='3.11')
-    .apt_install('ca-certificates')
+    .apt_install('ca-certificates', 'openssh-client')
     .add_local_dir(package, '/opt/fury', copy=True, ignore=['node_modules', '**/__pycache__'])
     .run_commands(
         'python -m pip install --require-hashes -r /opt/fury/render-server/on_demand/requirements-cpu.lock',

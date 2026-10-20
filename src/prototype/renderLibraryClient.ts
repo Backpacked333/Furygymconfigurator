@@ -26,7 +26,13 @@ export function storageOrigins(): readonly string[] {
   }
 }
 
-async function json(path: string, signal: AbortSignal, body?: unknown, csrf?: string) {
+async function json(
+  path: string,
+  signal: AbortSignal,
+  body?: unknown,
+  csrf?: string,
+  keepalive = false,
+) {
   if (!path.startsWith('/api/render-library/')) throw new Error('Invalid service path.')
   const controller = new AbortController()
   const abort = () => controller.abort()
@@ -39,6 +45,7 @@ async function json(path: string, signal: AbortSignal, body?: unknown, csrf?: st
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
+      keepalive,
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
@@ -112,6 +119,7 @@ export async function submitSet(
   signal: AbortSignal,
   retryJobId?: string,
 ) {
+  const requestedDesign = parseDesign(design)
   const session = sessionResponseSchema.parse(await json(API_PATHS.session, signal))
   if (Date.parse(session.expiresAt) <= Date.now())
     throw new LibraryRequestError(
@@ -120,11 +128,16 @@ export async function submitSet(
     )
   const body = retryJobId
     ? { contractVersion: CONTRACT_VERSION, intent: 'retry-failed-missing', idempotencyKey }
-    : { contractVersion: CONTRACT_VERSION, design, intent: 'render-missing', idempotencyKey }
+    : {
+        contractVersion: CONTRACT_VERSION,
+        design: requestedDesign,
+        intent: 'render-missing',
+        idempotencyKey,
+      }
   const path = retryJobId
     ? `${API_PATHS.jobs}/${encodeURIComponent(retryJobId)}/retry`
     : API_PATHS.jobs
-  return verifySnapshot(await json(path, signal, body, session.csrfToken), design)
+  return verifySnapshot(await json(path, signal, body, session.csrfToken, true), requestedDesign)
 }
 
 export async function decodeLibraryImage(

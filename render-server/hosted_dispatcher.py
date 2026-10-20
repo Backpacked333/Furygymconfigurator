@@ -129,6 +129,7 @@ def run_dispatch(journal_volume, lane, app_name):
 def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'):
     from on_demand.dispatcher import Dispatcher
     from hosted_transfer import HostedProvider
+    from on_demand.vast_provider import VastProvider
     from on_demand.transport import Service
 
     if lane not in ('foreground', 'background'):
@@ -153,11 +154,17 @@ def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'
             'appName': os.environ['FURY_GPU_APP'],
             'imageId': os.environ['FURY_GPU_IMAGE'],
         }
+        provider = HostedProvider(root, work)
+        if os.environ.get('FURY_PROVIDER') == 'vast-warm':
+            if policy['recipe'].get('gpuDevice') != 'NVIDIA GeForce RTX 5090':
+                raise RuntimeError('vast-worker-registration-required')
+            policy.update(providerKind='vast-warm', instanceId=os.environ['FURY_VAST_INSTANCE'])
+            provider = VastProvider(root, work)
         service = Service(os.environ['FURY_SERVICE_ORIGIN'], os.environ['FURY_WORKER_TOKEN'],
                           os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'],
                           deployment_token())
         worker = Dispatcher(LaneService(service, db, lane, policy['recipe']['workerBuildSha256']),
-                            HostedProvider(root, work), journal, policy, root, work)
+                            provider, journal, policy, root, work)
         worker.verify_source()
         pending = [row for row in journal.jobs() if row['phase'] != 'settled']
         active = [row for row in pending if row['phase'] != 'uncertain']
