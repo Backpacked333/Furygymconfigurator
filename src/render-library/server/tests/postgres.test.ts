@@ -154,6 +154,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610190005_dispatcher_headroom.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200001_render_queue_lanes.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200002_worker_builds.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200003_work_conserving_dispatch.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -488,13 +489,89 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     expect(dispatch('background').dispatch.jobId).toBe(first.snapshot.job.id)
     expect(ledger().reserved_micro_usd).toBe(11000)
   })
-  it('drains pre-migration jobs without foreground pointers through the background lane', () => {
+  it('prioritizes the latest explicit selection across sessions instead of the oldest job', async () => {
+    const first = reserve(await variation(0))
+    const secondSession = 'c'.repeat(64)
+    touch(secondSession)
+    const next = await variation(1)
+    const second = reserve({ ...next, context: { ...next.context, sessionHash: secondSession } })
+    run(
+      `update public.render_library_sessions set foreground_requested_at=now()-interval '1 minute' where session_hash=${quote(session)}`,
+    )
+    expect(dispatch().dispatch.jobId).toBe(second.snapshot.job.id)
+    expect(dispatch('background').dispatch.jobId).toBe(first.snapshot.job.id)
+  })
+  it('uses an idle foreground lane after a cache hit even while background is uncertain', async () => {
+    reserve(await variation(1))
+    const pending = reserve(await variation(2))
+    const background = dispatch('background')
+    recordDispatch(background, {
+      status: 'uncertain',
+      reason: {
+        code: 'dispatch-uncertain',
+        message: 'We are checking whether rendering started. Please do not submit again.',
+        retryable: false,
+      },
+    })
+    run(`insert into public.render_library_sets(set_key,design,identity,release_id)
+      values(${quote(command.identity.setKey)},${encoded(command.request.design)},${encoded(command.identity)},'fury-native-five@2');`)
+    for (const view of contract.complete.views) {
+      const image = imageDescriptorSchema.parse(view.image)
+      run(`insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
+        values(${quote(image.imageKey)},${quote(image.setKey)},${quote(image.design.presentation.cameraRef)},${encoded(image)},${encoded(image.provenance)});`)
+    }
+    expect(reserve().status).toBe('cached')
+    expect(run('select foreground_job_id from public.render_library_sessions')).toBe('')
+    expect(dispatch().dispatch.jobId).toBe(pending.snapshot.job.id)
+    expect(dispatch('background')).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(11000)
+  })
+  it('uses an idle foreground lane after joining a terminal job', async () => {
+    const failed = reserve()
+    const claim = dispatch()
+    recordDispatch(claim, {
+      status: 'definitely-not-submitted',
+      reason: {
+        code: 'worker-failed',
+        message: 'Rendering stopped. Completed images remain available.',
+        retryable: false,
+      },
+    })
+    rpc('render_library_reconcile_terminal', [
+      quote(failed.snapshot.job.id),
+      encoded({ kind: 'never-submitted', dispatchId: claim.dispatch.dispatchId }),
+      '0',
+    ])
+    reserve(await variation(1))
+    dispatch('background')
+    const pending = reserve(await variation(2))
+    expect(
+      reserve({ ...command, request: { ...command.request, idempotencyKey: randomUUID() } }).status,
+    ).toBe('joined')
+    expect(dispatch().dispatch.jobId).toBe(pending.snapshot.job.id)
+    expect(ledger().reserved_micro_usd).toBe(11000)
+  })
+  it('pauses unclaimed work at approval expiry and resumes it only after operator renewal', () => {
+    const pending = reserve()
+    run("update public.render_library_approvals set expires_at=now()-interval '1 second'")
+    expect(dispatch()).toBeNull()
+    expect(dispatch('background')).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(5500)
+    expect(
+      run('select count(*) from public.render_library_outbox where claimed_at is not null'),
+    ).toBe('0')
+    run(
+      "update public.render_library_approvals set expires_at=now()+interval '1 hour',policy=jsonb_set(policy,'{expiresAt}',to_jsonb(public.render_library_iso(now()+interval '1 hour')))",
+    )
+    expect(dispatch().dispatch.jobId).toBe(pending.snapshot.job.id)
+    expect(ledger().reserved_micro_usd).toBe(5500)
+  })
+  it('drains jobs without foreground pointers through an otherwise idle foreground lane', () => {
     const queued = reserve()
     run(
       'update public.render_library_sessions set foreground_job_id=null,foreground_requested_at=null',
     )
-    expect(dispatch()).toBeNull()
-    expect(dispatch('background').dispatch.jobId).toBe(queued.snapshot.job.id)
+    expect(dispatch().dispatch.jobId).toBe(queued.snapshot.job.id)
   })
   it('does not shut down a sibling CPU cycle and fences new cycles after actual exhaustion', () => {
     run('update public.render_library_approvals set budget_micro_usd=300000')

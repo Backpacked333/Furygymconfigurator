@@ -1,7 +1,10 @@
+import ast
+import builtins
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -10,6 +13,41 @@ from on_demand.journal import Journal
 
 
 class HostedJournalTests(unittest.TestCase):
+    def test_serialized_callbacks_do_not_import_the_unshipped_deployment_module(self):
+        from modal._serialization import deserialize, serialize
+        source = Path(__file__).resolve().parents[2] / 'deploy_dispatcher.py'
+        functions = [node for node in ast.parse(source.read_text()).body if isinstance(node, ast.FunctionDef)]
+        for node in functions:
+            node.decorator_list = []
+        module = ModuleType('deploy_dispatcher')
+        module.__dict__.update(volume='foreground-volume', background_volume='background-volume',
+                               APP_NAME='fury-render-library-dispatcher')
+        imported = builtins.__import__
+
+        def remote_import(name, *args, **kwargs):
+            if name == module.__name__:
+                raise ModuleNotFoundError(name)
+            return imported(name, *args, **kwargs)
+
+        with patch.dict(sys.modules, {module.__name__: module}):
+            exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), module.__dict__)
+            callbacks = []
+            for name in ('dispatch', 'dispatch_background', 'initialize', 'initialize_background'):
+                callback = module.__dict__[name]
+                module.__dict__[name] = 'modal-decorated-function'
+                callbacks.append(serialize(callback))
+            with patch('builtins.__import__', side_effect=remote_import), \
+                    patch('hosted_dispatcher.run_dispatch', return_value={'status': 'idle'}) as dispatch, \
+                    patch('hosted_dispatcher.initialize_volume', return_value={'initialized': True}) as initialize:
+                results = [deserialize(payload, None)() for payload in callbacks]
+            self.assertEqual(results, [{'status': 'idle'}, {'status': 'idle'},
+                                       {'initialized': True}, {'initialized': True}])
+            self.assertEqual([call.args for call in dispatch.call_args_list], [
+                ('foreground-volume', 'foreground', module.APP_NAME),
+                ('background-volume', 'background', module.APP_NAME)])
+            self.assertEqual([call.args for call in initialize.call_args_list],
+                             [('foreground-volume',), ('background-volume',)])
+
     def test_worker_build_does_not_rewrite_customer_admission_recipe(self):
         original = {'releaseId': 'fury-native-five@2', 'workerBuildSha256': 'a' * 64}
         active = {**original, 'workerBuildSha256': 'b' * 64}

@@ -293,6 +293,13 @@ The ledger is conservative
 application accounting, not a verified Modal invoice or an account-wide billing cap;
 unrelated Modal apps, storage, network and hosting bills must be monitored separately.
 
+Foreground dispatch prioritizes the most recently requested pending selection across sessions.
+If none is eligible, it uses idle capacity for older queued work; background remains FIFO.
+Cached or terminal selections therefore cannot strand pending work behind a busy background lane.
+Approval expiry pauses unclaimed jobs without cancelling their reservations or authorizing
+post-expiry spending. Operator renewal of the approval and matching policy resumes that same
+durable backlog; expiry is not an automatic refund or cancellation mechanism.
+
 ### Compatible queue-worker rollout
 
 The original `fury-native-five@2` package validates
