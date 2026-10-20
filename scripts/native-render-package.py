@@ -3,7 +3,6 @@
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import sys
 
 
@@ -15,12 +14,88 @@ def encode(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
 
-def package(output):
-    root = Path(__file__).resolve().parents[1]
+def registration(files):
+    subset = lambda prefixes: checksum(
+        encode({k: v for k, v in files.items() if k.startswith(prefixes)})
+    )
+    return {
+        "releaseId": "fury-native-five@2",
+        "workerBuildSha256": checksum(encode(files)),
+        "recipeBundleSha256": subset(("src/", "public/", "scripts/native-render-",
+                                      "render-server/fury_render/", "render-server/on_demand/")),
+        "geometrySha256": subset(("src/render/", "src/domain/", "src/components/",
+                                  "scripts/native-render-scenery")),
+        "materialsSha256": subset(("public/", "src/render/", "src/lib/")),
+        "camerasSha256": subset(("src/domain/cameras", "src/domain/presentation",
+                                 "src/render/prototype/")),
+        "rendererSha256": subset(("render-server/fury_render/", "render-server/on_demand/")),
+    }
+
+
+def write_package(output, files, sources, metadata=None):
     output = Path(output).resolve()
     if output.exists():
         raise RuntimeError("fresh-output-required")
     output.mkdir(mode=0o700)
+    for name, source in sources.items():
+        target = output / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source)
+    recipe = registration(files)
+    manifest = {"files": files, "recipe": recipe, **(metadata or {})}
+    (output / "native-build.json").write_bytes(encode(manifest))
+    (output / "recipe.json").write_bytes(encode(recipe))
+    return manifest
+
+
+def queue_upgrade(base, output):
+    base = Path(base).resolve()
+    manifest = json.loads((base / "native-build.json").read_text())
+    if manifest["recipe"] != registration(manifest["files"]) or json.loads(
+        (base / "recipe.json").read_text()
+    ) != manifest["recipe"]:
+        raise RuntimeError("base-registration-mismatch")
+    sources = {}
+    for name, expected in manifest["files"].items():
+        path = base / name
+        if (Path(name).is_absolute() or '..' in Path(name).parts or path.is_symlink()
+                or not path.resolve().is_relative_to(base)):
+            raise RuntimeError("unsafe-source-path")
+        data = path.read_bytes()
+        if checksum(data) != expected:
+            raise RuntimeError("base-source-drift")
+        sources[name] = data
+    replacements = {
+        "src/render-library/workerProtocol.ts": [
+            ("maxActiveJobsPerSession: 1,", "maxActiveJobsPerSession: 2,"),
+            ("maxActiveJobsPerSession: z.literal(1),",
+             "maxActiveJobsPerSession: z.number().int().positive().max(2),"),
+        ],
+        "render-server/on_demand/validation.py": [
+            ('        ("maxContainers", 2),\n',
+             '        ("maxContainers", 2),\n        ("maxActiveJobsPerSession", 2),\n'
+             '        ("maxCreatesPerSessionPerHour", 3),\n'),
+        ],
+    }
+    for name, pairs in replacements.items():
+        source = sources[name].decode()
+        for old, new in pairs:
+            if source.count(old) != 1:
+                raise RuntimeError("incompatible-base-worker")
+            source = source.replace(old, new)
+        sources[name] = source.encode()
+    files = {name: checksum(data) for name, data in sources.items()}
+    changes = {name: {"before": manifest["files"][name], "after": files[name]}
+               for name in replacements}
+    return write_package(output, files, sources, {
+        "workerRevision": "fury-native-queue-worker@1",
+        "compatibleWithWorkerBuildSha256": manifest["recipe"]["workerBuildSha256"],
+        "changes": changes,
+    })
+
+
+def package(output):
+    root = Path(__file__).resolve().parents[1]
     paths = {
         p
         for folder in ("src", "patches", "types")
@@ -62,52 +137,17 @@ def package(output):
         ):
             raise RuntimeError("pinned-asset-changed")
         paths.add(path)
-    files = {}
+    files, sources = {}, {}
     for path in sorted(paths):
         if path.is_symlink():
             raise RuntimeError("source-symlink")
         name = str(path.relative_to(root))
         files[name] = checksum(path.read_bytes())
-        target = output / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
-    subset = lambda prefixes: checksum(
-        encode({k: v for k, v in files.items() if k.startswith(prefixes)})
-    )
-    recipe = {
-        "releaseId": "fury-native-five@2",
-        "workerBuildSha256": checksum(encode(files)),
-        "recipeBundleSha256": subset(
-            (
-                "src/",
-                "public/",
-                "scripts/native-render-",
-                "render-server/fury_render/",
-                "render-server/on_demand/",
-            )
-        ),
-        "geometrySha256": subset(
-            (
-                "src/render/",
-                "src/domain/",
-                "src/components/",
-                "scripts/native-render-scenery",
-            )
-        ),
-        "materialsSha256": subset(("public/", "src/render/", "src/lib/")),
-        "camerasSha256": subset(
-            ("src/domain/cameras", "src/domain/presentation", "src/render/prototype/")
-        ),
-        "rendererSha256": subset(
-            ("render-server/fury_render/", "render-server/on_demand/")
-        ),
-    }
-    (output / "native-build.json").write_bytes(
-        encode({"files": files, "recipe": recipe})
-    )
-    (output / "recipe.json").write_bytes(encode(recipe))
-    print(json.dumps({"output": str(output), "recipe": recipe, "files": len(files)}))
+        sources[name] = path.read_bytes()
+    return write_package(output, files, sources)
 
 
 if __name__ == "__main__":
-    package(sys.argv[1])
+    result = (queue_upgrade(sys.argv[2], sys.argv[3]) if sys.argv[1] == '--queue-upgrade'
+              else package(sys.argv[1]))
+    print(json.dumps({k: v for k, v in result.items() if k != 'files'}))

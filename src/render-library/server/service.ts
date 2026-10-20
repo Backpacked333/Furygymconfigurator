@@ -204,7 +204,7 @@ export class WorkerService implements WorkerServicePort {
   async claim(request: ClaimRequest) {
     const parsed = claimRequestSchema.parse(request)
     await this.admission()
-    const registration = await this.repository.registration()
+    const registration = await this.repository.registration(parsed.workerBuildSha256)
     if (registration.workerBuildSha256 !== parsed.workerBuildSha256)
       throw new ServiceError('invalid-request', 400)
     const { workerBuildSha256, ...dispatch } = parsed
@@ -216,7 +216,7 @@ export class WorkerService implements WorkerServicePort {
   }
   private async verifyEvent(event: WorkerEvent) {
     const claim = await this.repository.workerClaim(event.jobId, event.attemptId, event.fence)
-    await verifyWorkerClaim(claim, await this.repository.registration())
+    await verifyWorkerClaim(claim, await this.repository.registration(claim.workerBuildSha256))
     if (claim.fence !== event.fence) throw new ServiceError('invalid-request', 400)
     if (event.kind === 'artifact') await verifyArtifactReceipt(event.receipt, claim)
     return claim

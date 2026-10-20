@@ -92,7 +92,7 @@
       "jobSeconds": 2100,
       "maxContainers": 2,
       "concurrencyPerContainer": 1,
-      "maxActiveJobsPerSession": 1,
+      "maxActiveJobsPerSession": 2,
       "maxCreatesPerSessionPerHour": 3,
       "minContainers": 0,
       "providerRetries": 0

@@ -317,6 +317,22 @@ describe('native manifest compatibility and immutable descriptors', () => {
 })
 
 describe('private worker binding and cross-language fixtures', () => {
+  it.each([1, 2])('accepts a per-session execution ceiling of %i', (limit) => {
+    expect(
+      workerClaimSchema.safeParse({
+        ...claim,
+        limits: { ...claim.limits, maxActiveJobsPerSession: limit },
+      }).success,
+    ).toBe(true)
+  })
+  it.each([0, 3, 1.5])('rejects an unsafe per-session execution ceiling of %s', (limit) => {
+    expect(
+      workerClaimSchema.safeParse({
+        ...claim,
+        limits: { ...claim.limits, maxActiveJobsPerSession: limit },
+      }).success,
+    ).toBe(false)
+  })
   it('dispatches identifiers only and keeps uncertainty explicit', () => {
     expect(dispatchEnvelopeSchema.parse(worker.dispatch)).toEqual(worker.dispatch)
     expect(dispatchEnvelopeSchema.safeParse({ ...worker.dispatch, design }).success).toBe(false)
