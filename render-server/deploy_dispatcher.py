@@ -45,7 +45,8 @@ image = (
     scaledown_window=2,
 )
 def dispatch():
-    return run_dispatch(volume, 'foreground')
+    from hosted_dispatcher import run_dispatch
+    return run_dispatch(volume, 'foreground', APP_NAME)
 
 
 @app.function(
@@ -58,44 +59,17 @@ def dispatch():
     scaledown_window=2,
 )
 def dispatch_background():
-    return run_dispatch(background_volume, 'background')
-
-
-def run_dispatch(journal_volume, lane):
-    from hosted_dispatcher import drain
-    try:
-        result = drain(journal_volume, lane=lane)
-        print(result)
-        if result['status'] == 'budget-exhausted':
-            import subprocess
-            import sys
-            # Stop paid coordination at the cap, not the Vercel app or its cached images.
-            app_id = modal.App.lookup(APP_NAME, create_if_missing=False).app_id
-            subprocess.run([sys.executable, '-m', 'modal', 'app', 'stop', app_id],
-                           check=True, timeout=30, capture_output=True)
-        return result
-    except Exception as error:
-        # Provider and HTTP exceptions can contain sensitive URLs/headers.
-        import traceback
-        locations = [(frame.name, frame.lineno) for frame in traceback.extract_tb(error.__traceback__)]
-        print('dispatcher-recovery-pending', type(error).__name__, locations)
-        return {'status': 'recovery-pending', 'error': type(error).__name__}
+    from hosted_dispatcher import run_dispatch
+    return run_dispatch(background_volume, 'background', APP_NAME)
 
 
 @app.function(image=image, volumes={'/state': volume}, timeout=60, serialized=True, include_source=False)
 def initialize():
+    from hosted_dispatcher import initialize_volume
     return initialize_volume(volume)
 
 
 @app.function(image=image, volumes={'/state': background_volume}, timeout=60, serialized=True, include_source=False)
 def initialize_background():
+    from hosted_dispatcher import initialize_volume
     return initialize_volume(background_volume)
-
-
-def initialize_volume(journal_volume):
-    from pathlib import Path
-    from on_demand.journal import Journal
-    journal_volume.reload()
-    Journal.initialize(Path('/state/dispatch.sqlite3'))
-    journal_volume.commit()
-    return {'initialized': True}

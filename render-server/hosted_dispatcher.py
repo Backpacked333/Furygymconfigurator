@@ -98,6 +98,34 @@ def worker_recipe(database, approval):
     return rows[0]['registration']
 
 
+def initialize_volume(journal_volume):
+    from on_demand.journal import Journal
+    journal_volume.reload()
+    Journal.initialize(Path('/state/dispatch.sqlite3'))
+    journal_volume.commit()
+    return {'initialized': True}
+
+
+def run_dispatch(journal_volume, lane, app_name):
+    try:
+        result = drain(journal_volume, lane=lane)
+        print(result)
+        if result['status'] == 'budget-exhausted':
+            import modal
+            import subprocess
+            import sys
+            app_id = modal.App.lookup(app_name, create_if_missing=False).app_id
+            subprocess.run([sys.executable, '-m', 'modal', 'app', 'stop', app_id],
+                           check=True, timeout=30, capture_output=True)
+        return result
+    except Exception as error:
+        # Provider and HTTP exceptions can contain sensitive URLs/headers.
+        import traceback
+        locations = [(frame.name, frame.lineno) for frame in traceback.extract_tb(error.__traceback__)]
+        print('dispatcher-recovery-pending', type(error).__name__, locations)
+        return {'status': 'recovery-pending', 'error': type(error).__name__}
+
+
 def drain(volume, root=Path('/opt/fury'), work=Path('/state'), lane='foreground'):
     from on_demand.dispatcher import Dispatcher
     from hosted_transfer import HostedProvider
