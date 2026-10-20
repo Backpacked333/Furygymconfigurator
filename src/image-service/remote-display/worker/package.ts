@@ -36,8 +36,6 @@ export const CLOUD_RUNTIME_POLICY = freezeDesignValue({
   runtimeFilesDigest: null,
   fontFilesDigest: null,
   sdkLaunchPin: null,
-  sdkAuditPin: 'modal==1.1.4',
-  sdkAuditSource: 'sha256:baa8a10faf6bfe18a7e1710604d5273bc8484e43fce7a1ef88bdd8d7157a07a9',
   observations: 'none; requirements and package compilation are not runtime evidence',
   lifetimeMs: 600000,
   idleMs: 30000,
@@ -103,7 +101,7 @@ export async function packageBytes(path: string, root: string): Promise<Buffer> 
   }
 }
 
-/** Compile only. Does not write a runtime image, execute a browser, import Modal or contact a provider. */
+/** Compile only. Does not write a runtime image, execute a browser, or contact a provider. */
 export async function preparePortablePackage(): Promise<PortablePackage> {
   const root = CLOUD_SOURCE
   if ((await realpath(root)) !== root) throw new Error('Cloud source root changed.')

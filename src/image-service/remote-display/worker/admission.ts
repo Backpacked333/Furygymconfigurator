@@ -28,7 +28,7 @@ export const externalApprovalSchema = z
     productionAllowed: z.literal(false),
     resources: z
       .object({
-        provider: z.literal('modal-candidate'),
+        provider: z.literal('unqualified-candidate'),
         runtime: z.literal('vm'),
         gpu: z.enum(['T4', 'L4', 'A10']),
         gpuCount: z.literal(1),

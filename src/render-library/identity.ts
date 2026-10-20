@@ -9,7 +9,7 @@ import {
   type ImageDescriptor,
   type SetIdentity,
 } from './contracts.js'
-import { fiveViewDesigns } from './views.js'
+import { INTERIOR_KEYING, fiveViewDesigns, viewDesign } from './views.js'
 
 /** Sorted UTF-8 JSON. Contract values are finite JSON primitives; arrays keep their order. */
 export function canonicalJson(value: unknown): string {
@@ -35,6 +35,8 @@ export function identityPayload(input: unknown, kind: 'set' | 'image'): string {
     kind,
     design,
     recipeRelease: recipeForDesign(design),
+    // Sets whose interior key is shared get new keys; immutable historical sets stay untouched.
+    ...(kind === 'set' ? { viewKeying: INTERIOR_KEYING } : {}),
   })
 }
 export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
@@ -65,14 +67,14 @@ export async function verifyImageDescriptor(
 ): Promise<ImageDescriptor> {
   const image = imageDescriptorSchema.parse(input)
   const design = parseDesign(wantedDesign)
-  if (serializeDesign(image.design) !== serializeDesign(design))
+  const cameraRef = image.design.presentation.cameraRef as keyof SetIdentity['imageKeys']
+  if (serializeDesign(image.design) !== serializeDesign(viewDesign(design, cameraRef)))
     throw new Error('Wrong image design.')
   const identity = await computeSetIdentity(design)
+  // The image key binds design, camera and recipe; the set key only records which set published it.
   if (
-    image.setKey !== identity.setKey ||
     canonicalJson(image.recipeRelease) !== canonicalJson(identity.recipeRelease) ||
-    image.imageKey !==
-      identity.imageKeys[image.design.presentation.cameraRef as keyof SetIdentity['imageKeys']]
+    image.imageKey !== identity.imageKeys[cameraRef]
   )
     throw new Error('Wrong image identity.')
   if (image.provenance.kind === 'seed-cache') {
@@ -82,7 +84,7 @@ export async function verifyImageDescriptor(
   } else {
     const url = new URL(image.url)
     if (!allowedStorageOrigins.includes(url.origin)) throw new Error('Untrusted storage origin.')
-    const suffix = `/render-library/${identity.setKey}/${image.imageKey}/${image.sha256}.webp`
+    const suffix = `/render-library/${image.setKey}/${image.imageKey}/${image.sha256}.webp`
     if (!url.pathname.endsWith(suffix)) throw new Error('Wrong storage object binding.')
   }
   return image

@@ -233,23 +233,24 @@ export class WorkerService implements WorkerServicePort {
   }
   async recordEvent(input: WorkerEvent) {
     const event = workerEventSchema.parse(input)
-    await this.verifyEvent(event)
+    const claim = await this.verifyEvent(event)
     if (event.kind === 'artifact') {
       if (await this.repository.acceptedArtifact(event)) return { accepted: true }
       if (!(await this.repository.prepareArtifact(event)).accepted) return { accepted: false }
       const receipt = event.receipt
       const bytes = await this.artifacts.staging(receipt)
       await verifyPixels(bytes, receipt)
-      const identity = await computeSetIdentity(receipt.design)
+      // Stored under the publishing set; a shared interior is found by image key from any set.
+      const setKey = claim.identity.setKey
       const receiptSha256 = checksum(canonicalJson(receipt))
       const stored = await this.artifacts.putIfAbsent(
-        `${identity.setKey}/${receipt.imageKey}/${receipt.sha256}.webp`,
+        `${setKey}/${receipt.imageKey}/${receipt.sha256}.webp`,
         bytes,
         receipt.sha256,
       )
       const image = imageDescriptorSchema.parse({
         contractVersion: CONTRACT_VERSION,
-        setKey: identity.setKey,
+        setKey,
         imageKey: receipt.imageKey,
         design: receipt.design,
         recipeRelease: receipt.recipeRelease,
