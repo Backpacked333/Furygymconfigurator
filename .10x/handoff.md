@@ -1,40 +1,24 @@
 # Handoff
 
-**Where things stand.** Stage 1 (path-traced stills) is implemented in `src/render/pathtrace.ts`,
-`src/components/RenderEffects.tsx`, `src/render/pipeline.ts` (`createTracePresent`), and
-`src/lib/visuals.ts` (shared sky calibration, cloud port, equirect builder). Decisions are in
-`.10x/decisions/sde/photoreal-rendering.md`.
+**Context.** This was a discovery deep-dive of main-branch, with emphasis on the live 360° view. No product code was changed.
 
-**Speed work (stacked branch `claude/gifted-mccarthy-3c2zyf`).** `src/render/motion.ts` ends an
-orbit's sub-pixel glide so the view comes to rest; `src/render/history.ts` keeps each traced view
-and seeds the next one from it. Decisions in `.10x/decisions/sde/trace-speed.md`. The GPU check is
-`dev-history.html` + `dev/history-harness.ts` (git-excluded), run like the trace harness below.
+## Read first
 
-**How to verify locally.** Headless Chromium in the cloud container cannot present WebGPU to a
-canvas (device lost) but can run WebGPU offscreen. `dev-trace.html` + `src/dev/trace.tsx`
-(git-excluded) render a signature build through the real raster and trace pipelines into render
-targets and draw them to 2D canvases. Launch Chromium with
-`--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader --enable-unsafe-swiftshader`. Do not
-disable Dawn's lazy clear: uninitialized atlas pages then poison texture sampling (black images).
-The session zero-fills the 3D energy table itself. Read back with the 256-byte row stride. It is
-CPU-emulated: 320×200 reaches 16 spp in ~25–35 min.
+- `decisions/cto/platform-overview.md`: the two experiences, the stack and the risks.
+- `decisions/architect/live-360-viewer.md`: the full 360° design, covering both the library and legacy implementations.
+- `decisions/qa/live-360-viewer.md`: findings F1 and F2.
 
-**Gotchas.**
+## Open items for the next role
 
-- `three-gpu-pathtracer` is pinned to 0.0.27; the session calls its internal
-  `_pathTracer.update()` for extra passes per batch.
-- The tracer's 3D GGX energy table must not auto-generate mipmaps (set in the session ctor).
-- Path tracing presents nothing until the first image is ready, so the display does not pace it;
-  the session keeps one GPU batch in flight via `queue.onSubmittedWorkDone()`.
-- Any new TSL-only material needs `material.userData.pathTrace = { ...plain PBR fields }` or it
-  will be traced with its default (white) properties.
+1. **F1 (SDE).**
+   - Change the start condition in `src/viewer/ProgressiveRenderer.tsx` (lines 200, 218, 231) so that Lite (`settleFrames=1`) starts tracing under the R3F demand loop.
+   - Add a demand-loop test. The current test calls frames unconditionally, so it misses the bug.
+   - Product question: should phones path-trace at all? If not, report `raster-only` explicitly on Lite.
+2. **F2 (SDE/UX).** In live mode, the `GraphicsBoundary` button reads "Open the floor plan". Give it a live-mode label or auto-report unavailability. Verify the behavior in a browser.
+3. **Test environment (QA).** `objects.test.ts` should skip its permission case when running as root, or CI should guarantee a non-root user.
+4. **CTO/PM.** Decide whether to retire the v3 route or keep two configurators. The README configuration section documents only v3.
 
-**Stage 2 so far.** Contact shadows and SSR live in `createPipeline` (`src/render/pipeline.ts`);
-`?debug=contact` and `?debug=reflections` show each buffer. The site probe is `SiteProbe` in
-`src/components/InteriorProbe.tsx`; materials opt in with `site: true` in `palette.ts`, and the
-unit's root group carries `userData.unit` so the capture can hide it. The sun light carries
-`userData.sun` so the pipeline can find it. The contact debug view bypasses TRAA, so it shows the
-march's per-frame noise; the final image is resolved.
+## How to verify
 
-**Next.** Stage 2 items in `.10x/status.md`; check the live crossfade on a real GPU via the Vercel
-preview.
+- Run `npm ci`, then `npm run typecheck && npm run lint && npx vitest run`. The full suite takes about 5 min.
+- WebGPU pixels need a real GPU. Headless Chromium here can only use SwiftShader offscreen (see the earlier notes in `decisions/sde/trace-speed.md`).

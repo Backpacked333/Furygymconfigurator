@@ -1,25 +1,19 @@
 # Status
 
-## Photoreal rendering (SDE)
+**Phase: Discovery Complete** (2026-10-20, main-branch @ 0d813f1). Awaiting user confirmation of findings.
 
-- [x] Path tracer integrated on the app's WebGPU renderer (rest detection, re-capture fingerprint)
-- [x] Shared sky calibration; CPU equirect sky with ported SkyMesh clouds; sun as 0.53° disc light
-- [x] Path-trace stand-ins for TSL materials (foliage, grass, palms, ground, mirror), thin glass
-- [x] Denoised milestones (OIDN, albedo/normal guided) with crossfades; raw fallback
-- [x] Photo and PDF exports wait for a denoised ≥384 spp image (45 s cap)
-- [x] Status badge, Surroundings toggle, `?trace` / `?denoise` parameters
-- [x] Offscreen-harness verification: Courtyard pod exterior (noon and dusk) and interior traced,
-      denoised, exposure-matched, converged
-- [x] Stage 2 (part): 2K scans for close/large surfaces; sun shadows from surroundings
-- [x] Stage 2 (part): sun contact shadows on High and Ultra (`SSSNode`, distance-faded)
-- [x] Stage 2 (part): site radiance probe for glazing and shell; SSR for metals on Ultra
-- [x] Interior asset brief upgraded: per-asset realism specs, wear layer, material calibration,
-      acceptance tests (same artifact link)
-- [ ] Stage 2 (next): denser lawns/planting, facade detail, depth of field, the client's GLB
-      assets per the interior asset brief
-- [ ] Real-GPU check of the live canvas crossfade and time to first denoised image (Vercel preview)
-- [x] Tracing starts promptly after an orbit (glide tail ended; 6 still frames + 150 ms)
-- [x] Camera moves keep samples: new views are seeded from the last traced view (reprojection)
-- [ ] Real-GPU timing of seeded vs. fresh views; decide on off-device rendering (user's call)
+## Discovery (this session)
 
-Draft PR: Backpacked333/Furygymconfigurator#9 (branch `claude/configurator-design-impl-2a8tt0`).
+- [x] Mapped both experiences: v3 legacy at `/` and v4 image-first library at `?experience=library`
+- [x] Mapped the client render stack: procedural scene, raster tiers, path tracer, history reuse
+- [x] Mapped the backend render library: Vercel API, Supabase RPCs, Modal dispatcher, Vast/Modal GPU worker
+- [x] Deep-dived the live 360° viewer (`decisions/architect/live-360-viewer.md`)
+- [x] Baseline on main-branch: typecheck OK, lint OK. vitest: 2449 passed, 1 failed, 35 skipped.
+  - The failing test is `image-service/control-plane/objects.test.ts` "fails closed on denied filesystem reads…".
+  - The container runs as root, which bypasses chmod, so this is environment-specific.
+- [x] QA finding F1 confirmed by probe: the 360° viewer never starts path tracing on Lite at 60 Hz
+- [ ] User to confirm or correct the discovered decisions; decide whether to fix F1 and F2
+
+## Earlier work (photoreal rendering, v3 route)
+
+These items are tracked in `decisions/sde/photoreal-rendering.md`, `trace-speed.md` and `cloud-render.md`. Draft PR Backpacked333/Furygymconfigurator#9 predates the library route.
