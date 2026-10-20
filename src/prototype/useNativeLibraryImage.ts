@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { parseDesign, serializeDesign, type DesignEnvelope } from '../domain/design'
 import type { ImageDescriptor } from '../render-library/contracts'
 import { decodeLibraryImage } from './renderLibraryClient'
@@ -16,10 +16,18 @@ type NativeProgress =
   | { state: 'pending' }
   | { state: 'ready'; reply: NativeReply; src: string }
   | { state: 'unavailable' | 'error'; message: string; retryable: boolean }
+type ShownImage = {
+  key: string
+  reply: NativeReply
+  src: string
+  aspect: DesignEnvelope['presentation']['aspect']
+  release: () => void
+}
 type Snapshot = {
   generation: number
   progress: NativeProgress
-  shown: { key: string; reply: NativeReply; src: string } | null
+  shown: ShownImage | null
+  previous: ShownImage | null
 }
 export function useNativeCatalog(enabled = true) {
   const [library, setLibrary] = useState<NativeLibrary | null>(null)
@@ -44,6 +52,7 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     (view) => view.cameraRef === design.presentation.cameraRef,
   )
   const dynamic = view?.status === 'ready' ? view.image : undefined
+  const lookupPending = library.checking && !library.snapshot
   const dynamicRef = useRef(dynamic)
   dynamicRef.current = dynamic
   const key = serializeDesign(design)
@@ -52,46 +61,107 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
   if (selection.key !== key) setSelection({ key, generation: selection.generation + 1 })
   const { generation } = selection
   const active = useRef(0)
+  const delivered = useRef<{ generation: number; attempt: number } | null>(null)
+  const held = useRef<{ shown: ShownImage | null; previous: ShownImage | null }>({
+    shown: null,
+    previous: null,
+  })
+  const fadeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [snapshot, setSnapshot] = useState<Snapshot>({
     generation: -1,
     progress: { state: 'pending' },
     shown: null,
+    previous: null,
   })
+  const finishTransition = useCallback((src: string) => {
+    if (held.current.shown?.src !== src) return
+    clearTimeout(fadeTimer.current)
+    held.current.previous?.release()
+    held.current.previous = null
+    setSnapshot((value) => ({ ...value, previous: null }))
+  }, [])
+  useLayoutEffect(
+    () => () => {
+      clearTimeout(fadeTimer.current)
+      held.current.previous?.release()
+      held.current.shown?.release()
+      held.current = { shown: null, previous: null }
+    },
+    [],
+  )
   useLayoutEffect(() => {
     const design = parseDesign(JSON.parse(key))
     const token = ++active.current
     const controller = new AbortController()
-    let release: (() => void) | undefined
-    const update = (progress: NativeProgress) => {
-      if (active.current !== token || controller.signal.aborted) return
-      setSnapshot({
-        generation,
-        progress,
-        shown:
-          progress.state === 'ready' ? { key, reply: progress.reply, src: progress.src } : null,
-      })
+    const descriptor = dynamicRef.current
+    const artifact = held.current.shown?.reply.artifact
+    const shownHash = artifact && ('sha256' in artifact ? artifact.sha256 : artifact.imageSha256)
+    if (
+      delivered.current?.generation === generation &&
+      delivered.current.attempt === attempt &&
+      held.current.shown?.key === key &&
+      (!descriptor || descriptor.sha256 === shownHash)
+    )
+      return
+    const update = (progress: NativeProgress, release: () => void = () => {}) => {
+      if (active.current !== token || controller.signal.aborted) {
+        release()
+        return
+      }
+      delivered.current = progress.state === 'ready' ? { generation, attempt } : null
+      clearTimeout(fadeTimer.current)
+      const retained = held.current
+      retained.previous?.release()
+      retained.previous = null
+      if (progress.state === 'ready') {
+        const old = retained.shown
+        const animate =
+          old &&
+          old.src !== progress.src &&
+          old.aspect === design.presentation.aspect &&
+          !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        if (animate) retained.previous = old
+        else old?.release()
+        retained.shown = {
+          key,
+          src: progress.src,
+          reply: progress.reply,
+          aspect: design.presentation.aspect,
+          release,
+        }
+        if (animate) fadeTimer.current = setTimeout(() => finishTransition(progress.src), 550)
+      } else if (
+        progress.state !== 'pending' ||
+        retained.shown?.aspect !== design.presentation.aspect
+      ) {
+        retained.shown?.release()
+        retained.shown = null
+      }
+      setSnapshot({ generation, progress, ...retained })
     }
     update({ state: 'pending' })
     void (async () => {
-      const descriptor = dynamicRef.current
       if (descriptor) {
         const decoded = await decodeLibraryImage(descriptor, design, controller.signal)
         if (controller.signal.aborted) {
           decoded.release()
           return
         }
-        release = decoded.release
-        update({
-          state: 'ready',
-          reply: { mode: 'native-library', artifact: descriptor },
-          src: decoded.src,
-        })
+        update(
+          {
+            state: 'ready',
+            reply: { mode: 'native-library', artifact: descriptor },
+            src: decoded.src,
+          },
+          decoded.release,
+        )
         return
       }
       const catalog = await getNativeLibrary().catch(() => null)
       if (controller.signal.aborted) return
       const entry = catalog ? findNativeImage(catalog, design) : undefined
       if (!entry) {
+        if (lookupPending) return
         update({
           state: 'unavailable',
           retryable: false,
@@ -104,12 +174,14 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
         decoded.release?.()
         return
       }
-      release = decoded.release
-      update({
-        state: 'ready',
-        reply: { mode: 'native-library', artifact: entry },
-        src: decoded.src,
-      })
+      update(
+        {
+          state: 'ready',
+          reply: { mode: 'native-library', artifact: entry },
+          src: decoded.src,
+        },
+        decoded.release,
+      )
     })().catch((error: unknown) =>
       update({
         state: 'error',
@@ -123,9 +195,8 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
     return () => {
       active.current = token + 1
       controller.abort()
-      release?.()
     }
-  }, [key, generation, attempt, dynamic?.sha256])
+  }, [key, generation, attempt, dynamic?.sha256, lookupPending, finishTransition])
   const progress: NativeProgress =
     snapshot.generation === generation && selection.key === key
       ? snapshot.progress
@@ -133,6 +204,8 @@ export function useNativeLibraryImage(design: DesignEnvelope) {
   return {
     progress,
     shown: snapshot.shown,
+    previous: snapshot.previous,
+    finishTransition,
     current: snapshot.shown?.key === key && progress.state === 'ready',
     retry: () => retry((value) => value + 1),
     library,

@@ -263,6 +263,11 @@
 .fury-prototype .prototype-local-render {
   object-fit: contain;
 }
+@media (prefers-reduced-motion: reduce) {
+  .fury-prototype .still-layer.is-entering {
+    animation: none;
+  }
+}
 .fury-prototype .prototype-local-provenance {
   font-size: 12px;
   line-height: 1.6;
