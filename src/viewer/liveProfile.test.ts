@@ -7,9 +7,8 @@ import {
   CLEAN_SAMPLES,
   LIGHT,
   UPGRADE_MS,
-  UPGRADE_SHOW_SAMPLES,
   deviceTier,
-  upgradePlan,
+  upgradeTarget,
   MIN_BUDGET_SCALE,
   REFERENCE_PIXELS,
   budgetPixels,
@@ -180,16 +179,16 @@ describe('device tiers: light on slow GPUs, a full-quality upgrade on decent and
     expect(settleSamples(1.1)).toBe(64)
   })
 
-  it('upgrades at full resolution only where the first shown image comes within UPGRADE_MS', () => {
-    const decent = upgradePlan(300, 2329, 1456)
-    expect(decent.scale).toBe(1)
-    expect(decent.affordable).toBe(true)
-    // What UPGRADE_MS buys (44 samples here), never under 64.
-    expect(Math.floor(UPGRADE_MS / ((300 * 2329 * 1456) / 1e6))).toBe(44)
-    expect(decent.target).toBe(64)
-    expect(upgradePlan(5, 2329, 1456).target).toBe(1024)
-    // The Mac: 32 samples of 3.4 MP at 1061 ms take far longer.
-    expect(upgradePlan(1061, 2329, 1456).affordable).toBe(false)
-    expect(UPGRADE_SHOW_SAMPLES).toBe(32)
+  it('refines a settled view on decent and fast GPUs to what UPGRADE_MS buys, never on slow ones', () => {
+    expect(UPGRADE_MS).toBe(45000)
+    // Settled at 64 gaining 5 a second: 225 more.
+    expect(upgradeTarget('decent', 5, 64)).toBe(64 + 225)
+    expect(upgradeTarget('fast', 100, 1024)).toBeNull()
+    expect(upgradeTarget('fast', 100, 256)).toBe(1024)
+    // Not worth it where it would not even double the samples.
+    expect(upgradeTarget('decent', 1, 64)).toBeNull()
+    expect(upgradeTarget('slow', 50, 16)).toBeNull()
+    expect(upgradeTarget('unknown', 50, 16)).toBeNull()
+    expect(upgradeTarget('decent', null, 64)).toBeNull()
   })
 })

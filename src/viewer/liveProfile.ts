@@ -174,19 +174,17 @@ export function deviceTier(fullDepthCost: number | null): DeviceTier {
 export const LIGHT = { maxBounces: 4, floor: 0.35, leastSettle: 16 } as const
 
 /**
- * The full-quality upgrade, for fast and decent GPUs: once a view has settled and rested
- * UPGRADE_REST_MS, it is traced again at the canvas's full resolution and full depth, unseen until
- * UPGRADE_SHOW_SAMPLES (so it never replaces the settled image with a worse one), then refining to
- * what UPGRADE_MS buys. Only where those first samples take at most UPGRADE_MS.
+ * The quality upgrade, for fast and decent GPUs: once a view has settled (at what SETTLE_MS buys)
+ * and rested UPGRADE_REST_MS more, it refines on to what UPGRADE_MS more buys at the rate it was
+ * gaining, up to 1024 samples, crossfading each sharper image in as before. Only where that at
+ * least doubles its samples; slow GPUs stay settled and idle.
  */
 export const UPGRADE_REST_MS = 1000
-export const UPGRADE_SHOW_SAMPLES = 32
 export const UPGRADE_MS = 45000
 
-export function upgradePlan(fullDepthCost: number, width: number, height: number) {
-  const sampleMs = (fullDepthCost * width * height) / 1e6
-  const affordable =
-    Number.isFinite(sampleMs) && sampleMs > 0 && sampleMs * UPGRADE_SHOW_SAMPLES <= UPGRADE_MS
-  const target = Math.min(1024, Math.max(64, Math.floor(UPGRADE_MS / sampleMs)))
-  return { scale: 1, target, affordable }
+/** The samples a settled view refines on to, or null where the upgrade is not worth it. */
+export function upgradeTarget(tier: DeviceTier, samplesPerSecond: number | null, settled: number) {
+  if ((tier !== 'fast' && tier !== 'decent') || !samplesPerSecond || settled >= 1024) return null
+  const target = Math.min(1024, settled + Math.floor(samplesPerSecond * (UPGRADE_MS / 1000)))
+  return target >= 2 * settled ? target : null
 }
