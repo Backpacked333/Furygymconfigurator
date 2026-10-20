@@ -52,3 +52,27 @@ index 1c7476e..89798ce 100644
  
  					if ( isComplete ) {
  
+diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js b/node_modules/three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js
+index 6d8772e..a178230 100644
+--- a/node_modules/three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js
++++ b/node_modules/three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js
+@@ -19,6 +19,19 @@ const transformStruct = new StructTypeNode( {
+ 	color: 'vec4f',
+ }, 'TransformStruct' );
+ 
++// StructTypeNode.getLength() lays the struct out again on every call (a regular expression per
++// member), and packing calls it about seven times per object instance through writeTransformData
++// and writeMaterialData, here and in three-mesh-bvh's BVHComputeData. With tens of thousands of
++// instanced leaves that was half of setScene's CPU time and most of updateTransforms' and
++// updateMaterials'. Both layouts are fixed module constants, so each length is computed once, the
++// same way the queue and bvh node structs pin theirs; the packed buffers are byte-identical.
++for ( const struct of [ transformStruct, materialStruct ] ) {
++
++	const length = struct.getLength();
++	struct.getLength = () => length;
++
++}
++
+ // three-mesh-bvh's ray hit result, plus whether a shadow ray passed a face a bsdf ray would hit
+ const intersectionResultStruct = new StructTypeNode( {
+ 	indices: 'vec4u',
