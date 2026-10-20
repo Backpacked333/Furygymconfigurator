@@ -8,6 +8,11 @@ export default tseslint.config(
   { ignores: ['dist'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Node scripts, whose functions handed to page.evaluate run in the browser.
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },

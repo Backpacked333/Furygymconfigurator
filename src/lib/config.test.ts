@@ -20,13 +20,23 @@ import {
   placementIssue,
   readSaved,
   setAddon,
+  entryCenter,
+  SIGNATURES,
+  studioDoorCenter,
   shareUrl,
   writeSaved,
+  writeDraft,
   type Config,
 } from './config'
 import { configReducer } from './useConfig'
 import { createBrief } from './export'
-import { CONTAINER_OPENINGS, PRODUCT_FAMILIES, STUDIO_LAYOUTS } from './products'
+import {
+  CONTAINER_OPENINGS,
+  OPENING_INFILLS,
+  PRODUCT_FAMILIES,
+  STUDIO_DOORS,
+  STUDIO_LAYOUTS,
+} from './products'
 
 const fresh = (): Config => structuredClone(DEFAULT_CONFIG)
 const encoded = (value: unknown) => LZString.compressToEncodedURIComponent(JSON.stringify(value))
@@ -46,6 +56,97 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('configuration and packages', () => {
+  for (const raw of ['{', '', '{"v":99,"future":"keep me"}', 'null', '42'])
+    it(`archives non-library data before replacing it: ${JSON.stringify(raw)}`, () => {
+      localStorage.setItem('fury-builds-v1', raw)
+      const save = vi.spyOn(localStorage, 'setItem')
+      writeSaved([])
+      const archive = save.mock.calls.find(([key]) => key.startsWith('fury-builds-v1-recovery-'))
+      expect(archive).toBeDefined()
+      expect(localStorage.getItem(archive![0])).toBe(raw)
+      expect(localStorage.getItem('fury-builds-v1')).toBe('[]')
+      expect(save.mock.calls.at(-1)).toEqual(['fury-builds-v1', '[]'])
+      save.mockRestore()
+    })
+
+  it('never replaces a malformed library when recovery fails or silently drops the archive', () => {
+    const originalSave = localStorage.setItem
+    const save = vi.spyOn(localStorage, 'setItem')
+    for (const silent of [false, true]) {
+      originalSave('fury-builds-v1', 'unreadable original')
+      save.mockImplementation((key, value) => {
+        if (key.startsWith('fury-builds-v1-recovery-')) {
+          if (!silent) throw new Error('quota')
+          return
+        }
+        originalSave(key, value)
+      })
+      expect(() => writeSaved([])).toThrow()
+      expect(localStorage.getItem('fury-builds-v1')).toBe('unreadable original')
+    }
+    save.mockRestore()
+  })
+
+  it('retains the raw future entry and entries hidden by the twelve-build display limit', () => {
+    const builds = Array.from({ length: 13 }, (_, i) => ({
+      id: `${i}`,
+      name: `Build ${i}`,
+      date: '',
+      config: fresh(),
+    }))
+    const future = { id: 'future', config: { v: 99 }, extra: 'retain raw' }
+    const raw = JSON.stringify([...builds, future], null, 2)
+    localStorage.setItem('fury-builds-v1', raw)
+    const save = vi.spyOn(localStorage, 'setItem')
+    expect(readSaved()).toHaveLength(12)
+    writeSaved([])
+    const archive = save.mock.calls.find(([key]) => key.startsWith('fury-builds-v1-recovery-'))
+    expect(localStorage.getItem(archive![0])).toBe(raw)
+    expect(JSON.parse(localStorage.getItem('fury-builds-v1')!)).toEqual([future])
+    save.mockRestore()
+  })
+
+  it('does not overwrite a library changed while its recovery copy is being written', () => {
+    localStorage.setItem('fury-builds-v1', '{')
+    const originalSave = localStorage.setItem
+    const save = vi.spyOn(localStorage, 'setItem')
+    save.mockImplementation((key, value) => {
+      originalSave(key, value)
+      if (key.startsWith('fury-builds-v1-recovery-'))
+        originalSave('fury-builds-v1', 'newer external write')
+    })
+    expect(() => writeSaved([])).toThrow('library changed')
+    expect(localStorage.getItem('fury-builds-v1')).toBe('newer external write')
+    save.mockRestore()
+  })
+
+  it('preserves an empty draft and verifies its archive before autosave', () => {
+    localStorage.setItem('fury-draft-v1', '')
+    const save = vi.spyOn(localStorage, 'setItem')
+    writeDraft(encodeConfig(fresh()))
+    const archive = save.mock.calls.find(([key]) => key.startsWith('fury-draft-recovery-'))
+    expect(localStorage.getItem(archive![0])).toBe('')
+    save.mockRestore()
+  })
+
+  it('archives unreadable draft data before autosaving and never overwrites it if recovery storage fails', () => {
+    const save = vi.spyOn(localStorage, 'setItem')
+    localStorage.setItem('fury-draft-v1', 'old-unreadable-design')
+    writeDraft(encodeConfig(fresh()))
+    expect(
+      save.mock.calls.some(
+        ([key, value]) =>
+          key.startsWith('fury-draft-recovery-') && value === 'old-unreadable-design',
+      ),
+    ).toBe(true)
+    localStorage.setItem('fury-draft-v1', 'another-old-design')
+    save.mockImplementation((key) => {
+      if (key.startsWith('fury-draft-recovery-')) throw new Error('storage full')
+    })
+    expect(() => writeDraft(encodeConfig(fresh()))).toThrow('storage full')
+    expect(localStorage.getItem('fury-draft-v1')).toBe('another-old-design')
+    save.mockRestore()
+  })
   it('starts with a valid layout', () => {
     expect(configSchema.parse(fresh())).toEqual(fresh())
     expect(layoutIssues(fresh())).toEqual([])
@@ -71,7 +172,7 @@ describe('configuration and packages', () => {
     expect(
       decodeConfig(encoded({ ...config, items: [{ ...config.items[0], sku: 'invented' }] })),
     ).toBe(null)
-    expect(decodeConfig(encoded({ ...config, v: 3 }))).toBe(null)
+    expect(decodeConfig(encoded({ ...config, v: 4 }))).toBe(null)
   })
   it('rejects cross-family options at the sharing boundary', () => {
     expect(
@@ -94,7 +195,10 @@ describe('configuration and packages', () => {
 })
 describe('independent published add-on transitions', () => {
   it('allows individual Studio add-ons without invented dependency rules', () => {
-    const c = { ...fresh(), addons: { deck: false, gazebo: false, roof: false, stairs: false } }
+    const c = {
+      ...fresh(),
+      addons: { deck: false, gazebo: false, roof: false, stairs: false, canopy: false },
+    }
     const pergola = setAddon(c, 'gazebo'),
       stairs = setAddon(c, 'stairs')
     expect(pergola.config.addons.deck).toBe(false)
@@ -109,7 +213,7 @@ describe('independent published add-on transitions', () => {
     const c = {
       ...fresh(),
       finish: 'bronze' as const,
-      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+      addons: { deck: true, gazebo: true, roof: true, stairs: true, canopy: false },
     }
     const noDeck = setAddon(c, 'deck').config,
       noRoof = setAddon(c, 'roof').config
@@ -130,7 +234,7 @@ describe('placement rules', () => {
     const c = fresh(),
       item = c.items[1]
     expect(placementIssue({ ...item, x: 12 }, c)).toContain('usable floor')
-    expect(placementIssue({ ...item, x: 0, z: 1 }, c)).toContain('entry')
+    expect(placementIssue({ ...item, x: entryCenter(c), z: 1 }, c)).toContain('entry')
   })
   it('rejects overlap but not an unchanged position', () => {
     const c = fresh(),
@@ -142,6 +246,14 @@ describe('placement rules', () => {
     const item = fresh().items[1]
     expect(footprint(item)).toEqual({ w: 1.9, d: 4.3 })
     expect(footprint({ ...item, rotation: 90 })).toEqual({ w: 4.3, d: 1.9 })
+  })
+  it.each(['rack', 'halfrack'] as const)('keeps the %s loaded bar inside walls', (sku) => {
+    const item = { id: 'loaded-rack', sku, x: 6, z: -0.8, rotation: 0 as const }
+    const c = { ...fresh(), items: [item] }
+    expect(footprint(item).w).toBe(7.3)
+    expect(placementIssue(item, c)).toContain('usable floor')
+    expect(placementIssue({ ...item, x: -5 }, c)).toBeNull()
+    expect(placementIssue({ ...item, x: -5, rotation: 90 }, c)).toContain('usable floor')
   })
   for (const product of CATALOG)
     it(`finds a valid location for ${product.id}`, () => {
@@ -184,7 +296,7 @@ describe('published pricing boundaries', () => {
       finish: 'bronze',
       accent: true,
       mirror: true,
-      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+      addons: { deck: true, gazebo: true, roof: true, stairs: true, canopy: false },
     }
     expect(estimate(c).startingPrice).toBe(35000)
     expect(estimate(c).lines.every((line) => line.amount === null)).toBe(true)
@@ -225,26 +337,70 @@ describe('product families', () => {
       length: 40,
       studioLayout: 'stacked',
       accent: true,
-      addons: { deck: true, gazebo: true, roof: true, stairs: true },
+      addons: { deck: true, gazebo: true, roof: true, stairs: true, canopy: false },
     }
     const container = setFamily(original, 'container')
     expect(productHeight(container)).toBe(9.5)
     expect(container.length).toBe(40)
-    expect(Object.values(container.addons).some(Boolean)).toBe(false)
+    // Decks, roof decks, and stairs appear on Container builds too; the gazebo does not.
+    expect(container.addons).toEqual({
+      deck: true,
+      gazebo: false,
+      roof: true,
+      stairs: true,
+      canopy: false,
+    })
     expect(container.accent).toBe(false)
     expect(container.studioLayout).toBe('single')
+    expect(container.doorsOpen).toBe(true)
     expect(container.items).toEqual(original.items)
     expect(container.finish).toBe(original.finish)
-    expect(original.addons.deck).toBe(true)
+    expect(original.addons.gazebo).toBe(true)
     const studio = setFamily(
-      { ...container, containerOpening: 'partial', integratedFinish: true },
+      {
+        ...container,
+        containerOpening: 'partial',
+        openingInfill: 'glass-overhead',
+        integratedFinish: true,
+        addons: { ...container.addons, canopy: true },
+      },
       'studio',
     )
     expect(studio.containerOpening).toBe('roll-up')
+    expect(studio.openingInfill).toBe('none')
     expect(studio.integratedFinish).toBe(false)
+    expect(studio.addons.canopy).toBe(false)
+    expect(studio.doorsOpen).toBe(false)
     expect(productHeight(studio)).toBe(10)
     expect(setFamily(studio, 'studio')).toBe(studio)
-    expect(setAddon(container, 'deck').config).toBe(container)
+    expect(setAddon(container, 'gazebo').config).toBe(container)
+    expect(setAddon(studio, 'canopy').config).toBe(studio)
+    expect(setAddon(container, 'canopy').config.addons.canopy).toBe(true)
+  })
+  it('falls back to the centered sliding door when the hinged entry would be obstructed', () => {
+    const blocked: Config = {
+      ...setFamily(fresh(), 'container'),
+      items: [{ id: 'bike', sku: 'treadmill', x: 3.6, z: 0, rotation: 0 }],
+    }
+    expect(layoutIssues(blocked)).toEqual([])
+    const studio = setFamily(blocked, 'studio')
+    expect(studio.studioDoor).toBe('sliding')
+    expect(layoutIssues(studio)).toEqual([])
+    expect(setFamily(setFamily(fresh(), 'container'), 'studio').studioDoor).toBe('hinged')
+  })
+  it('rejects infill on the roll-up opening and portfolio options on the wrong family', () => {
+    const container = setFamily(fresh(), 'container')
+    expect(decodeConfig(encoded({ ...container, openingInfill: 'awning' }))).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...container, containerOpening: 'full', openingInfill: 'awning' })),
+    ).not.toBeNull()
+    expect(decodeConfig(encoded({ ...fresh(), openingInfill: 'glass-overhead' }))).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...fresh(), addons: { ...fresh().addons, canopy: true } })),
+    ).toBeNull()
+    expect(
+      decodeConfig(encoded({ ...container, addons: { ...container.addons, gazebo: true } })),
+    ).toBeNull()
   })
   for (const length of [20, 40] as const)
     for (const opening of CONTAINER_OPENINGS)
@@ -288,20 +444,125 @@ describe('product families', () => {
     expect(configReducer(undone, { type: 'redo' }).present.family).toBe('container')
   })
 })
+describe('portfolio options', () => {
+  for (const length of [20, 40] as const)
+    for (const door of STUDIO_DOORS)
+      for (const pack of PACKAGES)
+        it(`${length} Studio with a ${door.id} door fits the ${pack.id} planning preset`, () => {
+          const config: Config = {
+            ...fresh(),
+            length,
+            studioDoor: door.id,
+            package: pack.id,
+            items: packageItems(pack.id, length),
+          }
+          expect(layoutIssues(config)).toEqual([])
+        })
+  it('places the hinged door in the second bay from the end and the slider at center', () => {
+    expect(studioDoorCenter({ length: 20, studioDoor: 'sliding' })).toBeCloseTo(0)
+    expect(studioDoorCenter({ length: 40, studioDoor: 'sliding' })).toBeCloseTo(0)
+    expect(studioDoorCenter({ length: 20, studioDoor: 'hinged' })).toBeCloseTo(3.616, 2)
+    expect(studioDoorCenter({ length: 40, studioDoor: 'hinged' })).toBeGreaterThan(13)
+    expect(entryCenter({ ...fresh(), studioDoor: 'hinged' })).toBeCloseTo(3.616, 2)
+  })
+  for (const infill of OPENING_INFILLS)
+    for (const open of [false, true])
+      it(`prices the ${infill.id} infill (${open ? 'open' : 'closed'}) as quote-only`, () => {
+        const config: Config = {
+          ...setFamily(fresh(), 'container'),
+          containerOpening: 'full',
+          openingInfill: infill.id,
+          doorsOpen: open,
+          addons: { deck: true, gazebo: false, roof: true, stairs: true, canopy: true },
+          railing: 'cable',
+        }
+        expect(decodeConfig(encodeConfig(config))).toEqual(config)
+        const names = estimate(config).lines.map((line) => line.name)
+        if (infill.id !== 'none') expect(names).toContain(`Portfolio: ${infill.name}`)
+        expect(names).toEqual(
+          expect.arrayContaining([
+            'Portfolio: Entry canopy',
+            'Portfolio: Rooftop deck',
+            'Portfolio: Steel cable rail',
+          ]),
+        )
+        expect(estimate(config).total).toBeNull()
+      })
+})
+
+describe('signature builds', () => {
+  for (const build of SIGNATURES)
+    it(`${build.id} is a valid, shareable, collision-free design`, () => {
+      expect(configSchema.parse(build.config)).toEqual(build.config)
+      expect(layoutIssues(build.config)).toEqual([])
+      expect(decodeConfig(encodeConfig(build.config))).toEqual(build.config)
+      expect(estimate(build.config).total).toBeNull()
+      expect(new Set(build.config.items.map((i) => i.id)).size).toBe(build.config.items.length)
+    })
+  it('reproduces the photographed builds', () => {
+    const by = Object.fromEntries(SIGNATURES.map((s) => [s.id, s.config]))
+    expect(by['courtyard-pod']).toMatchObject({
+      family: 'studio',
+      finish: 'cloud',
+      studioDoor: 'hinged',
+      environment: 'residences',
+    })
+    expect(by['campus-pod']).toMatchObject({
+      family: 'studio',
+      finish: 'graphite',
+      studioDoor: 'sliding',
+      flooring: 'oak',
+      environment: 'campus',
+    })
+    expect(by.clubhouse).toMatchObject({
+      family: 'container',
+      finish: 'espresso',
+      containerOpening: 'full',
+      openingInfill: 'glass-overhead',
+      doorsOpen: false,
+      interiorStyle: 'timber',
+    })
+    expect(by.clubhouse.addons.canopy).toBe(true)
+    expect(by['garden-pilates']).toMatchObject({
+      openingInfill: 'awning',
+      doorsOpen: true,
+      environment: 'backyard',
+    })
+    expect(by['garden-pilates'].addons.deck).toBe(true)
+    expect(by.rooftop).toMatchObject({ railing: 'cable', doorsOpen: true, mirror: true })
+    expect(by.rooftop.addons).toMatchObject({ roof: true, stairs: true })
+  })
+})
+
 describe('sharing and browser persistence', () => {
-  const legacy = () => {
-    const value: Record<string, unknown> = { ...fresh(), v: 1 }
-    for (const key of ['family', 'studioLayout', 'containerOpening', 'integratedFinish'])
-      delete value[key]
+  /** A payload as version 1 or 2 stored it: no portfolio fields, no canopy. */
+  const legacy = (v: 1 | 2 = 1) => {
+    const value: Record<string, unknown> = {
+      ...fresh(),
+      v,
+      environment: 'courtyard',
+      addons: { deck: false, gazebo: false, roof: false, stairs: false },
+    }
+    const removed = ['openingInfill', 'studioDoor', 'doorsOpen', 'railing', 'interiorStyle']
+    if (v === 1) removed.push('family', 'studioLayout', 'containerOpening', 'integratedFinish')
+    for (const key of removed) delete value[key]
     return value
   }
+  /** What a legacy Studio becomes: a centered slider and the original slatted interior. */
+  const upgraded = (addons: Config['addons']): Config => ({
+    ...fresh(),
+    environment: 'courtyard',
+    studioDoor: 'sliding',
+    interiorStyle: 'slatted',
+    addons,
+  })
   it('migrates version 1 links, drafts, and saved builds as Studios without losing choices', () => {
     const old = {
       ...legacy(),
       accent: true,
       addons: { deck: true, gazebo: true, roof: true, stairs: true },
     }
-    const migrated = { ...fresh(), accent: true, addons: old.addons }
+    const migrated = { ...upgraded({ ...old.addons, canopy: false }), accent: true }
     expect(decodeConfig(encoded(old))).toEqual(migrated)
     localStorage.setItem('fury-draft-v1', encoded(old))
     expect(initialConfig().config).toEqual(migrated)
@@ -310,6 +571,21 @@ describe('sharing and browser persistence', () => {
       JSON.stringify([{ id: 'old', name: 'Legacy Studio', date: '2026-10-10', config: old }]),
     )
     expect(readSaved()[0].config).toEqual(migrated)
+  })
+  it('migrates version 2 Containers with their opening shown open and layouts intact', () => {
+    const old = {
+      ...legacy(2),
+      family: 'container',
+      containerOpening: 'partial',
+      items: packageItems('cardio', 20),
+    }
+    const migrated = decodeConfig(encoded(old))!
+    expect(migrated).not.toBeNull()
+    expect(migrated.v).toBe(3)
+    expect(migrated.openingInfill).toBe('none')
+    expect(migrated.doorsOpen).toBe(true)
+    expect(migrated.items).toEqual(old.items)
+    expect(decodeConfig(encoded(legacy(2)))!.studioDoor).toBe('sliding')
   })
   it('still validates legacy payloads instead of trusting the migration', () => {
     expect(decodeConfig(encoded({ ...legacy(), length: 50 }))).toBeNull()
@@ -360,11 +636,27 @@ describe('sharing and browser persistence', () => {
     window.location.hash = `#c=${encodeConfig({ ...fresh(), finish: 'olive' })}`
     expect(initialConfig().config.finish).toBe('olive')
   })
+  it('defaults new designs to Studio Day without resetting saved or shared lighting', () => {
+    expect(initialConfig().config).toMatchObject({ environment: 'studio', time: 12, lights: true })
+    const night = { ...fresh(), environment: 'desert' as const, time: 21, lights: false }
+    localStorage.setItem('fury-draft-v1', encodeConfig(night))
+    expect(initialConfig().config).toEqual(night)
+    const courtyard = { ...fresh(), environment: 'residences' as const, time: 9.5 }
+    window.location.hash = `#c=${encodeConfig(courtyard)}`
+    expect(initialConfig().config).toEqual(courtyard)
+  })
   it('restores the draft and explains malformed links', () => {
     localStorage.setItem('fury-draft-v1', encodeConfig({ ...fresh(), finish: 'chalk' }))
     expect(initialConfig().config.finish).toBe('chalk')
     window.location.hash = '#c=broken'
     expect(initialConfig().notice).toContain('invalid')
+    expect(initialConfig().config.finish).toBe('chalk')
+    expect(localStorage.getItem('fury-draft-v1')).toBe(
+      encodeConfig({ ...fresh(), finish: 'chalk' }),
+    )
+    window.location.hash = '#c='
+    expect(initialConfig().config.finish).toBe('chalk')
+    expect(initialConfig().notice).toContain('previous draft is safe')
   })
   it('saves named builds and safely rejects corrupted storage', () => {
     const builds = [{ id: 'one', name: 'Courtyard', date: '2026-10-14', config: fresh() }]
@@ -396,7 +688,12 @@ describe('sharing and browser persistence', () => {
         throw new Error('Denied')
       },
     })
-    expect(initialConfig().config).toEqual(fresh())
+    expect(initialConfig().config).toEqual({
+      ...fresh(),
+      environment: 'studio',
+      time: 12,
+      lights: true,
+    })
     expect(readSaved()).toEqual([])
     expect(() => writeSaved([])).toThrow('Denied')
   })

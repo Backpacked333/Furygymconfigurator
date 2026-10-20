@@ -1,0 +1,58 @@
+{
+  "testOnly": true,
+  "design": {
+    "config": {
+      "schemaVersion": 4,
+      "catalogVersion": "fury-design-draft-1",
+      "product": {
+        "family": "container",
+        "lengthFt": 40
+      },
+      "structure": {
+        "kind": "container",
+        "opening": "roll-up",
+        "infill": "none",
+        "integratedFinish": false,
+        "addons": [],
+        "railing": "glass"
+      },
+      "appearance": {
+        "finish": "obsidian",
+        "accent": false,
+        "interior": "gallery",
+        "floor": "rubber",
+        "mirror": false
+      },
+      "arrangementRef": "container-40-review@1"
+    },
+    "presentation": {
+      "lookRef": "studio-day-draft@1",
+      "doorPose": "open",
+      "cameraRef": "front-left-draft@1",
+      "aspect": "wide"
+    },
+    "outputProfile": "web-hero"
+  },
+  "identity": {
+    "setKey": "set_129b843a8fe8f4f3b61a606d5d42790a6683f7f91e69a645f557bb1e0642e8ad",
+    "recipeRelease": {
+      "id": "fury-native-five@2",
+      "geometry": "fury-fixed-arrangement-geometry@1",
+      "materials": "fury-native-materials@1",
+      "cameras": "fury-container-open-exterior-entry-cameras@1",
+      "renderer": "blender-4.5.0-cycles-optix-l40s@1",
+      "studio": "fury-corrected-cyclorama-raycast@1",
+      "environments": "fury-selected-landscape-day-night@1",
+      "encoding": "webp-q95-1920x1200-1200x1500@1"
+    },
+    "imageKeys": {
+      "front-left-draft@1": "img_3b41b5bf3e626525e44db9a2afcbef8bf9ad40bc8a3a78993ac6db252839c739",
+      "front-draft@1": "img_2898b6444f8d06d3e72c225f04d143fb48a999db8c46b93e48c9c0ef058d9a22",
+      "left-draft@1": "img_27dac87cb81f5f7eedab1ff3986b6e2c0a9e37c235a9b36e9b9aeaf39350993c",
+      "rear-left-draft@1": "img_f1042eae5684fab1c747fdf2b002339b4ee1418b552a50d2006b3a7e47d9f6f1",
+      "entry-draft@1": "img_d0647960f682a96fe194cda19e426463bd473984243d11fb9062e8ee287c810f"
+    }
+  },
+  "canonicalSet": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"container-40-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"container\",\"lengthFt\":40},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"infill\":\"none\",\"integratedFinish\":false,\"kind\":\"container\",\"opening\":\"roll-up\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"doorPose\":\"open\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"set\",\"recipeRelease\":{\"cameras\":\"fury-container-open-exterior-entry-cameras@1\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}",
+  "canonicalImage": "{\"contractVersion\":\"fury.render-library@1\",\"design\":{\"config\":{\"appearance\":{\"accent\":false,\"finish\":\"obsidian\",\"floor\":\"rubber\",\"interior\":\"gallery\",\"mirror\":false},\"arrangementRef\":\"container-40-review@1\",\"catalogVersion\":\"fury-design-draft-1\",\"product\":{\"family\":\"container\",\"lengthFt\":40},\"schemaVersion\":4,\"structure\":{\"addons\":[],\"infill\":\"none\",\"integratedFinish\":false,\"kind\":\"container\",\"opening\":\"roll-up\",\"railing\":\"glass\"}},\"outputProfile\":\"web-hero\",\"presentation\":{\"aspect\":\"wide\",\"cameraRef\":\"front-left-draft@1\",\"doorPose\":\"open\",\"lookRef\":\"studio-day-draft@1\"}},\"kind\":\"image\",\"recipeRelease\":{\"cameras\":\"fury-container-open-exterior-entry-cameras@1\",\"encoding\":\"webp-q95-1920x1200-1200x1500@1\",\"environments\":\"fury-selected-landscape-day-night@1\",\"geometry\":\"fury-fixed-arrangement-geometry@1\",\"id\":\"fury-native-five@2\",\"materials\":\"fury-native-materials@1\",\"renderer\":\"blender-4.5.0-cycles-optix-l40s@1\",\"studio\":\"fury-corrected-cyclorama-raycast@1\"}}"
+}

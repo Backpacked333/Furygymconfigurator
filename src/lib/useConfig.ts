@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react'
-import { encodeConfig, initialConfig, type Config } from './config'
+import { encodeConfig, initialConfig, writeDraft, type Config } from './config'
 
 type State = { past: Config[]; present: Config; future: Config[]; notice: string }
 type Action = { type: 'set'; config: Config } | { type: 'undo' } | { type: 'redo' }
@@ -39,7 +39,7 @@ export function useConfig() {
   const encoded = useMemo(() => encodeConfig(state.present), [state.present])
   useEffect(() => {
     try {
-      localStorage.setItem('fury-draft-v1', encoded)
+      writeDraft(encoded)
     } catch {
       /* The live build still works without persistence. */
     }

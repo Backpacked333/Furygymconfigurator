@@ -3,44 +3,47 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
 import {
-  ArrowDownToLine,
   ArrowRight,
   Bookmark,
-  Camera,
-  Check,
   ChevronDown,
   CircleHelp,
-  Expand,
   ExternalLink,
-  Eye,
-  Leaf,
-  Maximize,
-  Minus,
-  Pause,
-  Play,
-  Plus,
-  Redo2,
   RotateCcw,
-  Ruler,
   Share2,
-  SlidersHorizontal,
-  Undo2,
-  X,
 } from 'lucide-react'
 import ConfigPanel from './components/ConfigPanel'
+import {
+  ConfiguratorShell,
+  ConfiguratorPanelToggle,
+  ConfiguratorNotification,
+  ConfiguratorSummary,
+} from './components/ConfiguratorShell'
+import { StageHeader } from './components/StageHeader'
+import { StageFrame } from './components/StagePresentation'
+import { useFitBox, useFullscreen, toggleFullscreen } from './components/StagePresentationHooks'
 import FloorPlan from './components/FloorPlan'
 import Modal from './components/Modal'
 import { SceneLoadBoundary } from './components/SceneLoadBoundary'
 import { SceneLoading } from './components/SceneLoading'
 import { BriefDialog, EstimateDialog, LibraryDialog, ShareDialog } from './components/Dialogs'
+import { PILL_DELAY_MS, RenderStatus } from './components/RenderStatus'
+import { BuildAnimation, WorkProgress, LoadingExperience } from './components/LoadingExperience'
+import { StageToolbar } from './components/StageToolbar'
+import { customerAngle } from './render-library/views'
+import { Filmstrip, StillLayers } from './components/StillStage'
+import { pngOf } from './lib/image'
+import { stillLabel, useReducedMotion, useStillStage } from './components/useStillStage'
 import {
+  DEFAULT_CAMERA,
   DEFAULT_CONFIG,
   FINISHES,
+  SIGNATURES,
   area,
   decodeConfig,
   distance,
@@ -48,21 +51,42 @@ import {
   money,
   productName,
   productHeight,
-  setFamily,
-  packageItems,
   type Config,
+  type SignatureId,
   type Unit,
   type View,
 } from './lib/config'
+import { BAKE, heroOf } from './lib/bake'
+import { describeChange, type Change } from './lib/describeChange'
+import { configKey } from './lib/stillKey'
 import { useConfig } from './lib/useConfig'
 import { useShareFragment } from './lib/useShareFragment'
 import { useStagedScene } from './lib/useStagedScene'
 import { productFamily } from './lib/products'
 import { defaultQuality, type Backend, type Quality } from './render/quality'
+import { cloudUrl, requestedTrace } from './render/traceStatus'
+import {
+  ASPECT_RATIO,
+  DEFAULT_ANGLE,
+  INTERIOR_ANGLE,
+  TALL_MEDIA,
+  galleryAngle,
+  nearestAngle,
+  type AngleId,
+  type AspectClass,
+} from './render/gallery'
+import { freezeLiveView, settledRuns, useSettledRuns } from './render/liveView'
+import { retryStill, setPendingChoice, useStills } from './render/stillStatus'
+import { warmCloud } from './render/renderSession'
 import { sceneProgress, textureProgress } from './render/progress'
+import { benchEnabled, useBench } from './render/bench'
 
 const Scene = lazy(() => import('./components/Scene'))
 type Dialog = 'share' | 'brief' | 'estimate' | 'library' | 'help' | null
+/** `?bench=1`: read once, as the panel is for a page opened to measure it. */
+const BENCH = benchEnabled()
+/** The crossfade between a still and the 360° view, either way. */
+const LIVE_FADE_MS = 300
 
 export default function App() {
   const { config, encoded, setConfig, undo, redo, canUndo, canRedo, initialNotice } = useConfig()
@@ -71,16 +95,178 @@ export default function App() {
     [unit, setUnit] = useState<Unit>('ft')
   const [dimensions, setDimensions] = useState(false),
     [quality, setQuality] = useState<Quality>(() => defaultQuality()),
-    [backend, setBackend] = useState<Backend | null>(null)
+    [backend, setBackend] = useState<Backend | null>(null),
+    // A cloud renderer path traces on any device, so light devices get it too.
+    [trace, setTrace] = useState(
+      () => requestedTrace() ?? (cloudUrl() !== null || defaultQuality() !== 'lite'),
+    )
   // An explicit choice (panel or ?quality=) is never overridden by the performance governor.
   const qualityChosen = useRef(new URLSearchParams(window.location.search).has('quality'))
   const [dialog, setDialog] = useState<Dialog>(null),
     [toast, setToast] = useState(initialNotice),
     [reset, setReset] = useState(0)
   const [autoRotate, setAutoRotate] = useState(false),
-    [photoMode, setPhotoMode] = useState(false),
-    [mobilePanel, setMobilePanel] = useState(true)
-  const captureRef = useRef<(() => string) | null>(null),
+    [mobilePanel, setMobilePanel] = useState(true),
+    [downloading, setDownloading] = useState(false)
+  // The front three-quarter view's direction: a signature build's own, as it is baked, when the
+  // page opens one (a share link, a draft) or one is applied; kept through later edits.
+  const [camera, setCamera] = useState<[number, number, number]>(() => BAKE?.hero ?? heroOf(config))
+  // The gallery of path-traced stills (the default), or the live 360° view.
+  const [mode, setMode] = useState<'gallery' | 'live'>('gallery')
+  /**
+   * Entering the 360° view, the still stays over the canvas until the live view has drawn a
+   * settled frame, then fades ('lifting'). Leaving it, the live view's last frame is held as an
+   * image ('hold') until the still of the nearest angle is on the stage under it, then fades.
+   */
+  const [curtain, setCurtain] = useState<'still' | 'lifting' | null>(null)
+  const [freeze, setFreeze] = useState<'hold' | 'fading' | null>(null)
+  const freezeCanvas = useRef<HTMLCanvasElement>(null)
+  /** The live view's settle runs at the last switch of mode: the next one is of the new view. */
+  const settledAt = useRef(0)
+  const settled = useSettledRuns(curtain === 'still' || freeze === 'hold')
+  const reduced = useReducedMotion()
+  const [angle, setAngle] = useState<AngleId>(DEFAULT_ANGLE)
+  /** Where each view switch lands in the gallery: the angle last picked in it. */
+  const lastAngles = useRef<Record<'exterior' | 'interior', AngleId>>({
+    exterior: DEFAULT_ANGLE,
+    interior: INTERIOR_ANGLE,
+  })
+  const aspect = useAspectClass()
+  const design = useMemo(() => configKey(config), [config])
+  const change = useChange(config)
+  const stills = useStills()
+  const scenePhase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
+  const sceneReady = scenePhase === 'ready'
+  const [retryCount, setRetryCount] = useState(0)
+  // Under a held frame of the 360° view the still swaps in at once: the frame's fade is the one.
+  const stage = useStillStage({
+    design,
+    angle,
+    aspect,
+    hero: camera,
+    snapshot: stills,
+    instant: freeze === 'hold',
+  })
+  const gallery = mode === 'gallery'
+  const needsScene =
+    !!BAKE || ((!gallery || (!stage.baked && !stage.assetsLoading)) && view !== 'plan')
+  const [sceneStarted, setSceneStarted] = useState(needsScene)
+  if (needsScene && !sceneStarted) setSceneStarted(true)
+  // The stage waits for a still of the visitor's design at their angle, which something renders.
+  const renderUnavailable =
+    stills.design === design &&
+    stills.progress?.kind === 'stage' &&
+    stills.progress.stage === 'unavailable'
+  const stagePending =
+    gallery && !stage.current && (stills.source !== null || stills.progress !== null)
+  // The swatch's ring and the filmstrip's shimmer show with the pill, once the wait has lasted:
+  // a still that swaps in sooner (a prefetched option, a cached design) shows no status at all.
+  const statusShown = useHeldFor(stagePending, PILL_DELAY_MS)
+  const covered = gallery && stage.covered
+  // Nothing path traced on the stage yet (or nothing to trace with): the live view shows there.
+  const livePreview = gallery && !stage.state.shown
+  // The page's first still, baked, still loading: the stage says so, not that it is path traced.
+  const stillLoading = gallery && !livePreview && !stage.visible
+  /** What made the still on the stage: a baked one says its own samples. */
+  const shownStill = stage.state.shown
+  const stageCurrent = stage.current
+  const stageVisible = stage.visible
+  const stillSource = shownStill?.srcset
+    ? 'Cycles'
+    : stills.source === 'local'
+      ? 'This device'
+      : 'Cycles'
+  // An angle turned to whose still is not in yet is named by the angle; anything else by the edit.
+  const what =
+    stage.state.shown?.design === `${design}|${aspect}` ? galleryAngle(angle).phrase : change.label
+  const progress = stills.design === design ? stills.progress : null
+  useEffect(() => {
+    setPendingChoice(
+      statusShown && change.field && change.value
+        ? { field: change.field, value: change.value }
+        : null,
+    )
+  }, [statusShown, change])
+  // Never uncover a blank canvas just because a timer expired.
+  useEffect(() => {
+    if (mode !== 'live' || curtain !== 'still') return
+    if (settled > settledAt.current) {
+      setCurtain('lifting')
+      return
+    }
+  }, [mode, curtain, settled])
+  useEffect(() => {
+    if (curtain !== 'lifting') return
+    const timer = setTimeout(() => setCurtain(null), reduced ? 0 : LIVE_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [curtain, reduced])
+  // The held frame fades once the still of the angle is whole on the stage under it (or, with no
+  // stills to wait for, once the live view under it has settled at the angle).
+  const angleShown =
+    stage.state.shown?.design === `${design}|${aspect}` &&
+    stage.state.shown.angle === angle &&
+    !stage.state.fading
+  useEffect(() => {
+    if (freeze !== 'hold') return
+    if (angleShown || (stills.source === null && settled > settledAt.current)) setFreeze('fading')
+  }, [freeze, angleShown, stills.source, settled])
+  useEffect(() => {
+    if (freeze !== 'fading') return
+    const timer = setTimeout(() => setFreeze(null), reduced ? 0 : LIVE_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [freeze, reduced])
+  /** Opens the 360° view at the still's own pose; the still stays until the view has settled. */
+  const enterLive = () => {
+    if (view === 'plan' || mode === 'live') return
+    settledAt.current = settledRuns()
+    setCurtain(stage.state.shown && !freeze ? 'still' : null)
+    setFreeze(null)
+    setMode('live')
+  }
+  const leaving = useRef(false)
+  /**
+   * Back to the gallery, at `to` or the angle nearest where the 360° view's camera ended up. The
+   * view's last frame is held over the stage until that angle's still is there, so nothing of
+   * another angle, or a lesser image, shows meanwhile.
+   */
+  const leaveLive = async (to?: AngleId) => {
+    if (mode !== 'live' || leaving.current) return
+    leaving.current = true
+    const pose = freezeCanvas.current ? await freezeLiveView(freezeCanvas.current) : null
+    leaving.current = false
+    const group = to ? galleryAngle(to).group : view === 'interior' ? 'interior' : 'exterior'
+    const next = customerAngle(
+      to ??
+        (pose
+          ? nearestAngle(staged.config, group, pose, aspect, camera)
+          : lastAngles.current[group]),
+    )
+    settledAt.current = settledRuns()
+    setFreeze(pose ? 'hold' : null)
+    setCurtain(null)
+    lastAngles.current[group] = next
+    setAngle(next)
+    setView(group)
+    setAutoRotate(false)
+    setMode('gallery')
+  }
+  /** Puts an angle on the stage, in the gallery. */
+  const pickAngle = (requested: AngleId) => {
+    const next = customerAngle(requested)
+    if (mode === 'live') {
+      void leaveLive(next)
+      return
+    }
+    const group = galleryAngle(next).group
+    lastAngles.current[group] = next
+    setAngle(next)
+    setView(group)
+    setAutoRotate(false)
+  }
+  const frame = useRef<HTMLDivElement>(null)
+  const box = useFitBox(frame, ASPECT_RATIO[aspect])
+  const fullscreen = useFullscreen(frame)
+  const captureRef = useRef<(() => Promise<string>) | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notify = useCallback((s: string) => {
     setToast(s)
@@ -99,7 +285,7 @@ export default function App() {
       `Switched to ${next === 'high' ? 'High' : 'Lite'} quality for smoother interaction on this device. You can change it under Surroundings.`,
     )
   }, [quality, notify])
-  const onCaptureReady = useCallback((capture: (() => string) | null) => {
+  const onCaptureReady = useCallback((capture: (() => Promise<string>) | null) => {
     captureRef.current = capture
   }, [])
   const openPlan = useCallback(() => setView('plan'), [])
@@ -109,14 +295,16 @@ export default function App() {
   // 3D view meanwhile.
   const [sceneView, setSceneView] = useState<View>('exterior')
   if (view !== 'plan' && view !== sceneView) setSceneView(view)
-  const capture = useCallback(() => {
+  const capture = useCallback(async () => {
     if (view === 'plan') return null
     try {
-      return captureRef.current?.() ?? null
+      if (gallery && stageCurrent && stageVisible && shownStill?.tier === 'export')
+        return await pngOf(shownStill.url)
+      return (await captureRef.current?.()) || null
     } catch {
       return null
     }
-  }, [view])
+  }, [view, gallery, stageCurrent, stageVisible, shownStill])
   const close = () => setDialog(null)
   const openShared = useCallback(
     (value: string) => {
@@ -126,12 +314,18 @@ export default function App() {
         return false
       }
       setConfig(shared)
+      setCamera(heroOf(shared))
       notify('Shared design loaded. Undo returns to your previous design.')
       return true
     },
     [setConfig, notify],
   )
   useShareFragment(encoded, openShared)
+  // The visitor's cloud GPU boots while the scene chunk and the scanned materials load.
+  useEffect(() => {
+    const url = cloudUrl()
+    if (url !== null && trace && sceneStarted) warmCloud(url)
+  }, [trace, sceneStarted])
   useEffect(() => {
     if (initialNotice) timer.current = setTimeout(() => setToast(''), 6500)
     return () => {
@@ -147,46 +341,38 @@ export default function App() {
         if (e.shiftKey) redo()
         else undo()
       }
-      if (e.key === 'Escape') setPhotoMode(false)
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [dialog, undo, redo])
-  const template = (id: 'athlete' | 'retreat' | 'flow') => {
+  const signature = (id: SignatureId) => {
+    const build = SIGNATURES.find((s) => s.id === id)!
     if (
       !window.confirm(
-        'Apply this concept layout in your selected product family? This replaces your current design with a 20-foot example. You can undo the change.',
+        `Apply the ${build.name} build? This replaces your current design, including product family, size, and equipment. You can undo the change.`,
       )
     )
       return
-    const templates: Record<typeof id, Config> = {
-      athlete: { ...DEFAULT_CONFIG },
-      retreat: {
-        ...DEFAULT_CONFIG,
-        finish: 'chalk',
-        flooring: 'oak',
-        mirror: false,
-        package: 'recovery',
-        items: packageItems('recovery', 20),
-        addons: { deck: true, gazebo: true, roof: false, stairs: false },
-        time: 18,
-      },
-      flow: {
-        ...DEFAULT_CONFIG,
-        finish: 'olive',
-        flooring: 'oak',
-        package: 'movement',
-        items: packageItems('movement', 20),
-        time: 9,
-      },
-    }
-    setConfig(setFamily(templates[id], config.family))
+    setConfig(structuredClone(build.config))
+    setCamera(build.camera)
     setView('exterior')
+    setAngle(DEFAULT_ANGLE)
+    lastAngles.current.exterior = DEFAULT_ANGLE
     setReset((r) => r + 1)
-    notify('Concept layout applied. This is not an official Fury package.')
+    notify(`${build.name} applied. Every option stays editable; the build still requires a quote.`)
   }
-  const photo = () => {
-    const image = capture()
+  const download = async () => {
+    if (downloading) return
+    setDownloading(true)
+    // An export on the stage already (a baked still) is downloaded as it is, at once.
+    if (
+      gallery &&
+      stills.source !== null &&
+      !(stage.current && stage.state.shown?.tier === 'export')
+    )
+      notify('Rendering a full-resolution image of this view. It takes up to a minute.')
+    const image = await capture()
+    setDownloading(false)
     if (!image) {
       notify('Your scene is still getting ready. Try again in a moment.')
       return
@@ -200,36 +386,10 @@ export default function App() {
   const startingPrice = estimate(config).startingPrice,
     finish = FINISHES.find((f) => f.id === config.finish)!
   return (
-    <div
-      className={`app ${photoMode ? 'photo-mode' : ''} ${mobilePanel ? 'panel-open' : 'panel-closed'}`}
-    >
-      <a className="skip-link" href="#configuration">
-        Skip to configuration
-      </a>
-      <header className="header">
-        <a
-          className="brand"
-          href={window.location.pathname}
-          onClick={(e) => {
-            e.preventDefault()
-            setDialog('help')
-          }}
-          aria-label="Fury gym information"
-        >
-          <svg viewBox="0 0 30 30" aria-hidden="true">
-            <path d="M3 5h24l-4 6H10v4h11l-4 6h-7v6H3z" />
-          </svg>
-          <span>FURY</span>
-          <span className="brand-divider" />
-          <small>
-            GYM
-            <br />
-            CONFIGURATOR
-          </small>
-        </a>
-        <div className="header-center">
-          <span className="live-dot" /> YOUR SPACE. YOUR WAY.
-        </div>
+    <ConfiguratorShell
+      mobilePanel={mobilePanel}
+      onBrand={() => setDialog('help')}
+      headerActions={
         <nav className="header-actions" aria-label="Build actions">
           <button onClick={() => setDialog('library')}>
             <Bookmark size={16} />
@@ -247,251 +407,287 @@ export default function App() {
             <CircleHelp size={18} />
           </button>
         </nav>
-      </header>
-      <main className="workspace">
-        <section
-          className={`stage ${view === 'plan' ? 'is-plan' : ''}`}
-          aria-label="Gym visualization"
-        >
-          <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
-            <SceneLoadBoundary onFallback={openPlan}>
-              <Suspense fallback={<SceneLoading phase="engine" />}>
-                <Scene
-                  active={view !== 'plan'}
-                  config={staged.config}
-                  view={sceneView}
-                  dimensions={dimensions}
-                  unit={unit}
-                  reset={reset}
-                  autoRotate={autoRotate}
-                  quality={staged.quality}
-                  onCaptureReady={onCaptureReady}
-                  onFallback={openPlan}
-                  onBackend={setBackend}
-                  onSlow={onSlow}
-                />
-              </Suspense>
-            </SceneLoadBoundary>
-          </div>
-          {view === 'plan' && (
-            <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
-          )}
-          <div className="stage-heading">
-            <span className="eyebrow">
-              <span className="small-line" />{' '}
-              {config.family === 'studio' ? 'THE S-SERIES COLLECTION' : 'CONTAINER GYMS'}
-            </span>
-            <h1>
-              {config.family === 'studio' ? 'S' : 'C'}-{config.length}
-              <span>
-                Space to
-                <br />
-                become more.
-              </span>
-            </h1>
-            <div className="studio-meta">
-              {area(config.length * 8, unit)}
-              <i />
-              {finish.name}
-              <i />
-              {distance(productHeight(config), unit)} high
-            </div>
-            {config.studioLayout !== 'single' && (
-              <p className="custom-preview-note">
-                Custom project requested · Single reference unit shown
-              </p>
-            )}
-          </div>
-          <div className="view-switch" role="group" aria-label="Camera views">
-            {(['exterior', 'interior', 'plan'] as const).map((v, i) => {
-              const icons = [Expand, Eye, Maximize],
-                Icon = icons[i]
-              return (
-                <button
-                  key={v}
-                  aria-pressed={view === v}
-                  className={view === v ? 'active' : ''}
-                  onClick={() => {
-                    setView(v)
-                    setAutoRotate(false)
-                    if (v === 'plan') setStep(2)
-                  }}
-                >
-                  <Icon size={14} />
-                  <span>{v === 'plan' ? 'Floor plan' : v[0].toUpperCase() + v.slice(1)}</span>
-                </button>
-              )
-            })}
-          </div>
-          <div className="stage-tools" aria-label="Scene controls">
-            <button
-              className={dimensions ? 'active' : ''}
-              aria-label="Show dimensions"
-              aria-pressed={dimensions}
-              onClick={() => setDimensions(!dimensions)}
-              disabled={view === 'plan'}
-            >
-              <Ruler size={18} />
-              <span>Dimensions</span>
-            </button>
-            <button
-              aria-label="Reset camera"
-              onClick={() => setReset((r) => r + 1)}
-              disabled={view === 'plan'}
-            >
-              <RotateCcw size={17} />
-              <span>Reset view</span>
-            </button>
-            <button
-              className={autoRotate ? 'active' : ''}
-              aria-label={autoRotate ? 'Pause rotation' : 'Rotate automatically'}
-              aria-pressed={autoRotate}
-              disabled={view !== 'exterior'}
-              onClick={() => setAutoRotate(!autoRotate)}
-            >
-              {autoRotate ? <Pause size={17} /> : <Play size={17} />}
-              <span>Auto rotate</span>
-            </button>
-            <span className="tool-divider" />
-            <button
-              aria-label="Enter photo mode"
-              onClick={() => {
-                setView('exterior')
-                setPhotoMode(true)
-                setMobilePanel(false)
-              }}
-            >
-              <Camera size={18} />
-              <span>Photo mode</span>
-            </button>
-          </div>
-          {photoMode && (
-            <div className="photo-controls">
-              <span>
-                PHOTO MODE <small>Concept rendering</small>
-              </span>
-              <button onClick={photo}>
-                <ArrowDownToLine size={16} /> Save image
-              </button>
-              <button
-                aria-label="Exit photo mode"
-                onClick={() => {
-                  setPhotoMode(false)
-                  setMobilePanel(true)
-                }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-          )}
-          {view !== 'plan' && <SceneActivity updating={staged.updating} />}
-          {view !== 'plan' && (
-            <div className="stage-bottom">
-              <div className="scene-status">
-                <span className="status-dot" />
-                <strong>LIVE 3D</strong>
-                {backend && (
-                  <span className="render-backend">
-                    {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
-                  </span>
-                )}
-                <span>Concept visualization · Not manufacturer CAD</span>
-              </div>
-              <div className="scene-hint">
-                {view === 'interior' ? 'Drag to look around' : 'Drag to orbit · Scroll to explore'}
-              </div>
-              <button className="environment-quick" onClick={() => setStep(3)}>
-                <Leaf size={14} />
-                {config.environment === 'courtyard'
-                  ? 'The courtyard'
-                  : config.environment === 'desert'
-                    ? 'Desert retreat'
-                    : 'Studio backdrop'}
-                <ChevronDown size={13} />
-              </button>
-            </div>
-          )}
-          <div className="history-controls">
-            <button aria-label="Undo last change" disabled={!canUndo} onClick={undo}>
-              <Undo2 size={16} />
-            </button>
-            <button aria-label="Redo last change" disabled={!canRedo} onClick={redo}>
-              <Redo2 size={16} />
-            </button>
-          </div>
-          <button
-            className="mobile-toggle"
-            onClick={() => setMobilePanel(!mobilePanel)}
-            aria-expanded={mobilePanel}
-            aria-controls="configuration"
+      }
+      workspace={
+        <>
+          <section
+            className={`stage is-${mode} ${view === 'plan' ? 'is-plan' : ''}`}
+            aria-label="Gym visualization"
           >
-            <SlidersHorizontal size={16} />
-            {mobilePanel ? 'Hide options' : 'Customize gym'}
-            {mobilePanel ? <Minus size={14} /> : <Plus size={14} />}
-          </button>
-        </section>
-        <div id="configuration" className="panel-wrapper">
-          <ConfigPanel
-            config={config}
-            onChange={setConfig}
-            step={step}
-            setStep={setStep}
-            unit={unit}
-            setUnit={setUnit}
-            quality={quality}
-            setQuality={chooseQuality}
-            notify={notify}
-            onPlan={() => {
-              setView('plan')
-              setPhotoMode(false)
-            }}
-            onTemplate={template}
-          />
-        </div>
-      </main>
-      <footer className="summary-bar">
-        <div className="summary-product">
-          <span className="summary-monogram">
+            <StageHeader
+              collection={config.family === 'studio' ? 'THE S-SERIES COLLECTION' : 'CONTAINER GYMS'}
+              title={
+                <>
+                  {config.family === 'studio' ? 'S' : 'C'}-{config.length}
+                </>
+              }
+              meta={
+                <>
+                  {area(config.length * 8, unit)}
+                  <i />
+                  {finish.name}
+                  <i />
+                  {distance(productHeight(config), unit)} high
+                </>
+              }
+              note={
+                config.studioLayout !== 'single'
+                  ? 'Custom project requested · Single reference unit shown'
+                  : undefined
+              }
+              view={view}
+              onView={(v) => {
+                setView(v)
+                setAutoRotate(false)
+                if (v === 'plan') setStep(2)
+                else setAngle(lastAngles.current[v])
+              }}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={undo}
+              onRedo={redo}
+              status={
+                view !== 'plan' && (
+                  <div className="scene-status">
+                    <span className="status-dot" />
+                    <strong>
+                      {mode === 'live'
+                        ? curtain === 'still' || scenePhase !== 'ready'
+                          ? 'PREPARING 360°'
+                          : 'LIVE 3D'
+                        : livePreview
+                          ? scenePhase === 'ready'
+                            ? 'LIVE PREVIEW'
+                            : 'PREPARING 3D'
+                          : stillLoading
+                            ? 'LOADING'
+                            : 'PATH TRACED'}
+                    </strong>
+                    {backend && (mode === 'live' || livePreview) && (
+                      <span className="render-backend">
+                        {backend === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · {quality}
+                      </span>
+                    )}
+                    {gallery && !livePreview && !stillLoading && (
+                      <span className="render-backend">
+                        {stillSource}
+                        {shownStill?.samples ? ` · up to ${shownStill.samples} samples` : ''}
+                      </span>
+                    )}
+                    <span className="scene-note">
+                      {mode === 'live'
+                        ? view === 'interior'
+                          ? 'Drag to look around'
+                          : 'Drag to orbit · Scroll to zoom'
+                        : 'Concept visualization · Not manufacturer CAD'}
+                    </span>
+                  </div>
+                )
+              }
+            />
+            <div className="stage-body">
+              <StageFrame frameRef={frame} aspect={aspect} covered={covered} box={box}>
+                <div className={`scene-layer ${view === 'plan' ? 'is-hidden' : ''}`}>
+                  {sceneStarted && (
+                    <SceneLoadBoundary onFallback={openPlan}>
+                      <Suspense fallback={<SceneLoading phase="engine" />}>
+                        <Scene
+                          active={view !== 'plan'}
+                          config={staged.config}
+                          view={sceneView}
+                          dimensions={dimensions && mode === 'live'}
+                          unit={unit}
+                          reset={reset}
+                          camera={camera}
+                          autoRotate={autoRotate}
+                          quality={staged.quality}
+                          trace={trace}
+                          mode={mode}
+                          angle={angle}
+                          covered={covered}
+                          onCaptureReady={onCaptureReady}
+                          onFallback={openPlan}
+                          onBackend={setBackend}
+                          onSlow={onSlow}
+                        />
+                      </Suspense>
+                    </SceneLoadBoundary>
+                  )}
+                </div>
+                {(gallery || curtain) && (
+                  <StillLayers
+                    config={config}
+                    stage={stage}
+                    label={stillLabel(angle)}
+                    lifting={curtain === 'lifting'}
+                    active={view !== 'plan' && gallery && !freeze}
+                  />
+                )}
+                <canvas
+                  ref={freezeCanvas}
+                  className={`live-freeze${freeze ? ` is-${freeze}` : ''}`}
+                  aria-hidden="true"
+                />
+                {gallery && view !== 'plan' && !stillLoading && (!livePreview || sceneReady) && (
+                  <RenderStatus
+                    pending={stagePending}
+                    swaps={stage.state.swaps}
+                    what={what}
+                    progress={progress}
+                    config={config}
+                    requestKey={`${design}:${angle}:${aspect}:${retryCount}`}
+                    newCombination={
+                      stage.state.shown?.design !== `${design}|${aspect}` &&
+                      !stage.state.pending &&
+                      !(progress?.kind === 'stage' && progress.stage === 'receiving')
+                    }
+                    decoding={stage.state.pending !== null}
+                    unavailable={renderUnavailable}
+                    onRetry={() => {
+                      retryStill()
+                      setRetryCount((count) => count + 1)
+                    }}
+                    onPlan={openPlan}
+                  />
+                )}
+                {livePreview && scenePhase === 'ready' && !freeze && view !== 'plan' && (
+                  <span className="live-preview-label">Live preview</span>
+                )}
+                {mode === 'live' && curtain === 'still' && view !== 'plan' && (
+                  <div className="scene-activity" role="status">
+                    Preparing the 360° view. Your finished image stays visible.
+                  </div>
+                )}
+                {view !== 'plan' &&
+                  !downloading &&
+                  (mode === 'live' || (livePreview && !stagePending)) && (
+                    <SceneActivity updating={staged.updating} config={config} />
+                  )}
+                {downloading && !stagePending && (
+                  <div className="render-wait">
+                    <LoadingExperience
+                      config={config}
+                      compact
+                      title="Made to keep."
+                      description="We’re preparing your image for download."
+                      label="Preparing your download"
+                    />
+                  </div>
+                )}
+                <div className="sr-only" role="status" aria-live="polite">
+                  {mode === 'live'
+                    ? view === 'interior'
+                      ? '360° View. Drag, or focus the view and use the arrow keys, to look around.'
+                      : '360° View. Drag, or focus the view and use the arrow keys, to orbit.'
+                    : ''}
+                </div>
+                {view !== 'plan' && (
+                  <StageToolbar
+                    live={mode === 'live'}
+                    interior={view === 'interior'}
+                    config={config}
+                    onChange={setConfig}
+                    onMoreSettings={() => {
+                      setStep(3)
+                      setMobilePanel(true)
+                      requestAnimationFrame(() => document.getElementById('step-3')?.focus())
+                    }}
+                    onToggleLive={() => (mode === 'live' ? void leaveLive() : enterLive())}
+                    dimensions={dimensions}
+                    onDimensions={() => setDimensions(!dimensions)}
+                    autoRotate={autoRotate}
+                    onAutoRotate={() => setAutoRotate(!autoRotate)}
+                    onReset={() => setReset((r) => r + 1)}
+                    onDownload={download}
+                    downloading={downloading}
+                    fullscreen={fullscreen}
+                    onFullscreen={() => toggleFullscreen(frame.current)}
+                  />
+                )}
+              </StageFrame>
+              {view !== 'plan' && (
+                <Filmstrip
+                  design={design}
+                  angle={angle}
+                  aspect={aspect}
+                  hero={camera}
+                  snapshot={stills}
+                  stagePending={statusShown}
+                  onPick={pickAngle}
+                />
+              )}
+              <ConfiguratorPanelToggle
+                open={mobilePanel}
+                onToggle={() => setMobilePanel(!mobilePanel)}
+              />
+              {view === 'plan' && (
+                <FloorPlan config={config} unit={unit} onChange={setConfig} notify={notify} />
+              )}
+            </div>
+          </section>
+          <div id="configuration" className="panel-wrapper">
+            <ConfigPanel
+              config={config}
+              onChange={setConfig}
+              step={step}
+              setStep={setStep}
+              unit={unit}
+              setUnit={setUnit}
+              quality={quality}
+              setQuality={chooseQuality}
+              trace={trace}
+              setTrace={setTrace}
+              traceSupported={backend === 'webgpu'}
+              cloud={cloudUrl() !== null}
+              notify={notify}
+              onPlan={() => setView('plan')}
+              onSignature={signature}
+            />
+          </div>
+        </>
+      }
+    >
+      <ConfiguratorSummary
+        monogram={
+          <>
             {config.family === 'studio' ? 'S' : 'C'}
             {config.length}
-          </span>
-          <div>
-            <strong>Your {productName(config)}</strong>
+          </>
+        }
+        title={<>Your {productName(config)}</>}
+        detail={
+          <>
+            {distance(config.length, unit)} × {distance(8, unit)} · {finish.name} ·{' '}
+            {config.items.length} equipment items
+          </>
+        }
+        estimate={
+          <>
+            <button onClick={() => setDialog('estimate')}>
+              <span>
+                {productFamily(config.family).shortName.toUpperCase()} FAMILY STARTING AT{' '}
+                <InfoIcon />
+              </span>
+              <strong>
+                {money(startingPrice)}
+                <small>USD</small>
+                <ChevronDown size={15} />
+              </strong>
+            </button>
+            <small>Selected build: quote required</small>
+          </>
+        }
+        action={
+          <button className="primary brief-cta" onClick={() => setDialog('brief')}>
             <span>
-              {distance(config.length, unit)} × {distance(8, unit)} · {finish.name} ·{' '}
-              {config.items.length} equipment items
+              Create build brief<small>Your vision, in one beautiful PDF.</small>
             </span>
-          </div>
-        </div>
-        <div className="summary-estimate">
-          <button onClick={() => setDialog('estimate')}>
-            <span>
-              {productFamily(config.family).shortName.toUpperCase()} FAMILY STARTING AT <InfoIcon />
-            </span>
-            <strong>
-              {money(startingPrice)}
-              <small>USD</small>
-              <ChevronDown size={15} />
-            </strong>
+            <ArrowRight size={19} />
           </button>
-          <small>Selected build: quote required</small>
-        </div>
-        <button className="primary brief-cta" onClick={() => setDialog('brief')}>
-          <span>
-            Create build brief<small>Your vision, in one beautiful PDF.</small>
-          </span>
-          <ArrowRight size={19} />
-        </button>
-      </footer>
-      {toast && (
-        <div className="toast" role="status">
-          <Check size={16} />
-          <span>{toast}</span>
-          <button aria-label="Dismiss notification" onClick={() => setToast('')}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
+        }
+      />
+      <ConfiguratorNotification message={toast} onDismiss={() => setToast('')} />
+      {BENCH && <BenchPanel />}
       {dialog === 'estimate' && <EstimateDialog config={config} onClose={close} />}
       {dialog === 'share' && <ShareDialog config={config} onClose={close} notify={notify} />}
       {dialog === 'brief' && (
@@ -501,7 +697,10 @@ export default function App() {
         <LibraryDialog
           config={config}
           unit={unit}
-          onLoad={setConfig}
+          onLoad={(saved) => {
+            setConfig(saved)
+            setCamera(heroOf(saved))
+          }}
           onClose={close}
           notify={notify}
         />
@@ -561,7 +760,10 @@ export default function App() {
                 )
               ) {
                 setConfig(structuredClone(DEFAULT_CONFIG))
+                setCamera(DEFAULT_CAMERA)
                 setView('exterior')
+                setAngle(DEFAULT_ANGLE)
+                lastAngles.current.exterior = DEFAULT_ANGLE
                 setReset((r) => r + 1)
                 close()
                 notify('Your design is reset. Undo is available.')
@@ -572,39 +774,117 @@ export default function App() {
           </button>
         </Modal>
       )}
-    </div>
+    </ConfiguratorShell>
   )
 }
+/** The stage's shape: 4:5 on phones, 16:10 elsewhere (styles.css switches at the same width). */
+function useAspectClass(): AspectClass {
+  const query = useMemo(() => window.matchMedia(TALL_MEDIA), [])
+  const tall = useSyncExternalStore(
+    (listener) => {
+      query.addEventListener('change', listener)
+      return () => query.removeEventListener('change', listener)
+    },
+    () => query.matches,
+  )
+  return tall ? 'tall' : 'wide'
+}
+
+/** What the latest edit changed (describeChange.ts), kept until the next one. */
+function useChange(config: Config): Change {
+  const [seen, setSeen] = useState<{ config: Config; change: Change }>(() => ({
+    config,
+    change: describeChange(null, config),
+  }))
+  if (seen.config !== config) {
+    const change = describeChange(seen.config, config)
+    setSeen({ config, change })
+    return change
+  }
+  return seen.change
+}
+
+/** Whether `on` has held for `ms` (false again the moment it is not). */
+function useHeldFor(on: boolean, ms: number) {
+  const [held, setHeld] = useState(false)
+  useEffect(() => {
+    setHeld(false)
+    if (!on) return
+    const timer = setTimeout(() => setHeld(true), ms)
+    return () => clearTimeout(timer)
+  }, [on, ms])
+  return on && held
+}
+
+/**
+ * The rendering benchmarks `?bench=1` shows (src/render/bench.ts, docs/benchmarks.md): a small
+ * table of seconds from page load to each first, how the cloud answered and what its frames cost,
+ * and the local tracer's times. Text only, so it is read off a screenshot as easily as the page.
+ */
+function BenchPanel() {
+  const stats = useBench()
+  const seconds = (ms: number | null) => (ms === null ? '—' : `${(ms / 1000).toFixed(1)} s`)
+  const millis = (ms: number | null) => (ms === null ? '—' : `${Math.round(ms)} ms`)
+  const { own, shared } = stats.renderer
+  const renderer = own || shared ? ` · own ${own} / shared ${shared}` : ''
+  const frames = stats.frames ? ` (${stats.frames} frames, ${stats.cached} cached)` : ''
+  const rows: [string, string][] = [
+    ['first raster frame', seconds(stats.marks.firstRaster)],
+    ['textures settled', seconds(stats.marks.texturesSettled)],
+    ['scene captured', seconds(stats.marks.sceneCaptured)],
+    ['first request', seconds(stats.marks.firstRequest)],
+    ['first thumbnail', seconds(stats.marks.firstThumb)],
+    ['first image decoded', seconds(stats.marks.firstStill)],
+    ['first still presentation', seconds(stats.marks.firstStillPresented)],
+    ['first local trace', seconds(stats.marks.firstLocalTrace)],
+    ['cloud', `${stats.cloud}${renderer}`],
+    [
+      'server frame',
+      `render ${millis(stats.renderMs)} · finish ${millis(stats.finishMs)} · round trip ${millis(stats.totalMs)}${frames}`,
+    ],
+    [
+      'local tracer',
+      `first image ${seconds(stats.local.firstMs)} · settled ${seconds(stats.local.settledMs)}`,
+    ],
+    [
+      'prefetch',
+      `${stats.prefetch.sent} sent · ${stats.prefetch.landed} landed · ${stats.prefetch.hits} clicks found theirs`,
+    ],
+  ]
+  return (
+    <table className="bench-panel" aria-label="Rendering benchmarks">
+      <tbody>
+        {rows.map(([name, value]) => (
+          <tr key={name}>
+            <th scope="row">{name}</th>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 /**
  * What the 3D view is busy with once it has a picture: applying a change that rebuilds the scene,
  * or streaming the photo-scanned materials. Hidden while the start-up screen is showing.
  */
-function SceneActivity({ updating }: { updating: boolean }) {
+function SceneActivity({ updating, config }: { updating: boolean; config: Config }) {
   const phase = useSyncExternalStore(sceneProgress.subscribe, sceneProgress.get)
   const { requested, loaded } = useSyncExternalStore(textureProgress.subscribe, textureProgress.get)
   if (phase !== 'ready') return null
   if (updating)
     return (
       <div className="scene-activity is-updating" role="status">
-        <i className="activity-spinner" aria-hidden="true" />
+        <BuildAnimation config={config} />
         Updating the 3D view…
       </div>
     )
   if (!requested || loaded >= requested) return null
-  const percent = Math.round((loaded / requested) * 100)
   return (
     <div className="scene-activity" role="status">
-      <i className="activity-spinner" aria-hidden="true" />
-      Loading photo-scanned materials · {percent}%
-      <span
-        className="activity-bar"
-        role="progressbar"
-        aria-label="Materials loaded"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        style={{ transform: `scaleX(${loaded / requested})` }}
-      />
+      <BuildAnimation config={config} />
+      <WorkProgress label="Loading photo-scanned materials" fraction={loaded / requested} />
     </div>
   )
 }

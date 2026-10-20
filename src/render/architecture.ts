@@ -1,15 +1,55 @@
-import { FINISHES, openingGeometry, productHeight, type Config } from '../lib/config'
-import { box, corrugatedPanel, cylinder, extrude, roundedBox, roundedRectShape } from './geometry'
+import {
+  FINISHES,
+  openingGeometry,
+  productHeight,
+  studioBays,
+  studioDoorBay,
+  type Config,
+} from '../lib/config'
+import {
+  box,
+  corrugatedPanel,
+  cylinder,
+  extrude,
+  lathe,
+  roundedBox,
+  roundedRectShape,
+  type UVOptions,
+} from './geometry'
+import { CONTAINER_BACK, FLOOR_Y, STUDIO, interiorBounds } from './envelope'
 import { material } from './materials'
+import {
+  awningSashes,
+  glassOverheadDoor,
+  hingedDoor,
+  pane,
+  rollUpShutter,
+  slidingDoor,
+} from './openings'
 import { palette } from './palette'
 import { oriented, part, type Part, type V3 } from './parts'
 
-/** Top of the finished floor; equipment stands on it. */
-export const FLOOR_Y = 0.96
-/** Studio portal: base height, wall thickness, outer corner radius (feet). */
-export const STUDIO = { base: 0.3, wall: 0.36, radius: 1.1, depth: 8 }
+/** Center plane of the Studio glazing frame. */
+const GLAZING_Z = 3.5
+/** Container opening: sill and the plane of the infill behind the welded frame. */
+const SILL = 0.62
+const INFILL_Z = 3.55
 
 export const finishColor = (c: Config) => FINISHES.find((f) => f.id === c.finish)!.color
+
+/** Relative luminance of a hex color (0-1), used to pick contrasting frame colors. */
+function luminance(hex: string) {
+  const v = parseInt(hex.slice(1), 16)
+  return (0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255)) / 255
+}
+/**
+ * Window and door frames: matched to dark finishes (bronze frames on an espresso shell), black
+ * on light ones, as in Fury's builds.
+ */
+export function frameMaterial(c: Config) {
+  const color = finishColor(c)
+  return palette.anodized(luminance(color) > 0.3 ? '#141615' : color)
+}
 
 /**
  * Rounded-rectangle frame extruded along Z. Bevels grow an extrusion outward by their size, so the
@@ -23,6 +63,7 @@ function ring(
   inset: number,
   depth: number,
   bevel = 0,
+  uv: UVOptions = {},
 ) {
   return extrude(
     `ring:${key}:${w}:${h}:${r}:${inset}`,
@@ -40,29 +81,129 @@ function ring(
     depth - bevel * 2,
     bevel,
     24,
+    uv,
   )
 }
-function slab(key: string, w: number, h: number, r: number, depth: number, bevel = 0) {
+function slab(
+  key: string,
+  w: number,
+  h: number,
+  r: number,
+  depth: number,
+  bevel = 0,
+  uv: UVOptions = {},
+) {
   return extrude(
     `slab:${key}:${w}:${h}:${r}`,
     () => roundedRectShape(w - bevel * 2, h - bevel * 2, r - bevel),
     depth - bevel * 2,
     bevel,
     24,
+    uv,
   )
+}
+
+/** Hairline shadow gap between cladding panels. */
+const seam = () => material({ color: '#0b0c0c', roughness: 0.85 })
+
+// --- Interior finishes ------------------------------------------------------------------
+
+/** Wall and ceiling lining for the chosen interior style (both families). */
+function liner(c: Config) {
+  switch (c.interiorStyle) {
+    case 'timber':
+      return palette.cedar()
+    case 'birch':
+      return palette.ply()
+    case 'gallery':
+      return palette.paint('#f5f3ef')
+    default:
+      return palette.paint(c.finish === 'chalk' ? '#f4f1eb' : '#f1eee8')
+  }
+}
+/** Cedar boards run horizontally on walls; the other linings are isotropic. */
+const linerUV = (c: Config): UVOptions => (c.interiorStyle === 'timber' ? { swap: true } : {})
+
+/** 4 x 8 ft sheet joints on plywood-lined walls and ceilings. */
+function plyJoints(
+  width: number,
+  wallBottom: number,
+  wallTop: number,
+  back: number,
+  front: number,
+  ceiling: number,
+): Part[] {
+  const m = material({ color: '#3a2f22', roughness: 0.9, interior: true })
+  const parts: Part[] = []
+  const count = Math.round(width / 4)
+  const step = width / count
+  for (let i = 1; i < count; i++) {
+    const x = -width / 2 + i * step
+    parts.push(
+      part(
+        box(0.025, wallTop - wallBottom, 0.006),
+        m,
+        [x, (wallTop + wallBottom) / 2, back + 0.003],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+    parts.push(
+      part(
+        box(0.025, 0.006, front - back),
+        m,
+        [x, ceiling - 0.003, (front + back) / 2],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+  }
+  return parts
 }
 
 // --- Studio ---------------------------------------------------------------------------------
 
-/** The S-Series shell: a rounded steel portal, closed back, and recessed shadow plinth. */
+/**
+ * The S-Series shell: a rounded steel portal with a proud front lip over a recessed bezel (the
+ * reveal line around the glazing), fastened cladding seams, a closed back, and a shadow plinth.
+ */
 export function studioShell(c: Config): Part[] {
   const L = c.length,
     H = productHeight(c),
-    { base, wall, radius, depth } = STUDIO
+    { base, wall, radius, depth, bezel, lip } = STUDIO
   const shell = palette.shell(finishColor(c))
   const center = base + H / 2
-  return [
-    part(ring('portal', L, H, radius, wall, depth - 0.07, 0.035), shell, [0, center, 0]),
+  const lipDepth = 0.32
+  const bodyFront = depth / 2 - lipDepth
+  const bodyDepth = bodyFront + depth / 2
+  const parts: Part[] = [
+    // Body: a hair smaller than the lip so the joint between them reads as a line.
+    part(ring('portal', L - 0.04, H - 0.04, radius - 0.02, wall, bodyDepth, 0.035), shell, [
+      0,
+      center,
+      -depth / 2 + bodyDepth / 2,
+    ]),
+    part(ring('lip', L, H, radius, lip, lipDepth, 0.03), shell, [
+      0,
+      center,
+      depth / 2 - lipDepth / 2,
+    ]),
+    // Recessed bezel stepping in to the glazing.
+    part(
+      ring(
+        'bezel',
+        L - lip * 2 + 0.02,
+        H - lip * 2 + 0.02,
+        radius - lip,
+        bezel - lip + 0.01,
+        0.3,
+        0.02,
+      ),
+      shell,
+      [0, center, depth / 2 - 0.28],
+    ),
     // Exterior back skin closing the portal.
     part(slab('back', L - wall * 2 + 0.02, H - wall * 2 + 0.02, radius - wall, 0.12), shell, [
       0,
@@ -75,41 +216,127 @@ export function studioShell(c: Config): Part[] {
       base / 2 - 0.01,
       0,
     ]),
-    // Drip edge along the roof front.
-    part(box(L - 2.4, 0.05, 0.08), shell, [0, base + H - 0.02, depth / 2 - 0.25]),
   ]
+  // Panel seams: across the lip where the corners meet the straights, over the roof, and down
+  // the end walls; and the fastener line along the lip.
+  const gap = seam()
+  const straight = L - radius * 2
+  const panels = Math.max(2, Math.round(straight / 5))
+  const top = base + H
+  for (let i = 0; i <= panels; i++) {
+    const x = -straight / 2 + (i * straight) / panels
+    for (const y of [top - lip / 2, base + lip / 2])
+      parts.push(
+        part(
+          box(0.014, lip + 0.01, 0.006),
+          gap,
+          [x, y, depth / 2 + 0.002],
+          undefined,
+          undefined,
+          false,
+        ),
+      )
+    parts.push(
+      part(
+        box(0.016, 0.006, bodyDepth - 0.1),
+        gap,
+        [x, top - 0.017, -depth / 2 + bodyDepth / 2],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+  }
+  for (const side of [-1, 1])
+    for (const z of [-1.35, 1.35])
+      parts.push(
+        part(
+          box(0.006, H - radius * 2, 0.016),
+          gap,
+          [side * (L / 2 - 0.017), center, z],
+          undefined,
+          undefined,
+          false,
+        ),
+      )
+  const fastener = lathe(
+    'fastener',
+    [
+      [0, 0],
+      [0.034, 0],
+      [0.03, 0.01],
+      [0.018, 0.016],
+      [0, 0.018],
+    ],
+    12,
+  )
+  const steel = palette.brushed(false, '#6f7374')
+  const pitch = 2.1
+  const along = Math.floor(straight / pitch)
+  for (let i = 0; i <= along; i++) {
+    const x = -((along * pitch) / 2) + i * pitch
+    for (const y of [top - lip / 2, base + lip / 2])
+      parts.push(part(fastener, steel, [x, y, depth / 2], [Math.PI / 2, 0, 0], undefined, false))
+  }
+  const rise = H - radius * 2
+  const up = Math.max(1, Math.floor(rise / pitch))
+  for (let i = 0; i <= up; i++)
+    for (const side of [-1, 1])
+      parts.push(
+        part(
+          fastener,
+          steel,
+          [side * (L / 2 - lip / 2), center - rise / 2 + (i * rise) / up, depth / 2],
+          [Math.PI / 2, 0, 0],
+          undefined,
+          false,
+        ),
+      )
+  return parts
 }
 
-/** Lining, floor, back wall, slatted ceiling, trims, and services inside the Studio. */
+/** Lining, floor, back wall, ceiling, trims, and services inside the Studio. */
 export function studioInterior(c: Config): Part[] {
   const L = c.length,
     H = productHeight(c),
-    { base, wall, radius } = STUDIO
+    { base, wall, radius, bezel } = STUDIO
   const center = base + H / 2
   const innerW = L - wall * 2,
     innerH = H - wall * 2,
     innerR = radius - wall
   const lining = 0.08
-  const paint = palette.paint(c.finish === 'chalk' ? '#f4f1eb' : '#f1eee8')
+  const lined = liner(c),
+    uv = linerUV(c)
   const back = -3.78
-  const front = 3.62
+  const front = 3.6
+  const reveal = (innerW - (L - bezel * 2)) / 2
   const parts: Part[] = [
-    part(ring('lining', innerW, innerH, innerR, lining, front - back), paint, [
+    part(ring('lining', innerW, innerH, innerR, lining, front - back, 0, uv), lined, [
       0,
       center,
       (front + back) / 2,
     ]),
-    part(slab('backwall', innerW - lining * 2, innerH - lining * 2, innerR - lining, 0.08), paint, [
+    part(
+      slab('backwall', innerW - lining * 2, innerH - lining * 2, innerR - lining, 0.08, 0, uv),
+      lined,
+      [0, center, back],
+    ),
+    // Inner return from the lining to the glazing opening.
+    part(ring('return', innerW - 0.02, innerH - 0.02, innerR, reveal + 0.01, 0.06, 0, uv), lined, [
       0,
       center,
-      back,
+      front - 0.03,
     ]),
   ]
   parts.push(...floor(c, L - 1.24, back + 0.04, front, FLOOR_Y))
   parts.push(...skirting(L / 2 - 0.62, back + 0.04, front, FLOOR_Y))
   const ceilingTop = base + H - wall - lining
-  parts.push(...slatCeiling(L - 2.4, back + 0.04, front - 0.12, ceilingTop - 0.42, ceilingTop))
-  parts.push(...services(c, back + 0.04, ceilingTop - 0.42))
+  const ceiling = c.interiorStyle === 'slatted' ? ceilingTop - 0.42 : ceilingTop
+  if (c.interiorStyle === 'slatted')
+    parts.push(...slatCeiling(L - 2.4, back + 0.04, front - 0.12, ceiling, ceilingTop))
+  if (c.interiorStyle === 'birch')
+    parts.push(...plyJoints(L - 3.2, FLOOR_Y, ceilingTop - innerR, back + 0.045, front, ceilingTop))
+  parts.push(...services(c, back + 0.04, ceiling))
   return parts
 }
 
@@ -134,7 +361,9 @@ function floor(c: Config, width: number, back: number, front: number, top: numbe
             clearcoatRoughness: 0.3,
             interior: true,
           })
-        : material({ set: 'rubber_tiles', roughness: 1, interior: true })
+        : c.flooring === 'concrete'
+          ? palette.polishedConcrete()
+          : material({ set: 'rubber_tiles', roughness: 1, interior: true })
   return [
     part(box(width, 0.3, depth), palette.black(), [0, top - 0.17, z], [0, 0, 0], [1, 1, 1], false),
     part(box(width, 0.04, depth), finish, [0, top - 0.02, z], undefined, undefined, false),
@@ -208,7 +437,7 @@ function slatCeiling(width: number, back: number, front: number, underside: numb
   return parts
 }
 
-/** Wall-mounted mini-split, room controller, and wall LED channel. */
+/** Wall-mounted mini-split, room controller, and duplex outlets. */
 function services(c: Config, backFace: number, ceiling: number): Part[] {
   const L = c.length
   const white = palette.plastic('#eeefec', 0.35)
@@ -248,56 +477,79 @@ function services(c: Config, backFace: number, ceiling: number): Part[] {
   return parts
 }
 
-/** Full-height glazing following the portal outline, with mullions and a central door. */
+/**
+ * Glazing set in the bezel opening: a black perimeter frame, mullions dividing equal bays (five on
+ * 20 feet, eleven on 40), glass that follows the portal radius in the end bays, and a hinged or
+ * sliding door.
+ */
 export function studioGlazing(c: Config): Part[] {
   const L = c.length,
     H = productHeight(c),
-    { base, wall, radius } = STUDIO
+    { base, radius, bezel } = STUDIO
   const center = base + H / 2
-  const w = L - wall * 2,
-    h = H - wall * 2,
-    r = radius - wall
-  const frame = palette.anodized('#202422')
-  const z = 3.82
-  const panes = L === 20 ? 6 : 12
+  const ow = L - bezel * 2,
+    oh = H - bezel * 2,
+    orr = radius - bezel
+  const fw = 0.16
+  const frame = frameMaterial(c)
+  const glass = palette.glass()
   const parts: Part[] = [
-    part(ring('glazing-frame', w, h, r, 0.16, 0.24, 0.01), frame, [0, center, z]),
+    part(ring('glazing-frame', ow + 0.02, oh + 0.02, orr + 0.01, fw + 0.01, 0.3, 0.01), frame, [
+      0,
+      center,
+      GLAZING_Z,
+    ]),
+  ]
+  const { span, count, width } = studioBays(L)
+  const top = center + oh / 2 - fw,
+    bottom = center - oh / 2 + fw
+  const r = orr - fw
+  const door = studioDoorBay(c)
+  for (let i = 1; i < count; i++)
+    parts.push(part(box(0.14, oh - fw * 2, 0.3), frame, [-span / 2 + i * width, center, GLAZING_Z]))
+  for (let i = 0; i < count; i++) {
+    if (i === door) continue
+    const x0 = -span / 2 + i * width + (i === 0 ? 0 : 0.07)
+    const x1 = -span / 2 + (i + 1) * width - (i === count - 1 ? 0 : 0.07)
+    const first = i === 0,
+      last = i === count - 1
+    parts.push(
+      part(
+        pane(x1 - x0 + 0.04, top - bottom + 0.04, r, { tl: first, bl: first, tr: last, br: last }),
+        glass,
+        [(x0 + x1) / 2, center, GLAZING_Z + 0.02],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+  }
+  // Door bay: the leaf below a transom bar and fixed transom light.
+  const x0 = -span / 2 + door * width + 0.07,
+    x1 = x0 + width - 0.14
+  const doorHeight = Math.min(7.7, top - bottom - 0.5)
+  const transom = bottom + doorHeight
+  parts.push(part(box(x1 - x0, 0.14, 0.3), frame, [(x0 + x1) / 2, transom + 0.07, GLAZING_Z]))
+  parts.push(
     part(
-      slab('glass', w - 0.2, h - 0.2, r - 0.1, 0.02),
-      palette.glass(),
-      [0, center, z + 0.02],
+      box(x1 - x0 + 0.04, top - transom - 0.1, 0.025),
+      glass,
+      [(x0 + x1) / 2, (top + transom + 0.14) / 2, GLAZING_Z + 0.02],
       undefined,
       undefined,
       false,
     ),
-  ]
-  const span = w - 0.32
-  for (let i = 1; i < panes; i++) {
-    const x = -span / 2 + (i * span) / panes
-    parts.push(part(box(0.11, h - 0.3, 0.2), frame, [x, center, z]))
-  }
-  // Door leaf in the central bay: heavier stiles, rails, and pull handles inside and out.
-  const doorW = span / panes
-  parts.push(part(box(doorW, 0.12, 0.2), frame, [0, FLOOR_Y + 0.06, z]))
-  parts.push(part(box(doorW, 0.1, 0.2), frame, [0, FLOOR_Y + 7.6, z]))
-  const steel = palette.brushed(false)
-  for (const side of [-1, 1]) {
-    const hz = z + side * 0.2
-    parts.push(part(cylinder(0.035, 0.035, 2.2, 20), steel, [doorW * 0.32, 4.6, hz]))
-    for (const y of [-0.85, 0.85])
-      parts.push(
-        part(
-          cylinder(0.022, 0.022, 0.2, 12),
-          steel,
-          [doorW * 0.32, 4.6 + y, z + side * 0.1],
-          [Math.PI / 2, 0, 0],
-        ),
-      )
-  }
+  )
+  const doorSpec = { x0, x1, bottom, height: doorHeight, z: GLAZING_Z, open: c.doorsOpen, frame }
+  parts.push(...(c.studioDoor === 'sliding' ? slidingDoor(doorSpec) : hingedDoor(doorSpec)))
   return parts
 }
 
 // --- Container ------------------------------------------------------------------------------
+
+/** Clear head of the glass overhead door, low enough for its raised sections to fit indoors. */
+const overheadHead = (H: number) =>
+  Math.min(H - 1.9, SILL + INFILL_Z - 0.2 - (CONTAINER_BACK + 0.12))
 
 /** A painted ISO shipping container: corrugated walls, rails, castings, and cargo doors. */
 export function containerShell(c: Config): Part[] {
@@ -357,19 +609,19 @@ export function containerShell(c: Config): Part[] {
     parts.push(part(box(0.24, 0.5, 8 - 1.06), paint, [sx * (L / 2 - 0.12), 0.25, 0]))
     parts.push(part(box(0.24, 0.42, 8 - 1.06), paint, [sx * (L / 2 - 0.12), H - 0.21, 0]))
   }
-  // Roof with shallow transverse pressings.
-  parts.push(part(box(L - 0.6, 0.06, 7.7), paint, [0, H - 0.1, 0]))
-  for (let x = -L / 2 + 0.9; x < L / 2 - 0.6; x += 1.15)
-    parts.push(
-      part(
-        roundedBox(0.5, 0.03, 7.2, 0.012, 1),
-        paint,
-        [x, H - 0.06, 0],
-        undefined,
-        undefined,
-        false,
-      ),
-    )
+  // Corrugated roof sheet, ribs running across the width, recessed between the top rails.
+  parts.push(
+    oriented(
+      corrugatedPanel(L - 0.8, 7.56, 0.92, 0.07),
+      paint,
+      [
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0],
+      ],
+      [-L / 2 + 0.4, H - 0.03, 3.78],
+    ),
+  )
   // Forklift pockets on 20-foot units.
   if (L === 20)
     for (const x of [-3.4, 3.4])
@@ -434,8 +686,38 @@ export function containerShell(c: Config): Part[] {
   for (const x of [left - 0.08, right + 0.08])
     parts.push(part(box(0.34, head - 0.5, 0.34), trim, [x, (head + 0.5) / 2, 3.83]))
   parts.push(part(box(right - left, 0.12, 0.42), trim, [opening.center, 0.56, 3.79]))
-  if (c.containerOpening === 'roll-up') parts.push(...rollUpDoor(opening.center, head, trim))
+  parts.push(...containerInfill(c, opening.center, right - left, head, trim))
   return parts
+}
+
+/** The chosen door or glazing inside the container opening. */
+function containerInfill(
+  c: Config,
+  center: number,
+  width: number,
+  head: number,
+  trim: ReturnType<typeof palette.shell>,
+): Part[] {
+  const H = productHeight(c)
+  const open = c.doorsOpen
+  if (c.containerOpening === 'roll-up')
+    return rollUpShutter({ center, head, sill: SILL, open, hood: trim })
+  const frame = frameMaterial(c)
+  if (c.openingInfill === 'glass-overhead') {
+    const doorHead = overheadHead(H)
+    return [
+      // Header panel above the lowered door head, flush with the frame.
+      part(box(width, head - doorHead - 0.08, 0.1), trim, [
+        center,
+        (head + doorHead) / 2 - 0.04,
+        3.9,
+      ]),
+      ...glassOverheadDoor({ center, width, sill: SILL, head: doorHead, z: INFILL_Z, open, frame }),
+    ]
+  }
+  if (c.openingInfill === 'awning')
+    return awningSashes({ center, width, sill: SILL, head: head - 0.1, z: 3.78, open, frame })
+  return []
 }
 
 /** Iconic container end: two leaves with horizontal pressings, four locking bars, cam keepers. */
@@ -503,75 +785,63 @@ function cargoDoors(
   return parts
 }
 
-function rollUpDoor(center: number, head: number, trim: ReturnType<typeof palette.shell>) {
-  const shutter = material({
-    set: 'painted_metal_shutter',
-    color: '#c9ccc6',
-    roughness: 0.9,
-    interior: true,
-  })
-  const aluminium = palette.anodized('#8a8f8c', true)
-  return [
-    part(roundedBox(10.5, 0.85, 0.95, 0.06, 2), trim, [center, head - 0.45, 3.4]),
-    part(box(10, 1.35, 0.06), shutter, [center, head - 1.45, 3.62], undefined, undefined, false),
-    part(box(10.05, 0.12, 0.14), aluminium, [center, head - 2.1, 3.62]),
-    part(box(0.18, head - 1.2, 0.22), aluminium, [center - 5.08, (head - 0.4) / 2, 3.66]),
-    part(box(0.18, head - 1.2, 0.22), aluminium, [center + 5.08, (head - 0.4) / 2, 3.66]),
-  ]
-}
-
-/** Insulated, finished container interior: lined walls, floor build-up, slatted ceiling. */
+/** Insulated, finished container interior: lined walls, floor build-up, and ceiling. */
 export function containerInterior(c: Config): Part[] {
   const L = c.length,
     H = productHeight(c)
-  const paint = palette.paint(c.finish === 'chalk' ? '#f4f1eb' : '#f1eee8')
+  const lined = liner(c),
+    uv = linerUV(c)
   const opening = openingGeometry(c)
   const left = opening.center - opening.width / 2,
     right = opening.center + opening.width / 2
   const ceiling = H - 0.72
-  const back = -3.62
+  const back = CONTAINER_BACK
   const front = 3.6
   const wallH = ceiling - 0.6
+  const head = H - 0.9
+  const header = c.openingInfill === 'glass-overhead' ? overheadHead(H) : head - 0.5
   const parts: Part[] = [
-    part(box(L - 0.9, wallH, 0.12), paint, [0, 0.6 + wallH / 2, back - 0.06]),
-    part(box(0.12, wallH, front - back), paint, [
+    part(box(L - 0.9, wallH, 0.12, uv), lined, [0, 0.6 + wallH / 2, back - 0.06]),
+    part(box(0.12, wallH, front - back, uv), lined, [
       -L / 2 + 0.5,
       0.6 + wallH / 2,
       (front + back) / 2,
     ]),
-    part(box(0.12, wallH, front - back), paint, [L / 2 - 0.5, 0.6 + wallH / 2, (front + back) / 2]),
-    part(box(L - 0.9, 0.12, front - back), paint, [0, ceiling + 0.06, (front + back) / 2]),
+    part(box(0.12, wallH, front - back, uv), lined, [
+      L / 2 - 0.5,
+      0.6 + wallH / 2,
+      (front + back) / 2,
+    ]),
+    part(box(L - 0.9, 0.12, front - back, uv), lined, [0, ceiling + 0.06, (front + back) / 2]),
   ]
   const frontPanel = (from: number, to: number) => {
     if (to - from > 0.1)
       parts.push(
-        part(box(to - from, wallH, 0.12), paint, [(from + to) / 2, 0.6 + wallH / 2, front + 0.06]),
+        part(box(to - from, wallH, 0.12, uv), lined, [
+          (from + to) / 2,
+          0.6 + wallH / 2,
+          front + 0.06,
+        ]),
       )
   }
   frontPanel(-L / 2 + 0.44, left - 0.25)
   frontPanel(right + 0.25, L / 2 - 0.44)
   parts.push(
-    part(box(right - left + 0.5, ceiling - (H - 0.9) + 0.6, 0.12), paint, [
+    part(box(right - left + 0.5, ceiling - header, 0.12, uv), lined, [
       opening.center,
-      (ceiling + H - 0.9) / 2 + 0.1,
+      (ceiling + header) / 2,
       front + 0.06,
     ]),
   )
   parts.push(...floor(c, L - 1.24, back, front, FLOOR_Y))
   parts.push(...skirting(L / 2 - 0.62, back, front, FLOOR_Y))
-  parts.push(...slatCeiling(L - 1.6, back, front - 0.2, ceiling - 0.38, ceiling))
-  parts.push(...services(c, back, ceiling - 0.38))
+  if (c.interiorStyle === 'slatted')
+    parts.push(...slatCeiling(L - 1.6, back, front - 0.2, ceiling - 0.38, ceiling))
+  if (c.interiorStyle === 'birch')
+    parts.push(...plyJoints(L - 1.2, 0.6, ceiling, back + 0.003, front, ceiling))
+  parts.push(...services(c, back, c.interiorStyle === 'slatted' ? ceiling - 0.38 : ceiling))
   return parts
 }
 
-/** Interior geometry the lights and probe need for either family. */
-export function interiorBounds(c: Config) {
-  const H = productHeight(c)
-  if (c.family === 'studio') {
-    const top = STUDIO.base + H - STUDIO.wall - 0.08
-    return { ceiling: top - 0.42, back: -3.74, front: 3.62, halfWidth: c.length / 2 - 0.62 }
-  }
-  return { ceiling: H - 1.1, back: -3.62, front: 3.6, halfWidth: c.length / 2 - 0.62 }
-}
-
+export { FLOOR_Y, STUDIO, interiorBounds }
 export type { V3 }

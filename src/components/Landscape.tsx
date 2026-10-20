@@ -1,39 +1,17 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import {
   BufferGeometry,
   Color,
-  IcosahedronGeometry,
-  InstancedMesh,
   Matrix4,
   MeshStandardMaterial,
-  type Material,
-  MeshStandardNodeMaterial,
   Object3D,
-  Quaternion,
-  Vector3,
+  PlaneGeometry,
 } from 'three/webgpu'
-import {
-  mix,
-  mx_fractal_noise_float,
-  mx_noise_float,
-  normalMap,
-  positionWorld,
-  texture,
-  uniform,
-  vec2,
-  vec3,
-} from 'three/tsl'
 import type { Config } from '../lib/config'
 import { noise } from '../lib/visuals'
-import {
-  box,
-  boxProjectUV,
-  custom,
-  cylinder,
-  mergeGeometries,
-  roundedBox,
-} from '../render/geometry'
-import { material, prefetchTextures, textureMaps, type TextureSet } from '../render/materials'
+import { box, cylinder, mergeGeometries, roundedBox } from '../render/geometry'
+import { groundMaterial } from '../render/ground'
+import { material, prefetchTextures, type TextureSet } from '../render/materials'
 import { palette } from '../render/palette'
 import { part, type Part } from '../render/parts'
 import type { Quality } from '../render/quality'
@@ -47,84 +25,54 @@ import {
   type Biome,
 } from '../render/vegetation'
 import { Parts } from './Parts'
+import { useInstances } from './useInstances'
+import { thinned } from '../render/instances'
+import { agaveGeometry, boulderGeometry, limbParts } from '../render/landscapeParts'
+import { GARDEN_WALL, HEDGE, sceneryLayout, type SceneryLayout } from '../render/scenery'
+import { Backyard, Campus, Residences } from './Surroundings'
 
-const DENSITY: Record<Quality, number> = { ultra: 1, high: 0.65, lite: 0.25 }
 /** Module-level so the lawn's grass material is not rebuilt on every Landscape render. */
 const LAWN_COLORS: [string, string] = ['#3d5126', '#93a258']
 
 // --- Ground -----------------------------------------------------------------------------
 
-/** Built once per scan and tint and kept, like the material library, so switching back is free. */
-const groundMaterials = new Map<string, Promise<MeshStandardNodeMaterial>>()
-function loadGround(set: TextureSet, size: number, tint: string) {
-  const key = `${set}|${size}|${tint}`
-  let pending = groundMaterials.get(key)
-  if (!pending) {
-    pending = textureMaps(set).then((maps) => {
-      if (!maps.albedo) throw new Error(`${set} has no albedo map`)
-      // Scan scale and tint are uniforms so both biomes share one compiled ground shader.
-      const p = positionWorld.xz
-      const uvA = p.div(uniform(size))
-      const uvB = p.div(uniform(size * 3.3)).add(vec2(0.37, 0.71))
-      const blend = mx_noise_float(vec3(p.mul(0.04), 0))
-        .mul(0.5)
-        .add(0.5)
-        .smoothstep(0.32, 0.68)
-      const macro = mx_fractal_noise_float(vec3(p.mul(0.011), 0.5), 3, 2, 0.5)
-        .mul(0.22)
-        .add(1)
-      const m = new MeshStandardNodeMaterial()
-      m.colorNode = mix(texture(maps.albedo, uvA).rgb, texture(maps.albedo, uvB).rgb, blend)
-        .mul(uniform(new Color(tint)))
-        .mul(macro)
-      m.roughnessNode = mix(texture(maps.arm, uvA).g, texture(maps.arm, uvB).g, blend)
-      m.normalNode = normalMap(texture(maps.normal, uvA), vec2(0.8, 0.8))
-      return m
-    })
-    // A failed scan keeps the untextured ground; a later request tries again.
-    pending.catch(() => groundMaterials.delete(key))
-    groundMaterials.set(key, pending)
-  }
-  return pending
-}
+const GROUND_SIZE = 700
 
 /**
- * Scanned ground with anti-tiling: two scales of the same scan are blended by low-frequency noise
- * and modulated by a macro brightness field, so a 600-foot plane never shows a repeat.
+ * Scanned ground with anti-tiling (render/ground.ts): two scales of the same scan are blended by
+ * low-frequency noise and modulated by a macro brightness field, so a 600-foot plane never shows
+ * a repeat.
  */
-function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
-  // The previous ground stays until the next one is ready, as before, but is never disposed while
-  // still drawn (which made three rebuild it).
-  const [groundMaterial, setGroundMaterial] = useState<MeshStandardNodeMaterial | null>(null)
-  useEffect(() => {
-    let active = true
-    loadGround(set, size, tint).then(
-      (m) => {
-        if (active) setGroundMaterial(m)
-      },
-      () => {},
-    )
-    return () => {
-      active = false
-    }
-  }, [set, size, tint])
-  const fallback = useMemo(() => new MeshStandardMaterial({ color: tint, roughness: 1 }), [tint])
-  useEffect(() => () => fallback.dispose(), [fallback])
+export function Ground({ set, size, tint }: { set: TextureSet; size: number; tint: string }) {
+  // Kept for the session, never disposed while drawn (which made three rebuild it).
+  const ground = useMemo(() => groundMaterial(set, size, tint), [set, size, tint])
+  const plane = useMemo(() => {
+    const g = new PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 1, 1)
+    // UVs in feet, like every library surface (the raster material maps by world position).
+    const uvs = g.getAttribute('uv')
+    for (let i = 0; i < uvs.count; i++)
+      uvs.setXY(i, uvs.getX(i) * GROUND_SIZE, uvs.getY(i) * GROUND_SIZE)
+    return g
+  }, [])
+  useEffect(() => () => plane.dispose(), [plane])
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, -0.14, 0]}
       receiveShadow
-      material={groundMaterial ?? fallback}
-    >
-      <planeGeometry args={[700, 700, 1, 1]} />
-    </mesh>
+      material={ground}
+      geometry={plane}
+    />
   )
 }
 
 // --- Hardscape ----------------------------------------------------------------------------
 
-function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
+/**
+ * The garden's paving, its wall and the potted tree's pot (where scenery.ts puts them), its steps,
+ * gravel beds and bollards.
+ */
+function hardscape(L: number, biome: Biome, lights: boolean, layout: SceneryLayout): Part[] {
   const desert = biome === 'desert'
   const paving = material({
     set: 'concrete_pavement',
@@ -149,10 +97,18 @@ function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
   })
   const parts: Part[] = [
     part(box(L + 3, 0.24, 23), paving, [0, -0.12, 3.5], undefined, undefined, false),
-    // Board-formed garden wall with a smooth precast coping.
-    part(box(L + 24, 3.8, 0.55), wall, [0, 1.8, -12]),
-    part(roundedBox(L + 24.2, 0.16, 0.8, 0.03, 1), smooth, [0, 3.76, -12]),
   ]
+  // Board-formed garden wall with a smooth precast coping.
+  const { coping } = GARDEN_WALL
+  for (const w of layout.walls)
+    parts.push(
+      part(box(w.length, GARDEN_WALL.height, GARDEN_WALL.thickness), wall, [0, GARDEN_WALL.y, w.z]),
+      part(roundedBox(w.length + coping.overhang, coping.height, coping.depth, 0.03, 1), smooth, [
+        0,
+        coping.y,
+        w.z,
+      ]),
+    )
   for (let i = 0; i < 7; i++)
     parts.push(
       part(
@@ -191,38 +147,27 @@ function hardscape(L: number, biome: Biome, lights: boolean): Part[] {
     }
   }
   // Tapered concrete planter for the potted tree.
-  parts.push(part(cylinder(0.75, 0.56, 1.8, 40), smooth, [-L / 2 - 0.8, 0.9, 11.5]))
-  parts.push(
-    part(
-      cylinder(0.68, 0.68, 0.05, 40),
-      material({ set: 'dry_ground_01', color: '#7a6a58', roughness: 1 }),
-      [-L / 2 - 0.8, 1.72, 11.5],
-      undefined,
-      undefined,
-      false,
-    ),
-  )
+  for (const pot of layout.pots) {
+    parts.push(
+      part(cylinder(pot.radius, 0.56, pot.height, 40), smooth, [pot.x, pot.height / 2, pot.z]),
+    )
+    parts.push(
+      part(
+        cylinder(0.68, 0.68, 0.05, 40),
+        material({ set: 'dry_ground_01', color: '#7a6a58', roughness: 1 }),
+        [pot.x, 1.72, pot.z],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+  }
   return parts
 }
 
 // --- Trees --------------------------------------------------------------------------------
 
-const _up = new Vector3(0, 1, 0)
-function limbParts(shape: ReturnType<typeof treeShape>, bark: Material): Part[] {
-  return shape.limbs.map(({ from, to, r0, r1 }, i) => {
-    const direction = to.clone().sub(from)
-    const length = direction.length()
-    const geometry = cylinder(r1, r0, length, i < 2 ? 18 : 10)
-    const matrix = new Matrix4().compose(
-      from.clone().add(to).multiplyScalar(0.5),
-      new Quaternion().setFromUnitVectors(_up, direction.normalize()),
-      new Vector3(1, 1, 1),
-    )
-    return { geometry, material: bark, matrix, shadow: true }
-  })
-}
-
-const Tree = memo(function Tree({
+export const Tree = memo(function Tree({
   position,
   scale,
   seed,
@@ -235,7 +180,7 @@ const Tree = memo(function Tree({
   biome: Biome
   quality: Quality
 }) {
-  const count = Math.round((biome === 'desert' ? 1700 : 1500) * DENSITY[quality]) + 300
+  const { count, drawn } = thinned(biome === 'desert' ? 1700 : 1500, quality, 300)
   const shape = useMemo(() => treeShape(seed, biome, count), [seed, biome, count])
   const limbs = useMemo(
     () =>
@@ -252,16 +197,7 @@ const Tree = memo(function Tree({
   const card = useMemo(leafCard, [])
   const leaves = useMemo(() => leafMaterial(biome, shape.crownHeight), [biome, shape.crownHeight])
   useEffect(() => () => card.dispose(), [card])
-  const mesh = useRef<InstancedMesh>(null)
-  // Also re-runs when new constructor args make R3F build a new InstancedMesh, whose instances
-  // would otherwise all sit at the origin.
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    shape.leaves.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [shape, card, leaves])
+  const mesh = useInstances(shape.leaves, drawn, card, leaves)
   return (
     <group position={position} scale={scale}>
       <Parts parts={limbs} />
@@ -276,12 +212,18 @@ const Tree = memo(function Tree({
 })
 
 /** A clipped hedge: leaf cards scattered over the faces of a box in front of the garden wall. */
-const Hedge = memo(function Hedge({ length, quality }: { length: number; quality: Quality }) {
-  const height = 3.3,
-    depth = 1.5
-  const count = Math.round(4200 * DENSITY[quality]) + 500
+export const Hedge = memo(function Hedge({
+  length,
+  quality,
+  z = -10.75,
+}: {
+  length: number
+  quality: Quality
+  z?: number
+}) {
+  const { count, drawn } = thinned(4200, quality, 500)
   const card = useMemo(leafCard, [])
-  const leaves = useMemo(() => leafMaterial('courtyard', height / 2, true), [])
+  const leaves = useMemo(() => leafMaterial('courtyard', HEDGE.height / 2, true), [])
   useEffect(() => () => card.dispose(), [card])
   const matrices = useMemo(() => {
     const object = new Object3D()
@@ -290,10 +232,10 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
       const face = noise(i, 51)
       const x = (noise(i, 52) - 0.5) * length
       const jitter = (noise(i, 53) - 0.5) * 0.35
-      if (face < 0.62) object.position.set(x, noise(i, 54) * height, depth / 2 + jitter)
+      if (face < 0.62) object.position.set(x, noise(i, 54) * HEDGE.height, HEDGE.depth / 2 + jitter)
       else if (face < 0.9)
-        object.position.set(x, height + jitter * 0.6, (noise(i, 54) - 0.5) * depth)
-      else object.position.set(x, noise(i, 54) * height, -depth / 2 + jitter)
+        object.position.set(x, HEDGE.height + jitter * 0.6, (noise(i, 54) - 0.5) * HEDGE.depth)
+      else object.position.set(x, noise(i, 54) * HEDGE.height, -HEDGE.depth / 2 + jitter)
       object.rotation.set(
         noise(i, 55) * Math.PI,
         noise(i, 56) * Math.PI * 2,
@@ -305,27 +247,19 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
     }
     return list
   }, [count, length])
-  const mesh = useRef<InstancedMesh>(null)
-  // Also re-runs when R3F builds a new InstancedMesh for new constructor args.
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices, card, leaves])
+  const mesh = useInstances(matrices, drawn, card, leaves)
   const core = useMemo(
     () => [
       part(
-        box(length - 0.4, height - 0.3, depth - 0.5),
+        box(length - 0.4, HEDGE.height - 0.3, HEDGE.depth - 0.5),
         material({ color: '#2b3a1e', roughness: 1 }),
-        [0, (height - 0.3) / 2, 0],
+        [0, (HEDGE.height - 0.3) / 2, 0],
       ),
     ],
     [length],
   )
   return (
-    <group position={[0, 0, -10.75]}>
+    <group position={[0, 0, z]}>
       <Parts parts={core} />
       <instancedMesh
         ref={mesh}
@@ -341,8 +275,9 @@ const Hedge = memo(function Hedge({ length, quality }: { length: number; quality
 // --- Grasses, agaves, boulders -----------------------------------------------------------
 
 /** Instanced clumps of grass blades scattered by a placement function. */
-function Tufts({
+export function Tufts({
   count,
+  drawn = count,
   blades,
   height,
   bend,
@@ -351,7 +286,9 @@ function Tufts({
   colors,
   shadow,
 }: {
+  /** Tufts placed (at full density), and how many the raster draws (instances.ts). */
   count: number
+  drawn?: number
   blades: number
   height: number
   bend: number
@@ -372,7 +309,8 @@ function Tufts({
     merged.computeVertexNormals()
     return merged
   }, [blades, height, bend])
-  const grass = useMemo(() => grassMaterial(colors[0], colors[1]), [colors])
+  const [base, tip] = colors
+  const grass = useMemo(() => grassMaterial(base, tip), [base, tip])
   // Grass materials are shared for the session; only the geometry belongs to this clump.
   useEffect(() => () => geometry.dispose(), [geometry])
   const matrices = useMemo(() => {
@@ -389,16 +327,7 @@ function Tufts({
     }
     return list
   }, [count, place, variant])
-  const mesh = useRef<InstancedMesh>(null)
-  // Also re-runs when R3F builds a new InstancedMesh for new constructor args.
-  useLayoutEffect(() => {
-    const m = mesh.current
-    if (!m) return
-    matrices.forEach((matrix, i) => m.setMatrixAt(i, matrix))
-    m.count = matrices.length
-    m.instanceMatrix.needsUpdate = true
-    m.computeBoundingSphere()
-  }, [matrices, geometry, grass, count])
+  const mesh = useInstances(matrices, drawn, geometry, grass)
   return (
     <instancedMesh
       ref={mesh}
@@ -408,41 +337,6 @@ function Tufts({
       userData={{ noProbe: true }}
     />
   )
-}
-
-function agaveGeometry() {
-  return custom('agave', () => {
-    const leaves: BufferGeometry[] = []
-    for (let i = 0; i < 18; i++) {
-      const g = grassBlade(1.1 + noise(i, 31) * 0.5, 0.75, 0.13)
-      g.rotateX(-0.25 - noise(i, 32) * 0.45)
-      g.rotateY((i / 18) * Math.PI * 2 * 1.618)
-      leaves.push(g.toNonIndexed())
-    }
-    const merged = mergeGeometries(leaves)
-    merged.computeVertexNormals()
-    return boxProjectUV(merged)
-  })
-}
-
-function boulderGeometry(seed: number) {
-  return custom(`boulder:${seed}`, () => {
-    const g = new IcosahedronGeometry(1, 3)
-    const p = g.getAttribute('position')
-    const v = new Vector3()
-    for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i)
-      const n =
-        Math.sin(v.x * 3.1 + seed) * 0.08 +
-        Math.sin(v.y * 4.7 + seed * 2) * 0.06 +
-        Math.sin(v.z * 5.3 + seed * 3) * 0.05
-      v.multiplyScalar(1 + n)
-      v.y = Math.max(v.y, -0.35) * 0.62
-      p.setXYZ(i, v.x, v.y, v.z)
-    }
-    g.computeVertexNormals()
-    return boxProjectUV(g)
-  })
 }
 
 function desertAccents(L: number): Part[] {
@@ -494,15 +388,26 @@ function StudioFloor() {
 // --- Assembly -----------------------------------------------------------------------------
 
 export function Landscape({ config: c, quality }: { config: Config; quality: Quality }) {
+  if (c.environment === 'residences') return <Residences config={c} quality={quality} />
+  if (c.environment === 'campus') return <Campus config={c} quality={quality} />
+  if (c.environment === 'backyard') return <Backyard config={c} quality={quality} />
+  return <Garden config={c} quality={quality} />
+}
+
+/**
+ * The original garden courtyard and desert retreat settings. Where the wall, the hedge, the trees
+ * and the potted tree stand is scenery.ts's layout, which the gallery's cameras keep clear of.
+ */
+function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   const L = c.length
   const biome: Biome = c.environment === 'desert' ? 'desert' : 'courtyard'
   const studio = c.environment === 'studio'
-  const density = DENSITY[quality]
+  const layout = useMemo(() => sceneryLayout(c.environment, L), [c.environment, L])
   const groundSet: TextureSet = biome === 'desert' ? 'dry_ground_01' : 'leafy_grass'
   // The ground is the largest surface on screen: ask for its scan before the hardscape and the
   // studio queue theirs (Ground itself only asks after it mounts). Requests are deduplicated.
   if (!studio) prefetchTextures(groundSet)
-  const hard = useMemo(() => hardscape(L, biome, c.lights), [L, biome, c.lights])
+  const hard = useMemo(() => hardscape(L, biome, c.lights, layout), [L, biome, c.lights, layout])
   const accents = useMemo(() => (biome === 'desert' ? desertAccents(L) : []), [L, biome])
   const palettes = grassPalette(biome)
   const bedPlace = useMemo(
@@ -538,7 +443,7 @@ export function Landscape({ config: c, quality }: { config: Config; quality: Qua
       {palettes.map((colors, k) => (
         <Tufts
           key={`bed-${k}`}
-          count={Math.round((biome === 'desert' ? 120 : 260) * density) + 30}
+          {...thinned(biome === 'desert' ? 120 : 260, quality, 30)}
           blades={biome === 'desert' ? 9 : 14}
           height={biome === 'desert' ? 1.1 : 1.8}
           bend={0.55}
@@ -548,10 +453,12 @@ export function Landscape({ config: c, quality }: { config: Config; quality: Qua
           shadow={quality !== 'lite'}
         />
       ))}
-      {biome === 'courtyard' && <Hedge length={L + 20} quality={quality} />}
+      {layout.hedges.map((h) => (
+        <Hedge key={h.z} length={h.length} quality={quality} z={h.z} />
+      ))}
       {biome === 'courtyard' && (
         <Tufts
-          count={Math.round(5200 * density)}
+          {...thinned(5200, quality)}
           blades={9}
           height={0.42}
           bend={0.12}
@@ -560,31 +467,16 @@ export function Landscape({ config: c, quality }: { config: Config; quality: Qua
           shadow={false}
         />
       )}
-      {[-1, 1].map((side) => (
-        <group key={side}>
-          <Tree
-            position={[side * (L / 2 + 6), 0, -8]}
-            scale={1.55}
-            seed={side > 0 ? 1 : 2}
-            biome={biome}
-            quality={quality}
-          />
-          <Tree
-            position={[side * (L / 2 + 14), 0, -19]}
-            scale={2.0}
-            seed={side > 0 ? 3 : 4}
-            biome={biome}
-            quality={quality}
-          />
-        </group>
+      {layout.trees.map((t) => (
+        <Tree
+          key={t.seed}
+          position={[t.x, t.base, t.z]}
+          scale={t.scale}
+          seed={t.seed}
+          biome={t.biome}
+          quality={quality}
+        />
       ))}
-      <Tree
-        position={[-L / 2 - 0.8, 1.75, 11.5]}
-        scale={0.5}
-        seed={5}
-        biome={biome}
-        quality={quality}
-      />
     </group>
   )
 }

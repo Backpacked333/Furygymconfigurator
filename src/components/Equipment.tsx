@@ -17,7 +17,11 @@ function equipmentBatches(sku: PlacedItem['sku']) {
 
 export function Equipment({ item }: { item: PlacedItem }) {
   return (
-    <group position={[item.x, FLOOR_Y, item.z]} rotation={[0, (-item.rotation * Math.PI) / 180, 0]}>
+    <group
+      position={[item.x, FLOOR_Y, item.z]}
+      rotation={[0, (-item.rotation * Math.PI) / 180, 0]}
+      userData={{ interior: true }}
+    >
       {equipmentBatches(item.sku).map((b) => (
         <mesh
           key={b.material.uuid + b.shadow}
@@ -48,6 +52,7 @@ export function SaunaLights({ items }: { items: PlacedItem[] }) {
         key={slot}
         position={sauna ? [sauna.x, FLOOR_Y, sauna.z] : [0, FLOOR_Y, 0]}
         rotation={[0, sauna ? (-sauna.rotation * Math.PI) / 180 : 0, 0]}
+        userData={{ interior: true }}
       >
         <pointLight
           position={[0, 5.2, -0.4]}

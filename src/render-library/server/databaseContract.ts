@@ -1,0 +1,231 @@
+import { DATABASE_TABLES } from './ports'
+
+/** Migration acceptance fixture. JSON columns are validated against the shared Zod contracts. */
+export const DATABASE_CONTRACT = {
+  version: 1,
+  schema: 'public',
+  roles: { read: ['service_role'], mutate: ['service_role'], denied: ['anon', 'authenticated'] },
+  tables: {
+    [DATABASE_TABLES.recipes]: {
+      columns: {
+        release_id: 'text primary key',
+        registration: 'jsonb not null',
+        created_at: 'timestamptz not null',
+      },
+      invariants: [
+        'Registration is immutable; same release cannot point to changed source/build hashes.',
+      ],
+    },
+    [DATABASE_TABLES.approvals]: {
+      columns: {
+        id: 'uuid primary key',
+        enabled: 'boolean not null default false',
+        expires_at: 'timestamptz not null',
+        budget_micro_usd: 'bigint not null',
+        reserved_micro_usd: 'bigint not null default 0',
+        charged_micro_usd: 'bigint not null default 0',
+        policy: 'jsonb not null',
+        dispatcher_halted: 'boolean not null default false',
+        active_worker_build_sha256:
+          'text references render_library_worker_builds(worker_build_sha256)',
+      },
+      invariants: [
+        'One shared global ledger, locked by admission transaction.',
+        'Nonnegative integer currency; reserved + charged <= budget.',
+        'No default budget, activation or reconciliation of prior experiments.',
+        'App shutdown is fenced against CPU cycle starts; another live lane must finish first.',
+        'Changing the active execution build never rewrites the customer policy recipe or image keys.',
+      ],
+    },
+    [DATABASE_TABLES.workerBuilds]: {
+      columns: {
+        worker_build_sha256: 'text primary key',
+        release_id: 'text not null references render_library_recipes(release_id)',
+        revision: 'text not null unique',
+        registration: 'jsonb not null',
+        max_active_jobs_per_session: 'smallint not null',
+        parent_worker_build_sha256: 'text',
+        compatibility_evidence: 'jsonb not null',
+        created_at: 'timestamptz not null',
+      },
+      invariants: [
+        'Execution registrations are immutable, append-only and service-role-only.',
+        'A compatibility parent must belong to the same immutable image release.',
+        'Original builds allow one active job per session; the queue build allows two.',
+        'Claims and receipts bind to their own build, not whichever build is now active.',
+      ],
+    },
+    [DATABASE_TABLES.sets]: {
+      columns: {
+        set_key: 'text primary key',
+        design: 'jsonb not null',
+        identity: 'jsonb not null',
+        release_id: 'text not null references render_library_recipes(release_id)',
+      },
+      invariants: [
+        'Stored design is server-parsed; identity is server-computed.',
+        'Unique set ignores only camera.',
+      ],
+    },
+    [DATABASE_TABLES.images]: {
+      columns: {
+        image_key: 'text primary key',
+        set_key: 'text not null references render_library_sets(set_key)',
+        camera_ref: 'text not null',
+        descriptor: 'jsonb not null',
+        receipt: 'jsonb not null',
+        created_at: 'timestamptz not null',
+      },
+      unique: ['set_key,camera_ref'],
+      invariants: [
+        'Only verified, immutable images enter this table; no pending rows.',
+        'Seed provenance is retained, not rewritten as native-worker evidence.',
+      ],
+    },
+    [DATABASE_TABLES.jobs]: {
+      columns: {
+        id: 'uuid primary key',
+        set_key: 'text not null references render_library_sets(set_key)',
+        session_hash: 'text not null',
+        stage: 'text not null',
+        priority_camera: 'text not null',
+        attempt_id: 'uuid',
+        fence: 'bigint not null default 0',
+        retry_safe: 'boolean not null default false',
+        error: 'jsonb',
+        deadline_at: 'timestamptz',
+        created_at: 'timestamptz not null',
+        updated_at: 'timestamptz not null',
+      },
+      unique: [
+        "set_key WHERE stage IN ('queued','preparing','rendering','saving','verifying','dispatch-uncertain')",
+      ],
+      invariants: [
+        'Uncertain dispatch remains active and blocks duplicate work until reconciled.',
+        'A UI edit or disconnected browser cannot cancel the job.',
+      ],
+    },
+    [DATABASE_TABLES.jobImages]: {
+      columns: {
+        job_id: 'uuid not null references render_library_jobs(id)',
+        image_key: 'text not null',
+        camera_ref: 'text not null',
+        status: 'text not null',
+        retry_safe: 'boolean not null default false',
+        error: 'jsonb',
+      },
+      primaryKey: ['job_id', 'image_key'],
+      invariants: [
+        'Unique active ownership of each missing image across jobs.',
+        'Cached images are excluded from reservation and worker claim.',
+        'Complete views remain usable after another view fails.',
+      ],
+    },
+    [DATABASE_TABLES.reservations]: {
+      columns: {
+        id: 'uuid primary key',
+        approval_id: 'uuid not null references render_library_approvals(id)',
+        job_id: 'uuid not null references render_library_jobs(id)',
+        amount_micro_usd: 'bigint not null',
+        status: 'text not null',
+        termination_evidence: 'jsonb',
+        charged_micro_usd: 'bigint',
+      },
+      unique: ['job_id'],
+      invariants: [
+        'Reserve startup + missing image worst case before creating an outbox row.',
+        'Unknown provider state retains full liability; a local timeout is not termination evidence.',
+        'Retry creates a new job/reservation only for safely failed missing images.',
+      ],
+    },
+    [DATABASE_TABLES.outbox]: {
+      columns: {
+        dispatch_id: 'uuid primary key',
+        job_id: 'uuid not null references render_library_jobs(id)',
+        state: 'text not null',
+        claim_token: 'uuid',
+        provider_call_id: 'text',
+        result: 'jsonb',
+        claimed_at: 'timestamptz',
+        worker_claimed_at: 'timestamptz',
+        lane: "text not null default 'foreground'",
+      },
+      unique: ['job_id'],
+      invariants: [
+        'pending -> dispatching is a one-time atomic transition BEFORE network send.',
+        'Never lease-expire/re-send dispatching or uncertain messages.',
+        'Worker claim is atomic at most once even if the provider delivers a duplicate.',
+        'Crash between claim and spawn requires reconciliation, not automatic retry.',
+        'Claimed unsettled jobs occupy at most one slot per lane and two globally; pending jobs do not occupy GPU slots.',
+      ],
+    },
+    [DATABASE_TABLES.events]: {
+      columns: {
+        event_id: 'uuid primary key',
+        job_id: 'uuid not null references render_library_jobs(id)',
+        attempt_id: 'uuid not null',
+        fence: 'bigint not null',
+        sequence: 'bigint not null',
+        payload: 'jsonb not null',
+        created_at: 'timestamptz not null',
+      },
+      unique: ['attempt_id,sequence'],
+      invariants: [
+        'Reject stale fence/attempt and out-of-order events.',
+        'Duplicate event IDs are idempotent only with identical payload.',
+        'Artifact event alone never marks ready; publish requires independent byte validation.',
+      ],
+    },
+    [DATABASE_TABLES.sessions]: {
+      columns: {
+        session_hash: 'text primary key',
+        network_hash: 'text not null',
+        expires_at: 'timestamptz not null',
+        window_start: 'timestamptz not null',
+        admitted_count: 'integer not null default 0',
+        foreground_job_id: 'uuid references render_library_jobs(id)',
+        foreground_requested_at: 'timestamptz',
+      },
+      invariants: [
+        'Server-issued signed HttpOnly Secure SameSite session cookie.',
+        'Global, session and network rate checks share the admission transaction; GPU capacity is checked at dispatch.',
+        'The latest explicit request is foreground; a later request never cancels older work.',
+        'Request Origin plus CSRF required for create/retry; cross-site cookie minting denied.',
+      ],
+    },
+    [DATABASE_TABLES.idempotency]: {
+      columns: {
+        session_hash: 'text not null',
+        idempotency_key: 'uuid not null',
+        request_digest: 'text not null',
+        job_id: 'uuid not null references render_library_jobs(id)',
+      },
+      primaryKey: ['session_hash', 'idempotency_key'],
+      invariants: ['Replayed key returns existing result; changed request digest conflicts.'],
+    },
+  },
+  storage: {
+    bucket: 'render-library',
+    overwrite: false,
+    objectKey: '{setKey}/{imageKey}/{sha256}.webp',
+    publicWrite: false,
+    staging: {
+      bucket: 'render-library-staging',
+      private: true,
+      objectKey: '{jobId}/{attemptId}/{imageKey}/{sha256}.webp',
+      overwrite: false,
+    },
+  },
+  rpcNames: [
+    'render_library_reserve_set',
+    'render_library_retry_failed',
+    'render_library_claim_dispatch',
+    'render_library_record_dispatch',
+    'render_library_claim_worker',
+    'render_library_record_event',
+    'render_library_publish_asset',
+    'render_library_reconcile_terminal',
+  ],
+  rpcSecurity:
+    'REVOKE ALL FROM PUBLIC, anon, authenticated; GRANT EXECUTE TO service_role only. SECURITY DEFINER functions pin search_path and validate all arguments. Enable RLS on every table; public access is through validated HTTP only.',
+} as const

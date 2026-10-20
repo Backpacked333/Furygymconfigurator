@@ -50,6 +50,22 @@ describe('scans decoded off the main thread', () => {
     expect((albedo.image as FakeBitmap).width).toBe(4)
     expect(albedo.version).toBe(version + 1)
   })
+
+  it('keep the decoded pixels while a local path tracer reads them', async () => {
+    const { keepDecodedTextures, textureMaps } = await import('./materials')
+    const albedo = (await textureMaps('teak_veneer')).albedo as Texture
+    // Released before the tracer loaded: decoded again, and kept through later uploads, since the
+    // tracer packs its own texture array from these pixels (a released map traces black).
+    albedo.onUpdate!(albedo)
+    await keepDecodedTextures(true)
+    expect((albedo.image as FakeBitmap).width).toBe(4)
+    albedo.onUpdate!(albedo)
+    expect((albedo.image as FakeBitmap).width).toBe(4)
+    // Without a tracer the pixels are freed after upload again.
+    await keepDecodedTextures(false)
+    albedo.onUpdate!(albedo)
+    expect((albedo.image as FakeBitmap).width).toBe(0)
+  })
 })
 
 describe('a scan set that fails', () => {
@@ -75,10 +91,23 @@ describe('a scan set that fails', () => {
     fetchScan.mockClear()
     vi.stubGlobal('createImageBitmap', decode)
     vi.stubGlobal('fetch', fetchScan)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('counts the maps that never arrive as loaded, so nothing waits on the progress', async () => {
+    const { prefetchTextures } = await import('./materials')
+    const { textureProgress } = await import('./progress')
+    prefetchTextures('teak_veneer')
+    expect(textureProgress.get()).toEqual({ requested: 3, loaded: 0 })
+    // Two retries (1 s, then 2 s) and the normal map is given up on, for now.
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(textureProgress.get()).toEqual({ requested: 3, loaded: 3 })
+    expect(console.warn).toHaveBeenCalledTimes(1)
   })
 
   it('frees the maps that did arrive, pauses, and textures waiting surfaces once it recovers', async () => {
