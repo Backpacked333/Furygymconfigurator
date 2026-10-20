@@ -79,6 +79,29 @@ it('watches the camera leave the saved image’s own pose beside the progressive
   expect(seen.watch).toMatchObject({ active: false, onLeave: undefined })
 })
 
+describe('fetching the tracer as the module loads, on intent', () => {
+  afterEach(() => {
+    vi.doUnmock('../render/pathtrace')
+    vi.resetModules()
+  })
+  const load = async (gpu: boolean) => {
+    vi.resetModules()
+    const loadTracerModule = vi.fn(() => Promise.resolve())
+    vi.doMock('../render/pathtrace', () => ({ loadTracerModule }))
+    if (gpu) vi.stubGlobal('navigator', { ...navigator, gpu: {} })
+    await import('./LiveDesignScene')
+    return loadTracerModule
+  }
+
+  it('starts on browsers with WebGPU, so a resting view can refine as soon as it is open', async () => {
+    expect(await load(true)).toHaveBeenCalledOnce()
+  })
+
+  it('leaves it alone where only WebGL runs, which never traces', async () => {
+    expect(await load(false)).not.toHaveBeenCalled()
+  })
+})
+
 describe('who shares part geometry across edits', () => {
   const show = (element: ReactElement) => {
     act(() => root.render(element))

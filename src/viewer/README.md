@@ -1,8 +1,11 @@
 # Local progressive 360° viewer
 
-The native gallery (`?experience=library`) stays image-first. Its explicit 360° action lazily
-loads `prototype/LiveDesignScene.tsx`; ordinary gallery browsing does not start Three.js or
-load the tracer. The diagnostic image routes retain their existing restrictions.
+The native gallery (`?experience=library`) stays image-first. The 360° view loads on intent:
+pointing at, focusing or touching its button (`prototype/liveIntent.ts`) starts loading
+`prototype/LiveDesignScene.tsx`, which fetches the tracer and denoiser where WebGPU exists, and
+`prototype/liveWarmup.ts` starts downloading the shown design's scans (encoded only, at low
+priority, never under `saveData`). Gallery browsing without that intent starts no Three.js and
+loads no tracer. The diagnostic image routes retain their existing restrictions.
 
 ## Boundaries
 
@@ -18,6 +21,10 @@ load the tracer. The diagnostic image routes retain their existing restrictions.
   devices refine stationary views with the existing path tracer and denoiser. WebGL remains raster-only.
 - `viewer/presentation.ts`: retains the raster frame and crossfades current traced images using
   the existing bloom, tone mapping and exposure treatment.
+- `viewer/EntryWatch.tsx` and `viewer/entryPose.ts`: the view opens on the gallery's own Cycles
+  image (its camera is the image's, `resolveNativeCamera`), drawn over the canvas until the camera
+  leaves that pose by more than 0.5 px; the canvas then dissolves in over 300 ms (ADR-004). The
+  curtain itself lives in `ImageConfigurator.tsx` and `LiveViewport.tsx`.
 - `viewer/arc.ts` and `viewer/orbitWindow.ts`: the experimental `?arc=N` exterior orbit window
   (ADR-003). The library adapter computes it from the design's exterior customer cameras; the
   shared camera rig only applies it. The legacy route never passes one, so its orbit stays free.
@@ -46,7 +53,9 @@ sampler may retire settled tiles earlier. Its sample count is not a measure of n
   target can come from history, with fresh samples required for the remainder.
 - An edit of surfaces alone (a finish, a floor, scans arriving) keeps the retained views. The part
   lists keep their meshes and merged geometry (`render/geometryReuse.ts`), so the tracer updates
-  materials in place instead of rebuilding its BVH. A view traced with other surfaces seeds at most
+  materials in place instead of rebuilding its BVH, unless the update packs more textures than
+  its kernels were compiled for (a new floor while the old one's scans stay in use elsewhere): then
+  the scene is captured again, keeping each geometry's BVH. A view traced with other surfaces seeds at most
   16 samples (`RESTYLED_SAMPLES`) and ranks behind views of the current surfaces. Any other change
   of the scene (shapes, placement, lights, sky, emitters, glass) clears the history. The legacy
   stills and exports keep clearing it on any change. This does **not** implement world-space

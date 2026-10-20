@@ -29,8 +29,9 @@ export function createProgressivePresentation(renderer: WebGPURenderer) {
   none.format = RGBAFormat
   none.generateMipmaps = false
   // Bilinear by hand: the traced images are float storage textures, which need not be filterable.
-  // A trace at the canvas's own size samples each texel exactly; a reduced-scale trace (Lite's
-  // live profile) is filtered up instead of shown as blocks.
+  // A trace at the canvas's own size samples each texel exactly; a reduced-scale trace (Lite at
+  // half; High and Ultra past the Cycles image's pixels or under ?traceScale: liveProfile.ts
+  // traceScale) is filtered up instead of shown as blocks.
   const at = screenUV.mul(size).sub(0.5)
   const base = at.floor()
   const f = at.sub(base)

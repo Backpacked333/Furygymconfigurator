@@ -8,7 +8,7 @@ import { DEFAULT_CONFIG, FINISHES, FLOORS, type Config } from '../lib/config'
 import { box, cylinder } from '../render/geometry'
 import { GeometryReuse } from '../render/geometryReuse'
 import { part, type Part } from '../render/parts'
-import { sceneParts } from '../render/pathtrace'
+import { historySignature, sceneParts } from '../render/pathtrace'
 import { Parts } from './Parts'
 import { StudioModel } from './StudioModel'
 
@@ -205,7 +205,8 @@ describe('the unit through finish and floor edits, where geometry is reused', ()
     scene().updateMatrixWorld(true)
     const ids: number[] = []
     scene().traverse((object) => ids.push(object.id))
-    return { parts: sceneParts(scene()), ids }
+    // The live view's sample history is kept across an edit whose history key stays the same.
+    return { parts: sceneParts(scene()), ids, history: historySignature(scene(), 'look') }
   }
 
   it('swaps materials on the meshes it has: the tracer sees no new structure', async () => {
@@ -236,12 +237,15 @@ describe('the unit through finish and floor edits, where geometry is reused', ()
       expect(after.parts.transforms).toBe(before.parts.transforms)
       expect(after.parts.lights).toBe(before.parts.lights)
       expect(after.parts.materials, JSON.stringify(edit)).not.toBe(before.parts.materials)
+      expect(after.history, JSON.stringify(edit)).toBe(before.history)
       before = after
     }
     expect(disposed().every((count) => count === 0)).toBe(true)
     // An edit that reshapes the room still reads as a new structure.
     await render(unit({ ...config, interiorStyle: 'slatted' }))
-    expect(snapshot().parts.structure).not.toBe(before.parts.structure)
+    const reshaped = snapshot()
+    expect(reshaped.parts.structure).not.toBe(before.parts.structure)
+    expect(reshaped.history).not.toBe(before.history)
     await unmount()
     await nextTask()
     await nextTask()
