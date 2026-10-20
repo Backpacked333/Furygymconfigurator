@@ -62,6 +62,35 @@ import { historyCapacity, historyDistance, type HistoryPose } from './historyCac
 
 /** At most this share of a pixel's target samples may come from an earlier view. */
 export const HISTORY_SHARE = 0.75
+/**
+ * At most this many samples a pixel inherits from a view traced with other surfaces (a finish, a
+ * floor, scans arriving). Its light is right for the geometry but wrong in what bounced off the
+ * changed surfaces, which nothing in the reprojection corrects. The adaptive sampler retires a
+ * region once two successive images barely differ, and a large seed barely moves, so a share of
+ * the target would leave much of that error in the settled image; a few samples, no more than the
+ * sampler waits for before comparing (adaptive.ts MIN_SETTLE_SAMPLES), converge away.
+ */
+export const RESTYLED_SAMPLES = 16
+/**
+ * What a stored view was traced of. `scene` is what decides where light goes: the shapes, where
+ * they are, the lights, the sky, the emitters and the glass; a view of another scene is never
+ * reused. `surfaces` is everything else the tracer captured too (finishes, and the scans they
+ * have): a view of the same scene with other surfaces is reused, but only for RESTYLED_SAMPLES.
+ */
+export type HistoryKeys = { scene: number; surfaces: number }
+
+/** The most samples a pixel may inherit, for a view of the same surfaces or of other ones. */
+export function historyCap(target: number, sameSurfaces: boolean) {
+  const share = Math.floor(target * HISTORY_SHARE)
+  return sameSurfaces ? share : Math.min(share, RESTYLED_SAMPLES, Math.floor(target / 16))
+}
+
+/**
+ * How much further than it is a stored view of other surfaces ranks, in pose distance
+ * (historyCache.ts): about a 41° turn, so a view of the design on screen wins over a slightly
+ * nearer one of what it was before an edit.
+ */
+export const RESTYLED_PENALTY = 0.5
 /** Below this roughness a surface's reflection moves with the eye and is not reused. */
 const GLOSSY = 0.2
 /** Above this roughness a dielectric reflects so diffusely that it is reused in full. */
@@ -235,6 +264,7 @@ class ReprojectKernel extends ComputeKernel {
   declare previousPixelAngle: number
   declare currentPixelAngle: number
   declare cap: number
+  declare restyled: number
 
   constructor() {
     const params = {
@@ -260,6 +290,7 @@ class ReprojectKernel extends ComputeKernel {
       previousPixelAngle: uniform(0),
       currentPixelAngle: uniform(0),
       cap: uniform(0, 'uint'),
+      restyled: uniform(0, 'uint'),
     }
 
     // Pixel (x, y) of the tracer counts rows bottom up (its camera rays map y to NDC -1..1), while
@@ -268,6 +299,10 @@ class ReprojectKernel extends ComputeKernel {
     // What is carried over is the light arriving at the surface (color over albedo, softened so
     // near-black albedo cannot blow it up), re-multiplied by the new view's own albedo: texture
     // detail comes from the sharp raster, never from resampled history.
+    //
+    // A view traced with other surfaces (`restyled`) inherits no more of a pixel than its own
+    // surface then allowed: the history weight is the current G-buffer's, and a glossy floor
+    // replaced by a matte one would otherwise pass its reflections on at the matte weight.
     const fn = wgslTagFn /* wgsl */ `
       fn compute(
         globalId: vec3u,
@@ -279,6 +314,7 @@ class ReprojectKernel extends ComputeKernel {
         previousPixelAngle: f32,
         currentPixelAngle: f32,
         cap: u32,
+        restyled: u32,
       ) -> void {
 
         const ALBEDO_FLOOR = 0.02;
@@ -314,6 +350,7 @@ class ReprojectKernel extends ComputeKernel {
 
             var total = 0.0;
             var samples = 0.0;
+            var seenWeight = 0.0;
             var sum = vec4f( 0.0 );
             var darkest = 1e30;
             var brightest = 0.0;
@@ -345,6 +382,7 @@ class ReprojectKernel extends ComputeKernel {
               brightest = max( brightest, level );
               total += bilinear;
               samples += bilinear * n;
+              seenWeight += bilinear * seen.w;
               sum += bilinear * vec4f( light, seenColor.a );
             }
 
@@ -361,7 +399,8 @@ class ReprojectKernel extends ComputeKernel {
               let light = sum / total;
               let contrast = ( brightest - darkest ) / ( dot( light.rgb, vec3f( 0.2126, 0.7152, 0.0722 ) ) + 1e-3 );
               let edge = clamp( EDGE_CONTRAST / max( contrast, 1e-4 ), 0.0, 1.0 );
-              count = min( u32( samples / total * weight * angular * detail * edge ), cap );
+              let inherit = select( weight, min( weight, seenWeight / total ), restyled != 0u );
+              count = min( u32( samples / total * inherit * angular * detail * edge ), cap );
               if ( count > 0u ) {
                 let albedo = textureLoad( ${params.currentAlbedo}, row, 0 ).rgb + ALBEDO_FLOOR;
                 color = vec4f( light.rgb * albedo, light.a );
@@ -408,11 +447,11 @@ export class ViewHistory {
   }
   private readonly textures = [this.color, this.counts, this.geometry, this.normal, this.albedo]
   private kernel: ReprojectKernel | null = null
-  /** Scene signature the stored view belongs to; -1 when there is none. */
-  signature = -1
+  /** What the stored view was traced of; null when there is none. */
+  keys: HistoryKeys | null = null
 
   /** Keeps a traced view: call before the tracer resets for the next one. */
-  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, signature: number) {
+  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, keys: HistoryKeys) {
     const { width, height } = tracer.outputTarget.image as { width: number; height: number }
     for (const t of this.textures) {
       const size = t.image as { width: number; height: number }
@@ -427,24 +466,28 @@ export class ViewHistory {
     this.view.viewProjection.copy(gbuffer.viewProjection)
     this.view.viewToWorld.copy(gbuffer.viewToWorld)
     this.view.pixelAngle = gbuffer.pixelAngle
-    this.signature = signature
+    this.keys = { ...keys }
   }
 
   /**
    * Seeds the tracer's freshly reset accumulation for the view in `gbuffer`. Returns false (and
-   * leaves the tracer untouched) when there is no stored view of the same scene and size.
+   * leaves the tracer untouched) when there is no stored view of the same scene and size, or
+   * nothing it may pass on (a view of other surfaces, for a target too low to take any of it).
    */
   seed(
     renderer: WebGPURenderer,
     tracer: TracerTargets,
     gbuffer: GBuffer,
-    signature: number,
+    keys: HistoryKeys,
     target: number,
   ) {
-    if (signature !== this.signature) return false
+    if (!this.keys || this.keys.scene !== keys.scene) return false
     const { width, height } = tracer.outputTarget.image as { width: number; height: number }
     const stored = this.color.image as { width: number; height: number }
     if (stored.width !== width || stored.height !== height) return false
+    const same = this.keys.surfaces === keys.surfaces
+    const cap = historyCap(target, same)
+    if (cap <= 0) return false
     const k = (this.kernel ??= new ReprojectKernel().setWorkgroupSize(8, 8, 1) as ReprojectKernel)
     k.outputTarget = tracer.outputTarget
     k.sampleCountTarget = tracer.sampleCountTarget
@@ -463,13 +506,14 @@ export class ViewHistory {
     k.currentPosition.copy(gbuffer.position)
     k.previousPixelAngle = this.view.pixelAngle
     k.currentPixelAngle = gbuffer.pixelAngle
-    k.cap = Math.floor(target * HISTORY_SHARE)
+    k.cap = cap
+    k.restyled = same ? 0 : 1
     renderer.compute(k.kernel, k.getDispatchSize(width, height, 1))
     return true
   }
 
   clear() {
-    this.signature = -1
+    this.keys = null
   }
 
   dispose() {
@@ -478,11 +522,18 @@ export class ViewHistory {
   }
 }
 
-/** Bounded orbit memory. One best view seeds each frame, never sums correlated histories. */
+type StoredView = { history: ViewHistory; pose: HistoryPose; used: number; surfaces: number }
+
+/**
+ * Bounded orbit memory. One best view seeds each frame, never sums correlated histories. Views of
+ * one scene are kept across surface edits, each with the surfaces it was traced with: a view of
+ * other surfaces seeds only a little (RESTYLED_SAMPLES), and ranks behind views of the current
+ * ones (RESTYLED_PENALTY).
+ */
 export class MultiViewHistory {
-  private entries: { history: ViewHistory; pose: HistoryPose; used: number }[] = []
+  private entries: StoredView[] = []
   private clock = 0
-  private signature = -1
+  private scene: number | null = null
   private size = ''
 
   private pose(gbuffer: GBuffer): HistoryPose {
@@ -492,11 +543,11 @@ export class MultiViewHistory {
     }
   }
 
-  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, signature: number) {
+  store(renderer: WebGPURenderer, tracer: TracerTargets, gbuffer: GBuffer, keys: HistoryKeys) {
     const { width, height } = tracer.outputTarget.image as { width: number; height: number }
     const size = `${width}:${height}`
-    if (this.signature !== signature || this.size !== size) this.clear()
-    this.signature = signature
+    if (this.scene !== keys.scene || this.size !== size) this.clear()
+    this.scene = keys.scene
     this.size = size
     const capacity = historyCapacity(width, height)
     if (!capacity) return
@@ -505,11 +556,12 @@ export class MultiViewHistory {
     if (!entry && this.entries.length >= capacity)
       entry = this.entries.reduce((oldest, item) => (item.used < oldest.used ? item : oldest))
     if (!entry) {
-      entry = { history: new ViewHistory(), pose, used: 0 }
+      entry = { history: new ViewHistory(), pose, used: 0, surfaces: keys.surfaces }
       this.entries.push(entry)
     }
-    entry.history.store(renderer, tracer, gbuffer, signature)
+    entry.history.store(renderer, tracer, gbuffer, keys)
     entry.pose = pose
+    entry.surfaces = keys.surfaces
     entry.used = ++this.clock
   }
 
@@ -517,15 +569,15 @@ export class MultiViewHistory {
     renderer: WebGPURenderer,
     tracer: TracerTargets,
     gbuffer: GBuffer,
-    signature: number,
+    keys: HistoryKeys,
     target: number,
   ) {
-    if (signature !== this.signature || !this.entries.length) return false
+    if (keys.scene !== this.scene || !this.entries.length) return false
     const pose = this.pose(gbuffer)
-    const entry = this.entries.reduce((best, item) =>
-      historyDistance(item.pose, pose) < historyDistance(best.pose, pose) ? item : best,
-    )
-    const seeded = entry.history.seed(renderer, tracer, gbuffer, signature, target)
+    const rank = (item: StoredView) =>
+      historyDistance(item.pose, pose) + (item.surfaces === keys.surfaces ? 0 : RESTYLED_PENALTY)
+    const entry = this.entries.reduce((best, item) => (rank(item) < rank(best) ? item : best))
+    const seeded = entry.history.seed(renderer, tracer, gbuffer, keys, target)
     if (seeded) entry.used = ++this.clock
     return seeded
   }
@@ -533,7 +585,7 @@ export class MultiViewHistory {
   clear() {
     for (const entry of this.entries) entry.history.dispose()
     this.entries = []
-    this.signature = -1
+    this.scene = null
     this.size = ''
   }
 

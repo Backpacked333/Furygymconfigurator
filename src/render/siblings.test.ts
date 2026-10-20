@@ -7,7 +7,9 @@ import { DEFAULT_CONFIG, FINISHES, FLOORS, type Config } from '../lib/config'
 import { skyLook } from '../lib/visuals'
 import { captureScene, stableJson } from './cloud'
 import { box } from './geometry'
-import { batch } from './parts'
+import { quietly } from './materials'
+import { batch, batchKeys } from './parts'
+import { historySignature, lookKey, sceneSignature } from './pathtrace'
 import { captureSibling, deriveSibling, partKeys, siblingKeys } from './siblings'
 import { UNIT_LISTS } from './unitParts'
 
@@ -222,4 +224,66 @@ describe('a sibling design', () => {
       'render/unitParts.ts',
     ])
   })
+})
+
+describe('the batches of a design through its finishes and floors', () => {
+  /** More designs than the derivations take: both families, each interior, the openings. */
+  const designs: Config[] = [
+    ...BASES,
+    ...(['gallery', 'slatted', 'timber', 'birch'] as const).map((interiorStyle) => ({
+      ...DEFAULT_CONFIG,
+      interiorStyle,
+      accent: interiorStyle === 'timber',
+    })),
+    {
+      ...BASES[2],
+      containerOpening: 'full',
+      openingInfill: 'glass-overhead',
+      addons: { deck: true, gazebo: false, roof: true, stairs: true, canopy: true },
+      lights: true,
+      railing: 'glass',
+    },
+  ]
+  /** Each shown list's batches by geometry, as the live view's meshes are keyed (Parts). */
+  const partition = (config: Config) =>
+    quietly(() =>
+      UNIT_LISTS.filter((list) => list.shown(config)).map((list) => {
+        const parts = list.build(config)
+        for (const p of parts) expect(p.geometry.userData.key, list.name).toBeTypeOf('string')
+        const keys = batchKeys(parts).map((b) => `${b.key}:${b.shadow}`)
+        // Never one key twice in a list: each mesh is found by it (siblings.ts withSibling).
+        expect(new Set(keys).size, list.name).toBe(keys.length)
+        return [list.name, keys.sort()]
+      }),
+    )
+
+  it('merges into the same shapes for every finish and floor, so an edit swaps materials alone', () => {
+    // The live 360° view keeps its meshes through a finish or floor edit because of this
+    // (geometryReuse.ts): were a finish to merge parts differently, it would rebuild them instead,
+    // correctly but slowly.
+    for (const design of designs) {
+      const expected = partition(design)
+      for (const finish of FINISHES)
+        expect(partition({ ...design, finish: finish.id }), finish.id).toEqual(expected)
+      for (const floor of FLOORS)
+        expect(partition({ ...design, flooring: floor.id }), floor.id).toEqual(expected)
+    }
+  }, 30_000)
+
+  it('keeps the history of a view through a finish or floor edit: the same scene, other surfaces', () => {
+    const base = BASES[1]
+    const key = lookKey(look)
+    const scene = sceneOf(base)
+    for (const sibling of [
+      { ...base, finish: 'chalk' as const },
+      { ...base, flooring: 'rubber' as const },
+    ]) {
+      const other = sceneOf(sibling)
+      expect(historySignature(other, key)).toBe(historySignature(scene, key))
+      expect(sceneSignature(other, key)).not.toBe(sceneSignature(scene, key))
+    }
+    // Not across an edit that reshapes the room.
+    const slats = sceneOf({ ...base, interiorStyle: 'timber' })
+    expect(historySignature(slats, key)).not.toBe(historySignature(scene, key))
+  }, 20_000)
 })

@@ -102,15 +102,18 @@ export function ProgressiveRenderer({
       signature: null as number | null,
     }
     state.current = runtime
-    const dirty = () => {
+    // Scans arriving swap maps on the materials the tracer holds: it reads the materials again on
+    // its next start, keeping the meshes it captured and their BVH, and the views it traced
+    // before seed a little (PathTraceSession texturesChanged).
+    const texturesArrived = () => {
       runtime.dirty = true
-      runtime.tracer?.invalidate()
+      runtime.tracer?.texturesChanged()
       if (props.current.active) invalidate()
     }
     // Probe captures relight only the raster (the tracer lights the scene itself), so they redraw a
     // raster frame on screen but never restart a trace or rebuild its scene.
     const materials = onMaterialsChanged((change) => {
-      if (change === 'textures') dirty()
+      if (change === 'textures') texturesArrived()
       else if (!runtime.tracing && props.current.active) invalidate()
     })
     // Compile the pipeline's shaders asynchronously before its first frame, so opening the view
@@ -122,7 +125,7 @@ export function ProgressiveRenderer({
       runtime.warming = false
       if (!disposed && props.current.active) invalidate()
     })
-    const textures = textureProgress.subscribe(dirty)
+    const textures = textureProgress.subscribe(texturesArrived)
     const interrupt = () => {
       runtime.tracer?.halt()
       runtime.tracing = false
@@ -170,6 +173,8 @@ export function ProgressiveRenderer({
             fadeMs,
             batchMs: 12,
             maxPasses: 8,
+            // An edit of a finish or a floor keeps the orbit's views, seeding a little from them.
+            keepHistoryAcrossSurfaces: true,
           })
           runtime.dirty = true
           if (props.current.active) invalidate()

@@ -32,7 +32,7 @@ import {
 } from '../lib/visuals'
 import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
 import { bench } from './bench'
-import { GBuffer, MultiViewHistory, ViewHistory } from './history'
+import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
 import { nextTracePasses } from './traceBudget'
 import { stillInstances } from './instances'
 import type { TraceState } from './traceStatus'
@@ -270,17 +270,55 @@ function geometryKey(geometry: BufferGeometry) {
  * updates them in place while the structure holds.
  */
 export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
-  const identity = part === undefined
-  const sum = { structure: 0, transforms: 0, materials: 0, lights: 0 }
+  const { structure, transforms, materials, lights } = fingerprints(scene, part !== undefined)
+  return { structure, transforms, materials, lights }
+}
+
+/**
+ * Where a material sends light of its own or lets it through: what it emits, and, for glass, the
+ * material itself. Read only for the history's key (historySignature): an emitter or a pane
+ * changes the light across the whole room, not just on its own surface.
+ */
+function transport(material: Material, mix: (value: number) => void) {
+  const m = material as Material & {
+    id: number
+    emissive?: { r: number; g: number; b: number }
+    emissiveIntensity?: number
+    emissiveMap?: Texture | null
+    transmission?: number
+  }
+  const override = material.userData.pathTrace as Record<string, unknown> | undefined
+  const intensity = m.emissiveIntensity ?? 0
+  if (m.emissive && intensity > 0) {
+    mix(m.emissive.r * intensity)
+    mix(m.emissive.g * intensity)
+    mix(m.emissive.b * intensity)
+    if (m.emissiveMap) mix(fold(m.emissiveMap.uuid))
+  }
+  const transmission = override?.transmission ?? m.transmission ?? 0
+  if (typeof transmission === 'number' && transmission > 0) {
+    mix(m.id)
+    mix(material.version)
+  }
+}
+
+/**
+ * sceneParts' fingerprints, of the whole scene by identity or of what a part shows by content, and
+ * with `withTransport` the transport of every material met as well (`transport`).
+ */
+function fingerprints(scene: Scene, byContent: boolean, withTransport = false) {
+  const identity = !byContent
+  const sum = { structure: 0, transforms: 0, materials: 0, lights: 0, transport: 0 }
   const read = (object: Object3D) => {
     const hash = {
       structure: 2166136261,
       transforms: 2166136261,
       materials: 2166136261,
       lights: 2166136261,
+      transport: 2166136261,
     }
-    const touched = new Set<keyof SceneParts>()
-    const mix = (part: keyof SceneParts, value: number) => {
+    const touched = new Set<keyof typeof hash>()
+    const mix = (part: keyof typeof hash, value: number) => {
       hash[part] = Math.imul(hash[part] ^ Math.round(value * 1000), 16777619)
       touched.add(part)
     }
@@ -304,6 +342,7 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
         mix('materials', m.id)
         mix('materials', material.version)
         mix('materials', m.emissiveIntensity ?? 0)
+        if (withTransport) transport(material, (value) => mix('transport', value))
       }
     }
     const light = object as Object3D & {
@@ -319,12 +358,29 @@ export function sceneParts(scene: Scene, part?: ScenePart): SceneParts {
     for (const part of touched) sum[part] = (sum[part] + (hash[part] >>> 0)) >>> 0
   }
   const walk = (object: Object3D) => {
-    if (part !== undefined && object.userData.pathTrace === false) return
+    if (byContent && object.userData.pathTrace === false) return
     read(object)
     for (const child of object.children) walk(child)
   }
   walk(scene)
   return sum
+}
+
+/**
+ * What decides where light goes in a scene, read by content as a part is (sceneParts with a part):
+ * the shapes and whether they show, where everything is, the lights, the sky, and the emitters
+ * and glass. A finish or a floor is left out, so a view traced before one changed can still seed
+ * the next, a little (history.ts HistoryKeys). Never the stills' keys: those are partsSignature's.
+ */
+export function historySignature(scene: Scene, lookKey: string) {
+  const { structure, transforms, lights, transport } = fingerprints(scene, true, true)
+  let hash = 2166136261
+  const mix = (value: number) => {
+    hash = Math.imul(hash ^ value, 16777619)
+  }
+  for (let i = 0; i < lookKey.length; i++) mix(lookKey.charCodeAt(i))
+  for (const value of [structure, transforms, lights, transport]) mix(value)
+  return hash >>> 0
 }
 
 /**
@@ -474,6 +530,15 @@ export class PathTraceSession {
   private signature = -1
   /** What the tracer holds: the scene parts and sky it last captured or updated. */
   private captured: { parts: SceneParts; look: string } | null = null
+  /** Scans arrived since the tracer last read the materials (`texturesChanged`). */
+  private materialsStale = false
+  /**
+   * Bumped whenever scans arrive: a view traced before had other surfaces, though no fingerprint
+   * shows it (the maps are swapped in place).
+   */
+  private scans = 0
+  /** What the current view is traced of, as `begin` found it: its history is kept under these. */
+  private traced: HistoryKeys | null = null
   /** Bumped per view, so readbacks that land after the camera moved are ignored. */
   private epoch = 0
   /**
@@ -507,6 +572,13 @@ export class PathTraceSession {
       renderScale?: number
       /** Crossfade between successive images, in milliseconds. */
       fadeMs?: number
+      /**
+       * Keep the views traced so far across an edit of surfaces alone (a finish, a floor, scans
+       * arriving), seeding the next view with a few of their samples (history.ts HistoryKeys).
+       * Off, any change at all clears them, as the stills and exports need: a still of one design
+       * must never carry light of another.
+       */
+      keepHistoryAcrossSurfaces?: boolean
     } = {},
   ) {
     this.renderer = renderer
@@ -560,6 +632,7 @@ export class PathTraceSession {
     const signature = partsSignature(parts, key)
     this.state = 'preparing'
     const last = this.captured
+    const stale = this.materialsStale
     if (!last || last.parts.structure !== parts.structure) {
       // New or reshaped meshes: build the BVH and kernels again.
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
@@ -568,14 +641,15 @@ export class PathTraceSession {
       } finally {
         restore()
       }
-    } else if (signature !== this.signature) {
+    } else if (signature !== this.signature || stale) {
       // Same meshes: update in place only what changed, keeping the BVH and compiled kernels.
+      // Scans that arrived changed the materials' maps, which no fingerprint reads.
       const moved = last.parts.transforms !== parts.transforms
       const sky = last.look !== key
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
         if (moved) this.tracer.updateTransforms()
-        if (last.parts.materials !== parts.materials) this.tracer.updateMaterials()
+        if (stale || last.parts.materials !== parts.materials) this.tracer.updateMaterials()
         if (sky) this.tracer.updateEnvironment()
         if (sky || moved || last.parts.lights !== parts.lights) this.tracer.updateLights()
       } finally {
@@ -585,8 +659,16 @@ export class PathTraceSession {
     } else {
       this.tracer.updateCamera()
     }
-    // Samples of a different design, time of day, or texture set describe a different image.
-    if (signature !== this.signature) this.history.clear()
+    this.materialsStale = false
+    // Samples of a different design, time of day, or texture set describe a different image. Kept
+    // across surface edits only where asked: there a view of other surfaces seeds just a little.
+    const surfaces = Math.imul(signature ^ this.scans, 16777619) >>> 0
+    const keys: HistoryKeys = {
+      scene: this.options.keepHistoryAcrossSurfaces ? historySignature(scene, key) : surfaces,
+      surfaces,
+    }
+    if (this.traced?.scene !== keys.scene) this.history.clear()
+    this.traced = keys
     this.signature = signature
     this.captured = { parts, look: key }
     this.epoch++
@@ -598,13 +680,7 @@ export class PathTraceSession {
     const { width, height } = this.syncSize()
     this.tracer.reset()
     this.gbuffer.render(this.renderer, scene, camera as PerspectiveCamera, width, height)
-    this.seeded = this.history.seed(
-      this.renderer,
-      this.backend,
-      this.gbuffer,
-      this.signature,
-      target,
-    )
+    this.seeded = this.history.seed(this.renderer, this.backend, this.gbuffer, keys, target)
     this.adaptive.reset()
     for (const denoiser of this.denoisers) denoiser.reset()
     this.running = null
@@ -830,9 +906,11 @@ export class PathTraceSession {
   }
 
   halt() {
-    // Keep what this view accumulated for the next one. Queued after any batch still in flight.
-    if (this.frames > 0 && (this.state === 'tracing' || this.state === 'converged'))
-      this.history.store(this.renderer, this.backend, this.gbuffer, this.signature)
+    // Keep what this view accumulated for the next one, under what it was traced of: scans that
+    // arrived meanwhile are new to the next view, not to this one. Queued after any batch still in
+    // flight.
+    if (this.traced && this.frames > 0 && (this.state === 'tracing' || this.state === 'converged'))
+      this.history.store(this.renderer, this.backend, this.gbuffer, this.traced)
     this.epoch++
     this.measuring = false
     this.passes = 1
@@ -842,10 +920,21 @@ export class PathTraceSession {
     for (const denoiser of this.denoisers) denoiser.reset()
   }
 
-  /** Forces the next `begin` to re-capture, e.g. after textures finish streaming in. */
+  /** Forces the next `begin` to re-capture the whole scene (the stills', as scans arrive). */
   invalidate() {
     this.signature = -1
     this.captured = null
+    this.scans++
+  }
+
+  /**
+   * Scans arrived: the next `begin` reads the materials again, keeping the captured meshes and
+   * their BVH unless the scene changed shape meanwhile. Views traced before count as of other
+   * surfaces.
+   */
+  texturesChanged() {
+    this.materialsStale = true
+    this.scans++
   }
 
   dispose() {

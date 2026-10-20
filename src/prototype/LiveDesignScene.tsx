@@ -64,6 +64,8 @@ export default memo(function LiveDesignScene({
         autoRotate={active && autoRotate}
         reset={reset}
         onFallback={onUnavailable}
+        // A finish or floor edit then swaps materials in place: no remount, no BVH rebuild.
+        reuseGeometry
         effects={
           <>
             <ProgressiveRenderer

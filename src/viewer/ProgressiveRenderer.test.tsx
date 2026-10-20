@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { PerspectiveCamera, Scene } from 'three/webgpu'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
+import { textureProgress } from '../render/progress'
 import { ProgressiveRenderer } from './ProgressiveRenderer'
 
 const mocks = vi.hoisted(() => ({
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => ({
     step: vi.fn(),
     view: vi.fn(),
     invalidate: vi.fn(),
+    texturesChanged: vi.fn(),
     dispose: vi.fn(),
   },
 }))
@@ -285,11 +287,32 @@ describe('progressive viewer lifecycle (mock GPU, not a visual/performance test)
     act(() => mocks.materialListeners.forEach((listener) => listener('probe')))
     frame()
     expect(mocks.trace.halt).not.toHaveBeenCalled()
-    expect(mocks.trace.invalidate).not.toHaveBeenCalled()
+    expect(mocks.trace.texturesChanged).not.toHaveBeenCalled()
     act(() => mocks.materialListeners.forEach((listener) => listener('textures')))
-    expect(mocks.trace.invalidate).toHaveBeenCalledOnce()
+    expect(mocks.trace.texturesChanged).toHaveBeenCalledOnce()
     frame()
     expect(mocks.trace.halt).toHaveBeenCalled()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
+  })
+
+  it('tells the tracer scans arrived, which keeps its scene and its orbit, never re-capturing', async () => {
+    await render()
+    settle()
+    expect(mocks.session).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      true,
+      expect.objectContaining({ multiView: true, keepHistoryAcrossSurfaces: true }),
+    )
+    // Both ways scans arrive: the material library's change, and the loading progress.
+    act(() => mocks.materialListeners.forEach((listener) => listener('textures')))
+    act(() => textureProgress.update(1, 1))
+    expect(mocks.trace.texturesChanged).toHaveBeenCalledTimes(2)
+    expect(mocks.trace.invalidate).not.toHaveBeenCalled()
+    frame()
+    settle()
+    expect(mocks.trace.begin).toHaveBeenCalledTimes(2)
   })
 
   it('compiles shaders before its first frame', async () => {

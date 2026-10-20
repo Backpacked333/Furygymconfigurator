@@ -34,8 +34,13 @@ retire settled tiles earlier. Its sample count is not a measure of newly traced 
 - One best-matching view seeds the next accumulation. Existing world-position, normal, visibility,
   material and roughness checks remain; cached views are not summed together. At most 75% of the
   target can come from history, with fresh samples required for the remainder.
-- All scene-signature changes conservatively invalidate lighting history. Existing selective
-  BVH/material/light updates remain. This does **not** implement world-space edit-local GI reuse.
+- An edit of surfaces alone (a finish, a floor, scans arriving) keeps the retained views. The part
+  lists keep their meshes and merged geometry (`render/geometryReuse.ts`), so the tracer updates
+  materials in place instead of rebuilding its BVH. A view traced with other surfaces seeds at most
+  16 samples (`RESTYLED_SAMPLES`) and ranks behind views of the current surfaces. Any other change
+  of the scene (shapes, placement, lights, sky, emitters, glass) clears the history. The legacy
+  stills and exports keep clearing it on any change. This does **not** implement world-space
+  edit-local GI reuse.
 - GPU batches adapt toward a 12 ms budget, capped at eight passes; this is a scheduling target,
   not a guaranteed frame time. Already-submitted GPU work cannot be cancelled. Epoch checks fence
   obsolete measurements; movement, edits, pointer holds, hidden tabs and gallery return stop new tracing.

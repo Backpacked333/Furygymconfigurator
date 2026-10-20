@@ -8,17 +8,23 @@ import {
   MeshBasicMaterial,
   MeshPhysicalNodeMaterial,
   MeshStandardNodeMaterial,
+  PerspectiveCamera,
   RectAreaLight,
   Scene,
+  StorageTexture,
   type Texture,
+  type Vector2,
 } from 'three/webgpu'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
+import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
 import {
   EXPORT_SAMPLES,
   LONG_MILESTONES,
   MILESTONES,
+  PathTraceSession,
   REST_SAMPLES,
+  historySignature,
   preparePathTraceScene,
   sceneParts,
   sceneSignature,
@@ -291,7 +297,8 @@ describe('path-traced scene capture', () => {
     const inside = () => sceneSignature(f.scene, 'a', 'interior')
     const [out0, in0] = [outside(), inside()]
     // A new finish: the shell is rebuilt (new meshes, a new material) to the same shape, as
-    // StudioModel rebuilds it. Both views must refresh.
+    // StudioModel rebuilds it for the stills (the live 360° view keeps the meshes and swaps their
+    // material, which changes the fingerprints just as well). Both views must refresh.
     shell.remove(door)
     door = new Mesh(leaf(), new MeshStandardNodeMaterial())
     shell.add(door)
@@ -385,5 +392,256 @@ describe('path-traced scene capture', () => {
       f.scene.updateMatrixWorld(true)
       expect(sceneSignature(f.scene, 'a')).not.toBe(before)
     }
+  })
+})
+
+describe("the history's key of a scene", () => {
+  /** The fixture's scene with a keyed shelf, a lamp and an emitter, as the unit's lists are. */
+  function room() {
+    const f = fixture()
+    const shelf = () => {
+      const geometry = new BoxGeometry()
+      geometry.userData.key = 'shelf'
+      return geometry
+    }
+    let mesh = new Mesh(shelf(), new MeshStandardNodeMaterial())
+    const lamp = new RectAreaLight(0xffffff, 10, 1, 1)
+    const glow = new MeshStandardNodeMaterial()
+    glow.emissive = new Color('#ffeedd')
+    glow.emissiveIntensity = 2
+    f.scene.add(mesh, lamp, new Mesh(new BoxGeometry(), glow))
+    f.scene.updateMatrixWorld(true)
+    /** The shelf rebuilt to the same shape in another finish, as the stills rebuild it. */
+    const repaint = () => {
+      f.scene.remove(mesh)
+      mesh = new Mesh(shelf(), new MeshStandardNodeMaterial({ color: '#884422' }))
+      f.scene.add(mesh)
+      f.scene.updateMatrixWorld(true)
+    }
+    return {
+      ...f,
+      lamp,
+      glow,
+      repaint,
+      shelf: () => mesh,
+      key: () => historySignature(f.scene, 'a'),
+    }
+  }
+
+  it('holds through a finish, a colour, or a rebuilt mesh, where the full fingerprint does not', () => {
+    const r = room()
+    const [key, whole, full] = [r.key(), sceneParts(r.scene), sceneSignature(r.scene, 'a')]
+    r.repaint()
+    expect(r.key()).toBe(key)
+    expect(sceneParts(r.scene).structure).not.toBe(whole.structure)
+    expect(sceneSignature(r.scene, 'a')).not.toBe(full)
+    // In place: a new colour, a material rebuilt by a probe.
+    ;(r.shelf().material as MeshStandardNodeMaterial).color.set('#224488')
+    r.leaf.needsUpdate = true
+    expect(r.key()).toBe(key)
+    // Helpers no tracer sees come and go.
+    const helper = new Group()
+    helper.userData.pathTrace = false
+    helper.add(new Mesh(new BoxGeometry(), new MeshBasicMaterial()))
+    r.scene.add(helper)
+    r.scene.updateMatrixWorld(true)
+    expect(r.key()).toBe(key)
+  })
+
+  it('changes with what moves light elsewhere: shapes, places, lights, sky, emitters, glass', () => {
+    const r = room()
+    expect(historySignature(r.scene, 'b')).not.toBe(r.key())
+    // A raster glazing pane traces as glass through its stand-in.
+    const glazing = new Mesh(new BoxGeometry(), palette.glass())
+    r.scene.add(glazing)
+    const edits: [string, () => void][] = [
+      ['shape', () => (r.shelf().geometry.userData.key = 'shelf-wide')],
+      ['hidden', () => (r.stone.visible = false)],
+      ['moved', () => r.shelf().position.set(0, 1, 0)],
+      ['light', () => (r.lamp.intensity = 4)],
+      ['emitter', () => (r.glow.emissiveIntensity = 0.5)],
+      ['emitter colour', () => r.glow.emissive.set('#ff0000')],
+      ['glass', () => (r.pane.material = new MeshPhysicalNodeMaterial({ transmission: 1 }))],
+      ['glazing', () => (glazing.material = palette.glass().clone())],
+    ]
+    r.scene.updateMatrixWorld(true)
+    let key = r.key()
+    for (const [name, edit] of edits) {
+      edit()
+      r.scene.updateMatrixWorld(true)
+      expect(r.key(), name).not.toBe(key)
+      key = r.key()
+    }
+  })
+})
+
+describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
+  afterEach(() => vi.restoreAllMocks())
+  const look = skyLook('studio', 13)
+
+  function session(options: ConstructorParameters<typeof PathTraceSession>[3] = {}) {
+    vi.spyOn(GBuffer.prototype, 'render').mockImplementation(() => {})
+    const tracer = {
+      setScene: vi.fn(),
+      updateMaterials: vi.fn(),
+      updateTransforms: vi.fn(),
+      updateLights: vi.fn(),
+      updateEnvironment: vi.fn(),
+      updateCamera: vi.fn(),
+      reset: vi.fn(),
+      setSize: vi.fn(),
+      renderSample: vi.fn(),
+      dispose: vi.fn(),
+      getSampleCountsAsync: () => Promise.resolve({ min: 0 }),
+      renderScale: 1,
+      fadeState: 1,
+      target: { image: { width: 64, height: 32 } },
+      material: { turquinTexture: { image: { width: 1, height: 1, depth: 1 } } },
+      _pathTracer: {
+        setSize: vi.fn(),
+        outputTarget: new StorageTexture(64, 32),
+        sampleCountTarget: new StorageTexture(64, 32),
+      },
+    }
+    const renderer = {
+      initTexture: vi.fn(),
+      backend: {
+        get: () => ({}),
+        device: { queue: { onSubmittedWorkDone: () => Promise.resolve() } },
+      },
+      getDrawingBufferSize: (size: Vector2) => size.set(64, 32),
+      getRenderTarget: () => null,
+      setRenderTarget: vi.fn(),
+      compute: vi.fn(),
+      copyTextureToTexture: vi.fn(),
+    }
+    const modules = {
+      tracer: {
+        WebGPUPathTracer: class {
+          constructor() {
+            return tracer
+          }
+        },
+        TRANSMISSIVE_BACKGROUND_ENVIRONMENT: 0,
+      },
+      initUNetFromURL: null,
+    }
+    const traced = new PathTraceSession(renderer as never, modules as never, false, options)
+    const f = fixture()
+    const camera = new PerspectiveCamera()
+    f.scene.updateMatrixWorld(true)
+    const begin = () => traced.begin(f.scene, camera, look, 1024)
+    /** Starts the view and traces a sample of it, once the previous batch is done. */
+    const trace = async () => {
+      begin()
+      traced.step()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    return { traced, tracer, begin, trace, ...f }
+  }
+
+  it('reads the materials again for scans that arrived, keeping the captured meshes', () => {
+    const t = session()
+    t.begin()
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    expect(t.tracer.updateMaterials).not.toHaveBeenCalled()
+    t.traced.texturesChanged()
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    expect(t.tracer.updateMaterials).toHaveBeenCalledOnce()
+    expect(t.tracer.updateTransforms).not.toHaveBeenCalled()
+    expect(t.tracer.updateLights).not.toHaveBeenCalled()
+    // Read once: the next start has nothing new.
+    t.begin()
+    expect(t.tracer.updateMaterials).toHaveBeenCalledOnce()
+    // A finish swapped on the meshes it has (the live view keeps them) is updated in place too.
+    t.stone.material = new MeshStandardNodeMaterial()
+    t.begin()
+    expect(t.tracer.updateMaterials).toHaveBeenCalledTimes(2)
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    // A re-capture asked for is one.
+    t.traced.invalidate()
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+  })
+
+  it('still captures the scene again when it changed shape meanwhile', () => {
+    const t = session()
+    t.begin()
+    t.traced.texturesChanged()
+    t.scene.add(new Mesh(new BoxGeometry(), new MeshStandardNodeMaterial()))
+    t.scene.updateMatrixWorld(true)
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+    expect(t.tracer.updateMaterials).not.toHaveBeenCalled()
+  })
+
+  it('keeps the orbit across surface edits where asked, seeding a little from it', async () => {
+    const t = session({ multiView: true, keepHistoryAcrossSurfaces: true })
+    const seed = vi.spyOn(ViewHistory.prototype, 'seed')
+    const store = vi.spyOn(MultiViewHistory.prototype, 'store')
+    const clear = vi.spyOn(MultiViewHistory.prototype, 'clear')
+    const seededWith = () => seed.mock.lastCall![3] as HistoryKeys
+    await t.trace()
+    t.traced.halt()
+    clear.mockClear()
+    // The same view again: its full share.
+    await t.trace()
+    expect(t.traced.seeded).toBe(true)
+    const before = seededWith()
+    t.traced.halt()
+    // A new finish on the same meshes: the same scene, other surfaces.
+    t.stone.material = new MeshStandardNodeMaterial()
+    await t.trace()
+    expect(t.traced.seeded).toBe(true)
+    expect(seededWith().scene).toBe(before.scene)
+    expect(seededWith().surfaces).not.toBe(before.surfaces)
+    // Scans arriving mid-trace: the view is kept under what it was traced of, not thrown away.
+    const tracing = seededWith()
+    t.traced.texturesChanged()
+    t.traced.halt()
+    expect(store.mock.lastCall![3]).toEqual(tracing)
+    await t.trace()
+    expect(t.traced.seeded).toBe(true)
+    expect(seededWith().surfaces).not.toBe(tracing.surfaces)
+    t.traced.halt()
+    expect(clear).not.toHaveBeenCalled()
+    // A mesh moved: another scene, which nothing seeds.
+    t.stone.position.x = 3
+    t.scene.updateMatrixWorld(true)
+    await t.trace()
+    expect(clear).toHaveBeenCalled()
+    expect(t.traced.seeded).toBe(false)
+  })
+
+  it('never seeds a still across a design or scans arriving, as it never has', async () => {
+    const t = session()
+    const store = vi.spyOn(ViewHistory.prototype, 'store')
+    await t.trace()
+    t.traced.halt()
+    // One key: the full fingerprint, scans included.
+    const stored = store.mock.lastCall![3] as HistoryKeys
+    expect(stored.scene).toBe(stored.surfaces)
+    await t.trace()
+    expect(t.traced.seeded).toBe(true)
+    t.traced.halt()
+    // Another finish: another design.
+    t.stone.material = new MeshStandardNodeMaterial()
+    await t.trace()
+    expect(t.traced.seeded).toBe(false)
+    t.traced.halt()
+    // Scans arriving, between views or during one: another texture set.
+    t.traced.texturesChanged()
+    await t.trace()
+    expect(t.traced.seeded).toBe(false)
+    t.traced.invalidate()
+    t.traced.halt()
+    await t.trace()
+    expect(t.traced.seeded).toBe(false)
+    t.traced.halt()
+    // Nothing changed: the same still, seeded as before.
+    await t.trace()
+    expect(t.traced.seeded).toBe(true)
   })
 })
