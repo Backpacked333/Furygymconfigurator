@@ -55,6 +55,90 @@ export const sceneProgress = {
 }
 
 /**
+ * Where the live 360° view is on its way from the press of "Explore in 360°" to a view that can
+ * be explored without a stall: the engine's code, the scene, its materials and light (scans and
+ * shaders), the path tracer's first start (its scene capture, the view's longest task). `ready`
+ * once that start has happened, or once it cannot (no WebGPU, a failure).
+ */
+export const LIVE_STEPS = ['engine', 'scene', 'materials', 'tracer', 'ready'] as const
+export type LiveStep = (typeof LIVE_STEPS)[number]
+const liveListeners = new Set<Listener>()
+let liveStep: LiveStep = 'engine'
+
+export const liveLoading = {
+  subscribe(listener: Listener) {
+    liveListeners.add(listener)
+    return () => {
+      liveListeners.delete(listener)
+    }
+  },
+  get: () => liveStep,
+  /** Moves to `next`; never back, except through `restart`. */
+  set(next: LiveStep) {
+    if (LIVE_STEPS.indexOf(next) <= LIVE_STEPS.indexOf(liveStep)) return
+    liveStep = next
+    liveListeners.forEach((listener) => listener())
+  },
+  /** A new live view is starting from nothing. */
+  restart() {
+    if (liveStep === 'engine') return
+    liveStep = 'engine'
+    liveListeners.forEach((listener) => listener())
+  },
+}
+
+/**
+ * A resting live view refining (ProgressiveRenderer): `idle` while nothing is being refined (the
+ * camera moving, the view hidden), else how far the image on screen has come. `fill` is 0–1 on a
+ * log scale of its samples to the view's target, as sharpness grows with each doubling; `stage`
+ * names what is resolving at that point.
+ */
+export type RefineStage = 'light' | 'reflections' | 'detail'
+export type Refining = { phase: 'refining' | 'done'; fill: number; stage: RefineStage }
+export type TraceProgress = { phase: 'idle' } | Refining
+
+/** Samples behind the image on screen up to which each stage is named (then 'detail'). */
+export const REFINE_STAGES: [RefineStage, number][] = [
+  ['light', 16],
+  ['reflections', 128],
+]
+
+export function refineProgress(shown: number, target: number, done: boolean): Refining {
+  const fill = done
+    ? 1
+    : target > 1
+      ? Math.min(1, Math.max(0, Math.log2(1 + shown) / Math.log2(1 + target)))
+      : 0
+  const stage = REFINE_STAGES.find(([, below]) => shown < below)?.[0] ?? 'detail'
+  return { phase: done ? 'done' : 'refining', fill, stage }
+}
+
+const traceListeners = new Set<Listener>()
+let trace: TraceProgress = { phase: 'idle' }
+
+export const traceProgress = {
+  subscribe(listener: Listener) {
+    traceListeners.add(listener)
+    return () => {
+      traceListeners.delete(listener)
+    }
+  },
+  get: () => trace,
+  /** Publishes `next` if it differs visibly from what is shown (a stage, or 2% of the ring). */
+  set(next: TraceProgress) {
+    const same =
+      next.phase === trace.phase &&
+      (next.phase === 'idle' ||
+        (trace.phase !== 'idle' &&
+          next.stage === trace.stage &&
+          Math.abs(next.fill - trace.fill) < 0.02))
+    if (same) return
+    trace = next
+    traceListeners.forEach((listener) => listener())
+  },
+}
+
+/**
  * Render-cost estimates for scheduling. The visible status uses observed request stages and
  * measured local samples instead: elapsed time is not evidence of cloud render completion.
  */

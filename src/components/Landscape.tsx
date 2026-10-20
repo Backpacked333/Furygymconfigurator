@@ -407,7 +407,12 @@ function Garden({ config: c, quality }: { config: Config; quality: Quality }) {
   // The ground is the largest surface on screen: ask for its scan before the hardscape and the
   // studio queue theirs (Ground itself only asks after it mounts). Requests are deduplicated.
   if (!studio) prefetchTextures(groundSet)
-  const hard = useMemo(() => hardscape(L, biome, c.lights, layout), [L, biome, c.lights, layout])
+  // The Studio look shows its backdrop floor alone: the hardscape would only download scans it never
+  // shows (about 7.8 MB), which the live view would then wait on before it traces.
+  const hard = useMemo(
+    () => (studio ? [] : hardscape(L, biome, c.lights, layout)),
+    [studio, L, biome, c.lights, layout],
+  )
   const accents = useMemo(() => (biome === 'desert' ? desertAccents(L) : []), [L, biome])
   const palettes = grassPalette(biome)
   const bedPlace = useMemo(

@@ -118,7 +118,7 @@ describe('the render version', () => {
     expect(isRenderSource('src/render/stills.ts')).toBe(true)
     expect(isRenderSource('public/textures/plywood/albedo.webp')).toBe(true)
     expect(isRenderSource('src/components/Scene.tsx')).toBe(true)
-    expect(isRenderSource('render-server/modal_app.py')).toBe(true)
+    expect(isRenderSource('render-server/requirements.txt')).toBe(true)
     expect(isRenderSource('src/render/stills.test.ts')).toBe(false)
     expect(isRenderSource('src/render/.notes.md')).toBe(false)
     expect(isRenderSource('src/App.tsx')).toBe(false)

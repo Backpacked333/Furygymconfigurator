@@ -121,6 +121,8 @@ describe('private full-quality input and module authority (CPU plans only)', () 
       'src/render/display/browser/entry.ts',
       'src/components/StudioModel.tsx',
       'src/render/siteLight.worker.ts',
+      // The material library's scan files (it never downloads early in this realm).
+      'src/render/scanFiles.ts',
       'node_modules/three/build/three.webgpu.js',
     ])
       expect(() => assertDisplayBrowserModule(name)).not.toThrow()
