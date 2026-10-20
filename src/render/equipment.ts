@@ -16,6 +16,8 @@ import {
   lathe,
   roundedBox,
   roundedRectShape,
+  sphere,
+  torus,
   tube,
   boxProjectUV,
 } from './geometry'
@@ -884,8 +886,605 @@ function reformer(): Part[] {
   return parts
 }
 
+// --- Portfolio equipment ------------------------------------------------------------------
+
+/** Rubber pads under a steel foot. */
+function pads(points: [number, number][], size = 0.26): Part[] {
+  return points.map(([x, z]) =>
+    part(roundedBox(size, 0.05, size, 0.02, 1), palette.rubber('#151616'), [x, 0.025, z]),
+  )
+}
+
+/** Hole pattern on one face of an upright (rendered as shallow dark discs). */
+function holes(x: number, z: number, from: number, to: number, step: number, facing: 1 | -1) {
+  const disc = cylinder(0.038, 0.038, 0.012, 12)
+  const parts: Part[] = []
+  for (let y = from; y < to; y += step)
+    parts.push(part(disc, black(), [x, y, z + facing * 0.127], AXIS_Z, undefined, false))
+  return parts
+}
+
+/** A D-handle hanging from a cable: rubber grip between two steel cheeks. */
+function dHandle(): Part[] {
+  const steel = palette.brushed()
+  return [
+    part(
+      tube(
+        'd-handle',
+        [
+          [-0.2, -0.05, 0],
+          [-0.17, -0.3, 0],
+          [0, -0.36, 0],
+          [0.17, -0.3, 0],
+          [0.2, -0.05, 0],
+          [0, 0.06, 0],
+          [-0.2, -0.05, 0],
+        ],
+        0.022,
+        8,
+      ),
+      steel,
+    ),
+    part(cylinder(0.045, 0.045, 0.3, 16), palette.rubber('#141515'), [0, -0.33, 0], AXIS_X),
+    part(torus(0.05, 0.012, 6, 16), steel, [0, 0.1, 0]),
+  ]
+}
+
+/**
+ * Dual adjustable pulley (functional trainer): two selectorized weight-stack towers, swiveling
+ * pulley columns with sliding carriages, and a top frame with a multi-grip pull-up bar.
+ */
+function trainer(): Part[] {
+  const steel = frame()
+  const chrome = palette.brushed()
+  const stackPlate = palette.powder('#2b2d2c')
+  const cable = palette.nylon('#0f1010')
+  const parts: Part[] = []
+  const T = 2.3,
+    S = 0.25,
+    rear = -1.15,
+    front = 0.42
+  for (const side of [-1, 1]) {
+    const x = side * T
+    // Foot frame and pads.
+    parts.push(part(roundedBox(0.95, 0.16, 3.1, 0.02, 1), steel, [x, 0.08, -0.12]))
+    parts.push(
+      ...pads([
+        [x - 0.35, -1.55],
+        [x + 0.35, -1.55],
+        [x - 0.35, 1.3],
+        [x + 0.35, 1.3],
+      ]),
+    )
+    // Stack frame: two rear posts, a front post, and the head plate.
+    for (const dx of [-0.38, 0.38])
+      parts.push(part(roundedBox(S, 7.3, S, 0.015, 1), steel, [x + dx, 3.8, rear]))
+    parts.push(part(roundedBox(1.02, S, 0.62, 0.015, 1), steel, [x, 7.4, rear + 0.12]))
+    parts.push(part(roundedBox(S, 7.3, S, 0.015, 1), steel, [x + side * 0.34, 3.8, front - 0.3]))
+    parts.push(part(roundedBox(S, S, 1.6, 0.015, 1), steel, [x + side * 0.34, 7.4, -0.55]))
+    // Guide rods and the selectorized stack.
+    for (const dx of [-0.2, 0.2])
+      parts.push(part(cylinder(0.034, 0.034, 6.9, 12), chrome, [x + dx, 3.6, rear]))
+    for (let i = 0; i < 18; i++)
+      parts.push(
+        part(roundedBox(0.6, 0.074, 0.42, 0.012, 1), stackPlate, [x, 0.3 + i * 0.081, rear]),
+      )
+    parts.push(part(roundedBox(0.64, 0.18, 0.46, 0.03, 2), steel, [x, 1.86, rear]))
+    parts.push(part(cylinder(0.02, 0.02, 1.45, 8), chrome, [x, 1.0, rear + 0.05]))
+    parts.push(
+      part(
+        cylinder(0.03, 0.03, 0.34, 12),
+        palette.plastic('#c4502c', 0.4),
+        [x, 1.0, rear + 0.24],
+        AXIS_Z,
+      ),
+    )
+    // Lift cable over the head pulleys down to the carriage.
+    parts.push(
+      part(
+        cylinder(0.014, 0.014, 5.45, 6),
+        cable,
+        [x, 4.7, rear + 0.05],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+    for (const z of [rear, front - 0.3])
+      parts.push(
+        part(
+          lathe(
+            'pulley',
+            [
+              [0.03, -0.035],
+              [0.17, -0.035],
+              [0.15, 0],
+              [0.17, 0.035],
+              [0.03, 0.035],
+            ],
+            24,
+          ),
+          palette.plastic('#151616', 0.5),
+          [x, 7.15, z],
+          AXIS_X,
+        ),
+      )
+    // Swiveling pulley column with numbered stops, carriage, pulley, cable, and handle.
+    const cx = side * (T - 0.72)
+    parts.push(part(roundedBox(0.2, 6.75, 0.2, 0.015, 1), steel, [cx, 3.62, front]))
+    parts.push(...holes(cx, front - 0.027, 0.6, 6.8, 0.42, 1))
+    parts.push(
+      part(roundedBox(Math.abs(cx - x) + 0.1, 0.18, 0.3, 0.015, 1), steel, [
+        (cx + x) / 2 + side * 0.13,
+        7.0,
+        front - 0.12,
+      ]),
+    )
+    parts.push(
+      part(roundedBox(Math.abs(cx - x) + 0.1, 0.18, 0.3, 0.015, 1), steel, [
+        (cx + x) / 2 + side * 0.13,
+        0.24,
+        front - 0.12,
+      ]),
+    )
+    const carriageY = side < 0 ? 4.4 : 3.6
+    parts.push(part(roundedBox(0.36, 0.72, 0.36, 0.05, 2), steel, [cx, carriageY, front]))
+    parts.push(
+      part(
+        cylinder(0.055, 0.055, 0.26, 14),
+        palette.plastic('#c4502c', 0.4),
+        [cx - side * 0.25, carriageY + 0.1, front],
+        AXIS_X,
+      ),
+    )
+    parts.push(
+      part(
+        lathe(
+          'pulley',
+          [
+            [0.03, -0.035],
+            [0.17, -0.035],
+            [0.15, 0],
+            [0.17, 0.035],
+            [0.03, 0.035],
+          ],
+          24,
+        ),
+        palette.plastic('#151616', 0.5),
+        [cx, carriageY - 0.5, front + 0.2],
+        AXIS_X,
+      ),
+    )
+    parts.push(
+      part(roundedBox(0.06, 0.4, 0.3, 0.02, 1), steel, [cx, carriageY - 0.38, front + 0.12]),
+    )
+    parts.push(
+      part(
+        cylinder(0.014, 0.014, 0.75, 6),
+        cable,
+        [cx, carriageY - 1.0, front + 0.36],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+    parts.push(...place(dHandle(), [cx, carriageY - 1.38, front + 0.36]))
+  }
+  // Top frame: rear and front cross members and the multi-grip pull-up bar.
+  parts.push(part(roundedBox(2 * T + 0.75, S, S, 0.015, 1), steel, [0, 7.48, rear]))
+  parts.push(part(roundedBox(2 * T + 0.1, S, S, 0.015, 1), steel, [0, 7.48, 0.15]))
+  parts.push(
+    part(
+      tube(
+        'trainer-pullup',
+        [
+          [-1.9, 7.42, 0.2],
+          [-1.4, 7.32, 1.0],
+          [-0.6, 7.3, 1.45],
+          [0.6, 7.3, 1.45],
+          [1.4, 7.32, 1.0],
+          [1.9, 7.42, 0.2],
+        ],
+        0.055,
+        12,
+      ),
+      palette.knurl(),
+    ),
+  )
+  for (const x of [-0.75, 0.75])
+    parts.push(part(cylinder(0.05, 0.05, 0.55, 14), palette.knurl(), [x, 7.1, 1.25], AXIS_Z))
+  for (const x of [-0.75, 0.75])
+    parts.push(part(roundedBox(0.12, 0.42, 0.12, 0.02, 1), steel, [x, 7.3, 1.25]))
+  return parts
+}
+
+/**
+ * Fan bike: a caged steel-bladed fan, push-pull arms linked to the cranks, an upright seat, and
+ * a small console above the fan.
+ */
+function airbike(): Part[] {
+  const steel = palette.powder('#1b1d1c')
+  const chrome = palette.brushed()
+  const wire = palette.powder('#2a2c2b')
+  const grip = palette.rubber('#141515')
+  const parts: Part[] = []
+  const fanY = 1.42,
+    fanZ = -1.05,
+    R = 1.03,
+    half = 0.32
+  // Stabilizers with transport wheels at the front.
+  parts.push(part(roundedBox(2.0, 0.16, 0.3, 0.07, 2), steel, [0, 0.1, -1.8]))
+  parts.push(part(roundedBox(1.85, 0.16, 0.3, 0.07, 2), steel, [0, 0.1, 1.85]))
+  for (const x of [-0.92, 0.92])
+    parts.push(
+      part(cylinder(0.11, 0.11, 0.08, 20), palette.rubber('#151616'), [x, 0.11, -2.0], AXIS_X),
+    )
+  // Main frame: rear foot to seat tube, then the low spine to the fan hub.
+  parts.push(
+    part(
+      tube(
+        'airbike-spine',
+        [
+          [0, 0.18, 1.85],
+          [0, 0.75, 1.25],
+          [0, 1.15, 0.6],
+          [0, 1.3, 0.05],
+          [0, 1.36, -0.55],
+          [0, fanY, fanZ + 0.25],
+        ],
+        0.12,
+        14,
+      ),
+      steel,
+    ),
+  )
+  parts.push(
+    part(
+      tube(
+        'airbike-front',
+        [
+          [0, 0.18, -1.8],
+          [0, 0.6, -1.55],
+          [0, 1.0, -1.25],
+        ],
+        0.09,
+        12,
+      ),
+      steel,
+    ),
+  )
+  for (const side of [-1, 1])
+    parts.push(
+      part(
+        tube(
+          `airbike-fork:${side}`,
+          [
+            [side * 0.05, 0.9, -0.2],
+            [side * (half + 0.12), 1.2, -0.65],
+            [side * (half + 0.12), fanY, fanZ],
+          ],
+          0.06,
+          10,
+        ),
+        steel,
+      ),
+    )
+  // Fan: hub, ten pitched blades, side grilles, and the circumferential cage.
+  parts.push(part(cylinder(0.2, 0.2, 2 * half + 0.24, 24), chrome, [0, fanY, fanZ], AXIS_X))
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2
+    parts.push(
+      part(
+        roundedBox(0.035, 0.7, 0.34, 0.01, 1),
+        palette.powder('#3a3d3c'),
+        [0, fanY + Math.cos(a) * 0.6, fanZ + Math.sin(a) * 0.6],
+        [a, 0.55, 0],
+      ),
+    )
+  }
+  const rim = torus(R, 0.04, 8, 64)
+  const ring = torus(0.62, 0.016, 6, 48)
+  const inner = torus(0.3, 0.016, 6, 32)
+  for (const sx of [-half, half]) {
+    parts.push(part(rim, steel, [sx, fanY, fanZ], [0, Math.PI / 2, 0]))
+    parts.push(part(ring, wire, [sx, fanY, fanZ], [0, Math.PI / 2, 0], undefined, false))
+    parts.push(part(inner, wire, [sx, fanY, fanZ], [0, Math.PI / 2, 0], undefined, false))
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2
+      parts.push(
+        part(
+          cylinder(0.011, 0.011, R - 0.26, 5),
+          wire,
+          [sx, fanY + (Math.cos(a) * (R + 0.26)) / 2, fanZ + (Math.sin(a) * (R + 0.26)) / 2],
+          [a, 0, 0],
+          undefined,
+          false,
+        ),
+      )
+    }
+  }
+  for (let i = 0; i < 44; i++) {
+    const a = (i / 44) * Math.PI * 2
+    parts.push(
+      part(
+        cylinder(0.012, 0.012, 2 * half, 5),
+        wire,
+        [0, fanY + Math.cos(a) * R, fanZ + Math.sin(a) * R],
+        AXIS_X,
+        undefined,
+        false,
+      ),
+    )
+  }
+  // Drive cover from the cranks to the fan hub.
+  parts.push(
+    part(
+      extrude('airbike-cover', () => roundedRectShape(1.45, 0.62, 0.3), 0.08, 0.02, 12),
+      steel,
+      [half + 0.2, 1.3, -0.4],
+      [0, Math.PI / 2, 0],
+    ),
+  )
+  // Cranks, pedals, and the arm linkages.
+  parts.push(part(cylinder(0.13, 0.13, 0.62, 20), steel, [0, 1.15, 0.2], AXIS_X))
+  for (const side of [-1, 1]) {
+    const a = side > 0 ? 0.9 : 0.9 + Math.PI
+    const px = side * 0.42,
+      py = 1.15 + Math.sin(a) * 0.55,
+      pz = 0.2 + Math.cos(a) * 0.55
+    parts.push(
+      part(
+        roundedBox(0.06, 0.62, 0.1, 0.02, 1),
+        chrome,
+        [side * 0.34, (1.15 + py) / 2, (0.2 + pz) / 2],
+        [Math.PI / 2 - a, 0, 0],
+      ),
+    )
+    parts.push(part(roundedBox(0.36, 0.07, 0.2, 0.02, 1), black(), [px + side * 0.08, py, pz]))
+    // Push-pull arm from the low linkage, through the pivot, up to the grip.
+    parts.push(
+      part(
+        tube(
+          `airbike-arm:${side}`,
+          [
+            [side * 0.46, 0.95, 0.05],
+            [side * 0.5, 1.75, -0.35],
+            [side * 0.52, 2.45, -0.55],
+            [side * 0.55, 3.35, -0.45],
+            [side * 0.62, 4.05, -0.25],
+          ],
+          0.065,
+          12,
+        ),
+        steel,
+      ),
+    )
+    parts.push(
+      part(cylinder(0.075, 0.075, 0.95, 16), grip, [side * 0.64, 4.05, -0.18], [0.35, 0, 0]),
+    )
+    parts.push(part(cylinder(0.1, 0.1, 0.16, 16), chrome, [side * 0.44, 2.45, -0.55], AXIS_X))
+    // Stationary foot pegs.
+    parts.push(part(cylinder(0.05, 0.05, 0.3, 12), grip, [side * 0.55, 1.62, -0.45], AXIS_X))
+  }
+  // Console mast and display.
+  parts.push(part(cylinder(0.06, 0.06, 1.35, 16), steel, [0, 3.0, -0.6], [-0.12, 0, 0]))
+  parts.push(part(roundedBox(0.7, 0.5, 0.16, 0.06, 2), steel, [0, 3.8, -0.68], [-0.4, 0, 0]))
+  parts.push(
+    part(screen(0.52, 0.3), consoleScreen(), [0, 3.81, -0.6], [-0.4, 0, 0], undefined, false),
+  )
+  // Seat post and saddle.
+  parts.push(part(cylinder(0.07, 0.07, 1.6, 16), chrome, [0, 2.25, 1.1], [-0.22, 0, 0]))
+  parts.push(part(roundedBox(0.62, 0.16, 0.7, 0.08, 3), palette.vinyl('#1b1c1c'), [0, 3.08, 1.3]))
+  parts.push(part(roundedBox(0.3, 0.14, 0.55, 0.07, 3), palette.vinyl('#1b1c1c'), [0, 3.08, 0.78]))
+  return parts
+}
+
+/**
+ * Half rack: front uprights with J-cups and spotter arms, a deep base, a top frame with a
+ * pull-up bar, and plate storage horns at the back.
+ */
+function halfrack(): Part[] {
+  const steel = frame()
+  const S = 0.25,
+    X = 1.95,
+    front = 1.15,
+    back = -1.35
+  const parts: Part[] = []
+  for (const x of [-X, X]) {
+    for (const z of [front, back])
+      parts.push(part(roundedBox(S, 7.35, S, 0.015, 1), steel, [x, 3.78, z]))
+    parts.push(...holes(x, front, 0.9, 7.1, 1 / 3, 1))
+    parts.push(...holes(x, front, 0.9, 7.1, 1 / 3, -1))
+    parts.push(part(roundedBox(S, 0.2, 3.95, 0.015, 1), steel, [x, 0.1, -0.08]))
+    parts.push(
+      part(roundedBox(S, S, front - back + S, 0.015, 1), steel, [x, 7.4, (front + back) / 2]),
+    )
+    // Spotter arms with UHMW strips.
+    parts.push(part(roundedBox(0.2, 0.2, 0.95, 0.02, 1), steel, [x, 3.15, front + 0.5]))
+    parts.push(
+      part(
+        box(0.16, 0.03, 0.85, {}),
+        palette.plastic('#101111', 0.6),
+        [x, 3.26, front + 0.52],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+    // J-cups facing inward.
+    parts.push(part(roundedBox(0.28, 0.55, 0.06, 0.01, 1), steel, [x, 4.45, front - 0.155]))
+    parts.push(part(roundedBox(0.12, 0.08, 0.36, 0.01, 1), steel, [x, 4.22, front - 0.33]))
+    parts.push(part(roundedBox(0.12, 0.18, 0.05, 0.01, 1), steel, [x, 4.34, front - 0.49]))
+  }
+  parts.push(
+    ...pads([
+      [-X, 1.85],
+      [X, 1.85],
+      [-X, -2.0],
+      [X, -2.0],
+    ]),
+  )
+  parts.push(part(roundedBox(2 * X, 0.24, S, 0.015, 1), steel, [0, 0.32, back]))
+  parts.push(part(roundedBox(2 * X + S, S, S, 0.015, 1), steel, [0, 7.4, back]))
+  parts.push(
+    part(cylinder(0.052, 0.052, 2 * X + 0.4, 24), palette.knurl(), [0, 7.15, front + 0.06], AXIS_X),
+  )
+  // Loaded bar on the J-cups.
+  const barY = 4.4
+  parts.push(...place(barbell(), [0, barY, front - 0.5]))
+  for (const side of [-1, 1]) parts.push(...place(bumper(), [side * 2.62, barY, front - 0.5]))
+  // Plate storage horns at the back with stored bumpers.
+  for (const x of [-1.0, 1.0]) {
+    parts.push(
+      part(cylinder(0.09, 0.09, 0.78, 20), palette.brushed(), [x, 0.78, back - 0.39], AXIS_Z),
+    )
+    for (let i = 0; i < 2; i++)
+      parts.push(...place(bumper(), [x, 0.78, back - 0.27 - i * 0.25], [0, Math.PI / 2, 0]))
+  }
+  return parts
+}
+
+/** Vertical med-ball tower: five slam/wall balls on welded ring cradles. */
+function medball(): Part[] {
+  const steel = frame()
+  const parts: Part[] = [
+    part(roundedBox(1.5, 0.12, 1.5, 0.04, 2), steel, [0, 0.06, 0]),
+    part(roundedBox(0.2, 4.55, 0.2, 0.015, 1), steel, [0, 2.33, -0.5]),
+    ...pads(
+      [
+        [-0.6, -0.6],
+        [0.6, -0.6],
+        [-0.6, 0.6],
+        [0.6, 0.6],
+      ],
+      0.2,
+    ),
+  ]
+  const colors = ['#4a2a25', '#545b3d', '#1d1e1e', '#6e5a3e', '#2f3946']
+  colors.forEach((color, i) => {
+    const r = 0.44 - i * 0.025
+    const y = 0.62 + i * 0.93
+    const ball = material({
+      set: 'rubberized_track',
+      color,
+      roughness: 0.85,
+      normalScale: 0.5,
+      interior: true,
+    })
+    parts.push(part(sphere(r, 36, 24), ball, [0, y, 0.12]))
+    parts.push(
+      part(
+        torus(r + 0.003, 0.012, 6, 48),
+        black(),
+        [0, y, 0.12],
+        [Math.PI / 2, 0, 0],
+        undefined,
+        false,
+      ),
+    )
+    parts.push(
+      part(torus(r + 0.003, 0.012, 6, 48), black(), [0, y, 0.12], [0, 0.6, 0], undefined, false),
+    )
+    parts.push(part(torus(0.27, 0.03, 8, 32), steel, [0, y - r * 0.82, 0.12], [Math.PI / 2, 0, 0]))
+    parts.push(part(roundedBox(0.08, 0.08, 0.42, 0.02, 1), steel, [0, y - r * 0.82, -0.3]))
+  })
+  return parts
+}
+
+/** A 30 x 24 x 20 in. plywood plyo box beside a stability ball. */
+function plyo(): Part[] {
+  const ply = palette.ply()
+  const slot = black()
+  const parts: Part[] = [
+    part(roundedBox(2.5, 1.67, 2.0, 0.05, 2), ply, [-0.95, 0.835, -0.05]),
+    part(sphere(0.9, 48, 32), palette.plastic('#b6b9b8', 0.32), [1.3, 0.9, 0.1]),
+  ]
+  for (const sx of [-1, 1])
+    parts.push(
+      part(
+        roundedBox(0.02, 0.2, 0.62, 0.09, 2),
+        slot,
+        [-0.95 + sx * 1.252, 1.25, -0.05],
+        undefined,
+        undefined,
+        false,
+      ),
+    )
+  return parts
+}
+
+/** Oak open shelving styled with woven baskets, rolled towels, mats, and a plant. */
+function shelf(): Part[] {
+  const oak = palette.oakOiled()
+  const fabric = palette.fabric('#efebe2')
+  const basket = palette.fabric('#94714b')
+  const parts: Part[] = []
+  for (const x of [-1.76, 1.76])
+    parts.push(part(roundedBox(0.08, 6.2, 1.25, 0.015, 1, { swap: true }), oak, [x, 3.1, 0]))
+  for (const y of [0.22, 1.72, 3.22, 4.72, 6.12])
+    parts.push(part(roundedBox(3.44, 0.07, 1.2, 0.012, 1), oak, [0, y, 0]))
+  // Baskets on the lowest shelf.
+  for (const x of [-0.85, 0.85]) {
+    parts.push(part(cylinder(0.55, 0.46, 0.7, 32), basket, [x, 0.61, 0]))
+    parts.push(part(torus(0.55, 0.035, 6, 32), basket, [x, 0.96, 0], [Math.PI / 2, 0, 0]))
+  }
+  // Rolled towels.
+  for (let i = 0; i < 5; i++)
+    parts.push(
+      part(
+        cylinder(0.17, 0.17, 0.95, 20),
+        fabric,
+        [-1.2 + i * 0.36, 1.92 + (i % 2) * 0.02, 0.05],
+        AXIS_Z,
+      ),
+    )
+  for (let i = 0; i < 3; i++)
+    parts.push(part(cylinder(0.17, 0.17, 0.95, 20), fabric, [-1.02 + i * 0.36, 2.25, 0.05], AXIS_Z))
+  // Rolled mats and a block.
+  for (const [x, color] of [
+    [-1.0, '#7c8a6c'],
+    [-0.55, '#b9a68b'],
+  ] as const)
+    parts.push(part(cylinder(0.2, 0.2, 1.05, 24), palette.rubber(color), [x, 3.46, 0], AXIS_Z))
+  parts.push(part(roundedBox(0.75, 0.5, 0.45, 0.05, 2), palette.rubber('#c9b79c'), [0.9, 3.51, 0]))
+  // Ceramic pot with a sansevieria on the upper shelf.
+  parts.push(part(cylinder(0.32, 0.25, 0.62, 32), palette.plastic('#e8e4dc', 0.5), [-0.7, 5.07, 0]))
+  const leaf = material({ color: '#3d5a32', roughness: 0.55, interior: true })
+  // Sansevieria: tapered, flattened blades fanning from the pot.
+  const blade = cylinder(0, 0.075, 1, 4)
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 * 1.618
+    const height = 0.45 + noise(i, 7) * 0.28
+    parts.push(
+      part(
+        blade,
+        leaf,
+        [-0.7 + Math.cos(a) * 0.1, 5.35 + height / 2, Math.sin(a) * 0.1],
+        [Math.sin(a) * 0.16, a, Math.cos(a) * 0.16],
+        [1, height, 0.22],
+      ),
+    )
+  }
+  for (let i = 0; i < 4; i++)
+    parts.push(
+      part(
+        roundedBox(0.16, 0.95, 0.75, 0.02, 1),
+        palette.fabric(['#cfc6b4', '#8e9a82', '#d9d2c4', '#6d6457'][i]),
+        [0.45 + i * 0.2, 5.24, 0],
+        [0, 0, 0.04 * i],
+      ),
+    )
+  return parts
+}
+
 const BUILDERS: Record<PlacedItem['sku'], () => Part[]> = {
   rack,
+  halfrack,
+  trainer,
+  medball,
+  airbike,
+  plyo,
+  shelf,
   bench,
   weights: dumbbellRack,
   sauna,

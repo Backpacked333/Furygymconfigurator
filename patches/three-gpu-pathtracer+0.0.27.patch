@@ -1,0 +1,54 @@
+diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js b/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js
+index 1c7476e..89798ce 100644
+--- a/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js
++++ b/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js
+@@ -82,23 +82,37 @@ export class MaterialKernel extends ComputeKernel {
+ 					// the slot's path has terminated: recycle the pixel through the overflow queue and
+ 					// generate a fresh camera ray
+ 					var pixelIndex = input.pixelIndex;
++					var indexUV = vec2u( pixelIndex >> 16, pixelIndex & 0xFFFF );
++					var samples = 0u;
++					var isComplete = false;
+ 					let elementCount = atomicLoad( &pixelQueue.elementCount );
+-					if ( elementCount > 0u ) {
+ 
+-						// TODO: If we've pulled off a pixel that's already finished we currently just
+-						// write a no-op ray, wasting a frame. It may be better to iterate over a few
+-						// points in the queue to see if we can find one we can use.
+-						let queueIndex = atomicAdd( &pixelQueue.current, 1u ) % elementCount;
+-						pixelIndex = atomicExchange( &pixelQueue.elements[ queueIndex ], pixelIndex );
++					// Swap the slot's pixel for the next one in the queue, and keep looking a few entries
++					// ahead while the pixel drawn has already finished: once most of an image is
++					// complete, a single draw would leave most slots idle for the round. Each swap
++					// returns the slot's pixel to the queue, so no pixel is lost or duplicated.
++					for ( var attempt = 0u; attempt < 8u; attempt ++ ) {
+ 
+-					}
++						if ( elementCount > 0u ) {
++
++							let queueIndex = atomicAdd( &pixelQueue.current, 1u ) % elementCount;
++							pixelIndex = atomicExchange( &pixelQueue.elements[ queueIndex ], pixelIndex );
++
++						}
++
++						indexUV = vec2u( pixelIndex >> 16, pixelIndex & 0xFFFF );
+ 
+-					let indexUV = vec2u( pixelIndex >> 16, pixelIndex & 0xFFFF );
++						// skip the pixel if it has hit the sample limit
++						let combinedField = textureLoad( ${ params.sampleCountTarget }, indexUV ).r;
++						samples = ( ${ SAMPLE_COUNT_MASK }u & combinedField );
++						isComplete = maxSamples != 0u && samples >= maxSamples;
++						if ( ! isComplete || elementCount == 0u ) {
+ 
+-					// skip the pixel if it has hit the sample limit
+-					let combinedField = textureLoad( ${ params.sampleCountTarget }, indexUV ).r;
+-					let samples = ( ${ SAMPLE_COUNT_MASK }u & combinedField );
+-					let isComplete = maxSamples != 0u && samples >= maxSamples;
++							break;
++
++						}
++
++					}
+ 
+ 					if ( isComplete ) {
+ 

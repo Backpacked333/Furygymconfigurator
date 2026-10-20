@@ -11,7 +11,10 @@
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "bake": "node scripts/bake-stills.mjs",
+    "bake:quick": "node scripts/bake-stills.mjs --quick",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.6",
@@ -21,9 +24,13 @@
     "jspdf": "^4.2.0",
     "lucide-react": "^0.468.0",
     "lz-string": "^1.5.0",
+    "oidn-web": "0.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "sharp": "0.35.5",
     "three": "^0.186.1",
+    "three-gpu-pathtracer": "0.0.27",
+    "three-mesh-bvh": "^0.9.16",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -38,6 +45,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "jsdom": "^26.1.0",
+    "patch-package": "8.0.1",
     "prettier": "^3.9.10",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.2",

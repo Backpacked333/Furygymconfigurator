@@ -2,3 +2,11 @@ dist
 node_modules
 package-lock.json
 public/textures/sources.json
+# Written by scripts/bake-stills.mjs.
+src/stills.manifest.json
+# Immutable, checksummed local CPU review receipts; never rewrite their published bytes.
+src/render/prototype/.local-*/
+# Generated native-library metadata; preserve its published bytes.
+public/native-library/manifest.json
+# User-supplied, self-contained animation exports; preserve byte-for-byte.
+public/builds
