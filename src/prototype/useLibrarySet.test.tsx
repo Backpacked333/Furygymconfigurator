@@ -246,6 +246,8 @@ it('pauses hidden-tab polling and stops after bounded repeated failures', async 
   expect(api.read).not.toHaveBeenCalled()
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   act(() => document.dispatchEvent(new Event('visibilitychange')))
+  // Reconnect computes identity through native WebCrypto, outside the virtual timer queue.
+  await vi.waitFor(() => expect(api.lookup.mock.calls.length).toBeGreaterThanOrEqual(2))
   await act(async () => vi.advanceTimersByTimeAsync(300_000))
   // Returning to the tab starts a fresh bounded read-only recovery cycle.
   expect(api.lookup.mock.calls.length).toBeGreaterThanOrEqual(4)
