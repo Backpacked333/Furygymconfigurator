@@ -68,9 +68,7 @@ class Provider:
         self.root, self.work = root, work
 
     def command(self, action, control):
-        path = self.work / "provider-control.json"
-        atomic_json(path, control)
-        return [sys.executable, "-m", "on_demand.provider", action, str(path)]
+        raise NotImplementedError("provider-command-required")
 
     def call(self, action, control, timeout=45):
         proc = subprocess.Popen(
@@ -595,7 +593,9 @@ def main():
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
         os.environ.get("VERCEL_OIDC_TOKEN"),
     )
-    worker = Dispatcher(service, Provider(root, work), journal, policy, root, work)
+    from .vast_provider import VastProvider
+
+    worker = Dispatcher(service, VastProvider(root, work), journal, policy, root, work)
     worker.verify_source()
     while True:
         for row in journal.jobs():
