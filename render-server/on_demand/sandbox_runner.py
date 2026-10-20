@@ -32,9 +32,9 @@ def frame(value):
 def clean_env():
     result = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-        "HOME": "/tmp",
-        "TMPDIR": "/tmp",
-        "PYTHONPATH": "/opt/fury/render-server",
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
     }
     for key in (
         "CUDA_VISIBLE_DEVICES",
@@ -87,7 +87,7 @@ def extract(stream, root, length):
 
 def run(root):
     job = json.loads((root / "job.json").read_text())
-    recipe = json.loads(Path("/opt/fury/recipe.json").read_text())
+    recipe = json.loads((Path(__file__).resolve().parents[2] / "recipe.json").read_text())
     claim = validate_claim(job["claim"], recipe)
     if {v["imageKey"] for v in job["views"]} != {v["imageKey"] for v in claim["views"]} or len(
         job["views"]
@@ -131,7 +131,7 @@ def run(root):
             if not completed_samples:
                 raise RuntimeError("completed-samples-unproven")
             receipt = json.loads((root / "receipt.json").read_text())
-            verify_receipt(receipt, claim, view)
+            verify_receipt(receipt, claim, view, recipe.get("gpuDevice", "NVIDIA L40S"))
             verify_webp(root / "image.webp", receipt)
             frame({"kind": "progress", "stage": "saving", "cameraRef": view["cameraRef"]})
             frame({"kind": "artifact-start", "receipt": receipt})
@@ -159,14 +159,20 @@ def run(root):
 def ensure_non_root():
     if os.getuid() == 0:
         os.setgroups([])
-        os.setgid(10001)
-        os.setuid(10001)
+        uid = int(os.environ.get("FURY_RENDER_UID", "10001"))
+        if uid not in (10001, 10002):
+            raise RuntimeError("invalid-render-uid")
+        os.setgid(uid)
+        os.setuid(uid)
     if os.getuid() == 0:
         raise RuntimeError("non-root-Sandbox-required")
 
 
 def main():
     ensure_non_root()
+    if os.environ.get("FURY_BLOCK_NETWORK") == "1":
+        from .network_policy import block_internet
+        block_internet()
 
     def timeout(*_):
         raise TimeoutError("startup-deadline")

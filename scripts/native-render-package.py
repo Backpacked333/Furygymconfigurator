@@ -18,7 +18,7 @@ def registration(files):
     subset = lambda prefixes: checksum(
         encode({k: v for k, v in files.items() if k.startswith(prefixes)})
     )
-    return {
+    recipe = {
         "releaseId": "fury-native-five@2",
         "workerBuildSha256": checksum(encode(files)),
         "recipeBundleSha256": subset(("src/", "public/", "scripts/native-render-",
@@ -30,6 +30,9 @@ def registration(files):
                                  "src/render/prototype/")),
         "rendererSha256": subset(("render-server/fury_render/", "render-server/on_demand/")),
     }
+    if "render-server/on_demand/vast_runtime.py" in files:
+        recipe["gpuDevice"] = "NVIDIA GeForce RTX 5090"
+    return recipe
 
 
 def write_package(output, files, sources, metadata=None):
@@ -48,7 +51,7 @@ def write_package(output, files, sources, metadata=None):
     return manifest
 
 
-def queue_upgrade(base, output):
+def verified_sources(base):
     base = Path(base).resolve()
     manifest = json.loads((base / "native-build.json").read_text())
     if manifest["recipe"] != registration(manifest["files"]) or json.loads(
@@ -65,6 +68,11 @@ def queue_upgrade(base, output):
         if checksum(data) != expected:
             raise RuntimeError("base-source-drift")
         sources[name] = data
+    return manifest, sources
+
+
+def queue_upgrade(base, output):
+    manifest, sources = verified_sources(base)
     replacements = {
         "src/render-library/workerProtocol.ts": [
             ("maxActiveJobsPerSession: 1,", "maxActiveJobsPerSession: 2,"),
@@ -91,6 +99,35 @@ def queue_upgrade(base, output):
         "workerRevision": "fury-native-queue-worker@1",
         "compatibleWithWorkerBuildSha256": manifest["recipe"]["workerBuildSha256"],
         "changes": changes,
+    })
+
+
+def vast_upgrade(base, output):
+    manifest, sources = verified_sources(base)
+    if manifest["recipe"].get("gpuDevice"):
+        raise RuntimeError("already-vast-worker")
+    root = Path(__file__).resolve().parents[1]
+    renderer = "render-server/on_demand/renderer.py"
+    expected = sources[renderer].decode().replace(
+        '    if native != ["NVIDIA L40S"]:\n        raise RuntimeError("one-L40S-required")',
+        '    recipe = json.loads((Path(__file__).resolve().parents[2] / "recipe.json").read_text())\n'
+        '    expected_device = recipe.get("gpuDevice", "NVIDIA L40S")\n'
+        '    if expected_device not in ("NVIDIA L40S", "NVIDIA GeForce RTX 5090") or native != [expected_device]:\n'
+        '        raise RuntimeError("registered-GPU-required")',
+    ).replace('            "device": "NVIDIA L40S",', '            "device": native[0],')
+    if expected != (root / renderer).read_text():
+        raise RuntimeError("pixel-renderer-changed")
+    names = ["src/render-library/workerProtocol.ts", renderer] + [
+        "render-server/on_demand/" + name for name in
+        ("validation.py", "dispatcher.py", "sandbox_runner.py", "vast_provider.py", "vast_runtime.py", "network_policy.py")
+    ]
+    for name in names:
+        sources[name] = (root / name).read_bytes()
+    files = {name: checksum(data) for name, data in sources.items()}
+    return write_package(output, files, sources, {
+        "workerRevision": "fury-native-vast-warm@1",
+        "compatibleWithWorkerBuildSha256": manifest["recipe"]["workerBuildSha256"],
+        "changes": {name: {"before": manifest["files"].get(name), "after": files[name]} for name in names},
     })
 
 
@@ -148,6 +185,7 @@ def package(output):
 
 
 if __name__ == "__main__":
-    result = (queue_upgrade(sys.argv[2], sys.argv[3]) if sys.argv[1] == '--queue-upgrade'
+    result = (vast_upgrade(sys.argv[2], sys.argv[3]) if sys.argv[1] == '--vast-upgrade' else
+              queue_upgrade(sys.argv[2], sys.argv[3]) if sys.argv[1] == '--queue-upgrade'
               else package(sys.argv[1]))
     print(json.dumps({k: v for k, v in result.items() if k != 'files'}))

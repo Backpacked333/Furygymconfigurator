@@ -155,6 +155,8 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610200001_render_queue_lanes.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200002_worker_builds.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200003_work_conserving_dispatch.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200004_warm_worker_profile.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200005_warm_build_backlog.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -307,6 +309,49 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     const changed = structuredClone(command)
     changed.request.design.presentation.cameraRef = 'front-draft@1'
     expect(reserve(changed).error.code).toBe('idempotency-conflict')
+  })
+  it('pins warm two-slot claims to one GPU while preserving a durable build backlog', async () => {
+    const warm = {
+      ...workerRegistration,
+      workerBuildSha256: '7'.repeat(64),
+      gpuDevice: 'NVIDIA GeForce RTX 5090',
+    }
+    run(`insert into public.render_library_worker_builds(worker_build_sha256,release_id,revision,registration,max_active_jobs_per_session)
+      values(${quote(warm.workerBuildSha256)},'fury-native-five@2','vast-warm@1',${encoded(warm)},2);
+      update public.render_library_approvals set active_worker_build_sha256=${quote(warm.workerBuildSha256)};`)
+    const requests = await Promise.all([0, 1, 2, 3].map(variation))
+    const results = requests.map((request) => reserve(request))
+    expect(results.every((result) => result.status === 'admitted')).toBe(true)
+    expect(ledger().reserved_micro_usd).toBe(4 * 5500)
+    expect(reserve(requests[0]).status).toBe('joined')
+    expect(dispatch('foreground', workerRegistration.workerBuildSha256)).toBeNull()
+    const claimed = dispatch('foreground', warm.workerBuildSha256)
+    const worker = workerClaim(claimed.dispatch, warm.workerBuildSha256)
+    expect(worker.limits).toMatchObject({
+      maxContainers: 1,
+      concurrencyPerContainer: 2,
+      minContainers: 1,
+      maxActiveJobsPerSession: 2,
+      maxCreatesPerSessionPerHour: 60,
+    })
+    const background = dispatch('background', warm.workerBuildSha256)
+    workerClaim(background.dispatch, warm.workerBuildSha256)
+    expect(dispatch('foreground', warm.workerBuildSha256)).toBeNull()
+    expect(dispatch('background', warm.workerBuildSha256)).toBeNull()
+    run("update public.render_library_sessions set expires_at=now()-interval '1 second'")
+    expect(run("select count(*) from public.render_library_jobs where stage='queued'")).toBe('2')
+    expect(
+      run("select count(*) from public.render_library_reservations where status='reserved'"),
+    ).toBe('4')
+    requests.forEach((request) => {
+      const saved = JSON.parse(
+        run(
+          `select design from public.render_library_sets where set_key=${quote(request.identity.setKey)}`,
+        ),
+      )
+      expect(saved).toEqual(request.request.design)
+    })
+    expect(run('select count(*) from public.render_library_worker_builds')).toBe('3')
   })
   it('enforces expiry, activation, valid session and budget before reservation', async () => {
     run('update public.render_library_approvals set enabled=false;')

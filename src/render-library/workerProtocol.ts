@@ -42,15 +42,15 @@ export const executionLimitsSchema = z
     imageSeconds: z.number().int().positive().max(300),
     jobSeconds: z.number().int().positive().max(2100),
     maxContainers: z.number().int().positive().max(2),
-    concurrencyPerContainer: z.literal(1),
+    concurrencyPerContainer: z.number().int().positive().max(2),
     maxActiveJobsPerSession: z.number().int().positive().max(2),
-    maxCreatesPerSessionPerHour: z.number().int().positive().max(3),
-    minContainers: z.literal(0),
+    maxCreatesPerSessionPerHour: z.number().int().positive().max(60),
+    minContainers: z.number().int().min(0).max(1),
     providerRetries: z.literal(0),
   })
   .strict()
 
-/** Only this is sent to Modal. The private worker obtains the trusted design via durable claim. */
+/** The private worker obtains the trusted design only through a durable claim. */
 export const dispatchEnvelopeSchema = z
   .object({
     contractVersion: z.literal(CONTRACT_VERSION),
@@ -135,7 +135,7 @@ export const artifactReceiptSchema = z
     completedSamples: z.literal(1024),
     adaptiveSampling: z.literal(false),
     quality: z.literal(95),
-    device: z.literal('NVIDIA L40S'),
+    device: z.enum(['NVIDIA L40S', 'NVIDIA GeForce RTX 5090']),
     engine: z.literal('CYCLES'),
     backend: z.literal('OPTIX'),
     blenderVersion: z.literal('4.5.0'),

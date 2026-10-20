@@ -2,9 +2,16 @@
   "version": 1,
   "schema": "public",
   "roles": {
-    "read": ["service_role"],
-    "mutate": ["service_role"],
-    "denied": ["anon", "authenticated"]
+    "read": [
+      "service_role"
+    ],
+    "mutate": [
+      "service_role"
+    ],
+    "denied": [
+      "anon",
+      "authenticated"
+    ]
   },
   "tables": {
     "render_library_recipes": {
@@ -76,7 +83,9 @@
         "receipt": "jsonb not null",
         "created_at": "timestamptz not null"
       },
-      "unique": ["set_key,camera_ref"],
+      "unique": [
+        "set_key,camera_ref"
+      ],
       "invariants": [
         "Only verified, immutable images enter this table; no pending rows.",
         "Seed provenance is retained, not rewritten as native-worker evidence."
@@ -114,7 +123,10 @@
         "retry_safe": "boolean not null default false",
         "error": "jsonb"
       },
-      "primaryKey": ["job_id", "image_key"],
+      "primaryKey": [
+        "job_id",
+        "image_key"
+      ],
       "invariants": [
         "Unique active ownership of each missing image across jobs.",
         "Cached images are excluded from reservation and worker claim.",
@@ -131,7 +143,9 @@
         "termination_evidence": "jsonb",
         "charged_micro_usd": "bigint"
       },
-      "unique": ["job_id"],
+      "unique": [
+        "job_id"
+      ],
       "invariants": [
         "Reserve startup + missing image worst case before creating an outbox row.",
         "Unknown provider state retains full liability; a local timeout is not termination evidence.",
@@ -150,7 +164,9 @@
         "worker_claimed_at": "timestamptz",
         "lane": "text not null default 'foreground'"
       },
-      "unique": ["job_id"],
+      "unique": [
+        "job_id"
+      ],
       "invariants": [
         "pending -> dispatching is a one-time atomic transition BEFORE network send.",
         "Never lease-expire/re-send dispatching or uncertain messages.",
@@ -169,7 +185,9 @@
         "payload": "jsonb not null",
         "created_at": "timestamptz not null"
       },
-      "unique": ["attempt_id,sequence"],
+      "unique": [
+        "attempt_id,sequence"
+      ],
       "invariants": [
         "Reject stale fence/attempt and out-of-order events.",
         "Duplicate event IDs are idempotent only with identical payload.",
@@ -200,8 +218,13 @@
         "request_digest": "text not null",
         "job_id": "uuid not null references render_library_jobs(id)"
       },
-      "primaryKey": ["session_hash", "idempotency_key"],
-      "invariants": ["Replayed key returns existing result; changed request digest conflicts."]
+      "primaryKey": [
+        "session_hash",
+        "idempotency_key"
+      ],
+      "invariants": [
+        "Replayed key returns existing result; changed request digest conflicts."
+      ]
     }
   },
   "storage": {

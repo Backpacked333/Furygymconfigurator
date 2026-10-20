@@ -31,6 +31,7 @@ export const registrationSchema = z
     materialsSha256: sha256Schema,
     camerasSha256: sha256Schema,
     rendererSha256: sha256Schema,
+    gpuDevice: z.literal('NVIDIA GeForce RTX 5090').optional(),
   })
   .strict()
 export const policySchema = z
