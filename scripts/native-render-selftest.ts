@@ -173,6 +173,42 @@ try {
       )
       assert.ok(resolveNativeCamera(design).position[2] > 4)
     }
+  // Same canonical input must produce byte-identical preparation, not just matching keys.
+  for (const family of ['studio', 'container'] as const) {
+    const original = normalizeCustomerDesign(defaultDesign({ family, lengthFt: 20 }))
+    const changed = parseDesign({
+      ...original,
+      config: {
+        ...original.config,
+        appearance: {
+          ...original.config.appearance,
+          interior: 'timber',
+          floor: 'oak',
+          mirror: true,
+        },
+      },
+    })
+    const results = []
+    for (const [index, design] of [original, changed].entries()) {
+      const identity = await computeSetIdentity(design)
+      results.push(
+        await prepareNativeClaim(
+          {
+            ...fixture.claim,
+            design,
+            identity,
+            views: [
+              { cameraRef: 'rear-left-draft@1', imageKey: identity.imageKeys['rear-left-draft@1'] },
+            ],
+          },
+          recipe,
+          join(base, `shared-rear-${family}-${index}`),
+        ),
+      )
+    }
+    assert.deepEqual(results[0].views, results[1].views)
+    assert.equal(results[0].bytes, results[1].bytes)
+  }
   // Blender environment u=1/2-atan2(y,x)/2pi,v=1/2+asin(z)/pi.
   // Existing native mapping rotates +pi/2 around X: (x,y,z)->(x,-z,y).
   // Thus Three's azimuth and north/south are retained, with rows bottom-up.

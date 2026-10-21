@@ -14,6 +14,9 @@ import {
 } from '../../contracts'
 import { canonicalJson, computeSetIdentity } from '../../identity'
 import { FINISHES } from '../../../lib/config'
+import { defaultDesign } from '../../../domain/design'
+import { DRAFT_LOOKS } from '../../../domain/presentation'
+import { CUSTOMER_CAMERA_REFS, normalizeCustomerDesign, viewDesign } from '../../views'
 import { workerClaimSchema } from '../../workerProtocol'
 import type { ReserveCommand } from '../ports'
 import { checksum } from '../artifacts'
@@ -159,6 +162,9 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610200004_warm_worker_profile.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200005_warm_build_backlog.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610200006_shared_interior_views.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610200007_pause_bulk_queue.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610210001_image_singleflight.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610210002_camera_visible_views.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -484,6 +490,166 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     )
     expect(work.views).toHaveLength(4)
   })
+  it('fences shared missing rear images across concurrent lanes, without blocking unrelated work', async () => {
+    command = { ...command, seedImages: [] }
+    const first = reserve()
+    let next = structuredClone(command)
+    next.request.idempotencyKey = randomUUID()
+    next.request.design.config.appearance.mirror = !next.request.design.config.appearance.mirror
+    next = { ...next, identity: await computeSetIdentity(next.request.design) }
+    expect(next.identity.imageKeys['rear-left-draft@1']).toBe(
+      command.identity.imageKeys['rear-left-draft@1'],
+    )
+    const second = reserve(next)
+    const results = await Promise.all(
+      ['foreground', 'background'].map((lane) =>
+        asyncRun('docker', [
+          ...args,
+          '-c',
+          `select public.render_library_claim_dispatch('test-dispatcher',${quote(lane)},${quote(workerRegistration.workerBuildSha256)});`,
+        ]),
+      ),
+    )
+    const claimed = results.map((r) => JSON.parse(r.stdout.trim() || 'null')).filter(Boolean)
+    expect(claimed).toHaveLength(1)
+    const active = claimed[0]
+    const otherLane =
+      JSON.parse(
+        run(
+          `select to_json(lane) from public.render_library_outbox where dispatch_id=${quote(active.dispatch.dispatchId)};`,
+        ),
+      ) === 'foreground'
+        ? 'background'
+        : 'foreground'
+    expect(dispatch(otherLane)).toBeNull()
+    // A lost provider response must never let a second worker render the same image.
+    rpc('render_library_record_dispatch', [
+      quote(active.dispatch.dispatchId),
+      quote(active.claimToken),
+      encoded({ status: 'uncertain' }),
+    ])
+    expect(dispatch(otherLane)).toBeNull()
+    const unrelated = await variation(1)
+    unrelated.seedImages = []
+    const third = reserve(unrelated)
+    expect(dispatch(otherLane).dispatch.jobId).toBe(third.snapshot.job.id)
+    expect(
+      new Set([first.snapshot.job.id, second.snapshot.job.id]).has(active.dispatch.jobId),
+    ).toBe(true)
+  })
+
+  it('keeps SQL receipt projection identical to TypeScript across cameras, products and looks', () => {
+    const vectors = []
+    for (const family of ['studio', 'container'] as const)
+      for (const lengthFt of [20, 40] as const)
+        for (const look of DRAFT_LOOKS)
+          for (const addons of [[], ['roof']]) {
+            const base = normalizeCustomerDesign(defaultDesign({ family, lengthFt }))
+            const design = {
+              ...base,
+              presentation: { ...base.presentation, lookRef: look.ref },
+              config: {
+                ...base.config,
+                structure: { ...base.config.structure, addons, railing: 'cable' },
+                appearance: {
+                  ...base.config.appearance,
+                  floor: 'oak',
+                  interior: 'timber',
+                  mirror: true,
+                },
+              },
+            }
+            for (const camera of CUSTOMER_CAMERA_REFS)
+              vectors.push({ design, camera, expected: viewDesign(design, camera) })
+          }
+    const actual = JSON.parse(
+      run(`select jsonb_agg(public.render_library_view_design(v->'design',v->>'camera') order by n)
+      from jsonb_array_elements(${encoded(vectors)}) with ordinality rows(v,n);`),
+    )
+    expect(actual).toEqual(vectors.map((v) => v.expected))
+  })
+
+  it('retains overlap ownership until confirmed settlement, then lets the waiting job proceed', async () => {
+    command = { ...command, seedImages: [] }
+    reserve()
+    const next = structuredClone(command)
+    next.request.idempotencyKey = randomUUID()
+    next.request.design.config.appearance.mirror = !next.request.design.config.appearance.mirror
+    const second = reserve({ ...next, identity: await computeSetIdentity(next.request.design) })
+    const first = dispatch('background')
+    recordDispatch(first, { status: 'definitely-not-submitted' })
+    expect(dispatch()).toBeNull()
+    rpc('render_library_reconcile_terminal', [
+      quote(first.dispatch.jobId),
+      encoded({ kind: 'never-submitted', dispatchId: first.dispatch.dispatchId }),
+      '0',
+    ])
+    expect(dispatch().dispatch.jobId).toBe(second.snapshot.job.id)
+  })
+
+  it('keeps bulk paused while an unrelated interactive request can claim a lane', async () => {
+    reserve()
+    run(
+      `insert into public.render_library_queue_pauses(session_hash,reason) values(${quote(session)},'campaign-hold');`,
+    )
+    expect(dispatch()).toBeNull()
+    const customer = 'c'.repeat(64)
+    touch(customer)
+    const interactive = await variation(1)
+    const result = reserve({
+      ...interactive,
+      context: { ...interactive.context, sessionHash: customer },
+    })
+    expect(dispatch().dispatch.jobId).toBe(result.snapshot.job.id)
+    expect(dispatch('background')).toBeNull()
+  })
+
+  it('releases image overlap on publication while the original dispatch remains active', async () => {
+    command = { ...command, seedImages: [] }
+    reserve()
+    const next = structuredClone(command)
+    next.request.idempotencyKey = randomUUID()
+    next.request.design.config.appearance.mirror = !next.request.design.config.appearance.mirror
+    const second = reserve({ ...next, identity: await computeSetIdentity(next.request.design) })
+    dispatch('background')
+    expect(dispatch()).toBeNull()
+    const image = imageDescriptorSchema.parse(
+      contract.complete.views.find((v) => v.cameraRef === 'rear-left-draft@1')!.image,
+    )
+    run(`insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
+      values(${quote(image.imageKey)},${quote(image.setKey)},${quote(image.design.presentation.cameraRef)},${encoded(image)},${encoded(image.provenance)});`)
+    const now = dispatch()
+    expect(now.dispatch.jobId).toBe(second.snapshot.job.id)
+    const claim = workerClaim(now.dispatch)
+    expect(claim.views).toHaveLength(4)
+    expect(claim.views.some((view) => view.cameraRef === 'rear-left-draft@1')).toBe(false)
+    expect(
+      run("select count(*) from public.render_library_reservations where status='reserved'"),
+    ).toBe('2')
+  })
+
+  it('reuses a canonical rear from another set without copying its descriptor or claiming it again', async () => {
+    const image = imageDescriptorSchema.parse(
+      contract.complete.views.find((v) => v.cameraRef === 'rear-left-draft@1')!.image,
+    )
+    const identity = await computeSetIdentity(command.request.design)
+    run(`insert into public.render_library_sets(set_key,design,identity,release_id)
+      values(${quote(identity.setKey)},${encoded(command.request.design)},${encoded(identity)},'fury-native-five@2');
+      insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
+      values(${quote(image.imageKey)},${quote(identity.setKey)},'rear-left-draft@1',${encoded(image)},${encoded(image.provenance)});`)
+    let next = structuredClone(command)
+    next.request.idempotencyKey = randomUUID()
+    next.request.design.config.appearance.mirror = !next.request.design.config.appearance.mirror
+    next = { ...next, identity: await computeSetIdentity(next.request.design), seedImages: [] }
+    const result = reserve(next)
+    const ready = result.snapshot.views.filter((v: { status: string }) => v.status === 'ready')
+    expect(ready).toHaveLength(1)
+    expect(ready[0].image).toEqual(image)
+    const work = workerClaim(dispatch().dispatch)
+    expect(work.views).toHaveLength(4)
+    expect(work.views.some((v) => v.cameraRef === 'rear-left-draft@1')).toBe(false)
+  })
+
   it('imports unchanged exteriors without jobs or budget and reserves only the new interior', async () => {
     const bytes = readFileSync('public/native-library/manifest.json')
     const design = customerDesignSchema.parse(verifySeedManifest(bytes).entries[0].design)

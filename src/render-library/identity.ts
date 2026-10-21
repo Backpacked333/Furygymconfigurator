@@ -9,7 +9,7 @@ import {
   type ImageDescriptor,
   type SetIdentity,
 } from './contracts.js'
-import { INTERIOR_KEYING, fiveViewDesigns, viewDesign } from './views.js'
+import { VIEW_KEYING, fiveViewDesigns, viewDesign } from './views.js'
 
 /** Sorted UTF-8 JSON. Contract values are finite JSON primitives; arrays keep their order. */
 export function canonicalJson(value: unknown): string {
@@ -35,8 +35,8 @@ export function identityPayload(input: unknown, kind: 'set' | 'image'): string {
     kind,
     design,
     recipeRelease: recipeForDesign(design),
-    // Sets whose interior key is shared get new keys; immutable historical sets stay untouched.
-    ...(kind === 'set' ? { viewKeying: INTERIOR_KEYING } : {}),
+    // Version the view mapping, not the pixel recipe or historical canonical image keys.
+    ...(kind === 'set' ? { viewKeying: VIEW_KEYING } : {}),
   })
 }
 export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
