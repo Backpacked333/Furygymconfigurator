@@ -145,19 +145,11 @@ export async function warmPipeline(renderer: WebGPURenderer, pipeline: RenderPip
   await Promise.allSettled(compiles)
 }
 
-/**
- * Screen-space passes a caller may switch off (or on) over its tier's own: Ultra has both, High
- * neither, and Lite, which has no pre-pass, ignores them. Unset, each follows the tier. The 360°
- * view's frame guard builds Ultra without them on a device that cannot keep up (viewer/frameGuard.ts).
- */
-export type PipelineExtras = { reflections?: boolean; gi?: boolean }
-
 export function createPipeline(
   renderer: WebGPURenderer,
   scene: Scene,
   camera: Camera,
   quality: Quality,
-  extras: PipelineExtras = {},
 ): Pipeline {
   const pipeline = new RenderPipeline(renderer)
   pipeline.outputColorTransform = false
@@ -186,8 +178,7 @@ export function createPipeline(
   const prePass = pass(scene, camera)
   disposables.push(prePass)
   prePass.transparent = false
-  const reflective = extras.reflections ?? quality === 'ultra'
-  const bouncing = extras.gi ?? quality === 'ultra'
+  const reflective = quality === 'ultra'
   prePass.setMRT(
     mrt(
       reflective
@@ -253,11 +244,11 @@ export function createPipeline(
   const scenePass = pass(scene, camera)
   disposables.push(scenePass)
   scenePass.contextNode = lighting
-  if (bouncing) scenePass.setMRT(mrt({ output, diffuseColor }))
+  if (quality === 'ultra') scenePass.setMRT(mrt({ output, diffuseColor }))
   const color = scenePass.getTextureNode('output')
 
   let lit: Node<'vec4'> = color
-  if (bouncing) {
+  if (quality === 'ultra') {
     const diffuseTexture = scenePass.getTexture('diffuseColor')
     diffuseTexture.type = UnsignedByteType
     const gi = ssgi(color, preDepth, preNormal, camera as PerspectiveCamera)
@@ -336,8 +327,7 @@ export function createPipeline(
     render: () => pipeline.render(),
     warm: () => warmPipeline(renderer, pipeline),
     dispose: () => disposables.forEach((d) => d.dispose()),
-    // Screen-space GI, temporally filtered under TRAA, is the last pass to converge.
-    settleFrames: bouncing ? 40 : 28,
+    settleFrames: quality === 'ultra' ? 40 : 28,
     shutter,
     setPlace: (place) => {
       occlusion.radius.value = AO_REACH[place]

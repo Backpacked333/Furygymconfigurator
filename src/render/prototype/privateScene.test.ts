@@ -76,26 +76,6 @@ describe('native room-overview camera', () => {
     },
   )
 
-  it('is a pinhole camera for every customer camera, as the Cycles images are: no focus or aperture', () => {
-    // The gallery's Cycles images are rendered without depth of field (fury_render/blender.py never
-    // sets it), and the live view opens on them at this same camera. A focus distance or an
-    // aperture added here would have to be added to both, or the two would no longer match.
-    for (const family of ['studio', 'container'] as const)
-      for (const cameraRef of CUSTOMER_CAMERA_REFS) {
-        const base = defaultDesign({ family, lengthFt: 20 })
-        const design = parseDesign({ ...base, presentation: { ...base.presentation, cameraRef } })
-        expect(Object.keys(resolveNativeCamera(design)).sort()).toEqual([
-          'far',
-          'fov',
-          'near',
-          'position',
-          'target',
-          'units',
-          'up',
-        ])
-      }
-  })
-
   it('leaves the four exterior camera bindings unchanged', () => {
     const base = defaultDesign()
     for (const cameraRef of CUSTOMER_CAMERA_REFS.filter((ref) => ref !== 'entry-draft@1')) {

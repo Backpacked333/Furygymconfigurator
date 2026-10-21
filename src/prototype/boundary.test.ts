@@ -5,14 +5,6 @@ import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-/**
- * The exact dynamic imports that cross into the live 360° view's lazy graph, which loads only on
- * intent to open it: its scene, and the early download of the scans of the design shown.
- */
-const lazyBoundary = (file: string, specifier: string) =>
-  (file === resolve(root, 'prototype/LiveViewport.tsx') && specifier === './LiveDesignScene') ||
-  (file === resolve(root, 'prototype/liveIntent.ts') &&
-    (specifier === './LiveDesignScene' || specifier === './liveWarmup'))
 function imports(file: string) {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
   const imports: string[] = []
@@ -34,7 +26,10 @@ function imports(file: string) {
       ts.isCallExpression(node) &&
       node.expression.kind === ts.SyntaxKind.ImportKeyword &&
       ts.isStringLiteral(node.arguments[0]) &&
-      !lazyBoundary(file, node.arguments[0].text)
+      !(
+        file === resolve(root, 'prototype/LiveViewport.tsx') &&
+        node.arguments[0].text === './LiveDesignScene'
+      )
     )
       imports.push(node.arguments[0].text)
     ts.forEachChild(node, visit)
@@ -157,11 +152,6 @@ describe('prototype runtime source dependency boundary', () => {
     const source = readFileSync(resolve(root, 'prototype/LiveViewport.tsx'), 'utf8')
     expect(source).toContain("lazy(() => import('./LiveDesignScene'))")
     expect(source).not.toMatch(/import\s.*from ['"]\.\/LiveDesignScene/)
-    // Intent prefetch (pointer, focus, touch on the 360° button) reaches it dynamically too.
-    const intent = readFileSync(resolve(root, 'prototype/liveIntent.ts'), 'utf8')
-    expect(intent).toContain("import('./LiveDesignScene')")
-    expect(intent).toContain("import('./liveWarmup')")
-    expect(intent).not.toMatch(/^import\s/m)
   })
   it('has no eager path to Three, renderers, workers, provider SDKs, review entry, textures or PDF', () => {
     // These exact browser-safe cloud wire modules are additive, not provider implementations.
@@ -201,8 +191,6 @@ describe('prototype runtime source dependency boundary', () => {
     inspect(resolve(root, 'prototype/ImageConfigurator.tsx'))
     expect(seen.has(resolve(root, 'prototype/LiveViewport.tsx'))).toBe(true)
     expect(seen.has(resolve(root, 'prototype/LiveDesignScene.tsx'))).toBe(false)
-    expect(seen.has(resolve(root, 'prototype/liveWarmup.ts'))).toBe(false)
-    expect(seen.has(resolve(root, 'prototype/liveIntent.ts'))).toBe(true)
     expect(seen.has(resolve(root, 'image-service/protocol.ts'))).toBe(true)
     expect(seen.has(resolve(root, 'components/Elevation.tsx'))).toBe(true)
     for (const component of [

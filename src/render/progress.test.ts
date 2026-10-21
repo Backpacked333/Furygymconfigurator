@@ -7,11 +7,9 @@ import {
   estimatedProgress,
   measuredProgress,
   queueEstimate,
-  refineProgress,
   renderRate,
   sceneProgress,
   secondsLeft,
-  traceProgress,
 } from './progress'
 
 describe('scene start-up progress', () => {
@@ -124,36 +122,5 @@ describe('still progress', () => {
     expect(measuredProgress(64, 256)).toBe(0.25)
     expect(measuredProgress(300, 256)).toBe(1)
     expect(measuredProgress(10, 0)).toBe(0)
-  })
-})
-
-describe('a resting live view refining', () => {
-  it('fills on a log scale of its samples and names what is resolving', () => {
-    expect(refineProgress(0, 1024, false)).toEqual({ phase: 'refining', fill: 0, stage: 'light' })
-    expect(refineProgress(15, 1024, false).stage).toBe('light')
-    expect(refineProgress(16, 1024, false).stage).toBe('reflections')
-    expect(refineProgress(127, 1024, false).stage).toBe('reflections')
-    expect(refineProgress(128, 1024, false).stage).toBe('detail')
-    // Each doubling moves the ring alike: 32 samples are half way to 1024 on this scale.
-    expect(refineProgress(31, 1023, false).fill).toBeCloseTo(0.5, 5)
-    expect(refineProgress(2048, 1024, false).fill).toBe(1)
-    expect(refineProgress(40, 1024, true)).toMatchObject({ phase: 'done', fill: 1 })
-  })
-
-  it('tells listeners only of visible changes: a stage, a phase, or 2% of the ring', () => {
-    const listener = vi.fn()
-    traceProgress.set({ phase: 'idle' })
-    const stop = traceProgress.subscribe(listener)
-    traceProgress.set({ phase: 'idle' })
-    expect(listener).not.toHaveBeenCalled()
-    traceProgress.set({ phase: 'refining', fill: 0.3, stage: 'light' })
-    traceProgress.set({ phase: 'refining', fill: 0.31, stage: 'light' })
-    expect(listener).toHaveBeenCalledTimes(1)
-    traceProgress.set({ phase: 'refining', fill: 0.33, stage: 'light' })
-    traceProgress.set({ phase: 'refining', fill: 0.33, stage: 'reflections' })
-    traceProgress.set({ phase: 'done', fill: 1, stage: 'detail' })
-    expect(listener).toHaveBeenCalledTimes(4)
-    stop()
-    traceProgress.set({ phase: 'idle' })
   })
 })

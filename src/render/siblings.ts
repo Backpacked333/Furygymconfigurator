@@ -16,8 +16,7 @@ import { UNIT_LISTS } from './unitParts'
  *
  * Only siblings whose difference is a material swap are prefetched: the exterior finish and the
  * floor. Their capture is the live scene's, with the swapped surfaces put on the very meshes a
- * click would change (rebuilt here; in the live 360° view, kept, with only their material swapped:
- * geometryReuse.ts), for the moment of the capture alone: the swap, the fingerprints and the
+ * click would rebuild, for the moment of the capture alone: the swap, the fingerprints and the
  * capture's reading of the scene all happen in one task (captureScene reads the scene before its
  * first await), and the meshes get their own materials back before it returns, so no frame is
  * ever drawn with them and nothing is left behind. Rebuilding the part lists for the sibling
