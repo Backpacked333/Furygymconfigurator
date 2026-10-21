@@ -160,7 +160,7 @@ export async function prepareNativeClaim(
   const manifests = []
   const sceneries = new Map<string, { scenery: typeof scenery; objects: unknown[] }>()
   for (const view of views) {
-    // The interior view renders the interior-visible design, so its pixels match its shared key.
+    // Render the same representative used by identity and receipt validation.
     const design = viewDesign(claim.design, view.cameraRef)
     const sceneryKey = serializeDesign({
       ...design,

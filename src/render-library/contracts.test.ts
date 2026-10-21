@@ -149,7 +149,7 @@ describe('five-view customer loading and canonical identity', () => {
       const camera = payload.design.presentation.cameraRef
       delete payload.design.presentation.cameraRef
       payload.kind = 'set'
-      payload.viewKeying = 'interior-visible@1'
+      payload.viewKeying = 'camera-visible@1'
       if (camera === 'entry-draft@1') {
         const interior = JSON.parse(serializeDesign(interiorDesign(design)))
         delete interior.presentation.cameraRef
@@ -199,9 +199,14 @@ describe('five-view customer loading and canonical identity', () => {
         const next = await computeSetIdentity(variant)
         expect(next.setKey).not.toBe(original.setKey)
         expect(next.imageKeys['entry-draft@1']).toBe(original.imageKeys['entry-draft@1'])
-        expect(next.imageKeys['front-left-draft@1']).not.toBe(
-          original.imageKeys['front-left-draft@1'],
-        )
+        if (variant.config.structure.railing === base.config.structure.railing)
+          expect(next.imageKeys['front-left-draft@1']).not.toBe(
+            original.imageKeys['front-left-draft@1'],
+          )
+        else
+          expect(next.imageKeys['front-left-draft@1']).toBe(
+            original.imageKeys['front-left-draft@1'],
+          )
       }
     })
     it('drops the container canopy from the interior key', async () => {
@@ -467,13 +472,7 @@ describe('native manifest compatibility and immutable descriptors', () => {
           ) &&
           entry.design.presentation.cameraRef !== 'entry-draft@1' &&
           serializeDesign(entry.design) ===
-            serializeDesign({
-              ...selected,
-              presentation: {
-                ...selected.presentation,
-                cameraRef: entry.design.presentation.cameraRef,
-              },
-            }),
+            serializeDesign(viewDesign(selected, entry.design.presentation.cameraRef)),
       )
       expect(images.map((image) => image.sha256)).toEqual(
         expected.map((entry) => entry.imageSha256),
