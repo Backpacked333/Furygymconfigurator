@@ -34,7 +34,7 @@ import {
 import { AdaptiveSampler, MIN_SETTLE_SAMPLES } from './adaptive'
 import { bench } from './bench'
 import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
-import { nextTracePasses } from './traceBudget'
+import { nextTracePassesOverLatency } from './traceBudget'
 import { stillInstances } from './instances'
 import type { TraceState } from './traceStatus'
 
@@ -96,13 +96,6 @@ const ENV_HEIGHT = 512
  * they keep the GPU busy for about two display frames.
  */
 const MAX_PASSES = 64
-/**
- * Batches the GPU may hold at once. With one, each frame's batch waits for the last to finish, and
- * the GPU idles from then until the next frame submits: often most of a frame. With two, the next
- * batch is queued behind the running one and the GPU never waits, while a press still waits behind
- * at most these batches before the view answers.
- */
-export const BATCHES_IN_FLIGHT = 2
 /** Wavefront path slots per dispatch: ~300 bytes each, so this stays under 128 MB bindings. */
 const FRAME_BUDGET = 262144
 
@@ -690,9 +683,21 @@ export class PathTraceSession {
   private timing = { start: 0, first: 0, settled: 0, milestones: [] as [number, number][] }
   private frames = 0
   private passes = 1
-  private inFlight = 0
-  /** When the last batch finished: the next one's GPU time starts there, not at its submission. */
-  private lastDone = 0
+  private inFlight = false
+  /**
+   * The fastest a one-pass batch has completed in this session: the completion latency plus one
+   * pass. Batches are sized on the time beyond it (nextTracePassesOverLatency).
+   */
+  private latencyFloor = Infinity
+  /**
+   * The measure of samplesPerSecond: when this view's first batch finished (its kernels built),
+   * and when every pixel first held one sample.
+   */
+  private rate = { started: 0, at: 0, samples: 0 }
+  /** The depth a start traces to unless it asks for another (begin). */
+  private readonly maxBounces: number
+  /** A batch of this view has finished on the GPU: its kernels are built and running. */
+  private batchDone = false
   private measuring = false
   private accumulating = false
   /** Samples per pixel reached by every pixel. */
@@ -763,6 +768,7 @@ export class PathTraceSession {
     // fewer than the cloud's 6 (render-server protocol.py BOUNCES). The 360° view asks for Cycles'
     // depth (viewer/liveProfile.ts); the stills and exports keep this one, unchanged.
     tracer.maxBounces = options.maxBounces ?? 6
+    this.maxBounces = tracer.maxBounces
     tracer.maxTransparentBounces = 12
     tracer.filterGlossyFactor = 0.5
     // Setting the tracer's own values again is a no-op (its setters skip an unchanged clamp).
@@ -810,7 +816,17 @@ export class PathTraceSession {
    * given, is the traced resolution relative to the drawing buffer from this view on (the 360°
    * view's traceScale, which follows the canvas's size).
    */
-  begin(scene: Scene, camera: Camera, look: SkyLook, target = REST_SAMPLES, renderScale?: number) {
+  begin(
+    scene: Scene,
+    camera: Camera,
+    look: SkyLook,
+    target = REST_SAMPLES,
+    renderScale?: number,
+    maxBounces = this.maxBounces,
+  ) {
+    // Depth per start: the light budget mode traces shallower (liveProfile.ts LIGHT). A uniform,
+    // so no kernels are built again for it.
+    if (this.tracer.maxBounces !== maxBounces) this.tracer.maxBounces = maxBounces
     const key = lookKey(look)
     const parts = sceneParts(scene)
     const signature = partsSignature(parts, key)
@@ -891,6 +907,46 @@ export class PathTraceSession {
     this.measuring = false
     this.state = 'tracing'
     this.timing = { start: performance.now(), first: 0, settled: 0, milestones: [] }
+    this.batchDone = false
+    this.rate = { started: 0, at: 0, samples: 0 }
+  }
+
+  /**
+   * Samples per pixel per second this view is gaining: once two more have come in since every
+   * pixel held one, from then; before that, from its first complete sample, timed from its first
+   * finished batch (past the kernels' build). Null until every pixel holds one.
+   */
+  get samplesPerSecond() {
+    const { started, at, samples } = this.rate
+    if (!at) return null
+    const now = performance.now()
+    if (this.samples >= samples + 2 && now > at)
+      return ((this.samples - samples) * 1000) / (now - at)
+    return started && at > started ? (samples * 1000) / (at - started) : null
+  }
+
+  /**
+   * Lowers the view's target: it settles at the last image (milestone) at or under `target`
+   * samples instead, never below what it holds already. An export raises it again (retarget).
+   */
+  settleAt(target: number) {
+    if (this.state !== 'tracing' || target >= this.target) return
+    // The last image at or under `target`, or failing that the next this view can still show.
+    const reachable = ALL_MILESTONES.filter((m) => m >= this.samples && m < this.target)
+    const milestone = reachable.filter((m) => m <= target).at(-1) ?? reachable[0]
+    if (milestone === undefined) return
+    this.target = milestone
+    this.tracer.maxSamples = milestone
+    if (this.samples >= milestone) this.accumulating = false
+  }
+
+  /**
+   * A batch of the current view has finished on the GPU. The first sample after a capture builds
+   * the tracer's kernels, synchronously (they cannot be built before it, which sizes what they
+   * bind), and the GPU draws nothing else meanwhile: on some GPUs for seconds.
+   */
+  get started() {
+    return this.batchDone
   }
 
   /**
@@ -899,9 +955,13 @@ export class PathTraceSession {
    * other surfaces seeds just a little.
    */
   private historyKeys(scene: Scene, key: string, signature: number): HistoryKeys {
-    const surfaces = Math.imul(signature ^ this.scans, 16777619) >>> 0
+    // Samples traced to another depth carry other light: a light view never seeds a full one.
+    const depth = (value: number) => Math.imul(value ^ this.tracer.maxBounces, 16777619) >>> 0
+    const surfaces = depth(Math.imul(signature ^ this.scans, 16777619) >>> 0)
     return {
-      scene: this.options.keepHistoryAcrossSurfaces ? historySignature(scene, key) : surfaces,
+      scene: this.options.keepHistoryAcrossSurfaces
+        ? depth(historySignature(scene, key))
+        : surfaces,
       surfaces,
     }
   }
@@ -918,8 +978,11 @@ export class PathTraceSession {
     look: SkyLook,
     seed: { image: Texture; table: Texture; count: number; ceiling: number },
     renderScale = this.tracer.renderScale,
+    maxBounces = this.maxBounces,
   ) {
     if (this.state !== 'off') return false
+    // Kept under the depth the start it seeds will trace to (begin, historyKeys).
+    if (this.tracer.maxBounces !== maxBounces) this.tracer.maxBounces = maxBounces
     const key = lookKey(look)
     const keys = this.historyKeys(scene, key, partsSignature(sceneParts(scene), key))
     if (this.traced?.scene !== keys.scene) this.history.clear()
@@ -992,7 +1055,7 @@ export class PathTraceSession {
     // without this the GPU queue would grow without bound.
     // Raw (undenoised) display keeps presenting through the tracer until its fade completes.
     const fading = !this.denoising && this.tracer.fadeState < 1
-    if ((this.accumulating || fading) && this.inFlight < BATCHES_IN_FLIGHT) {
+    if ((this.accumulating || fading) && !this.inFlight) {
       const previous = this.renderer.getRenderTarget()
       try {
         this.renderer.setRenderTarget(this.sink)
@@ -1004,8 +1067,9 @@ export class PathTraceSession {
         this.renderer.setRenderTarget(previous)
       }
       this.frames++
-      this.inFlight++
+      this.inFlight = true
       const epoch = this.epoch
+      const submitted = this.passes
       const device = (
         this.renderer.backend as unknown as {
           device: { queue: { onSubmittedWorkDone: () => Promise<void> } }
@@ -1014,21 +1078,29 @@ export class PathTraceSession {
       device.queue
         .onSubmittedWorkDone()
         .then(() => {
-          const done = performance.now()
-          // Its own GPU time: queued behind another batch, it started when that one finished.
-          const busy = done - Math.max(now, this.lastDone)
-          this.lastDone = done
           if (epoch !== this.epoch) return
+          if (!this.batchDone) this.rate.started = performance.now()
+          this.batchDone = true
           // Size batches to roughly two display frames of GPU time.
+          const busy = performance.now() - now
+          // The first batch after a capture builds the kernels: no measure of the latency.
+          if (submitted === 1 && this.frames > 1)
+            this.latencyFloor = Math.min(this.latencyFloor, busy)
           const budget = this.budget(now)
           if (budget)
-            this.passes = nextTracePasses(this.passes, busy, budget.batchMs, budget.maxPasses)
+            this.passes = nextTracePassesOverLatency(
+              submitted,
+              busy,
+              this.latencyFloor,
+              budget.batchMs,
+              budget.maxPasses,
+            )
           else if (busy < 28) this.passes = Math.min(MAX_PASSES, Math.ceil(this.passes * 1.5))
           else if (busy > 45) this.passes = Math.max(1, Math.floor(this.passes * 0.75))
         })
         .catch(() => {})
         .finally(() => {
-          this.inFlight--
+          this.inFlight = false
         })
       // Until the first image, read the count every batch: the earliest milestones are a frame
       // or two apart.
@@ -1080,6 +1152,8 @@ export class PathTraceSession {
       .then((counts) => {
         if (epoch !== this.epoch || this.state !== 'tracing') return
         this.samples = counts.min
+        if (!this.rate.at && counts.min >= 1)
+          this.rate = { ...this.rate, at: performance.now(), samples: counts.min }
         if (counts.min >= this.target) this.accumulating = false
       })
       .catch(() => {})
@@ -1184,6 +1258,11 @@ export class PathTraceSession {
     this.state = 'tracing'
   }
 
+  /** How batches are paced: passes per batch and the completion latency floor (?bootStats=1). */
+  get pacing() {
+    return { passes: this.passes, latencyFloor: this.latencyFloor }
+  }
+
   /** How far the image on screen has come: the samples behind it, of the view's target. */
   progress() {
     return { shown: this.denoising ? this.shownSamples : this.samples, target: this.target }
@@ -1208,6 +1287,23 @@ export class PathTraceSession {
     this.samples = 0
     this.running = null
     for (const denoiser of this.denoisers) denoiser.reset()
+  }
+
+  /**
+   * Loads the denoiser's network now, so the first image does not: its weights download and are
+   * repacked on the main thread, which otherwise lands just as the view first rests. Both denoisers
+   * share the one network (shareUNets), so loading it for one loads it for both. Never rejects: a
+   * network that fails to load fails again, as before, at the first denoise.
+   */
+  prepareDenoiser() {
+    const denoiser = this.denoisers[0] as unknown as
+      { _initUNet?: (aux: boolean) => Promise<unknown> } | undefined
+    if (!denoiser?._initUNet) return Promise.resolve()
+    // The tracer denoises with its guides (albedo and normal): the auxiliary network.
+    return denoiser._initUNet(true).then(
+      () => undefined,
+      () => undefined,
+    )
   }
 
   /**

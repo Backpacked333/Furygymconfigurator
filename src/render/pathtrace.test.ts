@@ -20,7 +20,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { environmentRadiance, equirectRadiance, skyLook } from '../lib/visuals'
 import { GBuffer, MultiViewHistory, ViewHistory, type HistoryKeys } from './history'
 import {
-  BATCHES_IN_FLIGHT,
   EARLY_MILESTONES,
   EXPORT_SAMPLES,
   LONG_MILESTONES,
@@ -513,6 +512,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
       dispose: vi.fn(),
       getSampleCountsAsync: () => Promise.resolve({ min: 0 }),
       renderScale: 1,
+      maxBounces: 0,
       fadeState: 1,
       target: { image: { width: 64, height: 32 } },
       material: { turquinTexture: { image: { width: 1, height: 1, depth: 1 } } },
@@ -574,28 +574,100 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     return { traced, tracer, begin, trace, unet, ...f }
   }
 
-  it('keeps the GPU fed: the next batch is queued behind the running one, never a third', async () => {
+  it('reports a view started once a batch of it has finished on the GPU, from each start', async () => {
     const t = session({ multiView: true })
     const queue = (
       t.traced as unknown as {
         renderer: { backend: { device: { queue: { onSubmittedWorkDone: () => Promise<void> } } } }
       }
     ).renderer.backend.device.queue
-    const pending: (() => void)[] = []
-    queue.onSubmittedWorkDone = () => new Promise<void>((resolve) => pending.push(resolve))
+    let finish!: () => void
+    queue.onSubmittedWorkDone = () => new Promise<void>((resolve) => (finish = resolve))
     t.begin()
+    expect(t.traced.started).toBe(false)
     t.traced.step()
-    t.traced.step()
-    t.traced.step()
-    expect(BATCHES_IN_FLIGHT).toBe(2)
-    expect(t.tracer.renderSample).toHaveBeenCalledTimes(2)
-    // The first finishes: another frame queues one behind the second.
-    pending.shift()!()
+    expect(t.traced.started).toBe(false)
+    finish()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    t.traced.step()
-    expect(t.tracer.renderSample).toHaveBeenCalledTimes(3)
-    t.traced.step()
-    expect(t.tracer.renderSample).toHaveBeenCalledTimes(3)
+    expect(t.traced.started).toBe(true)
+    // A new start waits for its own first batch.
+    t.traced.halt()
+    t.begin()
+    expect(t.traced.started).toBe(false)
+  })
+
+  it('measures samples per second from the first complete sample, then from more, and settles at an image', async () => {
+    const t = session({ multiView: true })
+    let min = 0
+    t.tracer.getSampleCountsAsync = () => Promise.resolve({ min })
+    let clock = 1000
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+    try {
+      t.begin()
+      const sample = async (count: number, at: number) => {
+        min = count
+        clock = at
+        // The count is read every sixth batch.
+        for (let i = 0; i < 6; i++) {
+          t.traced.step()
+          await flush()
+        }
+      }
+      // The first batch finishes at 1000 (its kernels built); no pixel holds a sample yet.
+      await sample(0, 1000)
+      expect(t.traced.samplesPerSecond).toBeNull()
+      // Every pixel holds one 500 ms later: about two a second, known after one sample.
+      await sample(1, 1500)
+      expect(t.traced.samplesPerSecond).toBeCloseTo(2)
+      // Two more since then: measured from them.
+      await sample(3, 1900)
+      expect(t.traced.samplesPerSecond).toBeCloseTo(5)
+      // Settles at the last image at or under the target, never below what it holds.
+      min = 10
+      await sample(10, 2500)
+      t.traced.settleAt(100)
+      expect(t.traced.progress().target).toBe(64)
+      t.traced.settleAt(5)
+      expect(t.traced.progress().target).toBe(16)
+      // Never raised by it.
+      t.traced.settleAt(512)
+      expect(t.traced.progress().target).toBe(16)
+      // Each start measures afresh.
+      t.traced.halt()
+      t.begin()
+      expect(t.traced.samplesPerSecond).toBeNull()
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('traces each start to the depth it asks for, and keeps its views apart by depth', () => {
+    const t = session({ multiView: true, maxBounces: 7 })
+    const keys = () =>
+      (t.traced as unknown as { traced: { scene: number; surfaces: number } }).traced
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 64, 1, 4)
+    expect(t.tracer.maxBounces).toBe(4)
+    const light = { ...keys() }
+    t.traced.halt()
+    t.traced.begin(t.scene, new PerspectiveCamera(), look, 64, 1)
+    expect(t.tracer.maxBounces).toBe(7)
+    expect(keys().scene).not.toBe(light.scene)
+    expect(keys().surfaces).not.toBe(light.surfaces)
+  })
+
+  it('loads the shared denoiser network ahead of the first image, and never rejects', async () => {
+    const t = session({ multiView: true }, true)
+    const load = vi.fn(() => Promise.resolve('network'))
+    ;(denoisers[0] as unknown as { _initUNet: typeof load })._initUNet = load
+    await expect(t.traced.prepareDenoiser()).resolves.toBeUndefined()
+    expect(load).toHaveBeenCalledWith(true)
+    load.mockImplementationOnce(() => Promise.reject(new Error('offline')))
+    await expect(t.traced.prepareDenoiser()).resolves.toBeUndefined()
+    // The tracer's own loader is still the one this calls (OIDNDenoiser.js).
+    expect(
+      readFileSync('node_modules/three-gpu-pathtracer/src/webgpu/denoise/OIDNDenoiser.js', 'utf8'),
+    ).toContain('_initUNet( aux ) {')
   })
 
   it('frees a stopped view’s history, denoisers, snapshot and guides, keeping its capture', async () => {
@@ -948,7 +1020,7 @@ describe('a tracing session (tracer and GPU mocked, not a GPU test)', () => {
     })
 
     it('takes larger batches once a view has rested a second, and none without a rest budget', async () => {
-      const rest = { afterMs: 1000, batchMs: 16, maxPasses: 16 }
+      const rest = { afterMs: 1000, batchMs: 24, maxPasses: 16 }
       const t = await run({ restBatch: rest })
       const budget = (at: number) =>
         (t.traced as unknown as { budget: (now: number) => unknown }).budget(at)

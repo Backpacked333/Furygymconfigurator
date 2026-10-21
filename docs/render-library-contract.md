@@ -1,5 +1,96 @@
 # Render library v1 integration contract
 
+## Camera-visible representatives (`camera-visible@1`)
+
+Set identities version the mapping from a requested build to its five photographic
+representatives. Image identities still bind the **complete representative design**
+and `fury-native-five@2`. We never omit fields from an image hash while rendering the
+unmodified request. TypeScript `viewDesign`, native preparation, SQL publication
+validation and Python `view_design` must agree.
+
+This is a presentation policy, not proof that occluded surfaces cannot affect indirect
+light. A changed room can subtly change a historical rear photograph. Those historical
+images are not byte-equivalent aliases and must not be relabeled. Only an existing image
+of the exact canonical representative and recipe is reusable. Its original publishing
+set, URL, SHA, receipt and provenance remain unchanged.
+
+| Camera                                    | Room wall, floor, mirror                                         | Exterior choices                                                             |
+| ----------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Front-left, front, left                   | Preserve: glazing/openings, reflections and transmitted light    | Preserve                                                                     |
+| Rear-left, studio day/night, no add-ons   | Canonical gallery wall, rubber floor, no mirror                  | Preserve size, finish, accent, opening, infill, door pose, integrated finish |
+| Rear-left outdoors or with **any** add-on | Preserve: scenery/add-ons can reflect the room; framing can move | Preserve                                                                     |
+| Entry                                     | Preserve                                                         | Existing interior representative: obsidian, no accent/add-ons, glass railing |
+
+All cameras retain scene/look, day/night, aspect, family/size, arrangement and output
+profile. Railing becomes glass when neither roof nor stairs exists: no railing
+geometry is constructed in that case. Keep it when either exists. The five-image
+customer pipeline has **no independent rear image**: legacy `rear` maps to rear-left,
+`top` maps to front-left, and `centre`/`back` map to entry. Arbitrary gallery cameras
+are not newly qualified by this policy.
+
+The audit sources are `architecture.ts` (opaque rear shells versus front glazing),
+`addons.ts` (railing consumers), `unitParts.ts`, `gallery.ts` (obstacle-aware framing),
+`nativeCamera.ts`, and native scene preparation. Part-list scopes alone are not a
+ray-tracing visibility proof. Unknown dependencies stay in the key.
+
+### Simultaneous requests
+
+Global image lookup alone only prevents duplicate work **after publication**.
+`202610210001_image_singleflight.sql` also prevents two active dispatches owning the
+same still-missing image. The existing transaction advisory lock serializes claims.
+An uncertain provider outcome keeps ownership until publication or confirmed
+reservation settlement; elapsed time or a stale lease is not proof that it stopped
+rendering. An unrelated job can use the other lane. A waiting job claims only remaining
+images after the first publishes. An entire overlapping job waits rather than risk
+spending twice on a shared view. Existing lane quotas and foreground ordering remain.
+
+### Coordinated rollout (not a frontend-only change)
+
+1. Preserve and pause campaign admissions; keep the old interactive pipeline working
+   while packaging/testing. Do not restart the old campaign driver unchanged.
+2. Prepare a new immutable Vast CPU/preparation and GPU worker build from the exact
+   reviewed source. Retain qualified binaries, 1,024 samples, OptiX, dimensions,
+   denoising and WebP 95. No Modal path or paid duplicate test render is needed.
+3. At cutover, briefly hold admissions and drain active work and uncertain liabilities.
+   Preserve journals, delivery spools and all historical rows.
+4. Apply the queue-pause migration (also in PR #46) before single-flight. Apply
+   `202610210002_camera_visible_views.sql` with the matching API and worker registration
+   while held. Parked old-version claims must **not** go to the new worker: use existing
+   audited lifecycle operations and replan their immutable designs. Never rewrite stored
+   identities or fabricate terminal evidence.
+5. Verify cached canonical reuse, a meaningful non-reuse, claims, receipts and artifact
+   integrity. Offline self-tests compare entire native scene-manifest hashes across two
+   room designs; SQL and Python parity tests cover every customer camera.
+6. Replan against saved keys, then resume Studio day, Courtyard day, Courtyard night.
+   Keep foreground requests ahead of bulk. Backyard remains unsupported; no Campus
+   substitution.
+
+Merging without the coordinated worker cutover is unsafe: the old Python worker
+correctly rejects `camera-visible@1` set identities. No historical row mutation,
+approximate image match or receipt rewrite is part of this rollout.
+
+### Read-only bulk planner
+
+```sh
+node --import ./scripts/native-render-register.mjs scripts/native-render-plan.ts designs.json saved-image-keys.json > plan.json
+```
+
+Both inputs are JSON arrays: valid customer design envelopes and **actual saved**
+`img_...` keys from a fresh inventory. Do not project historical rows into new keys.
+The planner skips duplicate builds, saved builds and builds covered entirely by earlier
+planned views; it counts unique missing images and records cross-set dependencies.
+It orders Studio day, Courtyard day, Courtyard night and defers other looks.
+It does not admit jobs, spend money or modify a queue.
+
+Before admission, compare the live lookup identity to the planned identity and stop on
+any mismatch. Recheck coverage; a planned artifact is not a saved artifact. Keep
+idempotency keys, hourly/budget limits and a bounded queue. Do not admit builds marked
+`covered-by-planned-views`; look them up again when their dependencies finish, and
+replan if a dependency failed. Queue single-flight remains the authoritative guard
+against overlapping concurrent work, including interactive requests.
+
+## Original integration scope
+
 This is a contract and compatibility implementation, not an enabled service. No route here queues work, no provider is contacted, and no budget is provisioned. `/` remains v3; `/?experience=library` remains the explicit native preview. Future builders must fail closed until their real adapters are installed. Do not attach the retired gateway, P04 fake renderer or browser scene capture to this API.
 
 ## Ownership and imports

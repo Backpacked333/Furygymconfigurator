@@ -55,9 +55,12 @@ export function liveProfile(quality: Quality): LiveProfile {
         maxBounces: 7,
         ...CYCLES_CLAMPS,
         ...pacing,
-        // After a second at rest the raster draws nothing, so batches may grow. Two are queued at
-        // once (pathtrace.ts BATCHES_IN_FLIGHT), so a press then waits at most about 32 ms.
-        rest: { afterMs: 1000, batchMs: 16, maxPasses: 16 },
+        // A pass is one bounce of up to 262144 paths: a fast GPU does many in a frame's time, and
+        // the batch's time, not its passes, is what keeps a press answered.
+        maxPasses: 32,
+        // After a second at rest the raster draws nothing, so batches may take two frames' time:
+        // a press then waits at most that one batch, about 24 ms, before the view answers.
+        rest: { afterMs: 1000, batchMs: 24, maxPasses: 64 },
         cyclesSeedSamples: 16,
       }
 }
@@ -111,9 +114,77 @@ export function traceScale(
   width: number,
   height: number,
   requested = requestedTraceScale(),
+  msPerMegapixelSample: number | null = null,
+  floor = MIN_BUDGET_SCALE,
 ) {
   if (quality === 'lite') return 0.5
   if (requested !== null) return requested
   const pixels = width * height
-  return pixels > REFERENCE_PIXELS ? Math.sqrt(REFERENCE_PIXELS / pixels) : 1
+  const cap = Math.min(REFERENCE_PIXELS, budgetPixels(msPerMegapixelSample))
+  return pixels > cap ? Math.max(floor, Math.sqrt(cap / pixels)) : 1
+}
+
+/**
+ * "Fast and stable": a resting view shows a clean image (CLEAN_SAMPLES, denoised) within
+ * CLEAN_MS of starting, and stops changing within about SETTLE_MS. A device's measured cost of a
+ * sample sets the pixels traced so the first holds (budgetPixels), and its measured rate the
+ * samples it settles at (settleSamples). Fast GPUs keep the full Cycles resolution and target.
+ */
+export const CLEAN_SAMPLES = 16
+export const CLEAN_MS = 2500
+export const SETTLE_MS = 12000
+/** Never below half the canvas's resolution across: past that the denoiser cannot hide it. */
+export const MIN_BUDGET_SCALE = 0.5
+
+/** The most pixels a device that takes `msPerMegapixelSample` can trace CLEAN_SAMPLES of in CLEAN_MS. */
+export function budgetPixels(msPerMegapixelSample: number | null) {
+  if (!msPerMegapixelSample || !Number.isFinite(msPerMegapixelSample) || msPerMegapixelSample <= 0)
+    return Infinity
+  return (CLEAN_MS / CLEAN_SAMPLES / msPerMegapixelSample) * 1e6
+}
+
+/** Samples a view gaining `samplesPerSecond` settles at: what SETTLE_MS buys, within `least`–1024. */
+export function settleSamples(samplesPerSecond: number, least = 64) {
+  return Math.min(1024, Math.max(least, Math.floor(samplesPerSecond * (SETTLE_MS / 1000))))
+}
+
+/**
+ * How a device traces, from what a sample costs it at full depth (7 bounces, ms per
+ * megapixel-sample, traceRate.ts), measured at the Cycles cap (REFERENCE_PIXELS):
+ * - fast: a clean image (CLEAN_SAMPLES) there within CLEAN_MS;
+ * - decent: within DECENT_CLEAN_MS;
+ * - slow: slower, so it traces light (LIGHT);
+ * - unknown: not measured yet (a first visit).
+ */
+export type DeviceTier = 'fast' | 'decent' | 'slow' | 'unknown'
+export const DECENT_CLEAN_MS = 20000
+
+export function deviceTier(fullDepthCost: number | null): DeviceTier {
+  if (fullDepthCost === null || !Number.isFinite(fullDepthCost) || fullDepthCost <= 0)
+    return 'unknown'
+  const clean = (fullDepthCost * REFERENCE_PIXELS * CLEAN_SAMPLES) / 1e6
+  return clean <= CLEAN_MS ? 'fast' : clean <= DECENT_CLEAN_MS ? 'decent' : 'slow'
+}
+
+/**
+ * Light budget mode, for slow GPUs: four bounces (Cycles' 3) instead of seven, down to 0.35 of the
+ * canvas across, settling at what SETTLE_MS buys even if that is only 16 samples. Stable within
+ * seconds there, at somewhat softer light.
+ */
+export const LIGHT = { maxBounces: 4, floor: 0.35, leastSettle: 16 } as const
+
+/**
+ * The quality upgrade, for fast and decent GPUs: once a view has settled (at what SETTLE_MS buys)
+ * and rested UPGRADE_REST_MS more, it refines on to what UPGRADE_MS more buys at the rate it was
+ * gaining, up to 1024 samples, crossfading each sharper image in as before. Only where that at
+ * least doubles its samples; slow GPUs stay settled and idle.
+ */
+export const UPGRADE_REST_MS = 1000
+export const UPGRADE_MS = 45000
+
+/** The samples a settled view refines on to, or null where the upgrade is not worth it. */
+export function upgradeTarget(tier: DeviceTier, samplesPerSecond: number | null, settled: number) {
+  if ((tier !== 'fast' && tier !== 'decent') || !samplesPerSecond || settled >= 1024) return null
+  const target = Math.min(1024, settled + Math.floor(samplesPerSecond * (UPGRADE_MS / 1000)))
+  return target >= 2 * settled ? target : null
 }
