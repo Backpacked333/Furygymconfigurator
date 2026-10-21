@@ -26,14 +26,11 @@ import { downloadPrototypeFile, prototypeLink, readPrototypeShare } from './stat
 import * as renderLibraryClient from './renderLibraryClient'
 import { snapshotFixture } from './renderLibraryClient.fixtures'
 import { RENDER_CTA } from '../render-library/contracts'
-import { warmLiveDesign } from './liveWarmup'
 
 vi.mock('./state', async (original) => ({
   ...(await original<typeof import('./state')>()),
   downloadPrototypeFile: vi.fn(),
 }))
-// Intent to open the 360° view starts its scans downloading; here only who is asked for which design.
-vi.mock('./liveWarmup', () => ({ warmLiveDesign: vi.fn() }))
 vi.mock('./LiveDesignScene', () => ({
   default: ({
     design,
@@ -225,26 +222,6 @@ describe('image configurator interactions (jsdom only, no browser/server)', () =
             !init?.method || init.method === 'GET' || String(url).endsWith('/lookup'),
         ),
     ).toBe(true)
-  })
-
-  it('starts the shown design’s scans downloading on intent to open the 360° view', async () => {
-    window.history.replaceState(null, '', '/?experience=library')
-    mount()
-    tab('Exterior')
-    click('Bronze')
-    act(() =>
-      button('Explore in 360°').dispatchEvent(new MouseEvent('pointerover', { bubbles: true })),
-    )
-    // The design shown, not the pointer event the toolbar hands its handler.
-    await vi.waitFor(() =>
-      expect(vi.mocked(warmLiveDesign)).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          config: expect.objectContaining({
-            appearance: expect.objectContaining({ finish: 'bronze' }),
-          }),
-        }),
-      ),
-    )
   })
 
   it('preserves explicit missing-design rendering across opening and closing the optional 360 view', async () => {

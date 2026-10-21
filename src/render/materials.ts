@@ -26,7 +26,6 @@ import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type Node } from 't
 import { float, normalView, pmremTexture, positionViewDirection, select, uniform } from 'three/tsl'
 import { parallaxProbe } from './parallax'
 import { textureProgress } from './progress'
-import { decodeOffThread, scanFiles, takePrefetched } from './scanFiles'
 
 /**
  * Physical sizes (feet per tile) of the bundled CC0 Poly Haven scans plus three baked
@@ -84,6 +83,7 @@ export function setMaxAnisotropy(value: number) {
 export { textureProgress }
 
 const loader = new TextureLoader()
+const base = `${import.meta.env.BASE_URL}textures/`
 const sets = new Map<TextureSet, Promise<Maps>>()
 const ready = new Map<TextureSet, Maps>()
 
@@ -95,6 +95,20 @@ function configure(texture: Texture, size: number, color: boolean) {
   texture.needsUpdate = true
   return texture
 }
+
+/**
+ * Scans decode off the main thread where createImageBitmap takes its options (Safari 17+, Firefox
+ * 98+, the gate three's GLTFLoader uses). An <img> would instead be decoded synchronously by the
+ * first GPU upload, stalling a frame for every arriving map.
+ */
+const decodeOffThread = (() => {
+  if (typeof createImageBitmap === 'undefined' || typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  const safari = /^((?!chrome|android).)*safari/i.test(ua)
+  const safariVersion = Number(ua.match(/Version\/(\d+)/)?.[1] ?? -1)
+  const firefoxVersion = Number(ua.match(/Firefox\/(\d+)\./)?.[1] ?? -1)
+  return !(safari && safariVersion < 17) && !(ua.includes('Firefox') && firefoxVersion < 98)
+})()
 
 /**
  * Decoded already upright, so the texture keeps flipY false (as three's in-shader flip for bitmaps
@@ -110,17 +124,11 @@ const decode = (blob: Blob) =>
 /** Textures whose decoded pixels are released after upload; their encoded scan is kept. */
 const releasable = new Set<Texture>()
 /**
- * The legacy route's path tracer packs every map into a texture array of its own from the decoded
- * pixels, so while one exists they are kept: a released map would trace black (the ground, the
- * brick), and the exposure match would then brighten the whole view to make up for it. The 360°
- * view's tracer packs them from the GPU copies (the atlas patch in patches/), so it keeps none.
+ * The local path tracer packs every map into a texture array of its own from the decoded pixels,
+ * so while one exists they are kept: a released map would trace black (the ground, the brick),
+ * and the exposure match would then brighten the whole view to make up for it.
  */
 let keepDecoded = false
-
-/** What a released map's image becomes: its size, which three and the tracer's atlas read. */
-type Released = { width: number; height: number; released: true }
-const isReleased = (image: unknown) =>
-  (image as Released | null)?.released === true || (image as ImageBitmap | null)?.width === 0
 
 /** Keeps scans decoded (and decodes the released ones again) while a local tracer needs them. */
 export function keepDecodedTextures(keep: boolean) {
@@ -128,31 +136,16 @@ export function keepDecodedTextures(keep: boolean) {
   return keep ? restoreTextures() : Promise.resolve([])
 }
 
-/** A scan's file, asked for without options: the private display and capture realms refuse any. */
-async function download(url: string) {
+async function fetchBitmapTexture(url: string) {
   const response = await fetch(url)
   if (!response.ok) throw new Error(`${response.status} for ${url}`)
-  return response.blob()
-}
-/**
- * A scan's encoded bytes: those an early download for the 360° view has, or has on the way
- * (scanFiles.ts), so no file is downloaded twice; else, or if that download failed, its own.
- */
-const scanBlob = (url: string) => takePrefetched(url)?.catch(() => download(url)) ?? download(url)
-
-async function fetchBitmapTexture(url: string) {
-  const blob = await scanBlob(url)
+  const blob = await response.blob()
   const texture = new Texture(await decode(blob))
   texture.flipY = false
   texture.userData.scan = blob
-  // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map). Its
-  // size stays (a closed bitmap reads 0 × 0): setting the image does not upload it again.
+  // Once uploaded, the pixels live on the GPU: free the decoded copy (up to 16 MB per map).
   texture.onUpdate = () => {
-    if (keepDecoded || isReleased(texture.image)) return
-    const bitmap = texture.image as ImageBitmap
-    const released: Released = { width: bitmap.width, height: bitmap.height, released: true }
-    texture.image = released as unknown as ImageBitmap
-    bitmap.close()
+    if (!keepDecoded) (texture.image as ImageBitmap).close()
   }
   return texture
 }
@@ -164,7 +157,7 @@ async function fetchBitmapTexture(url: string) {
 export function restoreTextures() {
   return Promise.all(
     [...releasable]
-      .filter((texture) => isReleased(texture.image))
+      .filter((texture) => (texture.image as ImageBitmap).width === 0)
       .map(async (texture) => {
         texture.image = await decode(texture.userData.scan as Blob)
         texture.needsUpdate = true
@@ -280,18 +273,13 @@ function load(set: TextureSet, shown = quiet === 0): Promise<Maps> {
     if (shown) counted(set)
     return pending
   }
-  const info = TEXTURE_SETS[set] as { size: number }
-  const files = scanFiles(set)
-  if (shown) {
-    // A quiet round that failed with nothing waiting leaves its entry behind (all of its maps
-    // settled, none outstanding). Left there, it would swallow this round's arrivals, and the
-    // progress, which the live view waits on before it traces, would never complete.
-    unseenSets.delete(set)
-    textureProgress.update(files.length, 0)
-  } else unseenSets.set(set, { outstanding: files.length })
+  const info = TEXTURE_SETS[set] as { size: number; detailOnly?: boolean }
+  const names = info.detailOnly ? ['normal', 'arm'] : ['albedo', 'normal', 'arm']
+  if (shown) textureProgress.update(names.length, 0)
+  else unseenSets.set(set, { outstanding: names.length })
   pending = Promise.allSettled(
-    files.map(({ name, url }) =>
-      fetchTexture(url)
+    names.map((name) =>
+      fetchTexture(`${base}${set}/${name}.webp`)
         // A map that never arrives still counts as settled, so the progress bar always finishes.
         .finally(() => arrived(set))
         .then((texture) => [name, configure(texture, info.size, name === 'albedo')] as const),
