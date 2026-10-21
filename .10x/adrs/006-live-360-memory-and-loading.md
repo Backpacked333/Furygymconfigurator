@@ -107,14 +107,11 @@ one was removed:
     pill render them, which is tested.
 - **The pill's backdrop blur.** It sat over a canvas that changes every frame, so it was redrawn
   each time. It is gone (the glass is near opaque).
-- **The GPU idled between batches.**
-  - Each frame waited for the last batch to finish before submitting the next.
-  - With 12 ms batches on a 16.7 ms frame, the GPU was busy at most ~72% of the time, and ~36% when
-    the completion landed just after a frame began.
-  - Two batches are now queued at once (`BATCHES_IN_FLIGHT`). The resting batch is 16 ms (was 24),
-    so a press waits at most about 32 ms.
-  - SwiftShader cannot show this: one sample costs it over a second at any size. Check on a GPU
-    with `?traceStats=1`.
+- **The GPU idled between batches (tried, then reverted).**
+  - Two batches queued at once kept the GPU near fully busy.
+  - On a device the view felt laggy: a press waited behind more queued work, and the browser's own
+    compositing lost its headroom.
+  - It is back to one batch at a time, 24 ms at rest. Throughput is not worth the snappiness.
 
 Sobol was timed against blue noise on the convergence harness:
 
@@ -122,3 +119,90 @@ Sobol was timed against blue noise on the convergence harness:
 - lower error at 32 and 128 samples (8.3% vs 9.0%, 4.3% vs 4.9%).
 
 It stays.
+
+## Follow-up: snappiness and the boot after the loading screen
+
+On a device, the view felt laggy and stuck, and it was slow to answer once the loading screen
+left.
+
+- **One batch on the GPU at a time again** (see above).
+- **Tracing waits 150 ms of rest, as before, not 80.**
+  - Each start draws the denoiser's guides, seeds from the kept views and queues a batch.
+  - Each stop stores the view.
+  - At 80 ms almost every hesitation in a drag paid for both, ahead of the next move's frame.
+- **The denoiser's network loads behind the loading screen** (`PathTraceSession.prepareDenoiser`).
+  - The first start waits for it beside the BVHs and sky map.
+  - Before, its weights downloaded and were repacked on the main thread at the first denoise, just
+    after the screen left.
+- **The loading screen stays until the first batch has finished on the GPU**
+  (`PathTraceSession.started`).
+  - That batch builds the tracer's kernels synchronously, and the GPU draws nothing else until they
+    are built: on some GPUs for seconds.
+  - Building them ahead with three's `compileComputeAsync` was tried on SwiftShader and fails: the
+    first sample sizes the buffers and textures they bind.
+  - The 15 s limit still holds.
+
+## Follow-up: measured on the user's device (`?bootStats=1`)
+
+### What the timeline showed
+
+Apple GPU / Metal 3, Ultra, tracing 1921×1200:
+
+- The loading screen left at 6.3 s, of which the BVH worker took 3.7 s.
+- The first traced image appeared at 11.9 s.
+- 16 samples arrived at 43 s, 64 at 130 s and 256 at 455 s: about 1.8 s per sample.
+
+### Cause
+
+The GPU was mostly idle.
+
+- A pass is one bounce of up to 262144 paths, so a sample is some 35 passes.
+- Batches were sized on the time to `onSubmittedWorkDone`, which resolves about a frame late there.
+- So even one pass read as over budget, and batches never grew past one pass.
+
+### Changes
+
+- **Batches are sized on the time beyond the fastest one-pass batch** (`nextTracePassesOverLatency`).
+  - High and Ultra may hold up to 32 passes, or 64 at rest.
+  - Batch time, and so a press's wait, keeps its budget.
+- **"Fast and stable"**, the user's choice: each device's cost per megapixel-sample is measured and kept (`traceRate.ts`).
+  - A start traces as many pixels as give a clean 16-sample image within 2.5 s. Never below half the canvas across, never above the Cycles cap.
+  - The view settles at what 12 s buys (64–1024 samples), then stops changing.
+  - A first visit starts over once at the fitted resolution if it is far below.
+- **The BVHs build in a pool** of up to `min(4, cores − 1)` workers, largest first.
+- **The timeline logs** pacing at each image, and the measured rate and settle target.
+
+## Follow-up: tiers by measured cost
+
+### What the second timeline showed
+
+On the user's Mac, after the pacing fix:
+
+- The cost is about 1061 ms per megapixel-sample at 7 bounces, even at half resolution: the GPU itself is the limit.
+- 2 samples arrived at +2.7 s, 16 at +14 s, and the view settled at 64 after 37 s.
+- The user chose light budget mode for slow GPUs, and higher final quality on good or decent ones.
+
+### Tiers
+
+A device's tier comes from its full-depth cost (`deviceTier`). Costs are kept per depth (`traceRate.ts`), so the light mode's own cost never changes the tier.
+
+| Tier    | Clean 16-sample image at the Cycles cap | How it traces                                                                               |
+| ------- | --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| fast    | ≤ 2.5 s                                 | As before. After settling, refines on to what 45 s more buys (`upgradeTarget`), up to 1024. |
+| decent  | ≤ 20 s                                  | Resolution fitted. Upgrades after settling, as fast does.                                   |
+| slow    | slower                                  | `LIGHT` (details below).                                                                    |
+| unknown | first visit                             | Fitted after its first complete sample, starting over once, light if slow.                  |
+
+The slow tier's `LIGHT` settings:
+
+- 4 bounces;
+- down to 0.35 of the canvas across;
+- settles at what 12 s buys, from 16 samples;
+- the lean raster from the start, with no frame guard (so no mid-session rebuild);
+- no upgrade.
+
+### Other changes
+
+- History keys mix in the depth, so a light view never seeds a full one. The Cycles entry seed is stored at the depth its start traces to.
+- The upgrade refines at the view's own resolution. A full-resolution second trace would need the presentation to crossfade from the shown trace image rather than its raster capture. That is not done.
+- `?bootStats=1` names each long task by the step before it.

@@ -2,7 +2,21 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { historyCapacity } from '../render/historyCache'
 import { STRICT_REFERENCE_SETTINGS } from '../render/prototype/strictReference'
-import { REFERENCE_PIXELS, liveProfile, requestedTraceScale, traceScale } from './liveProfile'
+import {
+  CLEAN_MS,
+  CLEAN_SAMPLES,
+  LIGHT,
+  UPGRADE_MS,
+  deviceTier,
+  upgradeTarget,
+  MIN_BUDGET_SCALE,
+  REFERENCE_PIXELS,
+  budgetPixels,
+  liveProfile,
+  requestedTraceScale,
+  settleSamples,
+  traceScale,
+} from './liveProfile'
 
 describe("the 360° view's trace scale", () => {
   it('traces Lite at half, whatever the canvas or the request', () => {
@@ -118,5 +132,63 @@ describe("the 360° view's live profile", () => {
     ])
     for (const quality of ['lite', 'high', 'ultra'] as const)
       expect(liveProfile(quality)).toMatchObject({ clampDirect: direct, clampIndirect: indirect })
+  })
+})
+
+describe('"fast and stable": fitting the trace to what a sample costs on the device', () => {
+  it('traces as many pixels as give a clean image within CLEAN_MS', () => {
+    // 156 ms per megapixel-sample: 16 samples of a megapixel take 2.5 s.
+    const cost = CLEAN_MS / CLEAN_SAMPLES
+    expect(budgetPixels(cost)).toBeCloseTo(1e6)
+    const scale = traceScale('ultra', 2421, 1512, null, cost)
+    const traced = Math.floor(scale * 2421) * Math.floor(scale * 1512)
+    expect(traced).toBeLessThanOrEqual(1e6)
+    expect(traced).toBeGreaterThan(0.99e6)
+  })
+
+  it('changes nothing for a fast GPU or an unknown one, and never goes below half', () => {
+    const full = traceScale('ultra', 2421, 1512, null)
+    expect(traceScale('ultra', 2421, 1512, null, null)).toBe(full)
+    expect(traceScale('ultra', 2421, 1512, null, 5)).toBe(full)
+    expect(traceScale('ultra', 2421, 1512, null, 1e6)).toBe(MIN_BUDGET_SCALE)
+    // A pinned ?traceScale and Lite are as before.
+    expect(traceScale('ultra', 2421, 1512, 0.75, 1e6)).toBe(0.75)
+    expect(traceScale('lite', 2421, 1512, null, 1e6)).toBe(0.5)
+  })
+
+  it('settles at what SETTLE_MS buys, between 64 and 1024 samples', () => {
+    expect(settleSamples(0.5)).toBe(64)
+    expect(settleSamples(10)).toBe(120)
+    expect(settleSamples(500)).toBe(1024)
+  })
+})
+
+describe('device tiers: light on slow GPUs, a full-quality upgrade on decent and fast ones', () => {
+  it('ranks a device by what a clean full-depth image at the Cycles cap costs it', () => {
+    expect(deviceTier(null)).toBe('unknown')
+    expect(deviceTier(40)).toBe('fast')
+    expect(deviceTier(300)).toBe('decent')
+    // The user's Mac, measured: 1061 ms per megapixel-sample.
+    expect(deviceTier(1061)).toBe('slow')
+  })
+
+  it('traces light on slow GPUs: four bounces, down to 0.35 across, settling from 16 samples', () => {
+    expect(LIGHT.maxBounces).toBe(4)
+    expect(traceScale('ultra', 2329, 1456, null, 1061, LIGHT.floor)).toBe(LIGHT.floor)
+    expect(settleSamples(1.1, LIGHT.leastSettle)).toBe(16)
+    expect(settleSamples(1.1)).toBe(64)
+  })
+
+  it('refines a settled view on decent and fast GPUs to what UPGRADE_MS buys, never on slow ones', () => {
+    expect(UPGRADE_MS).toBe(45000)
+    // Settled at 64 gaining 5 a second: 225 more.
+    expect(upgradeTarget('decent', 5, 64)).toBe(64 + 225)
+    expect(upgradeTarget('fast', 100, 1024)).toBeNull()
+    expect(upgradeTarget('fast', 100, 256)).toBe(1024)
+    // Not worth it where it would not even double the samples.
+    expect(upgradeTarget('decent', 1, 64)).toBeNull()
+    expect(upgradeTarget('slow', 50, 16)).toBeNull()
+    expect(upgradeTarget('unknown', 50, 16)).toBeNull()
+    expect(upgradeTarget('decent', null, 64)).toBeNull()
   })
 })

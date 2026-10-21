@@ -12,12 +12,15 @@ import { SceneSurface } from '../components/SceneSurface'
 import { arcWindow, requestedArc } from '../viewer/arc'
 import { ProgressiveRenderer, type ViewerStatus } from '../viewer/ProgressiveRenderer'
 import { EntryWatch } from '../viewer/EntryWatch'
+import { bootStats } from '../viewer/bootStats'
 import type { LiveProgress } from './LiveViewport'
 
 // This module loads only once the visitor shows intent to open the 360° view (LiveViewport): start
 // fetching the tracer and denoiser then too, on browsers that can run them, so a resting view can
 // refine as soon as it is open. ProgressiveRenderer awaits the same cached load.
 if (typeof navigator !== 'undefined' && 'gpu' in navigator) void loadTracerModule().catch(() => {})
+/** When this chunk loaded, for ?bootStats=1. */
+const chunkLoaded = typeof performance !== 'undefined' ? performance.now() : 0
 
 /**
  * Reports the live view's load and refinement to the gallery (LiveViewport), which imports none of
@@ -30,6 +33,7 @@ if (typeof navigator !== 'undefined' && 'gpu' in navigator) void loadTracerModul
  */
 function useLiveProgress(onProgress?: (progress: LiveProgress) => void) {
   useState(() => liveLoading.restart())
+  useBootStats()
   const [base] = useState(() => textureProgress.get())
   useEffect(() => {
     if (!onProgress) return
@@ -56,6 +60,39 @@ function useLiveProgress(onProgress?: (progress: LiveProgress) => void) {
     const unsubscribe = stores.map((store) => store.subscribe(report))
     return () => unsubscribe.forEach((stop) => stop())
   }, [onProgress, base])
+}
+
+/**
+ * `?bootStats=1` (viewer/bootStats.ts): times this view's boot from the press of 360°, its scene's
+ * phases and load steps among them. Nothing without the flag.
+ */
+function useBootStats() {
+  useState(() => {
+    if (!bootStats.enabled) return
+    bootStats.start()
+    bootStats.step('360° view code loaded', chunkLoaded)
+  })
+  useEffect(() => {
+    if (!bootStats.enabled) return
+    let phase = sceneProgress.get()
+    let loading = liveLoading.get()
+    bootStats.step(`scene: ${phase}`)
+    const stopPhase = sceneProgress.subscribe(() => {
+      if (sceneProgress.get() === phase) return
+      phase = sceneProgress.get()
+      bootStats.step(`scene: ${phase}`)
+    })
+    const stopLoading = liveLoading.subscribe(() => {
+      if (liveLoading.get() === loading) return
+      loading = liveLoading.get()
+      bootStats.step(loading === 'ready' ? 'loading screen leaves' : `loading screen: ${loading}`)
+    })
+    return () => {
+      stopPhase()
+      stopLoading()
+      bootStats.stop()
+    }
+  }, [])
 }
 
 export default memo(function LiveDesignScene({

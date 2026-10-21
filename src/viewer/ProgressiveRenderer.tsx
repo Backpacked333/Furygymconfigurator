@@ -36,15 +36,32 @@ import { backendOf, beginFrame, FRAME_BEGIN, type Quality } from '../render/rend
 import { FrameGuard } from './frameGuard'
 import { pixelsFromPose } from './entryPose'
 import { ENTRY_TOLERANCE_PX } from './EntryWatch'
-import { cyclesSeed, earlyImages, liveProfile, liveSampler, traceScale } from './liveProfile'
+import {
+  LIGHT,
+  MIN_BUDGET_SCALE,
+  UPGRADE_REST_MS,
+  cyclesSeed,
+  deviceTier,
+  earlyImages,
+  liveProfile,
+  liveSampler,
+  requestedTraceScale,
+  settleSamples,
+  traceScale,
+  upgradeTarget,
+  type DeviceTier,
+} from './liveProfile'
+import { recordTraceCost, traceCost } from './traceRate'
 import { createProgressivePresentation } from './presentation'
+import { bootStats } from './bootStats'
 
 export type ViewerStatus = 'loading' | 'interactive' | 'refining' | 'settled' | 'raster-only'
 /**
- * How long the view must stay still before tracing may start. Short: a trace started in a brief
- * pause and then interrupted costs little, since what it traced is kept and seeds the next start.
+ * How long the view must stay still before tracing may start. Not shorter: each start draws the
+ * denoiser's guides, seeds from the views kept and queues a batch, and each stop stores the view,
+ * so a start in every brief pause of a drag leaves the next move waiting on that work.
  */
-const REST_MS = 80
+export const REST_MS = 150
 /** Raster frames drawn after a change before tracing may start: the capture is a settled frame. */
 const START_FRAMES = 3
 /**
@@ -114,6 +131,20 @@ const warmed = (pipe: Pipeline) =>
  * and `performance.getEntriesByName` show it. Never throws: where User Timing is missing or refuses
  * the entry, the view goes on unrecorded.
  */
+/** The GPU, as its adapter names it, for keying what a sample costs on it (traceRate.ts). */
+function gpuName(renderer: WebGPURenderer) {
+  const info = (
+    renderer.backend as unknown as
+      | {
+          device?: {
+            adapterInfo?: { vendor?: string; architecture?: string; description?: string }
+          }
+        }
+      | undefined
+  )?.device?.adapterInfo
+  return [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(' / ') || '?'
+}
+
 function timeline(record: () => void) {
   try {
     record()
@@ -157,6 +188,8 @@ export function ProgressiveRenderer({
     dirty: boolean
     ready: boolean
     tracing: boolean
+    /** Why the view was marked changed, for ?bootStats=1. */
+    dirtyReason: string
     interacting: boolean
     warming: boolean
     restAt: number
@@ -179,6 +212,28 @@ export function ProgressiveRenderer({
     prepareSeed: () => void
     /** The first trace has started: the loading screen is done. */
     begun: boolean
+    /**
+     * This device's trace cost is stored under (traceRate.ts): its GPU and the quality tier, with
+     * the depth traced appended.
+     */
+    costKey: string
+    /** How the current view traces: its device's tier and the depth it traces to. */
+    tier: DeviceTier
+    bounces: number
+    /** Starts so far: a pending upgrade belongs to the one it was planned for. */
+    starts: number
+    /** The current view's measured samples per second, and whether it has been upgraded. */
+    rate: number | null
+    upgraded: boolean
+    upgradeTimer: ReturnType<typeof setTimeout> | null
+    /** Megapixels the current view traces. */
+    traceMegapixels: number
+    /** The current view's rate has been measured and its settle target set. */
+    fitted: boolean
+    /** The view has started over once at the resolution its measured cost fits (first visit). */
+    refitted: boolean
+    /** The samples behind the last image ?bootStats=1 was told of. */
+    reportedShown: number
     /** The scene's BVHs and sky map are being built in workers for the first start. */
     warmingTracer: boolean
     /** Frees the closed view's memory TRIM_AFTER_MS after it closed. */
@@ -191,6 +246,7 @@ export function ProgressiveRenderer({
     const current = state.current
     if (current) {
       current.dirty = true
+      current.dirtyReason = 'view props changed'
       if (current.trimTimer) clearTimeout(current.trimTimer)
       current.trimTimer = null
       if (!active) {
@@ -226,14 +282,28 @@ export function ProgressiveRenderer({
 
   useEffect(() => {
     let disposed = false
+    // A device known to be slow (traceRate.ts) traces light and draws the lean raster from the
+    // start: the frame guard would shed to it anyway, rebuilding it mid-session (a ~1 s freeze).
+    const costKey = `${gpuName(renderer)}|${quality}`
+    const knownTier: DeviceTier =
+      quality === 'lite'
+        ? 'unknown'
+        : deviceTier(traceCost(`${costKey}|${liveProfile(quality).maxBounces}`))
     const runtime = {
-      pipe: createPipeline(renderer, scene, camera, quality),
+      pipe: createPipeline(
+        renderer,
+        scene,
+        camera,
+        quality,
+        ...(knownTier === 'slow' ? [LEAN_RASTER] : []),
+      ),
       present: createProgressivePresentation(renderer),
       tracer: null as PathTraceSession | null,
       failed: backendOf(renderer) !== 'webgpu',
       dirty: true,
       ready: false,
       tracing: false,
+      dirtyReason: 'view opened',
       interacting: false,
       warming: true,
       restAt: 0,
@@ -244,17 +314,36 @@ export function ProgressiveRenderer({
       shutter: new MotionShutter(),
       signature: null as number | null,
       // Only Ultra carries passes it can do without; once per session, never touching `quality`.
-      guard: quality === 'ultra' ? new FrameGuard() : null,
+      guard: quality === 'ultra' && knownTier !== 'slow' ? new FrameGuard() : null,
       shedDue: false,
       shed: () => {},
       lean: null as Pipeline | null,
       seed: null as EntrySeed | null,
       prepareSeed: () => {},
       begun: false,
+      costKey,
+      tier: knownTier,
+      bounces: liveProfile(quality).maxBounces,
+      starts: 0,
+      rate: null as number | null,
+      upgraded: false,
+      upgradeTimer: null as ReturnType<typeof setTimeout> | null,
+      traceMegapixels: 0,
+      fitted: false,
+      refitted: false,
+      reportedShown: 0,
       warmingTracer: false,
       trimTimer: null as ReturnType<typeof setTimeout> | null,
     }
     state.current = runtime
+    if (bootStats.running) {
+      bootStats.step('renderer mounted')
+      bootStats.context('quality', quality)
+      bootStats.context('backend', backendOf(renderer))
+      bootStats.context('gpu', gpuName(renderer))
+      const scans = textureProgress.get()
+      bootStats.step(`scans: ${scans.loaded} of ${scans.requested} loaded`)
+    }
     // The scene is mounted: what is left is its materials and light, then the tracer's start.
     liveLoading.set('materials')
     const loadingLimit = setTimeout(() => liveLoading.set('ready'), LOADING_LIMIT_MS)
@@ -291,8 +380,15 @@ export function ProgressiveRenderer({
     // Scans arriving swap maps on the materials the tracer holds: it reads the materials again on
     // its next start, keeping the meshes it captured and their BVH, and the views it traced
     // before seed a little (PathTraceSession texturesChanged).
+    let scansReported = false
     const texturesArrived = () => {
       runtime.dirty = true
+      runtime.dirtyReason = 'scans arrived'
+      const scans = textureProgress.get()
+      if (!scansReported && scans.loaded >= scans.requested) {
+        scansReported = true
+        bootStats.step(`all scans loaded (${scans.loaded})`)
+      }
       runtime.tracer?.texturesChanged()
       if (props.current.active) invalidate()
     }
@@ -310,14 +406,17 @@ export function ProgressiveRenderer({
     // Compile the pipeline's shaders asynchronously before its first frame, so opening the view
     // does not stall on synchronous compilation.
     void warmed(runtime.pipe).finally(() => {
+      bootStats.step('raster shaders compiled')
       runtime.warming = false
       if (!disposed && props.current.active) invalidate()
     })
     const textures = textureProgress.subscribe(texturesArrived)
     const interrupt = () => {
+      if (runtime.tracing) bootStats.restart('pointer or wheel')
       runtime.tracer?.halt()
       runtime.tracing = false
       runtime.dirty = true
+      runtime.dirtyReason = 'pointer or wheel'
       if (props.current.active) invalidate()
     }
     const down = () => {
@@ -336,10 +435,12 @@ export function ProgressiveRenderer({
     window.addEventListener('blur', up)
     const visibility = () => {
       if (document.hidden) {
+        if (runtime.tracing) bootStats.restart('tab hidden')
         runtime.tracer?.halt()
         runtime.tracing = false
       }
       runtime.dirty = true
+      runtime.dirtyReason = 'tab shown'
       if (!document.hidden && props.current.active) invalidate()
     }
     document.addEventListener('visibilitychange', visibility)
@@ -347,6 +448,7 @@ export function ProgressiveRenderer({
       void loadTracerModule()
         .then((modules) => {
           if (disposed) return
+          bootStats.step('path tracer code loaded')
           // The tracer packs the scans from their GPU copies (the atlas patch in patches/), so
           // their decoded pixels are freed after upload, as without it: none are kept.
           const profile = liveProfile(quality)
@@ -372,6 +474,7 @@ export function ProgressiveRenderer({
           // meanwhile.
           runtime.warmingTracer = true
           const started = performance.now()
+          let prepared = false
           void Promise.race([
             Promise.all([
               warmBVHs(scene).then((geometries) =>
@@ -383,9 +486,19 @@ export function ProgressiveRenderer({
                   }),
                 ),
               ),
-              prepareEnvironment(props.current.look),
-            ]),
-            new Promise((resolve) => setTimeout(resolve, WARM_TRACER_MS)),
+              prepareEnvironment(props.current.look).then(() => bootStats.step('sky map ready')),
+              // The denoiser's network too, behind the loading screen rather than after it.
+              runtime.tracer.prepareDenoiser().then(() => bootStats.step('denoiser network ready')),
+            ]).then(() => {
+              prepared = true
+              bootStats.step('tracer prepared (BVHs, sky, denoiser)')
+            }),
+            new Promise((resolve) => setTimeout(resolve, WARM_TRACER_MS)).then(() => {
+              if (!prepared)
+                bootStats.step(
+                  `gave up waiting on tracer preparation at ${WARM_TRACER_MS / 1000} s`,
+                )
+            }),
           ]).finally(() => {
             runtime.warmingTracer = false
             if (!disposed && props.current.active) invalidate()
@@ -402,6 +515,7 @@ export function ProgressiveRenderer({
       disposed = true
       clearTimeout(loadingLimit)
       if (runtime.trimTimer) clearTimeout(runtime.trimTimer)
+      if (runtime.upgradeTimer) clearTimeout(runtime.upgradeTimer)
       traceProgress.set({ phase: 'idle' })
       state.current = null
       materials()
@@ -429,6 +543,7 @@ export function ProgressiveRenderer({
     const report = (status: ViewerStatus) => {
       if (current.status === status) return
       current.status = status
+      if (status === 'settled') bootStats.settled()
       props.current.onStatus(status)
     }
     const now = performance.now()
@@ -450,6 +565,7 @@ export function ProgressiveRenderer({
     if (signature !== current.signature) {
       current.signature = signature
       current.dirty = true
+      current.dirtyReason = 'scene changed'
     }
     const moved = !current.view.equals(camera.matrixWorld)
     const resting = !moved && !current.interacting
@@ -469,6 +585,10 @@ export function ProgressiveRenderer({
     if (current.dirty) current.shutter.cut()
     if (pipe.shutter) pipe.shutter.value = current.shutter.frame(now, moved && !current.dirty)
     if (current.dirty || moved || !current.projection.equals(camera.projectionMatrix)) {
+      if (current.tracing)
+        bootStats.restart(
+          current.dirty ? current.dirtyReason : moved ? 'camera moved' : 'projection changed',
+        )
       tracer?.halt()
       current.tracing = false
       current.dirty = false
@@ -535,7 +655,41 @@ export function ProgressiveRenderer({
           current.present.capture(() => pipe.render())
           // A resize marks the view changed, so each start reads the canvas's size again.
           renderer.getDrawingBufferSize(drawingBuffer)
-          const scale = traceScale(quality, drawingBuffer.x, drawingBuffer.y)
+          // The device's tier, from its full-depth cost: a slow one traces light (LIGHT).
+          const fullDepth = liveProfile(quality).maxBounces
+          const fullCost = traceCost(`${current.costKey}|${fullDepth}`)
+          const tier: DeviceTier = quality === 'lite' ? 'unknown' : deviceTier(fullCost)
+          const light = tier === 'slow'
+          const bounces = light ? LIGHT.maxBounces : fullDepth
+          // What a sample costs at that depth; at first for a light view, the full depth's (more).
+          const cost = traceCost(`${current.costKey}|${bounces}`) ?? fullCost
+          const scale = traceScale(
+            quality,
+            drawingBuffer.x,
+            drawingBuffer.y,
+            requestedTraceScale(),
+            cost,
+            light ? LIGHT.floor : MIN_BUDGET_SCALE,
+          )
+          current.tier = tier
+          current.bounces = bounces
+          current.starts++
+          current.rate = null
+          current.upgraded = false
+          if (current.upgradeTimer) clearTimeout(current.upgradeTimer)
+          current.upgradeTimer = null
+          current.traceMegapixels =
+            (Math.floor(drawingBuffer.x * scale) * Math.floor(drawingBuffer.y * scale)) / 1e6
+          current.fitted = false
+          current.reportedShown = 0
+          bootStats.context(
+            'trace',
+            light ? `${tier}: light, ${bounces} bounces` : `${tier}: ${bounces} bounces`,
+          )
+          bootStats.context(
+            'trace size',
+            `${Math.round(drawingBuffer.x * scale)}×${Math.round(drawingBuffer.y * scale)} of a ${drawingBuffer.x}×${drawingBuffer.y} canvas`,
+          )
           if (atEntry && seed!.state === 'ready') {
             seed!.used = true
             try {
@@ -543,6 +697,7 @@ export function ProgressiveRenderer({
                 count: liveProfile(quality).cyclesSeedSamples,
                 ceiling: SEED_CEILING,
                 scale,
+                bounces,
               })
               if (stored) timeline(() => performance.mark('fury:trace-cycles-seed'))
             } catch {
@@ -552,13 +707,28 @@ export function ProgressiveRenderer({
           }
           // Its first start builds the tracer's BVH, the view's longest main-thread stall.
           const began = performance.now()
-          tracer.begin(scene, camera, props.current.look, liveProfile(quality).samples, scale)
+          tracer.begin(
+            scene,
+            camera,
+            props.current.look,
+            liveProfile(quality).samples,
+            scale,
+            bounces,
+          )
+          // A known cost settles the view at what SETTLE_MS buys from the start; a measured rate
+          // refines it (below).
+          if (cost !== null && quality !== 'lite')
+            tracer.settleAt(
+              settleSamples(
+                1000 / (cost * current.traceMegapixels),
+                light ? LIGHT.leastSettle : undefined,
+              ),
+            )
           timeline(() =>
             performance.measure('fury:trace-begin', { start: began, end: performance.now() }),
           )
           current.tracing = true
           current.begun = true
-          liveLoading.set('ready')
           setTimeout(() => logMemory(renderer, '5 s into the first trace'), 5000)
         } catch {
           tracer.halt()
@@ -578,13 +748,90 @@ export function ProgressiveRenderer({
         invalidate()
     }
     if (current.tracing && tracer) {
+      // The loading screen leaves once the first batch has finished on the GPU, not at the start:
+      // that batch builds the tracer's kernels, and the view stalls until it is done.
+      if (tracer.started) {
+        if (liveLoading.get() !== 'ready') bootStats.step('first batch finished on the GPU')
+        liveLoading.set('ready')
+      }
+      // Once this view's rate is measured: keep its cost (under the depth it traces), settle at
+      // what SETTLE_MS buys, and on a first visit start over once fitted to this GPU: at the
+      // resolution its cost allows, and light if it is slow.
+      const rate = current.fitted ? null : tracer.samplesPerSecond
+      if (rate !== null && current.traceMegapixels > 0) {
+        current.fitted = true
+        current.rate = rate
+        const cost = 1000 / rate / current.traceMegapixels
+        recordTraceCost(`${current.costKey}|${current.bounces}`, cost)
+        const light = current.tier === 'slow'
+        if (quality !== 'lite')
+          tracer.settleAt(settleSamples(rate, light ? LIGHT.leastSettle : undefined))
+        bootStats.step(
+          `measured ${rate.toFixed(1)} samples/s at ${current.traceMegapixels.toFixed(2)} MP, ${current.bounces} bounces (${Math.round(cost)} ms per MP-sample); settling at ${tracer.progress().target}`,
+        )
+        if (current.tier === 'unknown' && !current.refitted && quality !== 'lite') {
+          const tier = deviceTier(cost)
+          const slow = tier === 'slow'
+          renderer.getDrawingBufferSize(drawingBuffer)
+          const fitted = traceScale(
+            quality,
+            drawingBuffer.x,
+            drawingBuffer.y,
+            requestedTraceScale(),
+            cost,
+            slow ? LIGHT.floor : MIN_BUDGET_SCALE,
+          )
+          const fittedMegapixels =
+            (Math.floor(drawingBuffer.x * fitted) * Math.floor(drawingBuffer.y * fitted)) / 1e6
+          if (slow || fittedMegapixels < 0.8 * current.traceMegapixels) {
+            current.refitted = true
+            current.dirty = true
+            current.dirtyReason = 'fitted to this GPU'
+            if (slow && current.guard) {
+              // The lean raster too, once, at the next rest.
+              current.guard = null
+              current.shedDue = true
+            }
+            bootStats.step(
+              `this GPU is ${tier}: starting over${slow ? ' light' : ''} at ${fittedMegapixels.toFixed(2)} MP`,
+            )
+          }
+        }
+      }
       try {
         const developing = tracer.step()
         const view = tracer.view(now)
         if (view.t > 0) current.present.render(view)
         const { shown, target } = tracer.progress()
+        if (bootStats.running && shown > current.reportedShown) {
+          current.reportedShown = shown
+          const { passes, latencyFloor } = tracer.pacing
+          bootStats.step(
+            `image at ${shown} of ${target} samples: ${passes} passes per batch, completion floor ${Number.isFinite(latencyFloor) ? Math.round(latencyFloor) : '?'} ms`,
+          )
+        }
         traceProgress.set(refineProgress(shown, target, !developing))
         report(developing ? 'refining' : 'settled')
+        // Settled on a decent or fast GPU: after a short rest more, refine on (liveProfile.ts
+        // upgradeTarget), once per view.
+        if (!developing && !current.upgraded && !current.upgradeTimer) {
+          const tier = deviceTier(
+            traceCost(`${current.costKey}|${liveProfile(quality).maxBounces}`),
+          )
+          const more = quality === 'lite' ? null : upgradeTarget(tier, current.rate, target)
+          if (more !== null) {
+            const start = current.starts
+            current.upgradeTimer = setTimeout(() => {
+              current.upgradeTimer = null
+              if (state.current !== current || current.starts !== start || !current.tracing) return
+              if (!props.current.active || current.upgraded) return
+              current.upgraded = true
+              tracer.retarget(more)
+              bootStats.step(`upgrading: refining on to ${more} samples`)
+              invalidate()
+            }, UPGRADE_REST_MS)
+          }
+        }
         if (developing) invalidate()
       } catch {
         tracer.halt()
@@ -623,7 +870,7 @@ function entrySeed(image: string, until: number) {
       scene: Parameters<PathTraceSession['storeImage']>[0],
       pose: GalleryCamera,
       look: SkyLook,
-      options: { count: number; ceiling: number; scale: number },
+      options: { count: number; ceiling: number; scale: number; bounces: number },
     ) {
       if (!texture || !table || !bitmap) return false
       const lens = new PerspectiveCamera(pose.fov, bitmap.width / bitmap.height, 0.1, 2000)
@@ -636,6 +883,7 @@ function entrySeed(image: string, until: number) {
         look,
         { image: texture, table, count: options.count, ceiling: options.ceiling },
         options.scale,
+        options.bounces,
       )
     },
     dispose() {
