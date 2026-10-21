@@ -165,6 +165,7 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     run(readFileSync('supabase/migrations/202610200007_pause_bulk_queue.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610210001_image_singleflight.sql', 'utf8'))
     run(readFileSync('supabase/migrations/202610210002_camera_visible_views.sql', 'utf8'))
+    run(readFileSync('supabase/migrations/202610210004_opaque_end_views.sql', 'utf8'))
   })
   beforeEach(async () => {
     run(
@@ -618,37 +619,48 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     )
     run(`insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
       values(${quote(image.imageKey)},${quote(image.setKey)},${quote(image.design.presentation.cameraRef)},${encoded(image)},${encoded(image.provenance)});`)
+    expect(dispatch()).toBeNull()
+    const left = imageDescriptorSchema.parse(
+      contract.complete.views.find((v) => v.cameraRef === 'left-draft@1')!.image,
+    )
+    run(`insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
+      values(${quote(left.imageKey)},${quote(left.setKey)},'left-draft@1',${encoded(left)},${encoded(left.provenance)});`)
     const now = dispatch()
     expect(now.dispatch.jobId).toBe(second.snapshot.job.id)
     const claim = workerClaim(now.dispatch)
-    expect(claim.views).toHaveLength(4)
-    expect(claim.views.some((view) => view.cameraRef === 'rear-left-draft@1')).toBe(false)
+    expect(claim.views).toHaveLength(3)
+    expect(claim.views.map((view) => view.cameraRef)).toEqual(
+      expect.arrayContaining(['front-left-draft@1', 'front-draft@1', 'entry-draft@1']),
+    )
     expect(
       run("select count(*) from public.render_library_reservations where status='reserved'"),
     ).toBe('2')
   })
 
-  it('reuses a canonical rear from another set without copying its descriptor or claiming it again', async () => {
-    const image = imageDescriptorSchema.parse(
-      contract.complete.views.find((v) => v.cameraRef === 'rear-left-draft@1')!.image,
-    )
-    const identity = await computeSetIdentity(command.request.design)
-    run(`insert into public.render_library_sets(set_key,design,identity,release_id)
+  it.each(['left-draft@1', 'rear-left-draft@1'] as const)(
+    'reuses canonical %s from another set without copying or claiming it again',
+    async (camera) => {
+      const image = imageDescriptorSchema.parse(
+        contract.complete.views.find((v) => v.cameraRef === camera)!.image,
+      )
+      const identity = await computeSetIdentity(command.request.design)
+      run(`insert into public.render_library_sets(set_key,design,identity,release_id)
       values(${quote(identity.setKey)},${encoded(command.request.design)},${encoded(identity)},'fury-native-five@2');
       insert into public.render_library_images(image_key,set_key,camera_ref,descriptor,receipt)
-      values(${quote(image.imageKey)},${quote(identity.setKey)},'rear-left-draft@1',${encoded(image)},${encoded(image.provenance)});`)
-    let next = structuredClone(command)
-    next.request.idempotencyKey = randomUUID()
-    next.request.design.config.appearance.mirror = !next.request.design.config.appearance.mirror
-    next = { ...next, identity: await computeSetIdentity(next.request.design), seedImages: [] }
-    const result = reserve(next)
-    const ready = result.snapshot.views.filter((v: { status: string }) => v.status === 'ready')
-    expect(ready).toHaveLength(1)
-    expect(ready[0].image).toEqual(image)
-    const work = workerClaim(dispatch().dispatch)
-    expect(work.views).toHaveLength(4)
-    expect(work.views.some((v) => v.cameraRef === 'rear-left-draft@1')).toBe(false)
-  })
+      values(${quote(image.imageKey)},${quote(identity.setKey)},${quote(camera)},${encoded(image)},${encoded(image.provenance)});`)
+      let next = structuredClone(command)
+      next.request.idempotencyKey = randomUUID()
+      next.request.design.config.appearance.mirror = !next.request.design.config.appearance.mirror
+      next = { ...next, identity: await computeSetIdentity(next.request.design), seedImages: [] }
+      const result = reserve(next)
+      const ready = result.snapshot.views.filter((v: { status: string }) => v.status === 'ready')
+      expect(ready).toHaveLength(1)
+      expect(ready[0].image).toEqual(image)
+      const work = workerClaim(dispatch().dispatch)
+      expect(work.views).toHaveLength(4)
+      expect(work.views.some((v) => v.cameraRef === camera)).toBe(false)
+    },
+  )
 
   it('imports unchanged exteriors without jobs or budget and reserves only the new interior', async () => {
     const bytes = readFileSync('public/native-library/manifest.json')

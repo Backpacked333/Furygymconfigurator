@@ -34,7 +34,7 @@ def identity(design, kind):
     body = {"contractVersion": HTTP["contractVersion"], "kind": kind,
             "design": design, "recipeRelease": HTTP["identity"]["recipeRelease"]}
     if kind == "set":
-        body["viewKeying"] = "camera-visible@1"
+        body["viewKeying"] = "camera-visible@2"
     payload = canonical(body)
     return ("set_" if kind == "set" else "img_") + hashlib.sha256(payload.encode("utf-8")).hexdigest(), payload
 

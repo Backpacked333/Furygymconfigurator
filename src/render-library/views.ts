@@ -45,7 +45,7 @@ export function customerAngle(angle: string): CustomerAngle {
 
 export const INTERIOR_CAMERA_REF = 'entry-draft@1' as const
 export const INTERIOR_KEYING = 'interior-visible@1' as const
-export const VIEW_KEYING = 'camera-visible@1' as const
+export const VIEW_KEYING = 'camera-visible@2' as const
 
 /**
  * The interior view is keyed only by what the room camera can see: family, size, interior wall,
@@ -68,8 +68,8 @@ export function interiorDesign(input: unknown): DesignEnvelope {
 
 /**
  * Canonical photographic representatives, not a claim that hidden surfaces never bounce light.
- * Outdoor scenery and add-ons can reflect the room, so those rear views retain every room choice.
- * Front/side glass and openings also retain the room. See docs/render-library-contract.md.
+ * Studio end/rear walls use a neutral room. Outdoors and add-ons retain reflected room effects;
+ * front glass/openings retain visible room choices. See docs/render-library-contract.md.
  */
 export function viewDesign(input: unknown, cameraRef: CameraRef): DesignEnvelope {
   const design = parseDesign(input)
@@ -77,7 +77,7 @@ export function viewDesign(input: unknown, cameraRef: CameraRef): DesignEnvelope
   const { structure, appearance } = design.config
   const hasRailing = structure.addons.includes('roof') || structure.addons.includes('stairs')
   const canonicalRoom =
-    cameraRef === 'rear-left-draft@1' &&
+    (cameraRef === 'left-draft@1' || cameraRef === 'rear-left-draft@1') &&
     structure.addons.length === 0 &&
     (design.presentation.lookRef === 'studio-day-draft@1' ||
       design.presentation.lookRef === 'studio-night-draft@1')

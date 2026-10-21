@@ -1,6 +1,6 @@
 # Render library v1 integration contract
 
-## Camera-visible representatives (`camera-visible@1`)
+## Camera-visible representatives (`camera-visible@2`)
 
 Set identities version the mapping from a requested build to its five photographic
 representatives. Image identities still bind the **complete representative design**
@@ -14,12 +14,12 @@ images are not byte-equivalent aliases and must not be relabeled. Only an existi
 of the exact canonical representative and recipe is reusable. Its original publishing
 set, URL, SHA, receipt and provenance remain unchanged.
 
-| Camera                                    | Room wall, floor, mirror                                         | Exterior choices                                                             |
-| ----------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Front-left, front, left                   | Preserve: glazing/openings, reflections and transmitted light    | Preserve                                                                     |
-| Rear-left, studio day/night, no add-ons   | Canonical gallery wall, rubber floor, no mirror                  | Preserve size, finish, accent, opening, infill, door pose, integrated finish |
-| Rear-left outdoors or with **any** add-on | Preserve: scenery/add-ons can reflect the room; framing can move | Preserve                                                                     |
-| Entry                                     | Preserve                                                         | Existing interior representative: obsidian, no accent/add-ons, glass railing |
+| Camera                                           | Room wall, floor, mirror                                         | Exterior choices                                                             |
+| ------------------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Front-left, front                                | Preserve: glazing/openings, reflections and transmitted light    | Preserve                                                                     |
+| Left and rear-left, studio day/night, no add-ons | Canonical gallery wall, rubber floor, no mirror                  | Preserve size, finish, accent, opening, infill, door pose, integrated finish |
+| Left/rear-left outdoors or with **any** add-on   | Preserve: scenery/add-ons can reflect the room; framing can move | Preserve                                                                     |
+| Entry                                            | Preserve                                                         | Existing interior representative: obsidian, no accent/add-ons, glass railing |
 
 All cameras retain scene/look, day/night, aspect, family/size, arrangement and output
 profile. Railing becomes glass when neither roof nor stairs exists: no railing
@@ -32,6 +32,12 @@ The audit sources are `architecture.ts` (opaque rear shells versus front glazing
 `addons.ts` (railing consumers), `unitParts.ts`, `gallery.ts` (obstacle-aware framing),
 `nativeCamera.ts`, and native scene preparation. Part-list scopes alone are not a
 ray-tracing visibility proof. Unknown dependencies stay in the key.
+
+The left camera faces an opaque end wall on both product families, not the glazed
+front. Version 2 corrects its omission from the Studio room normalization. It changes
+set mappings, not the pixel recipe: existing images of the exact neutral-room left
+representative are reused with their original provenance. Historical non-neutral left
+images are preserved, not relabeled as that representative.
 
 ### Simultaneous requests
 
@@ -54,7 +60,8 @@ spending twice on a shared view. Existing lane quotas and foreground ordering re
 3. At cutover, briefly hold admissions and drain active work and uncertain liabilities.
    Preserve journals, delivery spools and all historical rows.
 4. Apply the queue-pause migration (also in PR #46) before single-flight. Apply
-   `202610210002_camera_visible_views.sql` with the matching API and worker registration
+   `202610210002_camera_visible_views.sql` and `202610210004_opaque_end_views.sql`
+   with the matching API and worker registration
    while held. Parked old-version claims must **not** go to the new worker: use existing
    audited lifecycle operations and replan their immutable designs. Never rewrite stored
    identities or fabricate terminal evidence.
@@ -66,21 +73,41 @@ spending twice on a shared view. Existing lane quotas and foreground ordering re
    substitution.
 
 Merging without the coordinated worker cutover is unsafe: the old Python worker
-correctly rejects `camera-visible@1` set identities. No historical row mutation,
+correctly rejects `camera-visible@2` set identities. Parked version-1 jobs also need
+audited reconciliation and replanning before release. No historical row mutation,
 approximate image match or receipt rewrite is part of this rollout.
 
 ### Read-only bulk planner
 
 ```sh
-node --import ./scripts/native-render-register.mjs scripts/native-render-plan.ts designs.json saved-image-keys.json > plan.json
+node --import ./scripts/native-render-register.mjs scripts/native-render-plan.ts designs.json saved-image-keys.json saved-images.json > plan.json
 ```
 
-Both inputs are JSON arrays: valid customer design envelopes and **actual saved**
-`img_...` keys from a fresh inventory. Do not project historical rows into new keys.
+All three inputs are JSON arrays: valid customer design envelopes, **actual saved**
+`img_...` keys, and published image descriptors for the currently matching recipe.
+Use a fresh inventory, not a previous plan's projected keys. Do not project historical
+rows into new keys. Coverage descriptors must reference actual saved keys.
 The planner skips duplicate builds, saved builds and builds covered entirely by earlier
 planned views; it counts unique missing images and records cross-set dependencies.
 It orders Studio day, Courtyard day, Courtyard night and defers other looks.
 It does not admit jobs, spend money or modify a queue.
+
+The default `exterior-coverage-first@1` scheduling policy also prevents cartesian
+room/floor/mirror grids from repeatedly photographing an already represented exterior.
+It groups by product/size/structure/finish/trim/scene/door pose/aspect/arrangement/recipe,
+and learns represented rooms from saved front and front-left images and earlier planned
+jobs. Opaque canonical views do not identify the original requested room. A new room
+that would spend on additional exterior photographs is **deferred, not cached**.
+Missing-interior-only work and completing a partially saved representative remain
+eligible, as do new exterior/scene combinations. On-demand requests are unaffected and
+still use exact image keys. These scheduling groups are never image identities or
+proof of pixel equivalence. `deferredMissingImages` counts unique deferred keys not
+owned by an admitted candidate; it does not label them duplicate files.
+
+Operators must require both the matching `viewKeying` and `bulkPolicy` before admission;
+an old two-input or unguarded plan must not silently start another batch. Replan with
+fresh published coverage after interruptions or failures instead of treating planned
+representatives as completed work.
 
 Before admission, compare the live lookup identity to the planned identity and stop on
 any mismatch. Recheck coverage; a planned artifact is not a saved artifact. Keep

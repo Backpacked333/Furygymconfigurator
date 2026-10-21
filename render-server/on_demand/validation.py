@@ -42,7 +42,7 @@ def timestamp(value):
 
 INTERIOR_CAMERA = "entry-draft@1"
 INTERIOR_KEYING = "interior-visible@1"
-VIEW_KEYING = "camera-visible@1"
+VIEW_KEYING = "camera-visible@2"
 
 
 def identity(design, kind, release):
@@ -74,7 +74,7 @@ def view_design(design, camera):
         structure = design["config"]["structure"]
         if not any(addon in structure["addons"] for addon in ("roof", "stairs")):
             structure["railing"] = "glass"
-        if (camera == "rear-left-draft@1"
+        if (camera in ("left-draft@1", "rear-left-draft@1")
                 and not structure["addons"]
                 and design["presentation"]["lookRef"] in (
                     "studio-day-draft@1", "studio-night-draft@1")):
