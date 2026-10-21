@@ -235,6 +235,24 @@ Deadlines bound worker execution but are not proof that a provider is terminal.
 
 ## Local verification (no remote DB, provider, GPU or browser)
 
+### Preview deployment gate
+
+Vercel builds require `RENDER_LIBRARY_SUPABASE_URL`, `RENDER_LIBRARY_SERVICE_ROLE_KEY`
+and `VITE_RENDER_LIBRARY_STORAGE_ORIGIN`. The two storage origins must match exactly and
+be HTTPS origins without a trailing slash. `npm run build` fails before compilation if
+these are missing or inconsistent; local offline builds remain available.
+
+Preview variables are branch-scoped: merging code does **not** copy configuration.
+Provision the exact target branch and redeploy. Keep the service-role key server-only;
+never use a `VITE_` prefix for credentials or grant all preview branches blanket access.
+A lookup-only preview needs these three variables, not rendering approval/worker credentials.
+Verify a known saved design through `/api/render-library/lookup` and browser descriptor
+verification before sharing the preview. Lookup failure is not evidence of a cache miss.
+
+The API, frontend and database must share the current `interior-visible@1` identity contract.
+Saved descriptors retain their original publishing `setKey`; image identity, recipe, design
+and storage-object binding—not equality with the requested set key—prove reuse is valid.
+
 Install the integrator's locked dependencies, including Sharp. Unit checks:
 
 ```sh

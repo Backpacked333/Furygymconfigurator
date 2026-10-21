@@ -142,6 +142,7 @@ describe('trusted source closure', () => {
     'src/components/Atmosphere.tsx',
     'src/components/Landscape.tsx',
     'src/render/materials.ts',
+    'src/render/scanFiles.ts',
     'src/render/siteLight.worker.ts',
     'src/render/prototype/capture/browser/worker.ts',
     'src/render/prototype/capture/browser/scene.tsx',

@@ -42,6 +42,7 @@ def timestamp(value):
 
 INTERIOR_CAMERA = "entry-draft@1"
 INTERIOR_KEYING = "interior-visible@1"
+VIEW_KEYING = "camera-visible@1"
 
 
 def identity(design, kind, release):
@@ -56,12 +57,12 @@ def identity(design, kind, release):
         "recipeRelease": release,
     }
     if kind == "set":
-        body["viewKeying"] = INTERIOR_KEYING
+        body["viewKeying"] = VIEW_KEYING
     return ("set_" if kind == "set" else "img_") + digest(canonical(body).encode())
 
 
 def view_design(design, camera):
-    """The design a camera's image shows; the interior view collapses exterior-only choices."""
+    """Canonical photograph inputs, matching src/render-library/views.ts exactly."""
     design = copy.deepcopy(design)
     design["presentation"]["cameraRef"] = camera
     if camera == INTERIOR_CAMERA:
@@ -69,6 +70,16 @@ def view_design(design, camera):
         design["config"]["structure"]["railing"] = "glass"
         design["config"]["appearance"]["finish"] = "obsidian"
         design["config"]["appearance"]["accent"] = False
+    else:
+        structure = design["config"]["structure"]
+        if not any(addon in structure["addons"] for addon in ("roof", "stairs")):
+            structure["railing"] = "glass"
+        if (camera == "rear-left-draft@1"
+                and not structure["addons"]
+                and design["presentation"]["lookRef"] in (
+                    "studio-day-draft@1", "studio-night-draft@1")):
+            design["config"]["appearance"].update(
+                interior="gallery", floor="rubber", mirror=False)
     return design
 
 

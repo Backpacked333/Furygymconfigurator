@@ -104,6 +104,28 @@ it.each(['missing', 'error'])(
   },
 )
 
+it('never reports an unavailable lookup as a missing image and reconnects read-only', async () => {
+  calls.find.mockReturnValue(undefined)
+  const refresh = vi.fn()
+  calls.library.mockReturnValue({ snapshot: null, checking: false, paused: true, refresh })
+  const h = harness()
+  try {
+    await h.render(defaultDesign())
+    expect(h.image.progress).toMatchObject({
+      state: 'error',
+      retryable: true,
+      message: expect.stringContaining('does not mean your image is missing'),
+    })
+    await act(async () => h.image.retry())
+    expect(refresh).toHaveBeenCalledOnce()
+    calls.library.mockReturnValue({ snapshot: { views: [] }, checking: false, paused: false })
+    await h.render(defaultDesign())
+    expect(h.image.progress).toMatchObject({ state: 'unavailable', retryable: false })
+  } finally {
+    h.close()
+  }
+})
+
 it('waits for a dynamic lookup before treating a static catalog miss as missing', async () => {
   calls.decode.mockResolvedValueOnce({ src: 'blob:a', release: vi.fn() })
   const h = harness(),
