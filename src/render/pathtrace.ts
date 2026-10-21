@@ -10,6 +10,7 @@ import {
   StorageTexture,
   Vector2,
   Vector3,
+  Vector4,
   type BufferGeometry,
   type Camera,
   type InstancedMesh,
@@ -466,6 +467,8 @@ export class PathTraceSession {
   private signature = -1
   /** What the tracer holds: the scene parts and sky it last captured or updated. */
   private captured: { parts: SceneParts; look: string } | null = null
+  /** Textures in the atlas when the kernels were last compiled (setScene), which they index. */
+  private textureSlots = 0
   /** Bumped per view, so readbacks that land after the camera moved are ignored. */
   private epoch = 0
   /**
@@ -545,28 +548,44 @@ export class PathTraceSession {
     const signature = sceneSignature(scene, key)
     this.state = 'preparing'
     const last = this.captured
-    if (!last || last.parts.structure !== parts.structure) {
-      // New or reshaped meshes: build the BVH and kernels again.
+    const capture = () => {
+      // New or reshaped meshes, or more textures than the kernels index: build the BVH and
+      // kernels again.
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
         this.tracer.setScene(scene, camera)
       } finally {
         restore()
       }
+      this.textureSlots = this.textureCount()
+    }
+    if (!last || last.parts.structure !== parts.structure) {
+      capture()
     } else if (signature !== this.signature) {
       // Same meshes: update in place only what changed, keeping the BVH and compiled kernels.
       const moved = last.parts.transforms !== parts.transforms
       const sky = last.look !== key
+      let grown = false
       const restore = preparePathTraceScene(scene, look, environmentTexture(look))
       try {
         if (moved) this.tracer.updateTransforms()
-        if (last.parts.materials !== parts.materials) this.tracer.updateMaterials()
+        if (last.parts.materials !== parts.materials) {
+          this.tracer.updateMaterials()
+          // More textures than the kernels were compiled for (scans arriving, or a floor swapped in
+          // while the old one's scans stay in use elsewhere): those surfaces would read past the
+          // kernels' texture array and trace black, so they need new kernels.
+          grown = this.textureCount() > this.textureSlots
+          // Fewer: the tracer rebuilds kernels on its own (a resize) and sizes the array from its
+          // length then, so it is kept at the count captured. Padding is never indexed.
+          if (!grown) this.padTextures()
+        }
         if (sky) this.tracer.updateEnvironment()
         if (sky || moved || last.parts.lights !== parts.lights) this.tracer.updateLights()
       } finally {
         restore()
       }
-      this.tracer.updateCamera()
+      if (grown) capture()
+      else this.tracer.updateCamera()
     } else {
       this.tracer.updateCamera()
     }
@@ -606,6 +625,23 @@ export class PathTraceSession {
   }
 
   /** The tracer's accumulation targets. */
+  /** The atlas's per-texture entries, which the kernels' textureInfo array is sized from. */
+  private textureInfo() {
+    const tracer = this.tracer as unknown as { textureAtlas?: { textureInfo?: unknown[] } }
+    return tracer.textureAtlas?.textureInfo
+  }
+
+  /** Textures packed into the tracer's atlas, as its kernels index them. */
+  private textureCount() {
+    return this.textureInfo()?.length ?? 0
+  }
+
+  /** Keeps the atlas's entries at the count the kernels were captured with (see `begin`). */
+  private padTextures() {
+    const info = this.textureInfo()
+    while (info && info.length < this.textureSlots) info.push(new Vector4())
+  }
+
   private get backend() {
     return (
       this.tracer as unknown as {

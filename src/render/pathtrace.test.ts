@@ -9,14 +9,19 @@ import {
   MeshPhysicalNodeMaterial,
   MeshStandardNodeMaterial,
   RectAreaLight,
+  PerspectiveCamera,
   Scene,
+  StorageTexture,
+  Vector2,
   type Texture,
 } from 'three/webgpu'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { skyLook } from '../lib/visuals'
+import { GBuffer } from './history'
 import {
   EXPORT_SAMPLES,
   MILESTONES,
+  PathTraceSession,
   REST_SAMPLES,
   preparePathTraceScene,
   sceneParts,
@@ -377,5 +382,104 @@ describe('path-traced scene capture', () => {
       f.scene.updateMatrixWorld(true)
       expect(sceneSignature(f.scene, 'a')).not.toBe(before)
     }
+  })
+})
+
+describe('textures added after the scene was captured (tracer and GPU mocked)', () => {
+  afterEach(() => vi.restoreAllMocks())
+  const look = skyLook('studio', 13)
+
+  function session() {
+    vi.spyOn(GBuffer.prototype, 'render').mockImplementation(() => {})
+    const tracer = {
+      setScene: vi.fn(),
+      updateMaterials: vi.fn(),
+      updateTransforms: vi.fn(),
+      updateLights: vi.fn(),
+      updateEnvironment: vi.fn(),
+      updateCamera: vi.fn(),
+      reset: vi.fn(),
+      setSize: vi.fn(),
+      renderSample: vi.fn(),
+      setRandom: vi.fn(),
+      dispose: vi.fn(),
+      getSampleCountsAsync: () => Promise.resolve({ min: 0 }),
+      renderScale: 1,
+      fadeState: 1,
+      target: { image: { width: 64, height: 32 } },
+      material: { turquinTexture: { image: { width: 1, height: 1, depth: 1 } } },
+      textureAtlas: { textureInfo: [{}, {}, {}] as unknown[] },
+      _pathTracer: {
+        setSize: vi.fn(),
+        outputTarget: new StorageTexture(64, 32),
+        sampleCountTarget: new StorageTexture(64, 32),
+      },
+    }
+    const renderer = {
+      initTexture: vi.fn(),
+      backend: {
+        get: () => ({}),
+        device: { queue: { onSubmittedWorkDone: () => Promise.resolve() } },
+      },
+      getDrawingBufferSize: (size: Vector2) => size.set(64, 32),
+      getRenderTarget: () => null,
+      setRenderTarget: vi.fn(),
+      compute: vi.fn(),
+      copyTextureToTexture: vi.fn(),
+    }
+    const modules = {
+      tracer: {
+        WebGPUPathTracer: class {
+          constructor() {
+            return tracer
+          }
+        },
+        TRANSMISSIVE_BACKGROUND_ENVIRONMENT: 0,
+      },
+      initUNetFromURL: null,
+    }
+    const traced = new PathTraceSession(renderer as never, modules as never, false)
+    const f = fixture()
+    f.scene.updateMatrixWorld(true)
+    const camera = new PerspectiveCamera()
+    const begin = () => traced.begin(f.scene, camera, look)
+    /** A new material on the stone: an in-place update whose atlas then holds `count` textures. */
+    const restyle = (count: number) => {
+      f.stone.material = new MeshStandardNodeMaterial()
+      tracer.updateMaterials.mockImplementationOnce(() => {
+        tracer.textureAtlas.textureInfo = Array.from({ length: count }, () => ({}))
+      })
+      traced.halt()
+      begin()
+    }
+    return { tracer, begin, restyle }
+  }
+
+  it('compiles new kernels when an update packs more textures than they index', () => {
+    const t = session()
+    t.begin()
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    // Scans arriving: five textures where the kernels were built for three.
+    t.restyle(5)
+    expect(t.tracer.updateMaterials).toHaveBeenCalledOnce()
+    expect(t.tracer.setScene).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps fewer textures at the count the kernels index, without compiling again', () => {
+    const t = session()
+    t.begin()
+    t.restyle(2)
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    // Padded back to the three the kernels were built for.
+    expect(t.tracer.textureAtlas.textureInfo).toHaveLength(3)
+  })
+
+  it('updates in place as before when the count is unchanged', () => {
+    const t = session()
+    t.begin()
+    t.restyle(3)
+    expect(t.tracer.updateMaterials).toHaveBeenCalledOnce()
+    expect(t.tracer.setScene).toHaveBeenCalledOnce()
+    expect(t.tracer.updateCamera).toHaveBeenCalled()
   })
 })
