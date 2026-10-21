@@ -1,99 +1,13 @@
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { projectDesignToConfig, type DesignEnvelope } from '../domain/design'
 import { resolveCamera } from '../domain/presentation'
 import type { Unit } from '../lib/config'
 import { skyLook } from '../lib/visuals'
 import { useStagedScene } from '../lib/useStagedScene'
-import { loadTracerModule } from '../render/pathtrace'
-import { liveLoading, sceneProgress, textureProgress, traceProgress } from '../render/progress'
 import { defaultQuality } from '../render/quality'
 import { resolveNativeCamera } from '../render/nativeCamera'
 import { SceneSurface } from '../components/SceneSurface'
-import { arcWindow, requestedArc } from '../viewer/arc'
 import { ProgressiveRenderer, type ViewerStatus } from '../viewer/ProgressiveRenderer'
-import { EntryWatch } from '../viewer/EntryWatch'
-import { bootStats } from '../viewer/bootStats'
-import type { LiveProgress } from './LiveViewport'
-
-// This module loads only once the visitor shows intent to open the 360° view (LiveViewport): start
-// fetching the tracer and denoiser then too, on browsers that can run them, so a resting view can
-// refine as soon as it is open. ProgressiveRenderer awaits the same cached load.
-if (typeof navigator !== 'undefined' && 'gpu' in navigator) void loadTracerModule().catch(() => {})
-/** When this chunk loaded, for ?bootStats=1. */
-const chunkLoaded = typeof performance !== 'undefined' ? performance.now() : 0
-
-/**
- * Reports the live view's load and refinement to the gallery (LiveViewport), which imports none of
- * the renderer's stores itself. A new view starts its load from the beginning; its scans count from
- * those asked for since it opened (the store counts the page's).
- *
- * The stores are read in a subscription, not as this component's state: refinement reports several
- * times a second, and re-rendering the scene for each would reconcile the whole 3D tree on the main
- * thread the trace's frames run on. Only the gallery's overlay and pill render them.
- */
-function useLiveProgress(onProgress?: (progress: LiveProgress) => void) {
-  useState(() => liveLoading.restart())
-  useBootStats()
-  const [base] = useState(() => textureProgress.get())
-  useEffect(() => {
-    if (!onProgress) return
-    let last: LiveProgress | null = null
-    const report = () => {
-      const loading = liveLoading.get()
-      const phase = sceneProgress.get()
-      const textures = textureProgress.get()
-      const refine = traceProgress.get()
-      // The engine is up and the scene is mounting once the renderer compiles its shaders.
-      const step =
-        loading === 'engine' && (phase === 'shaders' || phase === 'ready') ? 'scene' : loading
-      const requested = textures.requested - base.requested
-      const fraction =
-        step === 'materials' && requested > 0
-          ? Math.min(1, (textures.loaded - base.loaded) / requested)
-          : null
-      if (last && last.step === step && last.fraction === fraction && last.refine === refine) return
-      last = { step, fraction, refine }
-      onProgress(last)
-    }
-    report()
-    const stores = [liveLoading, sceneProgress, textureProgress, traceProgress]
-    const unsubscribe = stores.map((store) => store.subscribe(report))
-    return () => unsubscribe.forEach((stop) => stop())
-  }, [onProgress, base])
-}
-
-/**
- * `?bootStats=1` (viewer/bootStats.ts): times this view's boot from the press of 360°, its scene's
- * phases and load steps among them. Nothing without the flag.
- */
-function useBootStats() {
-  useState(() => {
-    if (!bootStats.enabled) return
-    bootStats.start()
-    bootStats.step('360° view code loaded', chunkLoaded)
-  })
-  useEffect(() => {
-    if (!bootStats.enabled) return
-    let phase = sceneProgress.get()
-    let loading = liveLoading.get()
-    bootStats.step(`scene: ${phase}`)
-    const stopPhase = sceneProgress.subscribe(() => {
-      if (sceneProgress.get() === phase) return
-      phase = sceneProgress.get()
-      bootStats.step(`scene: ${phase}`)
-    })
-    const stopLoading = liveLoading.subscribe(() => {
-      if (liveLoading.get() === loading) return
-      loading = liveLoading.get()
-      bootStats.step(loading === 'ready' ? 'loading screen leaves' : `loading screen: ${loading}`)
-    })
-    return () => {
-      stopPhase()
-      stopLoading()
-      bootStats.stop()
-    }
-  }, [])
-}
 
 export default memo(function LiveDesignScene({
   design,
@@ -105,9 +19,6 @@ export default memo(function LiveDesignScene({
   onReady,
   onStatus,
   onUnavailable,
-  onLeaveEntry,
-  entryImage,
-  onProgress,
 }: {
   design: DesignEnvelope
   active: boolean
@@ -118,37 +29,12 @@ export default memo(function LiveDesignScene({
   onReady: () => void
   onStatus: (status: ViewerStatus) => void
   onUnavailable: () => void
-  /** Once per opening: the camera has left `pose`, the gallery image's own camera. */
-  onLeaveEntry?: () => void
-  /** The design's own Cycles image, seen from `pose`: the first trace there starts from it. */
-  entryImage?: string
-  /** The view's load and refinement, for the loading screen and the refinement pill. */
-  onProgress?: (progress: LiveProgress) => void
 }) {
-  useLiveProgress(onProgress)
   const config = useMemo(() => projectDesignToConfig(design), [design])
   const [quality] = useState(defaultQuality)
   const staged = useStagedScene(config, quality)
   const camera = resolveCamera(design.presentation.cameraRef)
   const pose = useMemo(() => resolveNativeCamera(design), [design])
-  const entry = useMemo(
-    () => (entryImage ? { pose, image: entryImage } : undefined),
-    [pose, entryImage],
-  )
-  // Experimental `?arc=N` (ADR-003): the exterior orbit kept to a window around this design's
-  // cameras. Read once; the window follows the design, but a finish edit (a new design object for
-  // the same cameras) hands CameraRig the same window.
-  const [degrees] = useState(() => requestedArc())
-  const limits = useMemo(
-    () => (degrees === null ? null : arcWindow(design, degrees)),
-    [design, degrees],
-  )
-  const arcMin = limits?.min,
-    arcMax = limits?.max
-  const arc = useMemo(
-    () => (arcMin === undefined || arcMax === undefined ? undefined : { min: arcMin, max: arcMax }),
-    [arcMin, arcMax],
-  )
   const look = useMemo(
     () => skyLook(staged.config.environment, staged.config.time),
     [staged.config.environment, staged.config.time],
@@ -162,29 +48,22 @@ export default memo(function LiveDesignScene({
         view={camera.group}
         angle={camera.previewAngle}
         pose={pose}
-        arc={arc}
         mode="live"
         unit={unit}
         dimensions={dimensions}
         autoRotate={active && autoRotate}
         reset={reset}
         onFallback={onUnavailable}
-        // A finish or floor edit then swaps materials in place: no remount, no BVH rebuild.
-        reuseGeometry
         effects={
-          <>
-            <ProgressiveRenderer
-              active={active}
-              revision={JSON.stringify([staged.config, dimensions, unit])}
-              look={look}
-              quality={staged.quality}
-              place={camera.group}
-              onReady={onReady}
-              onStatus={onStatus}
-              entry={entry}
-            />
-            <EntryWatch active={active} pose={pose} onLeave={onLeaveEntry} />
-          </>
+          <ProgressiveRenderer
+            active={active}
+            revision={JSON.stringify([staged.config, dimensions, unit])}
+            look={look}
+            quality={staged.quality}
+            place={camera.group}
+            onReady={onReady}
+            onStatus={onStatus}
+          />
         }
       />
       {staged.updating && (

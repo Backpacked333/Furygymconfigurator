@@ -1,46 +1,25 @@
 # Status
 
-## Live 360° speed and quality: one PR (#38)
+## Photoreal rendering (SDE)
 
-The user asked for everything in one PR, so it can be dropped as a whole if it isn't good enough.
+- [x] Path tracer integrated on the app's WebGPU renderer (rest detection, re-capture fingerprint)
+- [x] Shared sky calibration; CPU equirect sky with ported SkyMesh clouds; sun as 0.53° disc light
+- [x] Path-trace stand-ins for TSL materials (foliage, grass, palms, ground, mirror), thin glass
+- [x] Denoised milestones (OIDN, albedo/normal guided) with crossfades; raw fallback
+- [x] Photo and PDF exports wait for a denoised ≥384 spp image (45 s cap)
+- [x] Status badge, Surroundings toggle, `?trace` / `?denoise` parameters
+- [x] Offscreen-harness verification: Courtyard pod exterior (noon and dusk) and interior traced,
+      denoised, exposure-matched, converged
+- [x] Stage 2 (part): 2K scans for close/large surfaces; sun shadows from surroundings
+- [x] Stage 2 (part): sun contact shadows on High and Ultra (`SSSNode`, distance-faded)
+- [x] Stage 2 (part): site radiance probe for glazing and shell; SSR for metals on Ultra
+- [x] Interior asset brief upgraded: per-asset realism specs, wear layer, material calibration,
+      acceptance tests (same artifact link)
+- [ ] Stage 2 (next): denser lawns/planting, facade detail, depth of field, the client's GLB
+      assets per the interior asset brief
+- [ ] Real-GPU check of the live canvas crossfade and time to first denoised image (Vercel preview)
+- [x] Tracing starts promptly after an orbit (glide tail ended; 6 still frames + 150 ms)
+- [x] Camera moves keep samples: new views are seeded from the last traced view (reprojection)
+- [ ] Real-GPU timing of seeded vs. fresh views; decide on off-device rendering (user's call)
 
-- Spec: `specs/2026-10-20-live-360-speed-quality-design.md`, with an as-shipped note at its top.
-- Design records: ADR-001 to ADR-004.
-- Commit map: `decisions/sde/live-360-speed-quality.md`.
-
-### Phase
-
-**Verification complete with a mocked GPU. Delivery is waiting on the real-GPU acceptance check**
-(see `handoff.md`).
-
-- [x] Phase 1: tiers, profile, decoded textures, probe filter, milestones, warm-up, intent prefetch
-- [x] Photoreal entry, tracer struct-length patch
-- [x] Instant edits: geometry cache, `texturesChanged`, history that survives surface edits
-- [x] `?arc=N` orbit window (flag)
-- [x] Boot: scan prefetch, quiet-load fix, Studio skips unseen hardscape
-- [x] Trace-scale cap, Cycles bounce and clamp parity, Ultra frame guard, guard tests
-- [x] Three adversarial reviews and a final verification. Confirmed findings are all fixed:
-  - 78426c9: crossfade binding;
-  - 1f255f5 and 14be578: atlas growth;
-  - 4314143: reopen drift;
-  - 6a5739d and d984686: view offset and aspect;
-  - d984686: probe resettle.
-- [ ] Real-GPU acceptance check on the Vercel preview. This is the user's call.
-
-### Full gate
-
-Format, lint (0 warnings), typecheck and build all pass. vitest: everything passes except the
-pre-existing root-only `objects.test.ts` permission case. See the QA report for counts.
-
-### Out of scope, with reasons in ADR-004
-
-- FSR, SSR/SSGI on High, the glossy-blur kernel patch, refine-while-moving, depth of field and the
-  BVH worker.
-- Scene content. Changing it would desync the view from the 400 Cycles images.
-- Follow-up: the comments in `render-server/fury_render/protocol.py` and `blender.py` still claim the
-  browser and Cycles trace the same depth. They were left alone to keep this PR client-only.
-
-### Note
-
-`origin/main` (PRs 35–42, backend only) is ahead of `main-branch`, which is the PR's base and the
-repo's default. The branch merges cleanly into both. Retargeting is the user's call.
+Draft PR: Backpacked333/Furygymconfigurator#9 (branch `claude/configurator-design-impl-2a8tt0`).

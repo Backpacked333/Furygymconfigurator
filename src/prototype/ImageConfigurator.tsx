@@ -40,8 +40,7 @@ import { useCloudDisplayImage } from './useCloudDisplayImage'
 import { useNativeLibraryImage, useNativeCatalog } from './useNativeLibraryImage'
 import { findNativeImage, nativeThumbUrl } from './nativeLibrary'
 import { NativeLibraryGallery } from './NativeLibraryGallery'
-import { LiveViewport, LIVE_FADE_MS, type LiveCurtain } from './LiveViewport'
-import { prefetchLiveView } from './liveIntent'
+import { LiveViewport } from './LiveViewport'
 import { CLOUD_DISPLAY_LABEL, isCloudDisplaySelection } from './cloudDisplayClient'
 import {
   DISPLAY_LABEL,
@@ -82,12 +81,6 @@ const LOCAL_UNAVAILABLE =
 
 const DISPLAY_UNAVAILABLE =
   '360°, image downloads and strict/Cycles/PDF exports remain unavailable for this unqualified display candidate. Asset rights, fonts, art direction and engineering are held. No live, mock, Lite or paid/cloud fallback.'
-
-/**
- * Whether the live view crossfades with the gallery image. Under reduced motion they are cuts:
- * prototype.css stops every animation there, so timers, never animationend, end the fades.
- */
-const liveFades = () => !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 export function ImageConfigurator() {
   const nativeLibrary = new URLSearchParams(window.location.search).get('experience') === 'library'
@@ -185,15 +178,6 @@ function ImageConfiguratorContents({
   const [dimensions, setDimensions] = useState(false)
   const [autoRotate, setAutoRotate] = useState(false)
   const [resetView, setResetView] = useState(0)
-  /**
-   * Opening the 360° view on this design's own rendered image, the image stays on the stage and
-   * the canvas draws unseen over it ('still') until the camera leaves the image's pose; the canvas
-   * then fades in over it ('lifting'). Once per opening: Reset view never brings the image back,
-   * which would set the two renderers' looks side by side at the same framing.
-   */
-  const [curtain, setCurtain] = useState<LiveCurtain>(null)
-  /** Closing: the live view's last frame fades off the gallery image under it. */
-  const [leaving, setLeaving] = useState(false)
   const [mobilePanel, setMobilePanel] = useState(true)
   const [step, setStep] = useState(0)
   const frame = useRef<HTMLDivElement>(null)
@@ -287,20 +271,9 @@ function ImageConfiguratorContents({
       pickCamera(next === selectedCamera.group ? selectedCamera.ref : lastCameras.current[next])
   }
   function toggleLive() {
-    // The start of the 360° view's load, for the performance timeline (fury:live-first-frame,
-    // fury:trace-begin follow).
-    if (!live)
-      try {
-        performance.mark('fury:live-click')
-      } catch {
-        // Timing is a diagnostic only.
-      }
     setViewerStarted(true)
     setLive(!live)
     setAutoRotate(false)
-    // Closing cuts over the image itself, from a view that never drew, or to no image at all.
-    setCurtain(!live && entryImage && !dimensions ? 'still' : null)
-    setLeaving(live && viewerReady && curtain === null && layers.length > 0 && liveFades())
   }
   function moreSettings() {
     setStep(3)
@@ -311,29 +284,6 @@ function ImageConfiguratorContents({
   const finish = FINISHES.find((entry) => entry.id === design.config.appearance.finish)!
   const shown = image.shown?.reply.mode === 'mock' ? image.shown.reply : undefined
   const nativeShown = image.shown?.reply.mode === 'native-library' ? image.shown.reply : undefined
-  // This design's own rendered image is on the stage (not the previous one, kept while it loads):
-  // the live view opens at its exact camera, so it can stand for the view until the view moves.
-  const entryImage = nativeLibrary && image.current && !!nativeShown
-  // Its pixels, which the live view's first trace starts from (ProgressiveRenderer `entry`).
-  const entrySrc = entryImage && image.shown && 'src' in image.shown ? image.shown.src : undefined
-  // It stops standing for it with an edit, dimensions (labels in the scene) or auto-rotation. A
-  // view that has not drawn yet has nothing to fade in.
-  if (curtain === 'still' && (!entryImage || dimensions || autoRotate))
-    setCurtain(viewerReady && liveFades() ? 'lifting' : null)
-  useEffect(() => {
-    if (curtain !== 'lifting') return
-    const timer = setTimeout(() => setCurtain(null), LIVE_FADE_MS)
-    return () => clearTimeout(timer)
-  }, [curtain])
-  useEffect(() => {
-    if (!leaving) return
-    const timer = setTimeout(() => setLeaving(false), LIVE_FADE_MS)
-    return () => clearTimeout(timer)
-  }, [leaving])
-  const leaveEntry = useCallback(
-    () => setCurtain((value) => (value === 'still' ? (liveFades() ? 'lifting' : null) : value)),
-    [],
-  )
   const localShown = image.shown?.reply.mode === 'local-real' ? image.shown.reply : undefined
   const displayShown =
     image.shown?.reply.mode === 'private-display' ||
@@ -628,17 +578,13 @@ function ImageConfiguratorContents({
                     dimensions={dimensions}
                     autoRotate={autoRotate}
                     reset={resetView}
-                    entryImage={entrySrc}
-                    curtain={curtain}
-                    leaving={leaving}
                     onReadyChange={setViewerReady}
-                    onLeaveEntry={leaveEntry}
                   />
                 )}
                 {!plan && (
                   <>
                     <figure
-                      hidden={live && viewerReady && curtain === null}
+                      hidden={live && viewerReady}
                       className="prototype-hero"
                       data-image-state={
                         nativeLibrary
@@ -711,7 +657,6 @@ function ImageConfiguratorContents({
                       liveLabel={live ? 'Close the 360° View' : 'Explore in 360°'}
                       liveDisabledReason={nativeLibrary ? undefined : unavailable}
                       onToggleLive={toggleLive}
-                      onLiveIntent={nativeLibrary ? () => prefetchLiveView(design) : undefined}
                       dimensions={dimensions}
                       onDimensions={() => setDimensions(!dimensions)}
                       autoRotate={autoRotate}
@@ -816,9 +761,7 @@ function ImageConfiguratorContents({
                       })(),
                     }))}
                   />
-                  {/* Only after the closing fade: it takes height from the stage, and a canvas
-                      resized under the fade would lose the frame that is fading. */}
-                  {nativeLibrary && !live && !leaving && (
+                  {nativeLibrary && !live && (
                     <div className="native-image-status-slot">
                       {setState && image.current ? (
                         <LibrarySetStatus
