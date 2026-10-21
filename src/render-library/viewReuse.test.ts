@@ -9,7 +9,12 @@ import {
   type DesignEnvelope,
 } from '../domain/design'
 import { computeSetIdentity, verifyImageDescriptor } from './identity'
-import { CUSTOMER_CAMERA_REFS, normalizeCustomerDesign, viewDesign } from './views'
+import {
+  CUSTOMER_CAMERA_REFS,
+  normalizeCustomerDesign,
+  viewDesign,
+  type CustomerCameraRef,
+} from './views'
 import { seedImagesForSet } from './server/seedCache'
 import { readFileSync } from 'node:fs'
 import { FINISHES, FLOORS, INTERIORS } from '../lib/config'
@@ -17,6 +22,7 @@ import { DRAFT_LOOKS } from '../domain/presentation'
 import { CONTAINER_OPENINGS, OPENING_INFILLS, STUDIO_DOORS } from '../lib/products'
 
 const rear = 'rear-left-draft@1'
+const opaque: readonly CustomerCameraRef[] = ['left-draft@1', rear]
 const products = [
   { family: 'studio', lengthFt: 20 },
   { family: 'studio', lengthFt: 40 },
@@ -34,7 +40,7 @@ const roomVariant = (design: DesignEnvelope) =>
 
 describe('camera-visible photographic representatives', () => {
   it.each(products)(
-    'shares only the opaque studio-background rear room for $family $lengthFt',
+    'shares only the opaque studio-background end/rear room for $family $lengthFt',
     async (product) => {
       const base = normalizeCustomerDesign(defaultDesign(product))
       for (const look of DRAFT_LOOKS) {
@@ -46,7 +52,7 @@ describe('camera-visible photographic representatives', () => {
         const [a, b] = await Promise.all([computeSetIdentity(design), computeSetIdentity(variant)])
         expect(a.setKey).not.toBe(b.setKey)
         for (const camera of CUSTOMER_CAMERA_REFS) {
-          const shared = camera === rear && look.ref.startsWith('studio-')
+          const shared = opaque.includes(camera) && look.ref.startsWith('studio-')
           expect(b.imageKeys[camera] === a.imageKeys[camera]).toBe(shared)
           expect(serializeDesign(viewDesign(viewDesign(variant, camera), camera))).toBe(
             serializeDesign(viewDesign(variant, camera)),
@@ -57,7 +63,7 @@ describe('camera-visible photographic representatives', () => {
   )
 
   it.each(products)(
-    'retains all room combinations for front/side/entry of $family $lengthFt',
+    'retains all room combinations for front/entry of $family $lengthFt',
     async (product) => {
       const base = normalizeCustomerDesign(defaultDesign(product))
       const seen = Object.fromEntries(
@@ -82,15 +88,17 @@ describe('camera-visible photographic representatives', () => {
             for (const camera of CUSTOMER_CAMERA_REFS) seen[camera].add(identity.imageKeys[camera])
           }
       for (const camera of CUSTOMER_CAMERA_REFS)
-        expect(seen[camera].size).toBe(camera === rear ? 1 : INTERIORS.length * FLOORS.length * 2)
+        expect(seen[camera].size).toBe(
+          opaque.includes(camera) ? 1 : INTERIORS.length * FLOORS.length * 2,
+        )
     },
   )
 
-  it.each(products)(
-    'does not collapse shadows, reflections or framing for $family $lengthFt',
-    async (product) => {
+  it.each(products.flatMap((product) => opaque.map((camera) => ({ ...product, camera }))))(
+    'does not collapse shadows, reflections or framing for $family $lengthFt $camera',
+    async ({ camera, ...product }) => {
       const base = normalizeCustomerDesign(defaultDesign(product))
-      const original = (await computeSetIdentity(base)).imageKeys[rear]
+      const original = (await computeSetIdentity(base)).imageKeys[camera]
       for (const look of DRAFT_LOOKS)
         if (look.ref !== base.presentation.lookRef)
           expect(
@@ -99,7 +107,7 @@ describe('camera-visible photographic representatives', () => {
                 ...base,
                 presentation: { ...base.presentation, lookRef: look.ref },
               })
-            ).imageKeys[rear],
+            ).imageKeys[camera],
           ).not.toBe(original)
       for (const finish of FINISHES)
         if (finish.id !== base.config.appearance.finish)
@@ -112,7 +120,7 @@ describe('camera-visible photographic representatives', () => {
                   appearance: { ...base.config.appearance, finish: finish.id },
                 },
               })
-            ).imageKeys[rear],
+            ).imageKeys[camera],
           ).not.toBe(original)
       expect(
         (
@@ -120,7 +128,7 @@ describe('camera-visible photographic representatives', () => {
             ...base,
             presentation: { ...base.presentation, aspect: 'tall' },
           })
-        ).imageKeys[rear],
+        ).imageKeys[camera],
       ).not.toBe(original)
       for (const addons of [['roof'], ['stairs'], ['deck']]) {
         const design = parseDesign({
@@ -131,8 +139,8 @@ describe('camera-visible photographic representatives', () => {
           computeSetIdentity(design),
           computeSetIdentity(roomVariant(design)),
         ])
-        expect(a.imageKeys[rear]).not.toBe(original)
-        expect(b.imageKeys[rear]).not.toBe(a.imageKeys[rear])
+        expect(a.imageKeys[camera]).not.toBe(original)
+        expect(b.imageKeys[camera]).not.toBe(a.imageKeys[camera])
       }
     },
   )

@@ -149,7 +149,7 @@ describe('five-view customer loading and canonical identity', () => {
       const camera = payload.design.presentation.cameraRef
       delete payload.design.presentation.cameraRef
       payload.kind = 'set'
-      payload.viewKeying = 'camera-visible@1'
+      payload.viewKeying = 'camera-visible@2'
       if (camera === 'entry-draft@1') {
         const interior = JSON.parse(serializeDesign(interiorDesign(design)))
         delete interior.presentation.cameraRef

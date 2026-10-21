@@ -197,9 +197,10 @@ try {
             ...fixture.claim,
             design,
             identity,
-            views: [
-              { cameraRef: 'rear-left-draft@1', imageKey: identity.imageKeys['rear-left-draft@1'] },
-            ],
+            views: (['left-draft@1', 'rear-left-draft@1'] as const).map((cameraRef) => ({
+              cameraRef,
+              imageKey: identity.imageKeys[cameraRef],
+            })),
           },
           recipe,
           join(base, `shared-rear-${family}-${index}`),
