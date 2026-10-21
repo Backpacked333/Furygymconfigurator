@@ -5,6 +5,7 @@ import { RENDER_CTA } from '../render-library/contracts'
 import { BuildAnimation, WorkProgress } from '../components/LoadingExperience'
 import { findNativeImage, type NativeLibrary } from './nativeLibrary'
 import { activeJob, type useLibrarySet } from './useLibrarySet'
+import { useSampleProgress } from './useSampleProgress'
 
 const stageNames = {
   queued: 'Waiting for a render slot',
@@ -39,6 +40,7 @@ export function LibrarySetStatus({
 }) {
   const { snapshot, checking, message, submitting, uncertain } = library
   const job = snapshot?.job
+  const sample = useSampleProgress(snapshot)
   const working = activeJob(snapshot)
   const views = CUSTOMER_CAMERAS.map((camera) => {
     const remote = snapshot?.views.find((view) => view.cameraRef === camera.ref)
@@ -54,6 +56,15 @@ export function LibrarySetStatus({
     }
   })
   const count = views.filter((view) => view.status === 'ready').length
+  const finishing = snapshot?.views.some(
+    (view) =>
+      view.cameraRef === job?.currentCamera &&
+      view.status === 'pending' &&
+      ['saving', 'verifying'].includes(view.stage),
+  )
+  const fraction = working
+    ? Math.min(0.999, (count + (sample ? sample.completed / sample.total : finishing ? 1 : 0)) / 5)
+    : undefined
   const terminal = !!job && !working && job.stage !== 'complete'
   const mayRetry = job?.stage === 'failed' && job.retrySafe
   const canRequest =
@@ -92,7 +103,7 @@ export function LibrarySetStatus({
       : uncertain
         ? 'We have not confirmed delivery. Check status; do not submit a new request. Your design stays editable.'
         : working
-          ? 'Verified views appear as they finish. You can keep exploring.'
+          ? 'Verified views appear as they finish. Progress uses saved views and measured samples, not time remaining.'
           : snapshot?.coverage === 'missing'
             ? 'This exact design and scene are not yet rendered. One request creates four exterior views and one interior entry view, starting with your selected camera.'
             : snapshot?.coverage === 'partial'
@@ -100,7 +111,9 @@ export function LibrarySetStatus({
               : count === 5
                 ? 'Your exact views are ready.'
                 : 'We could not confirm which views exist. This is not a confirmed cache miss; no work is queued.')
-  const label = `${count}/5 images ready${working ? ` · ${stageNames[job!.stage]}` : ''}`
+  const label = sample
+    ? `${count}/5 images ready · Current image ${((sample.completed / sample.total) * 100).toFixed(1)}% sampled (${sample.completed}/1024)${sample.completed === 1024 ? ' · finishing image' : ''}`
+    : `${count}/5 images ready${working ? ` · ${stageNames[job!.stage]}` : ''}`
   return (
     <section
       className={`library-set-status ${hasImage ? 'is-summary' : 'is-stage'}`}
@@ -127,7 +140,7 @@ export function LibrarySetStatus({
         {(working || (!hasImage && !imageError && (checking || submitting || imageLoading))) && (
           <WorkProgress
             label={imageLoading && !working ? 'Loading exact image' : label}
-            fraction={working ? count / 5 : undefined}
+            fraction={fraction}
           />
         )}
         <div className="library-set-actions">

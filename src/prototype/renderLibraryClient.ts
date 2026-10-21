@@ -4,6 +4,7 @@ import {
   CONTRACT_VERSION,
   lookupResponseSchema,
   sessionResponseSchema,
+  uuidSchema,
   type ImageDescriptor,
   type SetSnapshot,
 } from '../render-library/contracts'
@@ -13,8 +14,14 @@ import {
   verifyImageDescriptor,
 } from '../render-library/identity'
 import { deliverImage, readBounded } from './imageDelivery'
+import { sampleStatusSchema } from '../render-library/sampleProgress'
 
 const API_TIMEOUT_MS = 15_000
+export async function readSamples(jobId: string, signal: AbortSignal) {
+  return sampleStatusSchema.parse(
+    await json(`${API_PATHS.jobs}/${uuidSchema.parse(jobId)}/samples`, signal),
+  ).sample
+}
 export function storageOrigins(): readonly string[] {
   const configured = import.meta.env.VITE_RENDER_LIBRARY_STORAGE_ORIGIN
   if (!configured) return []

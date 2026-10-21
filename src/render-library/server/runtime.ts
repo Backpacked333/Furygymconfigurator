@@ -20,6 +20,7 @@ import {
   unavailable,
 } from './httpSafety.js'
 import { LibraryService, WorkerService } from './service.js'
+import { sampleStatusSchema } from '../sampleProgress.js'
 import { SupabaseRepository, SupabaseTransport } from './supabase.js'
 
 export function createRuntime(env: Record<string, string | undefined> = process.env) {
@@ -74,6 +75,7 @@ export type Route =
   | 'session'
   | 'jobs'
   | 'status'
+  | 'samples'
   | 'retry'
   | 'worker/claim'
   | 'worker/uploads'
@@ -110,7 +112,7 @@ export async function route(
 
 async function handleRoute(request: Request, endpoint: Route, factory: () => Runtime) {
   try {
-    const expected = ['session', 'status'].includes(endpoint) ? 'GET' : 'POST'
+    const expected = ['session', 'status', 'samples'].includes(endpoint) ? 'GET' : 'POST'
     if (request.method !== expected) throw new ServiceError('invalid-request', 400)
     const runtime = factory()
     if (endpoint.startsWith('worker/')) {
@@ -144,9 +146,16 @@ async function handleRoute(request: Request, endpoint: Route, factory: () => Run
       return json(result, runtime.service.lastAdmission === 'admitted' ? 202 : 200)
     }
     const match = new URL(request.url).pathname.match(
-      /^\/api\/render-library\/jobs\/([a-f0-9-]+)(?:\/retry)?$/,
+      /^\/api\/render-library\/jobs\/([a-f0-9-]+)(?:\/retry|\/samples)?$/,
     )
     const jobId = input(uuidSchema, match?.[1])
+    if (endpoint === 'samples') {
+      const sample = await runtime.repository.rpc('render_library_get_samples', {
+        jobId,
+        sessionHash: runtime.security.authorizeRead(request),
+      })
+      return json(sampleStatusSchema.parse({ sample }))
+    }
     if (endpoint === 'status')
       return json(
         await runtime.service.authorizedStatus(jobId, runtime.security.authorizeRead(request)),
