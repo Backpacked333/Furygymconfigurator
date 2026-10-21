@@ -262,6 +262,22 @@ npm run format:check
 npx vitest run src/render-library/server/tests/server.test.ts
 ```
 
+### Pause bulk work without blocking customers
+
+Operators can park a campaign by inserting its session hashes into
+`render_library_queue_pauses` using the service role. Do not disable the global approval:
+that would also reject customer render requests. Serialize pause/resume operations with
+`pg_advisory_xact_lock(73941020261019)` in the same transaction as the insert/delete.
+
+Both dispatch lanes skip parked sessions while continuing to serve other customers.
+Already-running jobs finish normally. Queued designs, pending outbox entries and budget
+reservations remain intact. An explicit request from an unpaused customer can reuse a
+parked job; its idempotency record keeps that request runnable even after the customer
+switches to another configuration. To resume a campaign, delete only its own pause rows.
+The table is RLS-protected and unavailable to anonymous/authenticated client roles.
+
+### Real transaction tests
+
 Real transaction tests require Docker and use **only** a named container plus the fixed
 throwaway database `fury_library_test`; they never read `DATABASE_URL`. They drop/recreate
 that database's `public` and synthetic `storage` schemas. Never point this suite at a container

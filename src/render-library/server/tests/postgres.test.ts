@@ -362,6 +362,73 @@ describe.skipIf(!enabled)('real local Postgres render ledger (no providers)', ()
     })
     expect(run('select count(*) from public.render_library_worker_builds')).toBe('3')
   })
+  it('parks a bulk session on both lanes without cancelling its backlog or releasing reservations', async () => {
+    const jobs = [reserve(await variation(0)), reserve(await variation(1))]
+    run(`insert into public.render_library_queue_pauses(session_hash,reason)
+      values(${quote(session)},'Interactive rendering takes priority');`)
+    expect(dispatch()).toBeNull()
+    expect(dispatch('background')).toBeNull()
+    expect(ledger().reserved_micro_usd).toBe(11000)
+    expect(run("select count(*) from public.render_library_jobs where stage='queued'")).toBe('2')
+    expect(run("select count(*) from public.render_library_outbox where state='pending'")).toBe('2')
+    run(`delete from public.render_library_queue_pauses where session_hash=${quote(session)};`)
+    expect(dispatch().dispatch.jobId).toBe(jobs[1].snapshot.job.id)
+    expect(dispatch('background').dispatch.jobId).toBe(jobs[0].snapshot.job.id)
+  })
+  it('keeps interactive requests runnable while a bulk session is paused', async () => {
+    reserve(await variation(0))
+    run(`insert into public.render_library_queue_pauses(session_hash,reason)
+      values(${quote(session)},'Pause bulk');`)
+    const interactive = 'c'.repeat(64)
+    touch(interactive)
+    const next = await variation(1)
+    const customer = reserve({
+      ...next,
+      context: { ...next.context, sessionHash: interactive },
+    })
+    expect(dispatch().dispatch.jobId).toBe(customer.snapshot.job.id)
+    expect(dispatch('background')).toBeNull()
+    expect(run("select count(*) from public.render_library_jobs where stage='queued'")).toBe('1')
+  })
+  it('unparks an explicitly requested shared job even after the customer requests another design', async () => {
+    const bulk = await variation(0)
+    const parked = reserve(bulk)
+    run(`insert into public.render_library_queue_pauses(session_hash,reason)
+      values(${quote(session)},'Pause bulk');`)
+    const interactive = 'c'.repeat(64)
+    touch(interactive)
+    expect(
+      reserve({
+        ...bulk,
+        context: { ...bulk.context, sessionHash: interactive },
+        request: { ...bulk.request, idempotencyKey: randomUUID() },
+      }).status,
+    ).toBe('joined')
+    const next = await variation(1)
+    const newest = reserve({
+      ...next,
+      context: { ...next.context, sessionHash: interactive },
+    })
+    expect(dispatch().dispatch.jobId).toBe(newest.snapshot.job.id)
+    expect(dispatch('background').dispatch.jobId).toBe(parked.snapshot.job.id)
+  })
+  it('restricts queue-pause controls and inspection to the service role', () => {
+    for (const role of ['anon', 'authenticated']) {
+      expect(
+        run(`select has_table_privilege('${role}','public.render_library_queue_pauses','insert');`),
+      ).toBe('f')
+      expect(
+        run(
+          `select has_function_privilege('${role}','public.render_library_queue_job_is_paused(uuid,text)','execute');`,
+        ),
+      ).toBe('f')
+    }
+    expect(
+      run(
+        "select has_table_privilege('service_role','public.render_library_queue_pauses','insert');",
+      ),
+    ).toBe('t')
+  })
   it('enforces expiry, activation, valid session and budget before reservation', async () => {
     run('update public.render_library_approvals set enabled=false;')
     expect(reserve().error.code).toBe('budget-unavailable')
