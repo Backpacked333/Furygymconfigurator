@@ -1,3 +1,20 @@
+diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js b/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js
+index e360a5e..c2b30e7 100644
+--- a/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js
++++ b/node_modules/three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js
+@@ -94,8 +94,11 @@ class TextureCache {
+ 
+ 		} else {
+ 
+-			value = value.clone();
++			// hash the scene's own texture, not a fresh clone (whose uuid is always new), so an
++			// unchanged map is not rebuilt; rebuilding it under live kernels leaves them sampling
++			// released textures, and everything lit by the sky turns black
+ 			hash = value.uuid + '_' + value.version;
++			if ( hash !== this.hash ) value = value.clone();
+ 
+ 		}
+ 
 diff --git a/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js b/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js
 index 1c7476e..89798ce 100644
 --- a/node_modules/three-gpu-pathtracer/src/webgpu/compute/wavefront/MaterialKernel.js
