@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Matrix4, type WebGPURenderer } from 'three/webgpu'
 import type { SkyLook } from '../lib/visuals'
-import { onMaterialsChanged } from '../render/materials'
+import { keepDecodedTextures, onMaterialsChanged } from '../render/materials'
 import { MotionShutter } from '../render/motionBlur'
 import { PathTraceSession, loadTracerModule, lookKey, sceneSignature } from '../render/pathtrace'
 import { createPipeline, type Pipeline } from '../render/pipeline'
@@ -131,9 +131,15 @@ export function ProgressiveRenderer({
       if (!document.hidden && props.current.active) invalidate()
     }
     document.addEventListener('visibilitychange', visibility)
+    let keepingDecoded = false
     if (!runtime.failed)
       void loadTracerModule()
-        .then((modules) => {
+        .then(async (modules) => {
+          if (disposed) return
+          // The tracer packs its own texture atlas from the scans' decoded pixels; a map released
+          // after upload traces black (the ground, the brick, everything in shade).
+          keepingDecoded = true
+          await keepDecodedTextures(true)
           if (disposed) return
           runtime.tracer = new PathTraceSession(renderer, modules, true, {
             multiView: true,
@@ -162,6 +168,7 @@ export function ProgressiveRenderer({
       window.removeEventListener('blur', up)
       document.removeEventListener('visibilitychange', visibility)
       runtime.tracer?.dispose()
+      if (keepingDecoded) void keepDecodedTextures(false)
       runtime.present.dispose()
       runtime.pipe.dispose()
     }
