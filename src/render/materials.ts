@@ -518,6 +518,8 @@ export function material(spec: MaterialSpec): MeshStandardNodeMaterial {
     probes[kind].materials.add(m)
     if (probes[kind].env) m.envNode = probes[kind].env
   }
+  // Kept so offline renderers (scripts/blender) can rebuild the same surface from its description.
+  m.userData.spec = spec
   materials.set(key, m)
   return m
 }
